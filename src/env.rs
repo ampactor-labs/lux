@@ -2,7 +2,10 @@
 ///
 /// Implements lexical scoping via a parent chain. Each scope holds its own
 /// bindings and delegates lookups to its parent when a name is not found locally.
+/// Parents are shared via `Arc` — cloning an environment is O(current_scope),
+/// not O(total_visible_bindings).
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::interpreter::Value;
 
@@ -10,7 +13,7 @@ use crate::interpreter::Value;
 #[derive(Debug, Clone)]
 pub struct Environment {
     bindings: HashMap<String, Value>,
-    parent: Option<Box<Environment>>,
+    parent: Option<Arc<Environment>>,
 }
 
 impl Environment {
@@ -26,8 +29,21 @@ impl Environment {
     pub fn with_parent(parent: Environment) -> Self {
         Self {
             bindings: HashMap::new(),
-            parent: Some(Box::new(parent)),
+            parent: Some(Arc::new(parent)),
         }
+    }
+
+    /// Create a child environment that inherits from an Arc-shared parent.
+    pub fn with_arc_parent(parent: Arc<Environment>) -> Self {
+        Self {
+            bindings: HashMap::new(),
+            parent: Some(parent),
+        }
+    }
+
+    /// Wrap this environment in an Arc for sharing (e.g., closure capture).
+    pub fn capture(&self) -> Arc<Self> {
+        Arc::new(self.clone())
     }
 
     /// Look up a binding by name, searching parent scopes.
@@ -42,24 +58,12 @@ impl Environment {
         self.bindings.insert(name.to_string(), value);
     }
 
-    /// Flatten all visible bindings into a single scope (for closure capture).
+    /// Clone this environment for closure capture.
+    ///
+    /// With Arc-shared parents, this is cheap: only the current scope's bindings
+    /// are cloned; parent scopes are shared by reference.
     pub fn clone_flat(&self) -> Self {
-        let mut flat = HashMap::new();
-        self.collect_bindings(&mut flat);
-        Self {
-            bindings: flat,
-            parent: None,
-        }
-    }
-
-    fn collect_bindings(&self, out: &mut HashMap<String, Value>) {
-        if let Some(parent) = &self.parent {
-            parent.collect_bindings(out);
-        }
-        // Current scope wins over parent (inserted last).
-        for (k, v) in &self.bindings {
-            out.insert(k.clone(), v.clone());
-        }
+        self.clone()
     }
 }
 

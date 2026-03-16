@@ -28,6 +28,19 @@ pub fn run() -> Result<(), LuxError> {
     let mut interpreter = Interpreter::new();
     let mut checker = ReplChecker::new();
 
+    // Load prelude into REPL state so prelude functions are available.
+    // Freeze the checker after prelude to keep user-code type-checking fast.
+    let prelude_src = crate::load_prelude();
+    if !prelude_src.is_empty() {
+        if let Ok(tokens) = crate::lexer::lex(&prelude_src) {
+            if let Ok(program) = crate::parser::parse(tokens) {
+                let _ = checker.check_line(&program);
+                checker.freeze();
+                let _ = interpreter.eval_line(&program);
+            }
+        }
+    }
+
     println!("Lux REPL — type :help for commands, :quit to exit\n");
 
     let mut pending = String::new();

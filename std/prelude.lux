@@ -1,0 +1,16 @@
+// Lux standard library prelude
+// Auto-loaded before every program and REPL session.
+
+fn head(xs) = xs[0]
+fn tail(xs) = slice(xs, 1, len(xs))
+fn map(f, xs) = if len(xs) == 0 { [] } else { [f(xs[0])] ++ map(f, slice(xs, 1, len(xs))) }
+fn filter(pred, xs) = if len(xs) == 0 { [] } else { if pred(xs[0]) { [xs[0]] ++ filter(pred, slice(xs, 1, len(xs))) } else { filter(pred, slice(xs, 1, len(xs))) } }
+fn fold(xs, init, f) = if len(xs) == 0 { init } else { fold(slice(xs, 1, len(xs)), f(init, xs[0]), f) }
+fn reverse(xs) = fold(xs, [], |acc, x| [x] ++ acc)
+fn take(n, xs) = if n <= 0 { [] } else { if len(xs) == 0 { [] } else { [xs[0]] ++ take(n - 1, slice(xs, 1, len(xs))) } }
+fn drop(n, xs) = if n <= 0 { xs } else { if len(xs) == 0 { [] } else { drop(n - 1, slice(xs, 1, len(xs))) } }
+fn flatten(xss) = fold(xss, [], |acc, xs| acc ++ xs)
+fn any(pred, xs) = if len(xs) == 0 { false } else { if pred(xs[0]) { true } else { any(pred, slice(xs, 1, len(xs))) } }
+fn all(pred, xs) = if len(xs) == 0 { true } else { if pred(xs[0]) { all(pred, slice(xs, 1, len(xs))) } else { false } }
+fn sum(xs) = fold(xs, 0, |acc, x| acc + x)
+fn product(xs) = fold(xs, 1, |acc, x| acc * x)

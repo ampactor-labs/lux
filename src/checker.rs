@@ -764,6 +764,118 @@ impl TypeEnv {
             },
         );
 
+        // String builtins
+        self.bind(
+            "split",
+            Type::Function {
+                params: vec![Type::String, Type::String],
+                return_type: Box::new(Type::List(Box::new(Type::String))),
+                effects: EffectRow::pure(),
+            },
+        );
+        self.bind(
+            "trim",
+            Type::Function {
+                params: vec![Type::String],
+                return_type: Box::new(Type::String),
+                effects: EffectRow::pure(),
+            },
+        );
+        self.bind(
+            "contains",
+            Type::Function {
+                params: vec![Type::String, Type::String],
+                return_type: Box::new(Type::Bool),
+                effects: EffectRow::pure(),
+            },
+        );
+        self.bind(
+            "starts_with",
+            Type::Function {
+                params: vec![Type::String, Type::String],
+                return_type: Box::new(Type::Bool),
+                effects: EffectRow::pure(),
+            },
+        );
+        self.bind(
+            "replace",
+            Type::Function {
+                params: vec![Type::String, Type::String, Type::String],
+                return_type: Box::new(Type::String),
+                effects: EffectRow::pure(),
+            },
+        );
+        self.bind(
+            "chars",
+            Type::Function {
+                params: vec![Type::String],
+                return_type: Box::new(Type::List(Box::new(Type::String))),
+                effects: EffectRow::pure(),
+            },
+        );
+        self.bind(
+            "join",
+            Type::Function {
+                params: vec![Type::List(Box::new(Type::String)), Type::String],
+                return_type: Box::new(Type::String),
+                effects: EffectRow::pure(),
+            },
+        );
+        // slice: (List<T>, Int, Int) -> List<T>
+        let t_slice = self.fresh_var();
+        self.bind(
+            "slice",
+            Type::Function {
+                params: vec![Type::List(Box::new(t_slice.clone())), Type::Int, Type::Int],
+                return_type: Box::new(Type::List(Box::new(t_slice))),
+                effects: EffectRow::pure(),
+            },
+        );
+        // Numeric builtins
+        let t_num = self.fresh_var();
+        self.bind(
+            "abs",
+            Type::Function {
+                params: vec![t_num],
+                return_type: Box::new(Type::Int),
+                effects: EffectRow::pure(),
+            },
+        );
+        self.bind(
+            "min",
+            Type::Function {
+                params: vec![Type::Int, Type::Int],
+                return_type: Box::new(Type::Int),
+                effects: EffectRow::pure(),
+            },
+        );
+        self.bind(
+            "max",
+            Type::Function {
+                params: vec![Type::Int, Type::Int],
+                return_type: Box::new(Type::Int),
+                effects: EffectRow::pure(),
+            },
+        );
+        let t_num2 = self.fresh_var();
+        self.bind(
+            "floor",
+            Type::Function {
+                params: vec![t_num2],
+                return_type: Box::new(Type::Int),
+                effects: EffectRow::pure(),
+            },
+        );
+        let t_num3 = self.fresh_var();
+        self.bind(
+            "ceil",
+            Type::Function {
+                params: vec![t_num3],
+                return_type: Box::new(Type::Int),
+                effects: EffectRow::pure(),
+            },
+        );
+
         // Builtin Yield effect: yield(T) -> ()
         // Registered so that `yield(val)` inside generator functions type-checks.
         let t = self.fresh_var();
@@ -1941,6 +2053,27 @@ impl ReplChecker {
             let resolved = self.env.apply_subst(&ty);
             format!("{resolved}")
         })
+    }
+
+    /// Apply all pending substitutions to every binding, then clear the
+    /// substitution maps. This "freezes" the current type state so that
+    /// subsequent `check_line` calls don't need to walk accumulated
+    /// substitution chains from prior checks.
+    ///
+    /// Call this after loading trusted prelude code to prevent the prelude's
+    /// type variables from slowing down user code type-checking.
+    pub fn freeze(&mut self) {
+        let resolved_bindings: Vec<(String, Type)> = self
+            .env
+            .bindings
+            .iter()
+            .map(|(name, ty)| (name.clone(), self.env.apply_subst(ty)))
+            .collect();
+        for (name, ty) in resolved_bindings {
+            self.env.bindings.insert(name, ty);
+        }
+        self.env.subst.clear();
+        self.env.eff_subst.clear();
     }
 }
 

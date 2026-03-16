@@ -38,11 +38,14 @@ pub enum Value {
     List(Vec<Value>),
     Tuple(Vec<Value>),
     /// A closure: captured env + param names + body.
+    ///
+    /// Body and closure are `Arc`-shared so that cloning a `Value::Function` is
+    /// O(1) (just refcount bumps) instead of deep-copying the AST and env.
     Function {
         name: Option<String>,
         params: Vec<String>,
-        body: Expr,
-        closure_env: Environment,
+        body: Arc<Expr>,
+        closure_env: Arc<Environment>,
     },
     /// A built-in function.
     BuiltinFn {
@@ -203,6 +206,11 @@ enum Signal {
     Break(Value),
     /// `continue` — skip to next loop iteration.
     Continue,
+    /// Tail call optimization: self-recursive call in tail position detected.
+    ///
+    /// Caught by the trampoline loop in `call_value` to reuse the current
+    /// stack frame instead of growing the call stack.
+    TailCall { func: Value, args: Vec<Value> },
 }
 
 type EvalResult = Result<Value, Signal>;
@@ -243,6 +251,12 @@ pub struct Interpreter {
     /// Known effect operation names → (effect_name, param_count).
     effect_ops: HashMap<String, (String, usize)>,
     call_depth: usize,
+    /// Name of the function currently executing, used for tail call detection.
+    current_fn_name: Option<String>,
+    /// Whether the current evaluation position is in tail position of the
+    /// enclosing function. Set to `true` before evaluating a function body
+    /// and selectively propagated through blocks, if, and match branches.
+    in_tail_position: bool,
     /// When running inside a generator thread, holds the sender used to
     /// deliver yielded values to `next()` callers.
     ///
@@ -264,6 +278,8 @@ impl Interpreter {
             variant_constructors: HashMap::new(),
             effect_ops: HashMap::new(),
             call_depth: 0,
+            current_fn_name: None,
+            in_tail_position: false,
             generator_sender: None,
             impl_methods: HashMap::new(),
         };
@@ -357,6 +373,138 @@ impl Interpreter {
                 span: Span::dummy(),
             }),
         });
+        // String builtins
+        self.register_builtin("split", |args| match (args.first(), args.get(1)) {
+            (Some(Value::String(s)), Some(Value::String(sep))) => {
+                let parts: Vec<Value> = s
+                    .split(sep.as_str())
+                    .map(|p| Value::String(p.to_string()))
+                    .collect();
+                Ok(Value::List(parts))
+            }
+            _ => Err(RuntimeError {
+                kind: RuntimeErrorKind::TypeError("split expects two strings".into()),
+                span: Span::dummy(),
+            }),
+        });
+        self.register_builtin("trim", |args| match args.first() {
+            Some(Value::String(s)) => Ok(Value::String(s.trim().to_string())),
+            _ => Err(RuntimeError {
+                kind: RuntimeErrorKind::TypeError("trim expects a string".into()),
+                span: Span::dummy(),
+            }),
+        });
+        self.register_builtin("contains", |args| match (args.first(), args.get(1)) {
+            (Some(Value::String(s)), Some(Value::String(sub))) => {
+                Ok(Value::Bool(s.contains(sub.as_str())))
+            }
+            _ => Err(RuntimeError {
+                kind: RuntimeErrorKind::TypeError("contains expects two strings".into()),
+                span: Span::dummy(),
+            }),
+        });
+        self.register_builtin("starts_with", |args| match (args.first(), args.get(1)) {
+            (Some(Value::String(s)), Some(Value::String(prefix))) => {
+                Ok(Value::Bool(s.starts_with(prefix.as_str())))
+            }
+            _ => Err(RuntimeError {
+                kind: RuntimeErrorKind::TypeError("starts_with expects two strings".into()),
+                span: Span::dummy(),
+            }),
+        });
+        self.register_builtin("replace", |args| {
+            match (args.first(), args.get(1), args.get(2)) {
+                (Some(Value::String(s)), Some(Value::String(from)), Some(Value::String(to))) => {
+                    Ok(Value::String(s.replace(from.as_str(), to.as_str())))
+                }
+                _ => Err(RuntimeError {
+                    kind: RuntimeErrorKind::TypeError("replace expects three strings".into()),
+                    span: Span::dummy(),
+                }),
+            }
+        });
+        self.register_builtin("chars", |args| match args.first() {
+            Some(Value::String(s)) => {
+                let chars: Vec<Value> = s.chars().map(|c| Value::String(c.to_string())).collect();
+                Ok(Value::List(chars))
+            }
+            _ => Err(RuntimeError {
+                kind: RuntimeErrorKind::TypeError("chars expects a string".into()),
+                span: Span::dummy(),
+            }),
+        });
+        self.register_builtin("join", |args| match (args.first(), args.get(1)) {
+            (Some(Value::List(items)), Some(Value::String(sep))) => {
+                let strings: Vec<String> = items
+                    .iter()
+                    .map(|v| match v {
+                        Value::String(s) => s.clone(),
+                        other => other.display_print(),
+                    })
+                    .collect();
+                Ok(Value::String(strings.join(sep.as_str())))
+            }
+            _ => Err(RuntimeError {
+                kind: RuntimeErrorKind::TypeError("join expects a list and string".into()),
+                span: Span::dummy(),
+            }),
+        });
+        self.register_builtin("slice", |args| {
+            match (args.first(), args.get(1), args.get(2)) {
+                (Some(Value::List(items)), Some(Value::Int(start)), Some(Value::Int(end))) => {
+                    let len = items.len() as i64;
+                    let s = (*start).max(0).min(len) as usize;
+                    let e = (*end).max(0).min(len) as usize;
+                    let slice = items[s..e].to_vec();
+                    Ok(Value::List(slice))
+                }
+                _ => Err(RuntimeError {
+                    kind: RuntimeErrorKind::TypeError("slice expects (List, Int, Int)".into()),
+                    span: Span::dummy(),
+                }),
+            }
+        });
+
+        // Numeric builtins
+        self.register_builtin("abs", |args| match args.first() {
+            Some(Value::Int(n)) => Ok(Value::Int(n.abs())),
+            Some(Value::Float(f)) => Ok(Value::Float(f.abs())),
+            _ => Err(RuntimeError {
+                kind: RuntimeErrorKind::TypeError("abs expects a number".into()),
+                span: Span::dummy(),
+            }),
+        });
+        self.register_builtin("min", |args| match (args.first(), args.get(1)) {
+            (Some(Value::Int(a)), Some(Value::Int(b))) => Ok(Value::Int(*a.min(b))),
+            _ => Err(RuntimeError {
+                kind: RuntimeErrorKind::TypeError("min expects two integers".into()),
+                span: Span::dummy(),
+            }),
+        });
+        self.register_builtin("max", |args| match (args.first(), args.get(1)) {
+            (Some(Value::Int(a)), Some(Value::Int(b))) => Ok(Value::Int(*a.max(b))),
+            _ => Err(RuntimeError {
+                kind: RuntimeErrorKind::TypeError("max expects two integers".into()),
+                span: Span::dummy(),
+            }),
+        });
+        self.register_builtin("floor", |args| match args.first() {
+            Some(Value::Float(f)) => Ok(Value::Int(f.floor() as i64)),
+            Some(Value::Int(n)) => Ok(Value::Int(*n)),
+            _ => Err(RuntimeError {
+                kind: RuntimeErrorKind::TypeError("floor expects a number".into()),
+                span: Span::dummy(),
+            }),
+        });
+        self.register_builtin("ceil", |args| match args.first() {
+            Some(Value::Float(f)) => Ok(Value::Int(f.ceil() as i64)),
+            Some(Value::Int(n)) => Ok(Value::Int(*n)),
+            _ => Err(RuntimeError {
+                kind: RuntimeErrorKind::TypeError("ceil expects a number".into()),
+                span: Span::dummy(),
+            }),
+        });
+
         // `next` is registered as a placeholder; the real logic lives in
         // `call_value` which can pattern-match on Value::Generator.
         self.register_builtin("next", |_args| {
@@ -406,8 +554,8 @@ impl Interpreter {
             let val = Value::Function {
                 name: Some(method.name.clone()),
                 params,
-                body: method.body.clone(),
-                closure_env: self.env.clone_flat(),
+                body: Arc::new(method.body.clone()),
+                closure_env: self.env.capture(),
             };
             self.impl_methods
                 .insert((type_name.clone(), method.name.clone()), val);
@@ -476,6 +624,10 @@ impl Interpreter {
                 kind: RuntimeErrorKind::Internal("continue outside of loop".to_string()),
                 span: Span::dummy(),
             }),
+            Signal::TailCall { .. } => LuxError::Runtime(RuntimeError {
+                kind: RuntimeErrorKind::Internal("TailCall signal escaped trampoline".to_string()),
+                span: Span::dummy(),
+            }),
         }
     }
 
@@ -488,8 +640,8 @@ impl Interpreter {
                 let val = Value::Function {
                     name: Some(decl.name.clone()),
                     params,
-                    body: decl.body.clone(),
-                    closure_env: self.env.clone_flat(),
+                    body: Arc::new(decl.body.clone()),
+                    closure_env: self.env.capture(),
                 };
                 self.env.set(&decl.name, val);
                 Ok(None)
@@ -552,6 +704,8 @@ impl Interpreter {
 
             Expr::Var(name, span) => self.eval_var(name, span),
             Expr::List(elems, _) => {
+                // Elements of a list literal are never in tail position.
+                self.in_tail_position = false;
                 let vals: Vec<Value> = elems
                     .iter()
                     .map(|e| self.eval_expr(e))
@@ -587,8 +741,8 @@ impl Interpreter {
                 Ok(Value::Function {
                     name: None,
                     params: param_names,
-                    body: *body.clone(),
-                    closure_env: self.env.clone_flat(),
+                    body: Arc::new(*body.clone()),
+                    closure_env: self.env.capture(),
                 })
             }
 
@@ -608,12 +762,16 @@ impl Interpreter {
             } => self.eval_match(scrutinee, arms, span),
 
             Expr::Let { name, value, .. } => {
+                // Value of a let binding is never in tail position.
+                self.in_tail_position = false;
                 let val = self.eval_expr(value)?;
                 self.env.set(name, val);
                 Ok(Value::Unit)
             }
 
             Expr::Pipe { left, right, span } => {
+                // Sub-expressions of a pipe are not in tail position.
+                self.in_tail_position = false;
                 let arg = self.eval_expr(left)?;
                 let func = self.eval_expr(right)?;
                 self.call_value(func, vec![arg], span)
@@ -668,6 +826,8 @@ impl Interpreter {
             }
 
             Expr::Tuple(elements, _span) => {
+                // Tuple elements are never in tail position.
+                self.in_tail_position = false;
                 let mut vals = Vec::with_capacity(elements.len());
                 for elem in elements {
                     vals.push(self.eval_expr(elem)?);
@@ -812,6 +972,8 @@ impl Interpreter {
             };
         }
 
+        // Operands of binary expressions are never in tail position.
+        self.in_tail_position = false;
         let l = self.eval_expr(left)?;
         let r = self.eval_expr(right)?;
 
@@ -905,6 +1067,8 @@ impl Interpreter {
     }
 
     fn eval_unaryop(&mut self, op: UnaryOp, operand: &Expr, span: &Span) -> EvalResult {
+        // Operand of a unary expression is never in tail position.
+        self.in_tail_position = false;
         let val = self.eval_expr(operand)?;
         match (op, &val) {
             (UnaryOp::Neg, Value::Int(n)) => Ok(Value::Int(-n)),
@@ -956,16 +1120,37 @@ impl Interpreter {
             // (e.g. list.len, string.is_empty)
         }
 
+        // Arguments are not in tail position — clear tail flag during their evaluation.
+        let was_tail = std::mem::replace(&mut self.in_tail_position, false);
         let func = self.eval_expr(func_expr)?;
         let evaluated_args: Vec<Value> = args
             .iter()
             .map(|a| self.eval_expr(a))
             .collect::<Result<_, _>>()?;
+        self.in_tail_position = was_tail;
+
+        // Tail call optimization: if we're in tail position and calling the
+        // same named function that's currently executing, emit TailCall so
+        // the trampoline in call_value can reuse the frame.
+        if self.in_tail_position {
+            if let Value::Function {
+                name: Some(ref fn_name),
+                ..
+            } = func
+            {
+                if self.current_fn_name.as_ref() == Some(fn_name) {
+                    return Err(Signal::TailCall {
+                        func,
+                        args: evaluated_args,
+                    });
+                }
+            }
+        }
 
         self.call_value(func, evaluated_args, span)
     }
 
-    fn call_value(&mut self, func: Value, args: Vec<Value>, span: &Span) -> EvalResult {
+    fn call_value(&mut self, mut func: Value, mut args: Vec<Value>, span: &Span) -> EvalResult {
         // Intercept `next` and `generate` before normal dispatch: these builtins
         // need access to interpreter state (channels / cloning) that plain fn
         // pointers cannot carry.
@@ -987,45 +1172,102 @@ impl Interpreter {
             }));
         }
 
-        let result = match func {
-            Value::Function {
-                name: fn_name,
-                params,
-                body,
-                closure_env,
-            } => {
-                let mut call_env = Environment::with_parent(closure_env);
-                // Self-bind for recursion: named functions can call themselves
-                if let Some(ref name) = fn_name {
-                    call_env.set(
-                        name,
-                        Value::Function {
-                            name: fn_name.clone(),
-                            params: params.clone(),
-                            body: body.clone(),
-                            closure_env: call_env.clone(),
-                        },
+        // Save caller's TCO state so we can restore on return.
+        let saved_fn_name = self.current_fn_name.take();
+        let saved_tail = self.in_tail_position;
+
+        let result = 'trampoline: loop {
+            match func {
+                Value::Function {
+                    name: ref fn_name,
+                    ref params,
+                    ref body,
+                    ref closure_env,
+                } => {
+                    let mut call_env = Environment::with_arc_parent(closure_env.clone());
+                    // Self-bind for recursion: named functions can call themselves
+                    if let Some(name) = fn_name {
+                        call_env.set(
+                            name,
+                            Value::Function {
+                                name: fn_name.clone(),
+                                params: params.clone(),
+                                body: body.clone(),
+                                closure_env: Arc::new(call_env.clone()),
+                            },
+                        );
+                    }
+                    for (param, arg) in params.iter().zip(args.iter()) {
+                        call_env.set(param, arg.clone());
+                    }
+
+                    // Set up tail call detection state.
+                    self.current_fn_name = fn_name.clone();
+                    self.in_tail_position = true;
+
+                    let saved_env = std::mem::replace(&mut self.env, call_env);
+                    let mut result = self.eval_expr(body);
+
+                    // Inner trampoline: for self-recursive tail calls, rebind params
+                    // in the existing call_env instead of allocating a new one.
+                    // This avoids repeated environment cloning for deep recursion.
+                    while let Err(Signal::TailCall {
+                        func: next_func,
+                        args: next_args,
+                    }) = result
+                    {
+                        // Only reuse env for same-function self-recursion.
+                        if let Value::Function {
+                            name: ref nf_name,
+                            params: ref nf_params,
+                            body: ref nf_body,
+                            ..
+                        } = next_func
+                        {
+                            if nf_name == fn_name {
+                                // Rebind params in place — no new env allocation.
+                                for (param, arg) in nf_params.iter().zip(next_args.iter()) {
+                                    self.env.set(param, arg.clone());
+                                }
+                                self.in_tail_position = true;
+                                result = self.eval_expr(nf_body);
+                                continue;
+                            }
+                        }
+                        // Different function: exit inner loop and let outer loop handle it.
+                        func = next_func;
+                        args = next_args;
+                        self.env = saved_env;
+                        self.in_tail_position = true;
+                        continue 'trampoline;
+                    }
+
+                    self.env = saved_env;
+
+                    // Catch Return signals at function boundary.
+                    match result {
+                        Err(Signal::Return(v)) => break 'trampoline Ok(v),
+                        other => break 'trampoline other,
+                    }
+                }
+                Value::BuiltinFn { func: f, .. } => {
+                    break 'trampoline f(args).map_err(Signal::from);
+                }
+                Value::AdtVariant { name, fields } if fields.is_empty() => {
+                    // Variant constructor being called with args.
+                    break 'trampoline Ok(Value::AdtVariant { name, fields: args });
+                }
+                _ => {
+                    break 'trampoline Err(
+                        self.type_err(&format!("cannot call value: {func}"), span)
                     );
                 }
-                for (param, arg) in params.iter().zip(args.into_iter()) {
-                    call_env.set(param, arg);
-                }
-                let saved_env = std::mem::replace(&mut self.env, call_env);
-                let result = self.eval_expr(&body);
-                self.env = saved_env;
-                // Catch Return signals at function boundary.
-                match result {
-                    Err(Signal::Return(v)) => Ok(v),
-                    other => other,
-                }
             }
-            Value::BuiltinFn { func: f, .. } => f(args).map_err(Signal::from),
-            Value::AdtVariant { name, fields } if fields.is_empty() => {
-                // Variant constructor being called with args.
-                Ok(Value::AdtVariant { name, fields: args })
-            }
-            _ => Err(self.type_err(&format!("cannot call value: {func}"), span)),
         };
+
+        // Restore caller's TCO state.
+        self.current_fn_name = saved_fn_name;
+        self.in_tail_position = saved_tail;
 
         self.call_depth -= 1;
         result
@@ -1043,6 +1285,8 @@ impl Interpreter {
     }
 
     fn eval_index(&mut self, object: &Expr, index: &Expr, span: &Span) -> EvalResult {
+        // Index expressions are never in tail position.
+        self.in_tail_position = false;
         let obj = self.eval_expr(object)?;
         let idx = self.eval_expr(index)?;
         match (&obj, &idx) {
@@ -1111,6 +1355,8 @@ impl Interpreter {
             variant_constructors: self.variant_constructors.clone(),
             effect_ops: self.effect_ops.clone(),
             call_depth: 0,
+            current_fn_name: None,
+            in_tail_position: false,
             generator_sender: Some(value_tx.clone()),
             impl_methods: self.impl_methods.clone(),
         };
@@ -1134,6 +1380,8 @@ impl Interpreter {
     }
 
     fn eval_block_inner(&mut self, stmts: &[Stmt], tail: Option<&Expr>) -> EvalResult {
+        // Statements are not in tail position — only the final expression is.
+        let was_tail = std::mem::replace(&mut self.in_tail_position, false);
         for stmt in stmts {
             match stmt {
                 Stmt::Let(decl) => {
@@ -1148,13 +1396,15 @@ impl Interpreter {
                     let val = Value::Function {
                         name: Some(decl.name.clone()),
                         params,
-                        body: decl.body.clone(),
-                        closure_env: self.env.clone_flat(),
+                        body: Arc::new(decl.body.clone()),
+                        closure_env: self.env.capture(),
                     };
                     self.env.set(&decl.name, val);
                 }
             }
         }
+        // Restore tail position for the final expression.
+        self.in_tail_position = was_tail;
         match tail {
             Some(expr) => self.eval_expr(expr),
             None => Ok(Value::Unit),
@@ -1168,7 +1418,10 @@ impl Interpreter {
         else_branch: Option<&Expr>,
         span: &Span,
     ) -> EvalResult {
+        // Condition is not in tail position; branches inherit the outer tail position.
+        let was_tail = std::mem::replace(&mut self.in_tail_position, false);
         let cond = self.eval_expr(condition)?;
+        self.in_tail_position = was_tail;
         match cond {
             Value::Bool(true) => self.eval_expr(then_branch),
             Value::Bool(false) => match else_branch {
@@ -1182,12 +1435,14 @@ impl Interpreter {
     // ── Pattern matching ─────────────────────────────────────────
 
     fn eval_match(&mut self, scrutinee: &Expr, arms: &[MatchArm], span: &Span) -> EvalResult {
+        // Scrutinee is not in tail position; arm bodies inherit the outer tail position.
+        let was_tail = std::mem::replace(&mut self.in_tail_position, false);
         let val = self.eval_expr(scrutinee)?;
 
         for arm in arms {
             let mut bindings = HashMap::new();
             if self.match_pattern(&arm.pattern, &val, &mut bindings) {
-                // Check guard if present.
+                // Check guard if present — guards are not in tail position.
                 if let Some(guard) = &arm.guard {
                     let saved = self.env.clone();
                     for (k, v) in &bindings {
@@ -1201,7 +1456,8 @@ impl Interpreter {
                         _ => return Err(self.type_err("match guard must be Bool", span)),
                     }
                 }
-                // Bind pattern variables and evaluate body.
+                // Bind pattern variables and evaluate body in tail position.
+                self.in_tail_position = was_tail;
                 let saved = self.env.clone();
                 for (k, v) in bindings {
                     self.env.set(&k, v);

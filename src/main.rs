@@ -49,10 +49,26 @@ fn main() {
 }
 
 fn run_source(source: &str) -> Result<(), lux::error::LuxError> {
+    let mut checker = lux::checker::ReplChecker::new();
+    let mut interpreter = lux::interpreter::Interpreter::new();
+
+    // Load prelude: check and execute it first, then freeze the type env.
+    // Freezing applies all substitutions and clears type variable maps so
+    // that polymorphic prelude functions don't compound the type-checker
+    // complexity when checking user code.
+    let prelude = lux::load_prelude();
+    if !prelude.is_empty() {
+        let tokens = lux::lexer::lex(&prelude)?;
+        let program = lux::parser::parse(tokens)?;
+        let _ = checker.check_line(&program); // best-effort; prelude is trusted
+        checker.freeze();
+        interpreter.eval_line(&program)?;
+    }
+
     let tokens = lux::lexer::lex(source)?;
     let program = lux::parser::parse(tokens)?;
-    let typed_program = lux::checker::check(&program)?;
-    let result = lux::interpreter::execute(&typed_program)?;
+    checker.check_line(&program)?;
+    let result = interpreter.eval_line(&program)?;
     if let Some(val) = result {
         println!("{val}");
     }
