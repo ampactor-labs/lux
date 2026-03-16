@@ -59,6 +59,7 @@ pub struct ImplBlock {
 #[derive(Debug, Clone)]
 pub struct FnDecl {
     pub name: String,
+    pub type_params: Vec<String>,
     pub params: Vec<Param>,
     pub return_type: Option<TypeExpr>,
     pub effects: Vec<EffectRef>,

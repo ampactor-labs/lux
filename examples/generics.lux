@@ -1,0 +1,24 @@
+// Test generic identity
+fn identity<T>(x: T) -> T = x
+
+let a = identity(42)
+let b = identity("hello")
+let c = identity(true)
+
+println(to_string(a))
+println(b)
+println(to_string(c))
+
+// Test polymorphic builtins in same scope
+let s1 = to_string((1, 2, 3))
+let s2 = to_string(42)
+let s3 = to_string(true)
+println(s1)
+println(s2)
+println(s3)
+
+// Test generic function with function params
+fn apply<T, U>(f: (T) -> U, x: T) -> U = f(x)
+
+let doubled = apply(|x| x * 2, 21)
+println(to_string(doubled))

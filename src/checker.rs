@@ -113,6 +113,8 @@ struct TypeEnv {
     traits: HashMap<String, Vec<(String, Vec<Type>, Type)>>,
     /// Impl methods: (type_name, method_name) -> function type
     impl_methods: HashMap<(String, String), Type>,
+    /// Type parameters in scope (name -> Type::Var)
+    type_params: HashMap<String, Type>,
 }
 
 #[allow(clippy::result_large_err)]
@@ -127,6 +129,7 @@ impl TypeEnv {
             subst: HashMap::new(),
             next_var: 0,
             eff_subst: HashMap::new(),
+            type_params: HashMap::new(),
             next_eff_var: 0,
             in_handler: false,
             resume_type: None,
@@ -153,6 +156,7 @@ impl TypeEnv {
             parent: None,
             traits: self.traits.clone(),
             impl_methods: self.impl_methods.clone(),
+            type_params: self.type_params.clone(),
         }
     }
 
@@ -186,6 +190,55 @@ impl TypeEnv {
         EffectRow::Open {
             known: BTreeSet::new(),
             var,
+        }
+    }
+
+    /// Create a fresh instantiation of a type — replaces all unresolved Type::Var with new fresh vars.
+    /// Used to instantiate polymorphic function types at each call site.
+    fn instantiate(&mut self, ty: &Type) -> Type {
+        let mut mapping: HashMap<TypeVar, Type> = HashMap::new();
+        self.collect_vars(ty, &mut mapping);
+        if mapping.is_empty() {
+            return ty.clone();
+        }
+        // Replace old vars with fresh ones
+        for v in mapping.values_mut() {
+            *v = self.fresh_var();
+        }
+        ty.substitute(&mapping)
+    }
+
+    fn collect_vars(&self, ty: &Type, vars: &mut HashMap<TypeVar, Type>) {
+        match ty {
+            Type::Var(v) => {
+                // Only instantiate unresolved vars (not already substituted)
+                let resolved = self.apply_subst(ty);
+                if matches!(resolved, Type::Var(_)) {
+                    vars.entry(*v).or_insert(Type::Var(*v));
+                }
+            }
+            Type::Function {
+                params,
+                return_type,
+                ..
+            } => {
+                for p in params {
+                    self.collect_vars(p, vars);
+                }
+                self.collect_vars(return_type, vars);
+            }
+            Type::List(inner) => self.collect_vars(inner, vars),
+            Type::Tuple(elems) => {
+                for e in elems {
+                    self.collect_vars(e, vars);
+                }
+            }
+            Type::Adt { type_args, .. } => {
+                for a in type_args {
+                    self.collect_vars(a, vars);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -521,6 +574,10 @@ impl TypeEnv {
                     "Unit" | "()" => return Ok(Type::Unit),
                     "Never" => return Ok(Type::Never),
                     _ => {}
+                }
+                // Check if it's a type parameter in scope
+                if let Some(ty) = self.type_params.get(name) {
+                    return Ok(ty.clone());
                 }
                 // Check if it's a known ADT
                 if self.lookup_adt(name).is_some() {
@@ -873,6 +930,12 @@ impl TypeEnv {
     fn check_fn_decl(&mut self, fd: &FnDecl) -> Result<(), TypeError> {
         let mut child = self.child();
 
+        // Bind type parameters as fresh type variables
+        for tp in &fd.type_params {
+            let var = child.fresh_var();
+            child.type_params.insert(tp.clone(), var);
+        }
+
         let mut param_types = Vec::new();
         for p in &fd.params {
             let ty = if let Some(ann) = &p.type_ann {
@@ -905,13 +968,14 @@ impl TypeEnv {
 
         let (body_ty, body_effects) = child.infer_expr(&fd.body)?;
         child.unify(&ret_var, &body_ty, &fd.span)?;
-        self.merge_child(&child);
 
-        // Check return type annotation if present
+        // Check return type annotation inside child scope (so type params are in scope)
         if let Some(ret_ann) = &fd.return_type {
-            let ret_ty = self.resolve_type_expr(ret_ann)?;
-            self.unify(&body_ty, &ret_ty, &fd.span)?;
+            let ret_ty = child.resolve_type_expr(ret_ann)?;
+            child.unify(&body_ty, &ret_ty, &fd.span)?;
         }
+
+        self.merge_child(&child);
 
         // Check effect annotations: inferred effects must be a subset of declared
         if !fd.effects.is_empty() {
@@ -1475,6 +1539,7 @@ impl TypeEnv {
 
         let (func_ty, effs1) = self.infer_expr(func)?;
         let func_ty = self.apply_subst(&func_ty);
+        let func_ty = self.instantiate(&func_ty);
 
         let mut arg_types = Vec::new();
         let mut arg_effs = EffectRow::pure();

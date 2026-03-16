@@ -193,6 +193,29 @@ impl Parser {
         let start_span = self.peek_span();
         self.expect(&TokenKind::Fn)?;
         let (name, _) = self.expect_ident()?;
+
+        // Parse optional type parameters <T, U, ...>
+        let type_params = if self.at_exact(&TokenKind::Lt) {
+            self.advance(); // consume <
+            let mut params = Vec::new();
+            if !self.at_exact(&TokenKind::Gt) {
+                let (tp_name, _) = self.expect_ident()?;
+                params.push(tp_name);
+                while self.at_exact(&TokenKind::Comma) {
+                    self.advance();
+                    if self.at_exact(&TokenKind::Gt) {
+                        break; // trailing comma
+                    }
+                    let (tp_name, _) = self.expect_ident()?;
+                    params.push(tp_name);
+                }
+            }
+            self.expect(&TokenKind::Gt)?;
+            params
+        } else {
+            Vec::new()
+        };
+
         self.expect(&TokenKind::LParen)?;
         let params = self.parse_params()?;
         self.expect(&TokenKind::RParen)?;
@@ -226,6 +249,7 @@ impl Parser {
         );
         Ok(FnDecl {
             name,
+            type_params,
             params,
             return_type,
             effects,
