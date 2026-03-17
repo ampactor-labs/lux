@@ -7,6 +7,8 @@
 //! Architecture: `source → lex → parse → check → compile → vm::run`
 
 pub mod chunk;
+pub mod error;
 pub mod frame;
 pub mod opcode;
 pub mod value;
+pub mod vm;
