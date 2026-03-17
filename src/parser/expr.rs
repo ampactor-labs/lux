@@ -3,7 +3,7 @@ use crate::ast::*;
 use crate::error::LuxError;
 use crate::token::{Span, TokenKind};
 
-use super::{infix_precedence, token_to_binop, Parser, Prec};
+use super::{Parser, Prec, infix_precedence, token_to_binop};
 
 // ── Expression parsing (Pratt precedence climbing) ───────────────
 
