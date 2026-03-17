@@ -12,6 +12,7 @@ pub mod patterns;
 pub mod repl;
 pub mod token;
 pub mod types;
+pub mod vm;
 
 /// Load the standard library prelude source.
 ///
