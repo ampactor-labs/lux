@@ -3,6 +3,7 @@
 pub mod ast;
 pub mod builtins;
 pub mod checker;
+pub mod compiler;
 pub mod env;
 pub mod error;
 pub mod interpreter;
