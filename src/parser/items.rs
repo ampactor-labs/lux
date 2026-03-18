@@ -26,11 +26,58 @@ impl Parser {
             TokenKind::Effect => Ok(Item::EffectDecl(self.parse_effect_decl()?)),
             TokenKind::Trait => Ok(Item::TraitDecl(self.parse_trait_decl()?)),
             TokenKind::Impl => Ok(Item::ImplBlock(self.parse_impl_block()?)),
+            TokenKind::Import => Ok(Item::Import(self.parse_import_decl()?)),
             _ => {
                 let expr = self.parse_expr()?;
                 Ok(Item::Expr(expr))
             }
         }
+    }
+
+    // ── import path/to/module [as alias]
+    fn parse_import_decl(&mut self) -> Result<ImportDecl, LuxError> {
+        let start_span = self.peek_span();
+        self.expect(&TokenKind::Import)?;
+
+        // Parse path segments separated by `/`.
+        // Leading `./` means relative (`.` is Dot token, `/` is Slash).
+        let mut path = Vec::new();
+
+        // Handle leading `./` for relative imports
+        if self.at_exact(&TokenKind::Dot) {
+            path.push(".".to_string());
+            self.advance(); // consume `.`
+            self.expect(&TokenKind::Slash)?; // consume `/`
+        }
+
+        // First segment
+        let (seg, _) = self.expect_ident()?;
+        path.push(seg);
+
+        // Additional `/segment` parts
+        while self.at_exact(&TokenKind::Slash) {
+            self.advance(); // consume `/`
+            let (seg, _) = self.expect_ident()?;
+            path.push(seg);
+        }
+
+        // Optional `as alias`
+        let alias = if self.at_exact(&TokenKind::Ident("as".to_string())) {
+            self.advance(); // consume `as`
+            let (name, _) = self.expect_ident()?;
+            Some(name)
+        } else {
+            None
+        };
+
+        let end = self
+            .tokens
+            .get(self.pos.saturating_sub(1))
+            .map(|t| t.span.end)
+            .unwrap_or(start_span.end);
+        let span = Span::new(start_span.start, end, start_span.line, start_span.column);
+
+        Ok(ImportDecl { path, alias, span })
     }
 
     // ── fn name(params) -> RetType with Effects { body }

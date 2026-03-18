@@ -142,6 +142,7 @@ impl TypeEnv {
             Item::LetDecl(ld) => self.check_let_decl(ld),
             Item::TypeDecl(_) | Item::EffectDecl(_) => Ok(()), // already registered
             Item::TraitDecl(_) | Item::ImplBlock(_) => Ok(()), // already registered in first pass
+            Item::Import(_) => Ok(()),                         // resolved before checking
             Item::Expr(e) => {
                 self.infer_expr(e)?;
                 Ok(())

@@ -8,6 +8,7 @@ pub mod env;
 pub mod error;
 pub mod interpreter;
 pub mod lexer;
+pub mod loader;
 pub mod parser;
 pub mod patterns;
 pub mod repl;

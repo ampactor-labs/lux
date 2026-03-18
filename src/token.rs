@@ -80,6 +80,7 @@ pub enum TokenKind {
     In,
     Break,
     Continue,
+    Import,
 
     // Operators
     Plus,

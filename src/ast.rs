@@ -25,6 +25,8 @@ pub enum Item {
     TraitDecl(TraitDecl),
     /// `impl Trait for Type { fn_decls }`
     ImplBlock(ImplBlock),
+    /// `import path/to/module` or `import path/to/module as alias`
+    Import(ImportDecl),
     /// A bare expression (for REPL / scripts)
     Expr(Expr),
 }
@@ -51,6 +53,18 @@ pub struct ImplBlock {
     pub trait_name: String,
     pub target_type: TypeExpr,
     pub methods: Vec<FnDecl>,
+    pub span: Span,
+}
+
+// ── Imports ───────────────────────────────────────────────────
+
+/// `import std/list` or `import ./my_module as m`
+#[derive(Debug, Clone)]
+pub struct ImportDecl {
+    /// Path segments: `["std", "list"]` for `import std/list`.
+    pub path: Vec<String>,
+    /// Optional alias: `import std/list as l`.
+    pub alias: Option<String>,
     pub span: Span,
 }
 

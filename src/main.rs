@@ -2,6 +2,7 @@
 
 use std::env;
 use std::fs;
+use std::path::Path;
 use std::process;
 use std::sync::Arc;
 
@@ -44,9 +45,9 @@ fn main() {
                 }
             };
             let result = if use_interpreter {
-                run_source_interpret(&source)
+                run_source_interpret(&source, path)
             } else {
-                run_source_vm(&source)
+                run_source_vm(&source, path)
             };
             if let Err(e) = result {
                 eprintln!(
@@ -63,7 +64,7 @@ fn main() {
     }
 }
 
-fn run_source_interpret(source: &str) -> Result<(), lux::error::LuxError> {
+fn run_source_interpret(source: &str, file_path: &str) -> Result<(), lux::error::LuxError> {
     let mut checker = lux::checker::ReplChecker::new();
     let mut interpreter = lux::interpreter::Interpreter::new();
 
@@ -82,6 +83,11 @@ fn run_source_interpret(source: &str) -> Result<(), lux::error::LuxError> {
 
     let tokens = lux::lexer::lex(source)?;
     let program = lux::parser::parse(tokens)?;
+
+    // Resolve imports before checking/interpreting.
+    let (base_dir, std_dir) = resolve_dirs(file_path);
+    let program = lux::loader::resolve_imports(&program, &base_dir, &std_dir)?;
+
     checker.check_line(&program)?;
     let result = interpreter.eval_line(&program)?;
     if let Some(val) = result {
@@ -90,7 +96,7 @@ fn run_source_interpret(source: &str) -> Result<(), lux::error::LuxError> {
     Ok(())
 }
 
-fn run_source_vm(source: &str) -> Result<(), lux::error::LuxError> {
+fn run_source_vm(source: &str, file_path: &str) -> Result<(), lux::error::LuxError> {
     let mut checker = lux::checker::ReplChecker::new();
 
     // Load and check prelude.
@@ -106,6 +112,11 @@ fn run_source_vm(source: &str) -> Result<(), lux::error::LuxError> {
 
     let tokens = lux::lexer::lex(source)?;
     let program = lux::parser::parse(tokens)?;
+
+    // Resolve imports before checking/compiling.
+    let (base_dir, std_dir) = resolve_dirs(file_path);
+    let program = lux::loader::resolve_imports(&program, &base_dir, &std_dir)?;
+
     checker.check_line(&program)?;
 
     // Compile: prepend prelude items to the user program.
@@ -133,4 +144,20 @@ fn run_source_vm(source: &str) -> Result<(), lux::error::LuxError> {
     // (REPL would print it, but that's a different path.)
     let _ = result;
     Ok(())
+}
+
+/// Derive the base directory (for relative imports) and std directory
+/// from the source file path.
+fn resolve_dirs(file_path: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+    let path = Path::new(file_path);
+    let base_dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
+
+    // std dir: try relative to executable, then cwd
+    let std_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("../std")))
+        .filter(|d| d.exists())
+        .unwrap_or_else(|| std::path::PathBuf::from("std"));
+
+    (base_dir, std_dir)
 }
