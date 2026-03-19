@@ -19,6 +19,7 @@ use std::collections::HashMap;
 
 use crate::ast::{Expr, Item, Program, TypeExpr};
 use crate::error::LuxError;
+use crate::token::Span;
 use crate::types::{AdtDef, EffectDef, EffectRow, EffectVar, Type, TypeVar};
 use std::collections::BTreeSet;
 
@@ -122,6 +123,8 @@ pub(crate) struct TypeEnv {
     pub(crate) impl_methods: HashMap<(String, String), Type>,
     /// Type parameters in scope (name -> Type::Var)
     pub(crate) type_params: HashMap<String, Type>,
+    /// Collected warnings (non-fatal diagnostics).
+    pub(crate) warnings: Vec<(String, Span)>,
 }
 
 #[allow(clippy::result_large_err)]
@@ -144,6 +147,7 @@ impl TypeEnv {
             parent: None,
             traits: HashMap::new(),
             impl_methods: HashMap::new(),
+            warnings: Vec::new(),
         }
     }
 
@@ -166,6 +170,7 @@ impl TypeEnv {
             traits: self.traits.clone(),
             impl_methods: self.impl_methods.clone(),
             type_params: self.type_params.clone(),
+            warnings: Vec::new(),
         }
     }
 
@@ -185,6 +190,7 @@ impl TypeEnv {
         for (k, v) in &child.impl_methods {
             self.impl_methods.insert(k.clone(), v.clone());
         }
+        self.warnings.extend(child.warnings.iter().cloned());
     }
 
     pub(crate) fn fresh_var(&mut self) -> Type {
@@ -363,6 +369,11 @@ impl ReplChecker {
             self.env.check_item(item).map_err(LuxError::Type)?;
         }
         Ok(())
+    }
+
+    /// Drain collected warnings (non-fatal diagnostics).
+    pub fn take_warnings(&mut self) -> Vec<(String, Span)> {
+        std::mem::take(&mut self.env.warnings)
     }
 
     /// Infer the type of a single expression and return it as a string.

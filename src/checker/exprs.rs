@@ -214,47 +214,14 @@ impl TypeEnv {
             }
 
             Expr::Pipe { left, right, span } => {
-                // a |> f  desugars to f(a)
-                let (left_ty, effs1) = self.infer_expr(left)?;
-                let (func_ty, effs2) = self.infer_expr(right)?;
-                let func_ty = self.apply_subst(&func_ty);
-                let ret_ty = self.fresh_var();
-
-                match &func_ty {
-                    Type::Function {
-                        params,
-                        return_type,
-                        effects,
-                    } => {
-                        if params.len() != 1 {
-                            return Err(TypeError {
-                                kind: TypeErrorKind::WrongArity {
-                                    expected: 1,
-                                    found: params.len(),
-                                },
-                                span: span.clone(),
-                            });
-                        }
-                        self.unify(&left_ty, &params[0], span)?;
-                        Ok((
-                            self.apply_subst(return_type),
-                            effs1.union(&effs2).union(effects),
-                        ))
-                    }
-                    Type::Var(_) => {
-                        // Unify with a function type
-                        let fn_ty = Type::Function {
-                            params: vec![left_ty],
-                            return_type: Box::new(ret_ty.clone()),
-                            effects: EffectRow::pure(),
-                        };
-                        self.unify(&func_ty, &fn_ty, span)?;
-                        Ok((self.apply_subst(&ret_ty), effs1.union(&effs2)))
-                    }
-                    _ => Err(TypeError {
-                        kind: TypeErrorKind::NotAFunction(func_ty),
-                        span: span.clone(),
-                    }),
+                // a |> f(b, c) desugars to f(a, b, c) — pipe value inserted as first arg
+                // a |> f desugars to f(a)
+                if let Expr::Call { func, args, .. } = right.as_ref() {
+                    let mut combined_args = vec![left.as_ref().clone()];
+                    combined_args.extend(args.iter().cloned());
+                    self.infer_call(func, &combined_args, span)
+                } else {
+                    self.infer_call(right, std::slice::from_ref(left.as_ref()), span)
                 }
             }
 
@@ -384,6 +351,18 @@ impl TypeEnv {
             }
 
             Expr::Continue { .. } => Ok((Type::Unit, EffectRow::pure())),
+
+            Expr::Assert {
+                condition,
+                message,
+                span,
+            } => {
+                let (cond_ty, effs1) = self.infer_expr(condition)?;
+                self.unify(&cond_ty, &Type::Bool, span)?;
+                let (msg_ty, effs2) = self.infer_expr(message)?;
+                self.unify(&msg_ty, &Type::String, span)?;
+                Ok((Type::Unit, effs1.union(&effs2)))
+            }
 
             Expr::RecordConstruct {
                 name,

@@ -89,6 +89,12 @@ fn run_source_interpret(source: &str, file_path: &str) -> Result<(), lux::error:
     let program = lux::loader::resolve_imports(&program, &base_dir, &std_dir)?;
 
     checker.check_line(&program)?;
+    for (msg, span) in checker.take_warnings() {
+        eprintln!(
+            "warning: {msg}\n  --> {file_path}:{}:{}",
+            span.line, span.column
+        );
+    }
     let result = interpreter.eval_line(&program)?;
     if let Some(val) = result {
         println!("{val}");
@@ -118,6 +124,12 @@ fn run_source_vm(source: &str, file_path: &str) -> Result<(), lux::error::LuxErr
     let program = lux::loader::resolve_imports(&program, &base_dir, &std_dir)?;
 
     checker.check_line(&program)?;
+    for (msg, span) in checker.take_warnings() {
+        eprintln!(
+            "warning: {msg}\n  --> {file_path}:{}:{}",
+            span.line, span.column
+        );
+    }
 
     // Compile: prepend prelude items to the user program.
     let mut combined = lux::ast::Program { items: Vec::new() };

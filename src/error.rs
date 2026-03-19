@@ -93,6 +93,8 @@ pub enum RuntimeErrorKind {
     StackOverflow,
     /// User-triggered failure via the Fail effect
     UserFail(String),
+    /// Assertion failure via `assert condition, message`
+    AssertionFailed(String),
     /// Internal: should not happen
     Internal(String),
 }
@@ -234,6 +236,7 @@ impl fmt::Display for RuntimeError {
             RuntimeErrorKind::MatchFailed => write!(f, "match failed: no pattern matched"),
             RuntimeErrorKind::StackOverflow => write!(f, "stack overflow"),
             RuntimeErrorKind::UserFail(msg) => write!(f, "fail: {msg}"),
+            RuntimeErrorKind::AssertionFailed(msg) => write!(f, "assertion failed: {msg}"),
             RuntimeErrorKind::Internal(msg) => write!(f, "internal error: {msg}"),
         }
     }
@@ -304,6 +307,7 @@ impl LuxError {
                 RuntimeErrorKind::MatchFailed => "no pattern matched".to_string(),
                 RuntimeErrorKind::StackOverflow => "stack overflow".to_string(),
                 RuntimeErrorKind::UserFail(msg) => format!("fail: {msg}"),
+                RuntimeErrorKind::AssertionFailed(msg) => format!("assertion failed: {msg}"),
                 RuntimeErrorKind::Internal(msg) => format!("internal: {msg}"),
             },
         }

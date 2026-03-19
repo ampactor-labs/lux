@@ -601,17 +601,50 @@ impl Compiler {
 
             Expr::Pipe { left, right, span } => {
                 let line = Self::current_line(span);
-                // a |> f compiles to f(a)
-                self.compile_expr(right)?; // function first
-                self.compile_expr(left)?; // then argument
-                self.emit_op(OpCode::Call, line);
-                self.emit_u8(1, line); // 1 argument
+                // a |> f(b, c) compiles to f(a, b, c) — pipe value inserted as first arg
+                if let Expr::Call { func, args, .. } = right.as_ref() {
+                    self.compile_expr(func)?;
+                    self.compile_expr(left)?;
+                    for arg in args {
+                        self.compile_expr(arg)?;
+                    }
+                    self.emit_op(OpCode::Call, line);
+                    self.emit_u8((1 + args.len()) as u8, line);
+                } else {
+                    // a |> f compiles to f(a)
+                    self.compile_expr(right)?;
+                    self.compile_expr(left)?;
+                    self.emit_op(OpCode::Call, line);
+                    self.emit_u8(1, line);
+                }
             }
 
             Expr::Return { value, span } => {
                 let line = Self::current_line(span);
                 self.compile_expr(value)?;
                 self.emit_op(OpCode::Return, line);
+            }
+
+            Expr::Assert {
+                condition,
+                message,
+                span,
+            } => {
+                let line = Self::current_line(span);
+                // Compile: if condition is true, result is Unit.
+                // If false, call __assert_fail(message) which errors.
+                self.compile_expr(condition)?;
+                let skip_fail = self.emit_jump(OpCode::JumpIfTrue, line);
+                self.emit_op(OpCode::Pop, line); // pop false
+                self.compile_var_load("__assert_fail", line);
+                self.compile_expr(message)?;
+                self.emit_op(OpCode::Call, line);
+                self.emit_u8(1, line);
+                let skip_unit = self.emit_jump(OpCode::Jump, line);
+                self.patch_jump(skip_fail);
+                self.emit_op(OpCode::Pop, line); // pop true
+                self.emit_op(OpCode::LoadUnit, line);
+                self.patch_jump(skip_unit);
             }
 
             // ── Expressions that need closures/calls/effects (Phase 6C-4+) ──

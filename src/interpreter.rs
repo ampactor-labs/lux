@@ -611,9 +611,20 @@ impl Interpreter {
             Expr::Pipe { left, right, span } => {
                 // Sub-expressions of a pipe are not in tail position.
                 self.in_tail_position = false;
-                let arg = self.eval_expr(left)?;
-                let func = self.eval_expr(right)?;
-                self.call_value(func, vec![arg], span)
+                // a |> f(b, c) compiles to f(a, b, c) — pipe value inserted as first arg
+                if let Expr::Call { func, args, .. } = right.as_ref() {
+                    let pipe_val = self.eval_expr(left)?;
+                    let func_val = self.eval_expr(func)?;
+                    let mut all_args = vec![pipe_val];
+                    for arg in args {
+                        all_args.push(self.eval_expr(arg)?);
+                    }
+                    self.call_value(func_val, all_args, span)
+                } else {
+                    let arg = self.eval_expr(left)?;
+                    let func = self.eval_expr(right)?;
+                    self.call_value(func, vec![arg], span)
+                }
             }
 
             Expr::StringInterp { parts, .. } => {
@@ -686,6 +697,31 @@ impl Interpreter {
             Expr::Return { value, .. } => {
                 let val = self.eval_expr(value)?;
                 Err(Signal::Return(val))
+            }
+
+            Expr::Assert {
+                condition,
+                message,
+                span,
+            } => {
+                let cond = self.eval_expr(condition)?;
+                match cond {
+                    Value::Bool(true) => Ok(Value::Unit),
+                    Value::Bool(false) => {
+                        let msg = self.eval_expr(message)?;
+                        let msg_str = match msg {
+                            Value::String(s) => s,
+                            other => format!("{other}"),
+                        };
+                        // Dispatch through the Fail effect so handlers can catch it.
+                        self.dispatch_effect(
+                            "fail",
+                            &[Value::String(format!("assertion failed: {msg_str}"))],
+                            span,
+                        )
+                    }
+                    _ => Err(self.type_err("assert condition must be Bool", span)),
+                }
             }
 
             Expr::Tuple(elements, _span) => {

@@ -1124,6 +1124,14 @@ impl Vm {
             Some(VmValue::Int(n)) => Ok(VmValue::Int(*n)),
             _ => Err("ceil expects a number".into()),
         });
+        self.register_builtin("__assert_fail", |args| {
+            let msg = match args.first() {
+                Some(VmValue::String(s)) => (**s).clone(),
+                Some(v) => format!("{v}"),
+                None => "assertion failed".to_string(),
+            };
+            Err(format!("assertion failed: {msg}"))
+        });
     }
 
     fn register_builtin(&mut self, name: &str, func: BuiltinFn) {

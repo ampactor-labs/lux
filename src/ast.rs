@@ -258,6 +258,13 @@ pub enum Expr {
     /// `return expr`
     Return { value: Box<Expr>, span: Span },
 
+    /// `assert condition, message`
+    Assert {
+        condition: Box<Expr>,
+        message: Box<Expr>,
+        span: Span,
+    },
+
     /// Tuple literal `(a, b, c)`
     Tuple(Vec<Expr>, Span),
 
@@ -317,6 +324,7 @@ impl Expr {
             | Expr::Resume { span, .. }
             | Expr::Perform { span, .. }
             | Expr::Return { span, .. }
+            | Expr::Assert { span, .. }
             | Expr::While { span, .. }
             | Expr::Loop { span, .. }
             | Expr::For { span, .. }

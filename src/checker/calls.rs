@@ -199,7 +199,77 @@ impl TypeEnv {
             effs = effs.union(&body_effs);
         }
 
+        // Exhaustive match check: if scrutinee is a known ADT, warn about
+        // missing variants. Wildcard/binding patterns make it exhaustive.
+        self.check_match_exhaustiveness(arms, &scrut_ty, span);
+
         Ok((self.apply_subst(&result_ty), effs))
+    }
+
+    /// Emit a warning if a match on an ADT doesn't cover all variants.
+    fn check_match_exhaustiveness(&mut self, arms: &[MatchArm], scrut_ty: &Type, span: &Span) {
+        // Only check ADT types.
+        let adt_name = match scrut_ty {
+            Type::Adt { name, .. } => name,
+            _ => return,
+        };
+
+        let adt_def = match self.lookup_adt(adt_name) {
+            Some(def) => def.clone(),
+            None => return,
+        };
+
+        // Collect all variant names from the ADT definition.
+        let all_variants: std::collections::BTreeSet<&str> =
+            adt_def.variants.iter().map(|v| v.name.as_str()).collect();
+
+        // Collect covered variant names from match arms.
+        let mut covered = std::collections::BTreeSet::new();
+        let mut has_catchall = false;
+
+        for arm in arms {
+            Self::collect_covered_variants(&arm.pattern, &mut covered, &mut has_catchall);
+        }
+
+        if has_catchall {
+            return;
+        }
+
+        let missing: Vec<&str> = all_variants
+            .iter()
+            .filter(|v| !covered.contains(**v))
+            .copied()
+            .collect();
+
+        if !missing.is_empty() {
+            self.warnings.push((
+                format!(
+                    "non-exhaustive match: missing variant(s) {}",
+                    missing.join(", ")
+                ),
+                span.clone(),
+            ));
+        }
+    }
+
+    /// Recursively collect variant names covered by a pattern.
+    fn collect_covered_variants<'a>(
+        pattern: &'a Pattern,
+        covered: &mut std::collections::BTreeSet<&'a str>,
+        has_catchall: &mut bool,
+    ) {
+        match pattern {
+            Pattern::Wildcard(_) | Pattern::Binding(_, _) => *has_catchall = true,
+            Pattern::Variant { name, .. } | Pattern::Record { name, .. } => {
+                covered.insert(name.as_str());
+            }
+            Pattern::Or(alts, _) => {
+                for alt in alts {
+                    Self::collect_covered_variants(alt, covered, has_catchall);
+                }
+            }
+            _ => {}
+        }
     }
 
     // ── Pattern checking ──────────────────────────────────────

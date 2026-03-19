@@ -354,4 +354,16 @@ pub fn register_builtins(
             span: Span::dummy(),
         })
     });
+
+    register("__assert_fail", |args| {
+        let msg = match args.first() {
+            Some(Value::String(s)) => s.clone(),
+            Some(v) => format!("{v}"),
+            None => "assertion failed".to_string(),
+        };
+        Err(RuntimeError {
+            kind: RuntimeErrorKind::AssertionFailed(msg),
+            span: Span::dummy(),
+        })
+    });
 }

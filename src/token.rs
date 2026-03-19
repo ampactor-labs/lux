@@ -81,6 +81,7 @@ pub enum TokenKind {
     Break,
     Continue,
     Import,
+    Assert,
 
     // Operators
     Plus,

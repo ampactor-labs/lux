@@ -356,6 +356,25 @@ impl Parser {
                 })
             }
 
+            // Assert expression: `assert condition, message`
+            TokenKind::Assert => {
+                let tok = self.advance();
+                let condition = self.parse_expr()?;
+                self.expect(&TokenKind::Comma)?;
+                let message = self.parse_expr()?;
+                let span = Span::new(
+                    tok.span.start,
+                    message.span().end,
+                    tok.span.line,
+                    tok.span.column,
+                );
+                Ok(Expr::Assert {
+                    condition: Box::new(condition),
+                    message: Box::new(message),
+                    span,
+                })
+            }
+
             // While loop
             TokenKind::While => {
                 let tok = self.advance();
