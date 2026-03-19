@@ -1,0 +1,39 @@
+// stdlib_test.lux — exercises prelude functions migrated from Rust builtins
+
+// --- sort (merge sort) ---
+println(sort([3, 1, 4, 1, 5, 9, 2, 6]))
+println(sort(["banana", "apple", "cherry"]))
+println(sort([]))
+println(sort([42]))
+println(sort([5, 3, 3, 1, 1]))
+
+// --- min / max / clamp ---
+println(min(3, 7))
+println(max(3, 7))
+println(min("apple", "banana"))
+println(max("apple", "banana"))
+println(clamp(5, 1, 10))
+println(clamp(-3, 0, 100))
+println(clamp(999, 0, 100))
+
+// --- enumerate ---
+println(enumerate(["a", "b", "c"]))
+println(enumerate([]))
+
+// --- flat_map ---
+println(flat_map(|x| [x, x * 2], [1, 2, 3]))
+
+// --- last ---
+println(last([10, 20, 30]))
+
+// --- unique ---
+println(unique([1, 2, 3, 2, 1, 4]))
+println(unique(["hello", "world", "hello"]))
+
+// --- words / unwords ---
+println(words("hello world foo"))
+println(unwords(["hello", "world", "foo"]))
+
+// --- lines / unlines ---
+println(lines("line1\nline2\nline3"))
+println(unlines(["line1", "line2", "line3"]))

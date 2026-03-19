@@ -24,3 +24,35 @@ fn intersperse(sep, xs) = if len(xs) <= 1 { xs } else { [xs[0], sep] ++ interspe
 fn scan(xs, init, f) = if len(xs) == 0 { [init] } else { let next = f(init, xs[0]); [init] ++ scan(slice(xs, 1, len(xs)), next, f) }
 fn compose(f, g) = |x| f(g(x))
 fn id(x) = x
+
+// --- Math ---
+fn min(a, b) = if a <= b { a } else { b }
+fn max(a, b) = if a <= b { b } else { a }
+fn clamp(x, lo, hi) = min(max(x, lo), hi)
+
+// --- List: sort (merge sort) ---
+fn merge(xs, ys) =
+  if len(xs) == 0 { ys }
+  else { if len(ys) == 0 { xs }
+  else { if xs[0] <= ys[0] { [xs[0]] ++ merge(tail(xs), ys) }
+  else { [ys[0]] ++ merge(xs, tail(ys)) } } }
+
+fn sort(xs) =
+  if len(xs) <= 1 { xs }
+  else {
+    let mid = len(xs) / 2;
+    merge(sort(slice(xs, 0, mid)), sort(slice(xs, mid, len(xs))))
+  }
+
+// --- List: utilities ---
+fn enumerate(xs) = zip(range(0, len(xs)), xs)
+fn flat_map(f, xs) = flatten(map(f, xs))
+fn last(xs) = xs[len(xs) - 1]
+fn unique(xs) =
+  fold(xs, [], |acc, x| if any(|a| a == x, acc) { acc } else { push(acc, x) })
+
+// --- String convenience (wrapping Rust builtins) ---
+fn words(s) = split(s, " ")
+fn unwords(ws) = join(ws, " ")
+fn lines(s) = split(s, "\n")
+fn unlines(ls) = join(ls, "\n")
