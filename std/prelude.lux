@@ -16,3 +16,11 @@ fn sum(xs) = fold(xs, 0, |acc, x| acc + x)
 fn product(xs) = fold(xs, 1, |acc, x| acc * x)
 fn concat(xss) = flatten(xss)
 fn zip_with(f, xs, ys) = if len(xs) == 0 { [] } else { if len(ys) == 0 { [] } else { [f(xs[0], ys[0])] ++ zip_with(f, slice(xs, 1, len(xs)), slice(ys, 1, len(ys))) } }
+fn zip(xs, ys) = zip_with(|a, b| (a, b), xs, ys)
+fn find(pred, xs) = if len(xs) == 0 { [] } else { if pred(xs[0]) { [xs[0]] } else { find(pred, slice(xs, 1, len(xs))) } }
+fn partition(pred, xs) = (filter(pred, xs), filter(|x| !pred(x), xs))
+fn range_inclusive(start, end) = range(start, end + 1)
+fn intersperse(sep, xs) = if len(xs) <= 1 { xs } else { [xs[0], sep] ++ intersperse(sep, slice(xs, 1, len(xs))) }
+fn scan(xs, init, f) = if len(xs) == 0 { [init] } else { let next = f(init, xs[0]); [init] ++ scan(slice(xs, 1, len(xs)), next, f) }
+fn compose(f, g) = |x| f(g(x))
+fn id(x) = x
