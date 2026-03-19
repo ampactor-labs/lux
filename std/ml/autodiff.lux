@@ -1,0 +1,59 @@
+// Autodiff via algebraic effects.
+// The Compute effect captures forward-pass operations;
+// the handler records them on a tape for backward pass.
+
+import ml/tensor
+
+// ── Tape entries ────────────────────────────────────────────
+
+type TapeEntry =
+    TapeMatVecMul { w: List<List<Float>>, x: List<Float>, out: List<Float> }
+  | TapeVecAdd { a: List<Float>, b: List<Float> }
+  | TapeRelu { input: List<Float> }
+  | TapeSigmoid { out: List<Float> }
+
+// ── Compute effect ──────────────────────────────────────────
+// Type annotations are nominal — the checker uses them for
+// unification but the runtime passes actual lists/matrices.
+
+effect Compute {
+  forward_mat_vec_mul(w: List<List<Float>>, x: List<Float>) -> List<Float>
+  forward_vec_add(a: List<Float>, b: List<Float>) -> List<Float>
+  forward_relu(xs: List<Float>) -> List<Float>
+  forward_sigmoid(xs: List<Float>) -> List<Float>
+  get_tape() -> List<TapeEntry>
+}
+
+// ── Backward pass ───────────────────────────────────────────
+// Walks the tape in reverse, accumulating gradients.
+// Returns list of (dw, db) gradient pairs for weight layers.
+
+fn relu_grad(input, upstream) =
+  zip_with(|x, g| if x > 0.0 { g } else { 0.0 }, input, upstream)
+
+fn sigmoid_grad(out, upstream) =
+  zip_with(|o, g| g * o * (1.0 - o), out, upstream)
+
+fn backward_step(upstream, grad_pairs, entry) =
+  match entry {
+    TapeSigmoid { out } =>
+      (sigmoid_grad(out, upstream), grad_pairs),
+    TapeRelu { input } =>
+      (relu_grad(input, upstream), grad_pairs),
+    TapeVecAdd { a, b } =>
+      (upstream, grad_pairs),
+    TapeMatVecMul { w, x, out } =>
+      (mat_vec_mul(transpose(w), upstream),
+       push(grad_pairs, (outer_product(upstream, x), upstream))),
+  }
+
+fn backward(tape, loss_grad) = {
+  let result = fold(reverse(tape), (loss_grad, []), |acc, entry|
+    match acc {
+      (upstream, grad_pairs) => backward_step(upstream, grad_pairs, entry)
+    })
+  match result {
+    (final_grad, pairs) => pairs
+  }
+}
+

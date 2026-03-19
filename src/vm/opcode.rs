@@ -88,7 +88,7 @@ pub enum OpCode {
     MakeList = 80,
     /// Create tuple from N stack values. Operand: u16 element count.
     MakeTuple = 81,
-    /// Index into list. Stack: [list, index] → [element].
+    /// Index into list. Stack: \[list, index\] → element.
     ListIndex = 82,
     /// Access field by name. Operand: u16 name index.
     FieldAccess = 83,

@@ -440,9 +440,8 @@ impl TypeEnv {
                 match &resolved {
                     Type::Int | Type::Float => Ok((resolved, effs)),
                     Type::Var(_) => {
-                        // Default to Int for unresolved arithmetic
-                        self.unify(&resolved, &Type::Int, span)?;
-                        Ok((Type::Int, effs))
+                        // Don't default — let context determine the numeric type
+                        Ok((resolved, effs))
                     }
                     _ => Err(TypeError {
                         kind: TypeErrorKind::Mismatch {
@@ -504,10 +503,7 @@ impl TypeEnv {
                 let resolved = self.apply_subst(&ty);
                 match &resolved {
                     Type::Int | Type::Float => Ok((resolved, effs)),
-                    Type::Var(_) => {
-                        self.unify(&resolved, &Type::Int, span)?;
-                        Ok((Type::Int, effs))
-                    }
+                    Type::Var(_) => Ok((resolved, effs)),
                     _ => Err(TypeError {
                         kind: TypeErrorKind::Mismatch {
                             expected: Type::Int,

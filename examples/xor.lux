@@ -1,0 +1,174 @@
+// XOR Neural Network — Autodiff via Algebraic Effects
+//
+// Trains a 2→4→1 network to learn XOR using:
+// - Compute effect for forward pass (handler records tape)
+// - backward() for gradient computation
+// - SGD for weight updates
+//
+// This is the ML framework milestone: proving autodiff-as-effect-handler works.
+
+import ml/tensor
+import ml/autodiff
+
+// ── Model ───────────────────────────────────────────────────
+
+type XorModel = XorModel {
+  w1: List<List<Float>>,
+  b1: List<Float>,
+  w2: List<List<Float>>,
+  b2: List<Float>
+}
+
+// Hardcoded asymmetric init (deterministic, no Random effect needed)
+let init_model = XorModel {
+  w1: [[ 0.5,  0.3],
+       [-0.4,  0.6],
+       [ 0.2, -0.5],
+       [-0.3,  0.1]],
+  b1: [0.0, 0.0, 0.0, 0.0],
+  w2: [[ 0.4, -0.2,  0.5, -0.3]],
+  b2: [0.0]
+}
+
+// ── Forward pass (effectful) ────────────────────────────────
+
+fn forward(model, x) = {
+  let h = forward_relu(forward_vec_add(forward_mat_vec_mul(model.w1, x), model.b1))
+  forward_sigmoid(forward_vec_add(forward_mat_vec_mul(model.w2, h), model.b2))
+}
+
+// ── Training step ───────────────────────────────────────────
+// Runs forward pass inside Compute handler, then backward pass.
+// Returns (loss, updated_model).
+
+fn train_step(model, x, target, lr) = {
+  // Forward pass with tape recording
+  let result = handle {
+    let out = forward(model, x)
+    (out, get_tape())
+  } with tape = [] {
+    forward_mat_vec_mul(w, xv) => {
+      let r = mat_vec_mul(w, xv)
+      resume(r) with tape = push(tape, TapeMatVecMul { w: w, x: xv, out: r })
+    },
+    forward_vec_add(a, b) => {
+      let r = vec_add(a, b)
+      resume(r) with tape = push(tape, TapeVecAdd { a: a, b: b })
+    },
+    forward_relu(xs) => {
+      let r = relu_vec(xs)
+      resume(r) with tape = push(tape, TapeRelu { input: xs })
+    },
+    forward_sigmoid(xs) => {
+      let r = sigmoid_vec(xs)
+      resume(r) with tape = push(tape, TapeSigmoid { out: r })
+    },
+    get_tape() => resume(tape),
+  }
+
+  match result {
+    (out, recorded_tape) => {
+      let loss = mse(out, target)
+      let loss_g = mse_grad(out, target)
+
+      // Backward pass: get gradient pairs [(dw, db), ...]
+      let grads = backward(recorded_tape, loss_g)
+
+      // grads[0] is layer 2 (last layer), grads[1] is layer 1 (first layer)
+      // because backward walks from output to input
+      let g2 = grads[0]
+      let g1 = grads[1]
+
+      // Update weights with SGD
+      match g2 {
+        (dw2, db2) => match g1 {
+          (dw1, db1) => {
+            let new_model = XorModel {
+              w1: mat_sub(model.w1, scalar_mat_mul(lr, dw1)),
+              b1: vec_sub(model.b1, scalar_mul(lr, db1)),
+              w2: mat_sub(model.w2, scalar_mat_mul(lr, dw2)),
+              b2: vec_sub(model.b2, scalar_mul(lr, db2))
+            }
+            (loss, new_model)
+          }
+        }
+      }
+    }
+  }
+}
+
+// ── Inference (no tape) ─────────────────────────────────────
+
+fn predict(model, x) =
+  handle {
+    forward(model, x)
+  } with tape = [] {
+    forward_mat_vec_mul(w, xv) => resume(mat_vec_mul(w, xv)),
+    forward_vec_add(a, b) => resume(vec_add(a, b)),
+    forward_relu(xs) => resume(relu_vec(xs)),
+    forward_sigmoid(xs) => resume(sigmoid_vec(xs)),
+    get_tape() => resume(tape),
+  }
+
+// ── Training loop ───────────────────────────────────────────
+
+let data = [
+  ([0.0, 0.0], [0.0]),
+  ([0.0, 1.0], [1.0]),
+  ([1.0, 0.0], [1.0]),
+  ([1.0, 1.0], [0.0])
+]
+
+let lr = 1.0
+let epochs = 1000
+
+println("Training XOR network (2->4->1)...")
+
+// Train: fold over epochs
+let trained = fold(range(0, epochs), init_model, |model, epoch| {
+  // Train on all 4 data points per epoch
+  let updated = fold(data, model, |m, sample|
+    match sample {
+      (x, target) => match train_step(m, x, target, lr) {
+        (loss, new_m) => new_m
+      }
+    })
+
+  // Print loss every 200 epochs
+  if epoch % 200 == 0 {
+    // Compute total loss for reporting
+    let total_loss = fold(data, 0.0, |acc, sample|
+      match sample {
+        (x, target) => {
+          let pred = predict(updated, x)
+          acc + mse(pred, target)
+        }
+      })
+    println("  epoch " ++ to_string(epoch) ++ " loss: " ++ to_string(total_loss))
+    updated
+  } else {
+    updated
+  }
+})
+
+// ── Results ─────────────────────────────────────────────────
+
+println("")
+println("XOR results after " ++ to_string(epochs) ++ " epochs:")
+let r00 = predict(trained, [0.0, 0.0])
+let r01 = predict(trained, [0.0, 1.0])
+let r10 = predict(trained, [1.0, 0.0])
+let r11 = predict(trained, [1.0, 1.0])
+println("  [0,0] -> " ++ to_string(r00[0]))
+println("  [0,1] -> " ++ to_string(r01[0]))
+println("  [1,0] -> " ++ to_string(r10[0]))
+println("  [1,1] -> " ++ to_string(r11[0]))
+
+// Verify convergence
+assert r00[0] < 0.15, "XOR [0,0] should be near 0"
+assert r01[0] > 0.85, "XOR [0,1] should be near 1"
+assert r10[0] > 0.85, "XOR [1,0] should be near 1"
+assert r11[0] < 0.15, "XOR [1,1] should be near 0"
+
+println("")
+println("XOR learned successfully. Autodiff via effects: proven.")

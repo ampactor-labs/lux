@@ -103,6 +103,10 @@ impl Parser {
         loop {
             match self.peek() {
                 TokenKind::LParen => {
+                    // Don't consume `(` as call if it's on a new line (tuple-after-let fix)
+                    if self.peek_span().line > expr.span().line {
+                        break;
+                    }
                     // Function call
                     self.advance();
                     let args = self.parse_call_args()?;
@@ -120,6 +124,10 @@ impl Parser {
                     };
                 }
                 TokenKind::LBracket => {
+                    // Don't consume `[` as index if it's on a new line
+                    if self.peek_span().line > expr.span().line {
+                        break;
+                    }
                     // Index
                     self.advance();
                     let index = self.parse_expr()?;

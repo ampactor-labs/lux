@@ -246,6 +246,58 @@ impl TypeEnv {
             },
         );
 
+        // sqrt: (Num) -> Float
+        let t_sqrt = self.fresh_var();
+        self.bind(
+            "sqrt",
+            Type::Function {
+                params: vec![t_sqrt],
+                return_type: Box::new(Type::Float),
+                effects: EffectRow::pure(),
+            },
+        );
+        // exp: (Num) -> Float
+        let t_exp = self.fresh_var();
+        self.bind(
+            "exp",
+            Type::Function {
+                params: vec![t_exp],
+                return_type: Box::new(Type::Float),
+                effects: EffectRow::pure(),
+            },
+        );
+        // log: (Num) -> Float
+        let t_log = self.fresh_var();
+        self.bind(
+            "log",
+            Type::Function {
+                params: vec![t_log],
+                return_type: Box::new(Type::Float),
+                effects: EffectRow::pure(),
+            },
+        );
+        // pow: (Num, Num) -> Float
+        let t_pow1 = self.fresh_var();
+        let t_pow2 = self.fresh_var();
+        self.bind(
+            "pow",
+            Type::Function {
+                params: vec![t_pow1, t_pow2],
+                return_type: Box::new(Type::Float),
+                effects: EffectRow::pure(),
+            },
+        );
+        // to_float: (Num) -> Float
+        let t_tf = self.fresh_var();
+        self.bind(
+            "to_float",
+            Type::Function {
+                params: vec![t_tf],
+                return_type: Box::new(Type::Float),
+                effects: EffectRow::pure(),
+            },
+        );
+
         // sort: (List<T>) -> List<T>
         let t_sort = self.fresh_var();
         self.bind(

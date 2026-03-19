@@ -212,6 +212,48 @@ pub fn register_builtins(
             span: Span::dummy(),
         }),
     });
+    register("sqrt", |args| match args.first() {
+        Some(Value::Float(f)) => Ok(Value::Float(f.sqrt())),
+        Some(Value::Int(n)) => Ok(Value::Float((*n as f64).sqrt())),
+        _ => Err(RuntimeError {
+            kind: RuntimeErrorKind::TypeError("sqrt expects a number".into()),
+            span: Span::dummy(),
+        }),
+    });
+    register("exp", |args| match args.first() {
+        Some(Value::Float(f)) => Ok(Value::Float(f.exp())),
+        Some(Value::Int(n)) => Ok(Value::Float((*n as f64).exp())),
+        _ => Err(RuntimeError {
+            kind: RuntimeErrorKind::TypeError("exp expects a number".into()),
+            span: Span::dummy(),
+        }),
+    });
+    register("log", |args| match args.first() {
+        Some(Value::Float(f)) => Ok(Value::Float(f.ln())),
+        Some(Value::Int(n)) => Ok(Value::Float((*n as f64).ln())),
+        _ => Err(RuntimeError {
+            kind: RuntimeErrorKind::TypeError("log expects a number".into()),
+            span: Span::dummy(),
+        }),
+    });
+    register("pow", |args| match (args.first(), args.get(1)) {
+        (Some(Value::Float(b)), Some(Value::Float(e))) => Ok(Value::Float(b.powf(*e))),
+        (Some(Value::Float(b)), Some(Value::Int(e))) => Ok(Value::Float(b.powf(*e as f64))),
+        (Some(Value::Int(b)), Some(Value::Float(e))) => Ok(Value::Float((*b as f64).powf(*e))),
+        (Some(Value::Int(b)), Some(Value::Int(e))) => Ok(Value::Float((*b as f64).powf(*e as f64))),
+        _ => Err(RuntimeError {
+            kind: RuntimeErrorKind::TypeError("pow expects two numbers".into()),
+            span: Span::dummy(),
+        }),
+    });
+    register("to_float", |args| match args.first() {
+        Some(Value::Int(n)) => Ok(Value::Float(*n as f64)),
+        Some(Value::Float(f)) => Ok(Value::Float(*f)),
+        _ => Err(RuntimeError {
+            kind: RuntimeErrorKind::TypeError("to_float expects a number".into()),
+            span: Span::dummy(),
+        }),
+    });
 
     // `next` is registered as a placeholder; the real logic lives in
     // `call_value` which can pattern-match on Value::Generator.

@@ -221,11 +221,15 @@ impl Vm {
                 OpCode::Sub => self.binary_op(|a, b| match (a, b) {
                     (VmValue::Int(a), VmValue::Int(b)) => Ok(VmValue::Int(a - b)),
                     (VmValue::Float(a), VmValue::Float(b)) => Ok(VmValue::Float(a - b)),
+                    (VmValue::Int(a), VmValue::Float(b)) => Ok(VmValue::Float(a as f64 - b)),
+                    (VmValue::Float(a), VmValue::Int(b)) => Ok(VmValue::Float(a - b as f64)),
                     _ => Err("type error: cannot subtract".into()),
                 })?,
                 OpCode::Mul => self.binary_op(|a, b| match (a, b) {
                     (VmValue::Int(a), VmValue::Int(b)) => Ok(VmValue::Int(a * b)),
                     (VmValue::Float(a), VmValue::Float(b)) => Ok(VmValue::Float(a * b)),
+                    (VmValue::Int(a), VmValue::Float(b)) => Ok(VmValue::Float(a as f64 * b)),
+                    (VmValue::Float(a), VmValue::Int(b)) => Ok(VmValue::Float(a * b as f64)),
                     _ => Err("type error: cannot multiply".into()),
                 })?,
                 OpCode::Div => self.binary_op(|a, b| match (a, b) {
@@ -237,6 +241,8 @@ impl Vm {
                         }
                     }
                     (VmValue::Float(a), VmValue::Float(b)) => Ok(VmValue::Float(a / b)),
+                    (VmValue::Int(a), VmValue::Float(b)) => Ok(VmValue::Float(a as f64 / b)),
+                    (VmValue::Float(a), VmValue::Int(b)) => Ok(VmValue::Float(a / b as f64)),
                     _ => Err("type error: cannot divide".into()),
                 })?,
                 OpCode::Mod => self.binary_op(|a, b| match (a, b) {
@@ -1068,6 +1074,39 @@ impl Vm {
             Some(VmValue::Float(f)) => Ok(VmValue::Int(f.ceil() as i64)),
             Some(VmValue::Int(n)) => Ok(VmValue::Int(*n)),
             _ => Err("ceil expects a number".into()),
+        });
+        self.register_builtin("sqrt", |args| match args.first() {
+            Some(VmValue::Float(f)) => Ok(VmValue::Float(f.sqrt())),
+            Some(VmValue::Int(n)) => Ok(VmValue::Float((*n as f64).sqrt())),
+            _ => Err("sqrt expects a number".into()),
+        });
+        self.register_builtin("exp", |args| match args.first() {
+            Some(VmValue::Float(f)) => Ok(VmValue::Float(f.exp())),
+            Some(VmValue::Int(n)) => Ok(VmValue::Float((*n as f64).exp())),
+            _ => Err("exp expects a number".into()),
+        });
+        self.register_builtin("log", |args| match args.first() {
+            Some(VmValue::Float(f)) => Ok(VmValue::Float(f.ln())),
+            Some(VmValue::Int(n)) => Ok(VmValue::Float((*n as f64).ln())),
+            _ => Err("log expects a number".into()),
+        });
+        self.register_builtin("pow", |args| match (args.first(), args.get(1)) {
+            (Some(VmValue::Float(b)), Some(VmValue::Float(e))) => Ok(VmValue::Float(b.powf(*e))),
+            (Some(VmValue::Float(b)), Some(VmValue::Int(e))) => {
+                Ok(VmValue::Float(b.powf(*e as f64)))
+            }
+            (Some(VmValue::Int(b)), Some(VmValue::Float(e))) => {
+                Ok(VmValue::Float((*b as f64).powf(*e)))
+            }
+            (Some(VmValue::Int(b)), Some(VmValue::Int(e))) => {
+                Ok(VmValue::Float((*b as f64).powf(*e as f64)))
+            }
+            _ => Err("pow expects two numbers".into()),
+        });
+        self.register_builtin("to_float", |args| match args.first() {
+            Some(VmValue::Int(n)) => Ok(VmValue::Float(*n as f64)),
+            Some(VmValue::Float(f)) => Ok(VmValue::Float(*f)),
+            _ => Err("to_float expects a number".into()),
         });
         self.register_builtin("__assert_fail", |args| {
             let msg = match args.first() {
