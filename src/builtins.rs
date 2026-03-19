@@ -196,22 +196,6 @@ pub fn register_builtins(
             span: Span::dummy(),
         }),
     });
-    register("min", |args| match (args.first(), args.get(1)) {
-        (Some(Value::Int(a)), Some(Value::Int(b))) => Ok(Value::Int(*a.min(b))),
-        (Some(Value::Float(a)), Some(Value::Float(b))) => Ok(Value::Float(a.min(*b))),
-        _ => Err(RuntimeError {
-            kind: RuntimeErrorKind::TypeError("min expects two numbers of the same type".into()),
-            span: Span::dummy(),
-        }),
-    });
-    register("max", |args| match (args.first(), args.get(1)) {
-        (Some(Value::Int(a)), Some(Value::Int(b))) => Ok(Value::Int(*a.max(b))),
-        (Some(Value::Float(a)), Some(Value::Float(b))) => Ok(Value::Float(a.max(*b))),
-        _ => Err(RuntimeError {
-            kind: RuntimeErrorKind::TypeError("max expects two numbers of the same type".into()),
-            span: Span::dummy(),
-        }),
-    });
     register("floor", |args| match args.first() {
         Some(Value::Float(f)) => Ok(Value::Int(f.floor() as i64)),
         Some(Value::Int(n)) => Ok(Value::Int(*n)),
@@ -225,115 +209,6 @@ pub fn register_builtins(
         Some(Value::Int(n)) => Ok(Value::Int(*n)),
         _ => Err(RuntimeError {
             kind: RuntimeErrorKind::TypeError("ceil expects a number".into()),
-            span: Span::dummy(),
-        }),
-    });
-
-    // Sort builtin
-    register("sort", |args| match args.into_iter().next() {
-        Some(Value::List(mut items)) => {
-            items.sort_by(|a, b| match (a, b) {
-                (Value::Int(x), Value::Int(y)) => x.cmp(y),
-                (Value::Float(x), Value::Float(y)) => {
-                    x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal)
-                }
-                (Value::String(x), Value::String(y)) => x.cmp(y),
-                _ => std::cmp::Ordering::Equal,
-            });
-            Ok(Value::List(items))
-        }
-        _ => Err(RuntimeError {
-            kind: RuntimeErrorKind::TypeError("sort expects a list".into()),
-            span: Span::dummy(),
-        }),
-    });
-
-    // Zip builtin
-    register("zip", |args| match (args.first(), args.get(1)) {
-        (Some(Value::List(a)), Some(Value::List(b))) => {
-            let pairs: Vec<Value> = a
-                .iter()
-                .zip(b.iter())
-                .map(|(x, y)| Value::Tuple(vec![x.clone(), y.clone()]))
-                .collect();
-            Ok(Value::List(pairs))
-        }
-        _ => Err(RuntimeError {
-            kind: RuntimeErrorKind::TypeError("zip expects two lists".into()),
-            span: Span::dummy(),
-        }),
-    });
-
-    // Enumerate builtin
-    register("enumerate", |args| match args.into_iter().next() {
-        Some(Value::List(items)) => {
-            let pairs: Vec<Value> = items
-                .into_iter()
-                .enumerate()
-                .map(|(i, v)| Value::Tuple(vec![Value::Int(i as i64), v]))
-                .collect();
-            Ok(Value::List(pairs))
-        }
-        _ => Err(RuntimeError {
-            kind: RuntimeErrorKind::TypeError("enumerate expects a list".into()),
-            span: Span::dummy(),
-        }),
-    });
-
-    // Find builtin — returns first element matching predicate, or None
-    // Note: find can't take a closure here since builtins are plain fn pointers.
-    // It's registered as a placeholder; actual logic is in call_value.
-    register("find", |_args| {
-        Err(RuntimeError {
-            kind: RuntimeErrorKind::TypeError(
-                "find: requires function argument (use call_value path)".into(),
-            ),
-            span: Span::dummy(),
-        })
-    });
-
-    // String length (char count)
-    register("string_length", |args| match args.first() {
-        Some(Value::String(s)) => Ok(Value::Int(s.chars().count() as i64)),
-        _ => Err(RuntimeError {
-            kind: RuntimeErrorKind::TypeError("string_length expects a string".into()),
-            span: Span::dummy(),
-        }),
-    });
-
-    // String contains
-    register("string_contains", |args| {
-        match (args.first(), args.get(1)) {
-            (Some(Value::String(s)), Some(Value::String(sub))) => {
-                Ok(Value::Bool(s.contains(sub.as_str())))
-            }
-            _ => Err(RuntimeError {
-                kind: RuntimeErrorKind::TypeError("string_contains expects two strings".into()),
-                span: Span::dummy(),
-            }),
-        }
-    });
-
-    // String split
-    register("string_split", |args| match (args.first(), args.get(1)) {
-        (Some(Value::String(s)), Some(Value::String(sep))) => {
-            let parts: Vec<Value> = s
-                .split(sep.as_str())
-                .map(|p| Value::String(p.to_string()))
-                .collect();
-            Ok(Value::List(parts))
-        }
-        _ => Err(RuntimeError {
-            kind: RuntimeErrorKind::TypeError("string_split expects two strings".into()),
-            span: Span::dummy(),
-        }),
-    });
-
-    // String trim
-    register("string_trim", |args| match args.first() {
-        Some(Value::String(s)) => Ok(Value::String(s.trim().to_string())),
-        _ => Err(RuntimeError {
-            kind: RuntimeErrorKind::TypeError("string_trim expects a string".into()),
             span: Span::dummy(),
         }),
     });

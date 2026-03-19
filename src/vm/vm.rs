@@ -974,29 +974,11 @@ impl Vm {
             Some(VmValue::Float(n)) => Ok(VmValue::Float(n.abs())),
             _ => Ok(VmValue::Int(0)),
         });
-        self.register_builtin("min", |args| {
-            if let (Some(VmValue::Int(a)), Some(VmValue::Int(b))) = (args.first(), args.get(1)) {
-                Ok(VmValue::Int(*a.min(b)))
-            } else {
-                Ok(VmValue::Int(0))
-            }
-        });
-        self.register_builtin("max", |args| {
-            if let (Some(VmValue::Int(a)), Some(VmValue::Int(b))) = (args.first(), args.get(1)) {
-                Ok(VmValue::Int(*a.max(b)))
-            } else {
-                Ok(VmValue::Int(0))
-            }
-        });
         self.register_builtin("parse_int", |args| match args.first() {
             Some(VmValue::String(s)) => match s.parse::<i64>() {
                 Ok(n) => Ok(VmValue::Int(n)),
                 Err(_) => Ok(VmValue::Int(0)),
             },
-            _ => Ok(VmValue::Int(0)),
-        });
-        self.register_builtin("string_length", |args| match args.first() {
-            Some(VmValue::String(s)) => Ok(VmValue::Int(s.len() as i64)),
             _ => Ok(VmValue::Int(0)),
         });
         self.register_builtin("slice", |args| {
@@ -1014,43 +996,6 @@ impl Vm {
                 }
                 _ => Err("slice expects (List, Int, Int)".into()),
             }
-        });
-        self.register_builtin("sort", |args| match args.first() {
-            Some(VmValue::List(items)) => {
-                let mut sorted = (**items).clone();
-                sorted.sort_by(|a, b| match (a, b) {
-                    (VmValue::Int(x), VmValue::Int(y)) => x.cmp(y),
-                    (VmValue::Float(x), VmValue::Float(y)) => {
-                        x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal)
-                    }
-                    (VmValue::String(x), VmValue::String(y)) => x.cmp(y),
-                    _ => std::cmp::Ordering::Equal,
-                });
-                Ok(VmValue::List(Arc::new(sorted)))
-            }
-            _ => Err("sort expects a list".into()),
-        });
-        self.register_builtin("zip", |args| match (args.first(), args.get(1)) {
-            (Some(VmValue::List(a)), Some(VmValue::List(b))) => {
-                let pairs: Vec<VmValue> = a
-                    .iter()
-                    .zip(b.iter())
-                    .map(|(x, y)| VmValue::Tuple(Arc::new(vec![x.clone(), y.clone()])))
-                    .collect();
-                Ok(VmValue::List(Arc::new(pairs)))
-            }
-            _ => Err("zip expects two lists".into()),
-        });
-        self.register_builtin("enumerate", |args| match args.first() {
-            Some(VmValue::List(items)) => {
-                let pairs: Vec<VmValue> = items
-                    .iter()
-                    .enumerate()
-                    .map(|(i, v)| VmValue::Tuple(Arc::new(vec![VmValue::Int(i as i64), v.clone()])))
-                    .collect();
-                Ok(VmValue::List(Arc::new(pairs)))
-            }
-            _ => Err("enumerate expects a list".into()),
         });
         self.register_builtin("split", |args| match (args.first(), args.get(1)) {
             (Some(VmValue::String(s)), Some(VmValue::String(sep))) => {

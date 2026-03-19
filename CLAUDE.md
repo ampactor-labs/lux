@@ -58,7 +58,7 @@ Standard library: `std/prelude.lux` (self-hosted in Lux — this part stays)
 | `src/loader.rs` | Module import resolution, cycle detection | Rewritten in Lux |
 | `src/compiler/` | Bytecode compiler (expressions, effects, patterns) | Rewritten in Lux |
 | `src/vm/` | Stack-based VM (execution, effects, builtins) | Rewritten in Lux |
-| `std/prelude.lux` | Self-hosted stdlib (26 functions: map, filter, fold, zip, find, partition, etc.) | **YES — Lux forever** |
+| `std/prelude.lux` | Self-hosted stdlib (38 functions: map, filter, fold, sort, enumerate, min, max, clamp, flat_map, unique, words, lines, etc.) | **YES — Lux forever** |
 | `examples/*.lux` | Language examples and test cases | **YES — Lux forever** |
 | `tests/examples.rs` | Golden-file integration tests + VM parity checks | Rewritten in Lux |
 
@@ -105,6 +105,7 @@ One mechanism replaces: exceptions, state, generators, async, DI, backtracking.
 | 6B | Multi-shot continuations via replay-based re-evaluation | HEAD |
 | 6C | Bytecode VM, module system, VM parity (15/15 examples) | 5787bb1..d933893 |
 | 6C+ | Pipe-aware calls, prelude expansion, exhaustive match warnings, assert | ffb8ae2..a23cbf9 |
+| 4 | Stdlib migration: sort/enumerate/min/max/clamp/flat_map/unique/words/lines to pure Lux; removed 10 shadowed Rust builtins | HEAD |
 
 ## Roadmap (beyond interpreter)
 
