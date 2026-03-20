@@ -271,12 +271,11 @@ impl Parser {
         let mut refs = Vec::new();
         refs.push(self.parse_effect_ref()?);
         while self.at_exact(&TokenKind::Comma) {
-            // Peek ahead: if after the comma there's an identifier (potential effect name),
+            // Peek ahead: if after the comma there's an identifier or `!` (negated effect),
             // keep parsing. But stop if we see `{` (body start) or other non-effect tokens.
-            // Since effect refs are `Name<T>`, we check for Ident after comma.
             let saved = self.pos;
             self.advance(); // consume comma
-            if matches!(self.peek(), TokenKind::Ident(_)) {
+            if matches!(self.peek(), TokenKind::Ident(_) | TokenKind::Bang) {
                 refs.push(self.parse_effect_ref()?);
             } else {
                 // Not an effect ref — backtrack
@@ -288,6 +287,13 @@ impl Parser {
     }
 
     fn parse_effect_ref(&mut self) -> Result<EffectRef, LuxError> {
+        // Check for negation: `!EffectName`
+        let negated = if self.at_exact(&TokenKind::Bang) {
+            self.advance(); // consume `!`
+            true
+        } else {
+            false
+        };
         let (name, span) = self.expect_ident()?;
         let mut type_args = Vec::new();
         if self.at_exact(&TokenKind::Lt) {
@@ -304,6 +310,7 @@ impl Parser {
         Ok(EffectRef {
             name,
             type_args,
+            negated,
             span,
         })
     }

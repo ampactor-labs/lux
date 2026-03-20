@@ -459,10 +459,16 @@ pub enum TypeExpr {
 }
 
 /// Reference to an effect in type annotations.
+///
+/// When `negated` is true, this represents a negation constraint (`!IO`):
+/// the function must NOT perform this effect. `Pure` (name="Pure", negated=false)
+/// means the function must have no effects at all.
 #[derive(Debug, Clone)]
 pub struct EffectRef {
     pub name: String,
     pub type_args: Vec<TypeExpr>,
+    /// True for `!IO`, `!Alloc` — negation constraints.
+    pub negated: bool,
     pub span: Span,
 }
 
