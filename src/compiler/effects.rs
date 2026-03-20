@@ -4,9 +4,10 @@
 //! which naturally handles cross-frame effect dispatch. State variables are
 //! passed as extra parameters after the effect operation's parameters.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::ast::{Expr, HandlerOp, StateBinding, StateUpdate};
+use crate::ast::{Expr, HandlerOp, StateBinding, StateUpdate, Stmt};
 use crate::error::LuxError;
 use crate::vm::chunk::{Constant, HandlerEntry, HandlerTable};
 use crate::vm::opcode::OpCode;
@@ -17,6 +18,118 @@ use super::compiler::Compiler;
 /// Maps state variable names to their indices in the handler's state array.
 pub(super) struct HandlerCtx {
     pub state_names: Vec<String>,
+    /// True if every handler clause in this handler is tail-resumptive.
+    pub tail_resumptive: bool,
+}
+
+/// Returns true if `expr` contains an `Expr::Perform` or a `Call` to a known effect op.
+///
+/// Conservative: returns `true` when uncertain (e.g., opaque sub-expressions).
+fn contains_effect_call(expr: &Expr, effect_ops: &HashMap<String, String>) -> bool {
+    match expr {
+        Expr::Perform { .. } => true,
+        Expr::Call { func, args, .. } => {
+            // A call whose function is a bare name that is a known effect op.
+            let callee_is_op =
+                matches!(func.as_ref(), Expr::Var(name, _) if effect_ops.contains_key(name));
+            if callee_is_op {
+                return true;
+            }
+            contains_effect_call(func, effect_ops)
+                || args.iter().any(|a| contains_effect_call(a, effect_ops))
+        }
+        Expr::Block { stmts, expr, .. } => {
+            stmts
+                .iter()
+                .any(|s| stmt_contains_effect_call(s, effect_ops))
+                || expr
+                    .as_ref()
+                    .is_some_and(|e| contains_effect_call(e, effect_ops))
+        }
+        Expr::Resume {
+            value,
+            state_updates,
+            ..
+        } => {
+            contains_effect_call(value, effect_ops)
+                || state_updates
+                    .iter()
+                    .any(|u| contains_effect_call(&u.value, effect_ops))
+        }
+        Expr::If {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            contains_effect_call(condition, effect_ops)
+                || contains_effect_call(then_branch, effect_ops)
+                || else_branch
+                    .as_ref()
+                    .is_some_and(|e| contains_effect_call(e, effect_ops))
+        }
+        Expr::Match {
+            scrutinee, arms, ..
+        } => {
+            contains_effect_call(scrutinee, effect_ops)
+                || arms
+                    .iter()
+                    .any(|a| contains_effect_call(&a.body, effect_ops))
+        }
+        Expr::BinOp { left, right, .. } => {
+            contains_effect_call(left, effect_ops) || contains_effect_call(right, effect_ops)
+        }
+        Expr::UnaryOp { operand, .. } => contains_effect_call(operand, effect_ops),
+        Expr::Pipe { left, right, .. } => {
+            contains_effect_call(left, effect_ops) || contains_effect_call(right, effect_ops)
+        }
+        Expr::Return { value, .. } => contains_effect_call(value, effect_ops),
+        Expr::Lambda { .. } => {
+            // Lambda bodies are a separate scope; conservatively say no effect call
+            // at this level (the lambda is not immediately invoked).
+            false
+        }
+        // Literals, Var, FieldAccess, Index, StringInterp, Handle, Assert — conservatively false.
+        _ => false,
+    }
+}
+
+fn stmt_contains_effect_call(stmt: &Stmt, effect_ops: &HashMap<String, String>) -> bool {
+    match stmt {
+        Stmt::Expr(e) => contains_effect_call(e, effect_ops),
+        Stmt::Let(decl) => contains_effect_call(&decl.value, effect_ops),
+        Stmt::FnDecl(_) => false,
+    }
+}
+
+/// Returns true if the handler body is tail-resumptive.
+///
+/// A handler is tail-resumptive when it always `resume`s with a plain value —
+/// no state updates, and the resumed value itself contains no effect calls.
+/// This means the continuation is never needed.
+fn is_tail_resumptive(body: &Expr, effect_ops: &HashMap<String, String>) -> bool {
+    match body {
+        Expr::Resume {
+            state_updates,
+            value,
+            ..
+        } => state_updates.is_empty() && !contains_effect_call(value, effect_ops),
+        Expr::Block { stmts, expr, .. } => {
+            // Statements must not contain effect calls.
+            if stmts
+                .iter()
+                .any(|s| stmt_contains_effect_call(s, effect_ops))
+            {
+                return false;
+            }
+            // Final expression must itself be tail-resumptive.
+            match expr {
+                Some(e) => is_tail_resumptive(e, effect_ops),
+                None => false,
+            }
+        }
+        _ => false,
+    }
 }
 
 impl Compiler {
@@ -118,10 +231,12 @@ impl Compiler {
 
                 let proto_idx = self.chunk.add_constant(Constant::FnProto(Arc::new(proto)));
                 let op_name_idx = self.chunk.intern_name(op_name);
+                let tail_res = is_tail_resumptive(handler_body, &self.effect_ops);
                 table.entries.push(HandlerEntry {
                     op_name_idx,
                     proto_idx,
                     param_count: params.len() as u8,
+                    tail_resumptive: tail_res,
                 });
             }
         }
@@ -179,8 +294,10 @@ impl Compiler {
         sub.scope.declare_local("resume");
 
         // Set handler context so Resume can resolve state update names.
+        let tail_res = is_tail_resumptive(body, &sub.effect_ops);
         sub.handler_ctx = Some(HandlerCtx {
             state_names: state_names.to_vec(),
+            tail_resumptive: tail_res,
         });
 
         // Compile handler body expression.
@@ -249,7 +366,12 @@ impl Compiler {
             .as_ref()
             .is_some_and(|ctx| !ctx.state_names.is_empty());
 
-        if state_updates.is_empty() && !handler_is_stateful {
+        let handler_is_tail_resumptive = self
+            .handler_ctx
+            .as_ref()
+            .is_some_and(|ctx| ctx.tail_resumptive);
+
+        if state_updates.is_empty() && !handler_is_stateful && !handler_is_tail_resumptive {
             if let Some(slot) = self.scope.resolve_local("resume") {
                 self.emit_op(OpCode::LoadLocal, line);
                 self.emit_u16(slot, line);

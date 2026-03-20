@@ -510,6 +510,9 @@ pub enum HandlerOp {
         op_name: String,
         params: Vec<String>,
         body: Expr,
+        /// True if the handler body is tail-resumptive (resume is the last action,
+        /// no state updates). Set by compiler/interpreter, not parser.
+        tail_resumptive: bool,
     },
     /// `use HandlerName` — delegate to a named handler
     UseHandler { name: String },

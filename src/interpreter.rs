@@ -1822,10 +1822,13 @@ impl Interpreter {
             // For stateless handlers: bind resume as a Continuation (multi-shot capable).
             // For stateful handlers: bind resume as a simple function that emits
             // Signal::Resume (state evolves and can't be replayed correctly).
+            // Note: tail-resumptive optimization is VM-only. The interpreter's
+            // continuation-based replay log accumulates through continuation chaining,
+            // so skipping continuations would break replay for later handlers.
             if self.handler_stack[frame_idx].state.is_empty() {
                 handler_env.set("resume", continuation);
             } else {
-                // Stateful handlers: bind resume as a builtin placeholder.
+                // Stateful/tail-resumptive handlers: bind resume as a builtin placeholder.
                 // The actual Signal::Resume is emitted in call_value's "resume" intercept.
                 handler_env.set(
                     "resume",

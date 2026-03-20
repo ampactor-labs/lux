@@ -552,6 +552,7 @@ impl Parser {
                 op_name,
                 params,
                 body,
+                tail_resumptive: false,
             },
             span,
         })

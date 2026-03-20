@@ -43,6 +43,8 @@ pub struct HandlerEntry {
     pub proto_idx: u16,
     /// Number of effect operation parameters (not including state vars).
     pub param_count: u8,
+    /// True if handler body is tail-resumptive (skip continuation capture).
+    pub tail_resumptive: bool,
 }
 
 /// Handler table — all handler clauses for one `handle { ... }` expression.

@@ -450,6 +450,7 @@ impl TypeEnv {
                     op_name,
                     params,
                     body,
+                    ..
                 } => {
                     // Look up the effect operation
                     let op_info = self.lookup_op(op_name).ok_or_else(|| TypeError {

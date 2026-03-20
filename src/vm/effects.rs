@@ -110,9 +110,12 @@ impl Vm {
 
             // Determine if this handler is stateless (multi-shot capable).
             let is_stateless = self.handler_stack[handler_idx].state.is_empty();
+            let is_tail_res = self.handler_stack[handler_idx].entries[entry_idx].tail_resumptive;
 
-            // Build continuation for stateless handlers.
-            let continuation = if is_stateless {
+            // Build continuation for stateless, non-tail-resumptive handlers.
+            // Tail-resumptive handlers never need a continuation — they always
+            // resume with a direct value and cannot be re-entered.
+            let continuation = if is_stateless && !is_tail_res {
                 // Capture replay log so far (entries consumed before this perform).
                 let replay_log_so_far = self
                     .replay_log
@@ -276,6 +279,7 @@ impl Vm {
                 op_name,
                 proto,
                 param_count: entry.param_count,
+                tail_resumptive: entry.tail_resumptive,
             });
         }
 
