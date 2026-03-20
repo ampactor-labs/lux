@@ -50,6 +50,11 @@ pub(super) struct Compiler {
             Vec<crate::ast::StateBinding>,
         ),
     >,
+    /// Maps effect op names to evidence local slot index for the current scope.
+    /// When a Perform encounters an op in this map, it emits PerformEvidence instead.
+    pub(super) evidence_slots: HashMap<String, u16>,
+    /// State slot base and count for the current evidence scope.
+    pub(super) evidence_state: Option<(u16, u8)>,
 }
 
 /// Loop compilation context.
@@ -77,6 +82,8 @@ impl Compiler {
             field_registry: HashMap::new(),
             pat_scratch_id: 0,
             handler_decls: HashMap::new(),
+            evidence_slots: HashMap::new(),
+            evidence_state: None,
         }
     }
 

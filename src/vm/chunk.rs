@@ -45,6 +45,8 @@ pub struct HandlerEntry {
     pub param_count: u8,
     /// True if handler body is tail-resumptive (skip continuation capture).
     pub tail_resumptive: bool,
+    /// True if handler body is evidence-eligible (can use direct call dispatch).
+    pub evidence_eligible: bool,
 }
 
 /// Handler table — all handler clauses for one `handle { ... }` expression.
@@ -187,6 +189,7 @@ impl Chunk {
                 | OpCode::MatchWildcard
                 | OpCode::PopHandler
                 | OpCode::MakeContinuation
+                | OpCode::PopEvidence
                 | OpCode::BreakLoop
                 | OpCode::ContinueLoop => {
                     out.push_str(&format!("{start:04}  {line:4} | {op:?}\n"));
@@ -343,6 +346,33 @@ impl Chunk {
                     offset += 1;
                     out.push_str(&format!(
                         "{start:04}  {line:4} | {op:?} table={table_idx} state_base={state_base} state_count={state_count}\n"
+                    ));
+                }
+                // PushEvidence: u16 table idx + u16 ev_local
+                OpCode::PushEvidence => {
+                    let table_idx = self.read_u16(offset);
+                    offset += 2;
+                    let ev_local = self.read_u16(offset);
+                    offset += 2;
+                    out.push_str(&format!(
+                        "{start:04}  {line:4} | {op:?} table={table_idx} ev_local={ev_local}\n"
+                    ));
+                }
+                // PerformEvidence: u16 ev_local + u16 op_name_idx + u8 argc
+                OpCode::PerformEvidence => {
+                    let ev_local = self.read_u16(offset);
+                    offset += 2;
+                    let name_idx = self.read_u16(offset);
+                    offset += 2;
+                    let argc = self.code[offset];
+                    offset += 1;
+                    let name = self
+                        .names
+                        .get(name_idx as usize)
+                        .cloned()
+                        .unwrap_or_default();
+                    out.push_str(&format!(
+                        "{start:04}  {line:4} | {op:?} ev_local={ev_local} {name} argc={argc}\n"
                     ));
                 }
             }

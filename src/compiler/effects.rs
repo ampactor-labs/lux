@@ -20,6 +20,8 @@ pub(super) struct HandlerCtx {
     pub state_names: Vec<String>,
     /// True if every handler clause in this handler is tail-resumptive.
     pub tail_resumptive: bool,
+    /// True if compiling in evidence mode (resume → Return, not Resume opcode).
+    pub evidence_mode: bool,
 }
 
 /// Returns true if `expr` contains an `Expr::Perform` or a `Call` to a known effect op.
@@ -132,6 +134,37 @@ fn is_tail_resumptive(body: &Expr, effect_ops: &HashMap<String, String>) -> bool
     }
 }
 
+/// Evidence-eligible: resume in tail position (with or without state updates),
+/// resumed value contains no effect calls. The handler never needs a continuation.
+///
+/// Key difference from `is_tail_resumptive`: state updates ARE allowed.
+/// Evidence-eligible handlers return state as part of their return value
+/// rather than writing it to the handler frame via the Resume opcode.
+fn is_evidence_eligible(body: &Expr, effect_ops: &HashMap<String, String>) -> bool {
+    match body {
+        Expr::Resume { value, .. } => !contains_effect_call(value, effect_ops),
+        Expr::Block { stmts, expr, .. } => {
+            stmts
+                .iter()
+                .all(|s| !stmt_contains_effect_call(s, effect_ops))
+                && expr
+                    .as_ref()
+                    .is_some_and(|e| is_evidence_eligible(e, effect_ops))
+        }
+        Expr::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            is_evidence_eligible(then_branch, effect_ops)
+                && else_branch
+                    .as_ref()
+                    .is_some_and(|e| is_evidence_eligible(e, effect_ops))
+        }
+        _ => false,
+    }
+}
+
 impl Compiler {
     /// Compile a `handle { body } [with state = init, ...] { handlers }` expression.
     ///
@@ -214,11 +247,34 @@ impl Compiler {
             }
         }
 
+        // Check if ALL handler ops are evidence-eligible for optimized dispatch.
+        let all_evidence_eligible = !expanded.is_empty()
+            && expanded.iter().all(|clause| {
+                matches!(&clause.operation, HandlerOp::OpHandler { body: hb, .. }
+                    if is_evidence_eligible(hb, &self.effect_ops))
+            });
+
+        if all_evidence_eligible {
+            self.compile_handle_evidence(body, &expanded, state_count, &state_names, line)
+        } else {
+            self.compile_handle_fallback(body, &expanded, state_count, &state_names, line)
+        }
+    }
+
+    /// Fallback handle compilation: PushHandler/Perform/Resume/PopHandler path.
+    fn compile_handle_fallback(
+        &mut self,
+        body: &Expr,
+        expanded: &[crate::ast::HandlerClause],
+        state_count: usize,
+        state_names: &[String],
+        line: u32,
+    ) -> Result<(), LuxError> {
         // Compile each handler body as a separate FnProto.
         let mut table = HandlerTable {
             entries: Vec::new(),
         };
-        for clause in &expanded {
+        for clause in expanded {
             if let HandlerOp::OpHandler {
                 op_name,
                 params,
@@ -227,16 +283,18 @@ impl Compiler {
             } = &clause.operation
             {
                 let proto =
-                    self.compile_handler_body(op_name, params, handler_body, &state_names, line)?;
+                    self.compile_handler_body(op_name, params, handler_body, state_names, line)?;
 
                 let proto_idx = self.chunk.add_constant(Constant::FnProto(Arc::new(proto)));
                 let op_name_idx = self.chunk.intern_name(op_name);
                 let tail_res = is_tail_resumptive(handler_body, &self.effect_ops);
+                let ev_eligible = is_evidence_eligible(handler_body, &self.effect_ops);
                 table.entries.push(HandlerEntry {
                     op_name_idx,
                     proto_idx,
                     param_count: params.len() as u8,
                     tail_resumptive: tail_res,
+                    evidence_eligible: ev_eligible,
                 });
             }
         }
@@ -246,7 +304,6 @@ impl Compiler {
         self.chunk.handler_tables.push(table);
 
         // Emit PushHandler: table_idx, state_count.
-        // state_slot_base is unused (0) — state is popped from stack.
         self.emit_op(OpCode::PushHandler, line);
         self.emit_u16(table_idx, line);
         self.emit_u16(0, line); // state_slot_base unused
@@ -257,6 +314,133 @@ impl Compiler {
 
         // PopHandler (body completed normally, result is on TOS).
         self.emit_op(OpCode::PopHandler, line);
+
+        Ok(())
+    }
+
+    /// Evidence-optimized handle compilation.
+    ///
+    /// Handler is still pushed onto the handler stack (for indirect effects via
+    /// function calls), but direct effect operations in the body use
+    /// `PerformEvidence` — a synchronous call through the evidence local that
+    /// skips handler stack search and continuation capture.
+    fn compile_handle_evidence(
+        &mut self,
+        body: &Expr,
+        expanded: &[crate::ast::HandlerClause],
+        state_count: usize,
+        state_names: &[String],
+        line: u32,
+    ) -> Result<(), LuxError> {
+        // 1. Compile normal handler bodies → handler table for PushHandler.
+        let mut normal_table = HandlerTable {
+            entries: Vec::new(),
+        };
+        for clause in expanded {
+            if let HandlerOp::OpHandler {
+                op_name,
+                params,
+                body: handler_body,
+                ..
+            } = &clause.operation
+            {
+                let proto =
+                    self.compile_handler_body(op_name, params, handler_body, state_names, line)?;
+                let proto_idx = self.chunk.add_constant(Constant::FnProto(Arc::new(proto)));
+                let op_name_idx = self.chunk.intern_name(op_name);
+                let tail_res = is_tail_resumptive(handler_body, &self.effect_ops);
+                normal_table.entries.push(HandlerEntry {
+                    op_name_idx,
+                    proto_idx,
+                    param_count: params.len() as u8,
+                    tail_resumptive: tail_res,
+                    evidence_eligible: true,
+                });
+            }
+        }
+        let normal_table_idx = self.chunk.handler_tables.len() as u16;
+        self.chunk.handler_tables.push(normal_table);
+
+        // 2. Compile evidence-mode handler bodies → handler table for PushEvidence.
+        let mut ev_table = HandlerTable {
+            entries: Vec::new(),
+        };
+        for clause in expanded {
+            if let HandlerOp::OpHandler {
+                op_name,
+                params,
+                body: handler_body,
+                ..
+            } = &clause.operation
+            {
+                let proto = self.compile_handler_body_evidence(
+                    op_name,
+                    params,
+                    handler_body,
+                    state_names,
+                    line,
+                )?;
+                let proto_idx = self.chunk.add_constant(Constant::FnProto(Arc::new(proto)));
+                let op_name_idx = self.chunk.intern_name(op_name);
+                ev_table.entries.push(HandlerEntry {
+                    op_name_idx,
+                    proto_idx,
+                    param_count: params.len() as u8,
+                    tail_resumptive: true,
+                    evidence_eligible: true,
+                });
+            }
+        }
+        let ev_table_idx = self.chunk.handler_tables.len() as u16;
+        self.chunk.handler_tables.push(ev_table);
+
+        // 3. Emit PushHandler (state inits consumed from stack, handler on stack).
+        self.emit_op(OpCode::PushHandler, line);
+        self.emit_u16(normal_table_idx, line);
+        self.emit_u16(0, line);
+        self.emit_u8(state_count as u8, line);
+
+        // 4. Allocate evidence local.
+        self.scope.begin_scope();
+        self.emit_op(OpCode::LoadUnit, line);
+        let ev_local = self.scope.declare_local("__evidence__");
+
+        // 5. Emit PushEvidence (VM constructs VmEvidence, stores in ev_local).
+        self.emit_op(OpCode::PushEvidence, line);
+        self.emit_u16(ev_table_idx, line);
+        self.emit_u16(ev_local, line);
+
+        // 6. Set evidence_slots for body compilation.
+        let saved_slots = std::mem::take(&mut self.evidence_slots);
+        let saved_state = self.evidence_state.take();
+        for clause in expanded {
+            if let HandlerOp::OpHandler { op_name, .. } = &clause.operation {
+                self.evidence_slots.insert(op_name.clone(), ev_local);
+            }
+        }
+
+        // 7. Compile handle body (direct Performs → PerformEvidence).
+        self.compile_expr(body)?;
+
+        // 8. Restore evidence state.
+        self.evidence_slots = saved_slots;
+        self.evidence_state = saved_state;
+
+        // 9. PopHandler (wraps result with state, pops handler from stack).
+        self.emit_op(OpCode::PopHandler, line);
+
+        // 10. Clean up evidence scope.
+        let pops = self.scope.end_scope();
+        if pops > 0 {
+            let temp_idx = self.chunk.intern_name("__ev_tmp__");
+            self.emit_op(OpCode::StoreGlobal, line);
+            self.emit_u16(temp_idx, line);
+            for _ in 0..pops {
+                self.emit_op(OpCode::Pop, line);
+            }
+            self.emit_op(OpCode::LoadGlobal, line);
+            self.emit_u16(temp_idx, line);
+        }
 
         Ok(())
     }
@@ -298,6 +482,7 @@ impl Compiler {
         sub.handler_ctx = Some(HandlerCtx {
             state_names: state_names.to_vec(),
             tail_resumptive: tail_res,
+            evidence_mode: false,
         });
 
         // Compile handler body expression.
@@ -310,6 +495,50 @@ impl Compiler {
         let mut proto = sub.finish();
         // +1 for the `resume` parameter
         proto.arity = (params.len() + state_names.len() + 1) as u16;
+        Ok(proto)
+    }
+
+    /// Compile a handler body in evidence mode — `resume` becomes `Return`.
+    ///
+    /// Parameters: `[effect_params..., state_vars...]` (no resume parameter).
+    /// The handler body returns the resume value directly (stateless) or a
+    /// tuple `(resume_value, new_state_0, ...)` (stateful).
+    fn compile_handler_body_evidence(
+        &mut self,
+        op_name: &str,
+        params: &[String],
+        body: &Expr,
+        state_names: &[String],
+        line: u32,
+    ) -> Result<crate::vm::chunk::FnProto, LuxError> {
+        let mut sub = Compiler::new(&format!("handler:ev:{op_name}"));
+        sub.effect_ops = self.effect_ops.clone();
+        sub.handler_decls = self.handler_decls.clone();
+        sub.scope.begin_scope();
+
+        // Declare effect params as locals.
+        for param in params {
+            sub.scope.declare_local(param);
+        }
+
+        // Declare state vars as locals (passed by VM as extra args).
+        for name in state_names {
+            sub.scope.declare_local(name);
+        }
+
+        // NO resume parameter — evidence mode uses Return instead.
+
+        sub.handler_ctx = Some(HandlerCtx {
+            state_names: state_names.to_vec(),
+            tail_resumptive: true,
+            evidence_mode: true,
+        });
+
+        sub.compile_expr(body)?;
+        sub.emit_op(OpCode::Return, line);
+
+        let mut proto = sub.finish();
+        proto.arity = (params.len() + state_names.len()) as u16;
         Ok(proto)
     }
 
@@ -326,12 +555,23 @@ impl Compiler {
     ) -> Result<(), LuxError> {
         let line = Self::current_line(span);
 
-        // Compile effect arguments.
+        // Evidence path: direct call through evidence local (no handler stack search).
+        if let Some(&ev_local) = self.evidence_slots.get(operation) {
+            for arg in args {
+                self.compile_expr(arg)?;
+            }
+            self.emit_op(OpCode::PerformEvidence, line);
+            self.emit_u16(ev_local, line);
+            let op_name_idx = self.chunk.intern_name(operation);
+            self.emit_u16(op_name_idx, line);
+            self.emit_u8(args.len() as u8, line);
+            return Ok(());
+        }
+
+        // Normal path: handler stack search.
         for arg in args {
             self.compile_expr(arg)?;
         }
-
-        // Emit Perform opcode.
         let op_name_idx = self.chunk.intern_name(operation);
         self.emit_op(OpCode::Perform, line);
         self.emit_u16(op_name_idx, line);
@@ -352,6 +592,37 @@ impl Compiler {
         span: &crate::token::Span,
     ) -> Result<(), LuxError> {
         let line = Self::current_line(span);
+
+        // Evidence mode: resume compiles to Return (value or state-return tuple).
+        if self
+            .handler_ctx
+            .as_ref()
+            .is_some_and(|ctx| ctx.evidence_mode)
+        {
+            let state_names = self.handler_ctx.as_ref().unwrap().state_names.clone();
+            if state_updates.is_empty() && state_names.is_empty() {
+                // Stateless: just return the resume value.
+                self.compile_expr(value)?;
+                self.emit_op(OpCode::Return, line);
+            } else {
+                // Stateful: return (resume_value, new_state_0, ...).
+                self.compile_expr(value)?;
+                for name in &state_names {
+                    if let Some(update) = state_updates.iter().find(|u| u.name == *name) {
+                        self.compile_expr(&update.value)?;
+                    } else {
+                        // State unchanged — load current value from local.
+                        let slot = self.scope.resolve_local(name).unwrap();
+                        self.emit_op(OpCode::LoadLocal, line);
+                        self.emit_u16(slot, line);
+                    }
+                }
+                self.emit_op(OpCode::MakeTuple, line);
+                self.emit_u16((1 + state_names.len()) as u16, line);
+                self.emit_op(OpCode::Return, line);
+            }
+            return Ok(());
+        }
 
         // Multi-shot path: call the `resume` local/upvalue as a continuation.
         // Only when there are no state updates AND we know the handler is stateless.

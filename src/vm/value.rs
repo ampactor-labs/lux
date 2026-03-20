@@ -33,6 +33,8 @@ pub enum VmValue {
     Continuation(Arc<VmContinuation>),
     /// Generator (coroutine-based, WASM-compatible).
     Generator(Arc<VmGenerator>),
+    /// Evidence for direct effect dispatch — handler operation table.
+    Evidence(Arc<VmEvidence>),
 }
 
 impl PartialEq for VmValue {
@@ -98,6 +100,29 @@ pub struct VmContinuation {
     pub outer_frame_count: usize,
 }
 
+/// Evidence for direct effect dispatch — compiled handler operations as callable protos.
+///
+/// In the hybrid approach, the handler is still on the handler stack (for
+/// indirect effects via function calls). Evidence provides a fast path for
+/// direct effect operations: `PerformEvidence` calls handler bodies directly
+/// through the evidence value — no handler stack search, no continuation capture.
+#[derive(Debug)]
+pub struct VmEvidence {
+    pub entries: Vec<VmEvidenceEntry>,
+    /// Index into `Vm.handler_stack` for the associated handler frame.
+    /// State is read/written from this handler frame, keeping state in sync
+    /// between evidence dispatch and normal handler stack dispatch.
+    pub handler_stack_idx: usize,
+}
+
+/// A single operation entry in an evidence value.
+#[derive(Debug)]
+pub struct VmEvidenceEntry {
+    pub op_name: String,
+    pub proto: Arc<FnProto>,
+    pub param_count: u8,
+}
+
 /// Generator state for coroutine-based yield.
 #[derive(Debug)]
 pub struct VmGenerator {
@@ -156,6 +181,7 @@ impl fmt::Display for VmValue {
             }
             VmValue::Continuation(_) => write!(f, "<continuation>"),
             VmValue::Generator(_) => write!(f, "<generator>"),
+            VmValue::Evidence(_) => write!(f, "<evidence>"),
         }
     }
 }

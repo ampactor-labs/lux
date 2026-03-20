@@ -9,7 +9,7 @@ use std::sync::Arc;
 use super::chunk::{Constant, FnProto};
 use super::error::VmError;
 use super::frame::{CallFrame, VmHandlerEntry, VmHandlerFrame};
-use super::value::{VmContinuation, VmValue};
+use super::value::{VmContinuation, VmEvidence, VmEvidenceEntry, VmValue};
 use super::vm::Vm;
 
 impl Vm {
@@ -280,6 +280,7 @@ impl Vm {
                 proto,
                 param_count: entry.param_count,
                 tail_resumptive: entry.tail_resumptive,
+                evidence_eligible: entry.evidence_eligible,
             });
         }
 
@@ -339,6 +340,163 @@ impl Vm {
             stack_base,
             has_func_slot: false, // handler body, no function value below
         });
+
+        Ok(())
+    }
+
+    // ── Evidence-passing (Phase 7+) ──────────────────────
+
+    /// Process the `PushEvidence` opcode.
+    ///
+    /// Resolves handler entries from the evidence handler table, constructs
+    /// a `VmEvidence` value, and stores it in the designated local slot.
+    /// The handler must already be on the handler stack (via PushHandler).
+    pub(super) fn op_push_evidence(&mut self, frame_idx: usize) -> Result<(), VmError> {
+        let table_idx = self.frames[frame_idx].read_u16() as usize;
+        let ev_local = self.frames[frame_idx].read_u16() as usize;
+
+        // Resolve handler entries from the evidence handler table.
+        let entries = self.resolve_handler_entries(frame_idx, table_idx)?;
+
+        // Convert to evidence entries.
+        let ev_entries: Vec<VmEvidenceEntry> = entries
+            .into_iter()
+            .map(|e| VmEvidenceEntry {
+                op_name: e.op_name,
+                proto: e.proto,
+                param_count: e.param_count,
+            })
+            .collect();
+
+        // Handler stack index is the topmost handler (just pushed by PushHandler).
+        let handler_stack_idx = self.handler_stack.len() - 1;
+
+        let evidence = VmEvidence {
+            entries: ev_entries,
+            handler_stack_idx,
+        };
+
+        // Store evidence in the pre-allocated local slot.
+        let base = self.frames[frame_idx].stack_base;
+        self.stack[base + ev_local] = VmValue::Evidence(Arc::new(evidence));
+
+        Ok(())
+    }
+
+    /// Process the `PerformEvidence` opcode.
+    ///
+    /// Direct call through evidence — skips handler stack search and
+    /// continuation capture. Calls the evidence-mode handler body
+    /// synchronously (nested `execute()`), then unpacks state from the
+    /// return tuple if the handler is stateful.
+    pub(super) fn op_perform_evidence(&mut self, frame_idx: usize) -> Result<(), VmError> {
+        let ev_local = self.frames[frame_idx].read_u16() as usize;
+        let op_name_idx = self.frames[frame_idx].read_u16();
+        let argc = self.frames[frame_idx].read_byte() as usize;
+
+        let base = self.frames[frame_idx].stack_base;
+
+        // Load evidence from local slot.
+        let evidence = match &self.stack[base + ev_local] {
+            VmValue::Evidence(ev) => ev.clone(),
+            _ => {
+                let line = self.frames[frame_idx].current_line();
+                return Err(VmError::new("expected evidence value in local slot", line));
+            }
+        };
+
+        // Resolve operation name from the current chunk.
+        let op_name = self.frames[frame_idx]
+            .proto
+            .chunk
+            .names
+            .get(op_name_idx as usize)
+            .cloned()
+            .unwrap_or_default();
+
+        // Find matching entry in evidence.
+        let entry = evidence.entries.iter().find(|e| e.op_name == op_name);
+        let entry = match entry {
+            Some(e) => e,
+            None => {
+                let line = self.frames[frame_idx].current_line();
+                return Err(VmError::new(
+                    format!("evidence missing handler for: {op_name}"),
+                    line,
+                ));
+            }
+        };
+        let proto = entry.proto.clone();
+        let h_idx = evidence.handler_stack_idx;
+
+        // Pop effect args from stack.
+        let args_start = self.stack.len() - argc;
+        let args: Vec<VmValue> = self.stack.drain(args_start..).collect();
+
+        // Get handler state from the handler stack (shared with normal Perform path).
+        let state = self.handler_stack[h_idx].state.clone();
+        let state_count = state.len();
+
+        // Build call frame for evidence handler body: [args..., state...].
+        let call_base = self.stack.len();
+        for arg in &args {
+            self.stack.push(arg.clone());
+        }
+        for s in &state {
+            self.stack.push(s.clone());
+        }
+
+        // Push extra locals (beyond params).
+        let total_params = argc + state_count;
+        let extra = (proto.local_count as usize).saturating_sub(total_params);
+        for _ in 0..extra {
+            self.stack.push(VmValue::Unit);
+        }
+
+        // Push call frame.
+        let target_depth = self.frames.len();
+        self.frames.push(CallFrame {
+            proto,
+            upvalues: Vec::new(),
+            ip: 0,
+            stack_base: call_base,
+            has_func_slot: false,
+        });
+
+        // Execute handler body to completion (nested execute).
+        let saved_depth = self.evidence_return_depth;
+        self.evidence_return_depth = Some(target_depth);
+        let result = self.execute();
+        self.evidence_return_depth = saved_depth;
+
+        let handler_result = match result {
+            Ok(Some(val)) => val,
+            Ok(None) => VmValue::Unit,
+            Err(e) => return Err(e),
+        };
+
+        // Process result: unpack state tuple if stateful.
+        if state_count > 0 {
+            if let VmValue::Tuple(elts) = &handler_result {
+                // Update handler state on the handler stack.
+                for i in 0..state_count {
+                    if let Some(val) = elts.get(i + 1) {
+                        self.handler_stack[h_idx].state[i] = val.clone();
+                    }
+                }
+                // Push resume value.
+                self.stack.push(elts[0].clone());
+            } else {
+                let line = self.frames.last().map(|f| f.current_line()).unwrap_or(0);
+                return Err(VmError::new(
+                    "evidence handler expected to return tuple for stateful handler",
+                    line,
+                ));
+            }
+        } else {
+            // Stateless: result is the resume value.
+            self.stack.push(handler_result);
+        }
 
         Ok(())
     }

@@ -76,6 +76,8 @@ pub struct VmHandlerEntry {
     pub param_count: u8,
     /// True if handler body is tail-resumptive (skip continuation capture).
     pub tail_resumptive: bool,
+    /// True if handler body is evidence-eligible (can use direct call dispatch).
+    pub evidence_eligible: bool,
 }
 
 /// An active effect handler on the handler stack.

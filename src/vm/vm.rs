@@ -49,6 +49,9 @@ pub struct Vm {
     /// When true, `PopHandler` at nesting depth 0 stops execution and returns TOS.
     /// Used during continuation replay to stop after the handle body completes.
     pub(super) stop_at_pop_handler: bool,
+    /// Target frame depth for evidence dispatch mini-loop. When set, the
+    /// `Return` opcode stops nested execution when frames drop to this count.
+    pub(super) evidence_return_depth: Option<usize>,
 }
 
 impl Default for Vm {
@@ -73,6 +76,7 @@ impl Vm {
             replay_log: None,
             replay_pos: 0,
             stop_at_pop_handler: false,
+            evidence_return_depth: None,
         };
         vm.register_builtins();
         vm
@@ -443,6 +447,13 @@ impl Vm {
                     self.stack.truncate(truncate_to);
                     self.frames.pop();
                     self.stack.push(result);
+
+                    // Evidence mini-loop: stop nested execution when target depth reached.
+                    if let Some(depth) = self.evidence_return_depth {
+                        if self.frames.len() <= depth {
+                            return Ok(self.stack.pop());
+                        }
+                    }
                 }
                 OpCode::CallBuiltin => {
                     let id = self.frames[frame_idx].read_u16();
@@ -688,6 +699,16 @@ impl Vm {
                         line,
                     ));
                 }
+                OpCode::PushEvidence => {
+                    self.op_push_evidence(frame_idx)?;
+                }
+                OpCode::PerformEvidence => {
+                    self.op_perform_evidence(frame_idx)?;
+                }
+                OpCode::PopEvidence => {
+                    // No-op: evidence local cleanup handled by scope end in compiler.
+                    // Handler state cleanup handled by PopHandler.
+                }
 
                 // ── Loops ─────────────────────────────────────────
                 OpCode::BreakLoop | OpCode::ContinueLoop => {
@@ -753,6 +774,7 @@ impl Vm {
             | OpCode::MatchWildcard
             | OpCode::PopHandler
             | OpCode::MakeContinuation
+            | OpCode::PopEvidence
             | OpCode::BreakLoop
             | OpCode::ContinueLoop => 0,
             // u8
@@ -785,6 +807,10 @@ impl Vm {
             OpCode::MakeVariant => 4,
             // u16 + u16 + u8
             OpCode::PushHandler => 5,
+            // u16 + u16
+            OpCode::PushEvidence => 4,
+            // u16 + u16 + u8
+            OpCode::PerformEvidence => 5,
             // MakeClosure: u16 proto idx (upvalues handled dynamically)
             OpCode::MakeClosure => 2, // base; upval descriptors skipped separately
             // Resume: u8 count + count * u16

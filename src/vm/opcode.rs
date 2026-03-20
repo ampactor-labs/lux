@@ -129,6 +129,14 @@ pub enum OpCode {
     Resume = 113,
     /// Create continuation value.
     MakeContinuation = 114,
+    /// Push evidence for effect dispatch (direct call path).
+    /// Operand: u16 table_idx, u16 ev_local.
+    PushEvidence = 115,
+    /// Perform via evidence (direct call, no handler stack search).
+    /// Operand: u16 ev_local, u16 op_name_idx, u8 argc.
+    PerformEvidence = 116,
+    /// Pop evidence scope (no-op, symmetry with PushEvidence).
+    PopEvidence = 117,
 
     // ── Loops ─────────────────────────────────────────────
     /// Break out of loop. Pops to loop boundary.
@@ -199,6 +207,9 @@ impl OpCode {
             112 => Some(Self::PopHandler),
             113 => Some(Self::Resume),
             114 => Some(Self::MakeContinuation),
+            115 => Some(Self::PushEvidence),
+            116 => Some(Self::PerformEvidence),
+            117 => Some(Self::PopEvidence),
             120 => Some(Self::BreakLoop),
             121 => Some(Self::ContinueLoop),
             130 => Some(Self::StringInterp),
