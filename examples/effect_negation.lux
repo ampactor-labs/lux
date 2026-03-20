@@ -1,0 +1,73 @@
+// Effect Negation — Compile-Time Capability Constraints
+//
+// Lux's effect algebra includes negation: `!Effect` proves a function
+// CANNOT perform that effect. This is checked at compile time and
+// erased at runtime — zero-cost safety proofs.
+//
+// What negation unlocks:
+//   !Alloc  → proves real-time safety (no allocation in call chain)
+//   !IO     → proves purity for parallelization / GPU offload
+//   Pure    → proves total absence of effects
+
+// ── Define capability effects ─────────────────────────────────────
+
+effect Alloc { alloc(size: Int) -> Int }
+effect Network { fetch(url: String) -> String }
+effect Log { log(msg: String) -> () }
+
+// ── Pure functions: no effects, provably safe ─────────────────────
+
+fn add(a: Int, b: Int) -> Int with Pure = a + b
+
+fn double(x: Int) -> Int with Pure = x * 2
+
+// ── Negation constraints: prove absence of specific effects ───────
+
+// This function can log, but provably cannot allocate or use network.
+fn safe_compute(x: Int) -> Int with Log, !Alloc, !Network {
+    log("computing: " ++ to_string(x))
+    // Calls a Pure function — compatible with any constraint
+    double(x) + 1
+}
+
+// ── Transitive safety: calling only safe functions ────────────────
+
+// !Network propagates transitively: if safe_compute can't use Network,
+// and this function only calls safe_compute and pure functions,
+// then this function also can't use Network.
+fn pipeline(x: Int) -> Int with Log, !Network {
+    let a = safe_compute(x)
+    let b = safe_compute(a)
+    log("pipeline result: " ++ to_string(b))
+    b
+}
+
+// ── Run the examples ──────────────────────────────────────────────
+
+println("=== Pure functions ===")
+println("add(2, 3) = " ++ to_string(add(2, 3)))
+println("double(21) = " ++ to_string(double(21)))
+
+println("")
+println("=== Negation-constrained function ===")
+let result = handle { safe_compute(21) } {
+    log(msg) => {
+        println("[log] " ++ msg)
+        resume(())
+    }
+}
+println("safe_compute(21) = " ++ to_string(result))
+
+println("")
+println("=== Transitive constraint propagation ===")
+let result2 = handle { pipeline(5) } {
+    log(msg) => {
+        println("[log] " ++ msg)
+        resume(())
+    }
+}
+println("pipeline(5) = " ++ to_string(result2))
+
+println("")
+println("Effect negation: compile-time proofs, zero runtime cost.")
+println("!Alloc = real-time safe. !IO = parallelizable. Pure = total purity.")

@@ -1,0 +1,16 @@
+=== Pure functions ===
+add(2, 3) = 5
+double(21) = 42
+
+=== Negation-constrained function ===
+[log] computing: 21
+safe_compute(21) = 43
+
+=== Transitive constraint propagation ===
+[log] computing: 5
+[log] computing: 11
+[log] pipeline result: 23
+pipeline(5) = 23
+
+Effect negation: compile-time proofs, zero runtime cost.
+!Alloc = real-time safe. !IO = parallelizable. Pure = total purity.
