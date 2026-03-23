@@ -1,0 +1,20 @@
+import compiler/parser
+import compiler/codegen
+
+println("=== load_chunk: Bootstrap Bridge ===")
+
+// Test 1: Simple expression
+let p1 = load_chunk(compile("println(1 + 2)"))
+p1()
+
+// Test 2: Function definition and call
+let src2 = "fn double(x) = x * 2\nprintln(double(21))"
+let p2 = load_chunk(compile(src2))
+p2()
+
+// Test 3: Variables and string concat
+let src3 = "let name = \"Lux\"\nprintln(\"Hello, \" ++ name ++ \"!\")"
+let p3 = load_chunk(compile(src3))
+p3()
+
+println("=== All programs compiled by Lux, executed by Lux ===")

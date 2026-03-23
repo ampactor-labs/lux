@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::chunk::{Constant, FnProto};
+use super::chunk::{Chunk, Constant, FnProto};
 use super::error::VmError;
 use super::frame::{CallFrame, VmHandlerFrame};
 use super::opcode::OpCode;
@@ -1353,11 +1353,169 @@ impl Vm {
                 _ => Err("write_file: expected (path, content) strings".to_string()),
             }
         });
+
+        // Bootstrap bridge: convert Lux-compiled chunk to executable closure
+        self.register_builtin("load_chunk", |args| {
+            match args.first() {
+                Some(VmValue::Tuple(chunk_tuple)) => {
+                    // Handle both ("chunk", code, constants, names) and (code, constants, names)
+                    let slice = if chunk_tuple.len() == 4 {
+                        // Tagged: ("chunk", code, constants, names)
+                        &chunk_tuple[1..]
+                    } else if chunk_tuple.len() == 3 {
+                        &chunk_tuple[..]
+                    } else {
+                        return Err(format!(
+                            "load_chunk: expected 3 or 4-element tuple, got {}",
+                            chunk_tuple.len()
+                        ));
+                    };
+                    let proto = Self::chunk_tuple_to_proto(slice, "<main>")?;
+                    Ok(VmValue::Closure(Arc::new(Closure {
+                        proto: Arc::new(proto),
+                        upvalues: Vec::new(),
+                    })))
+                }
+                _ => Err("load_chunk: expected chunk tuple".to_string()),
+            }
+        });
     }
 
     fn register_builtin(&mut self, name: &str, func: BuiltinFn) {
         let id = BuiltinId(self.builtins.len() as u16);
         self.builtins.push((name.to_string(), func));
         self.builtin_map.insert(name.to_string(), id);
+    }
+
+    /// Convert a Lux (code, constants, names) tuple into a Rust FnProto.
+    fn chunk_tuple_to_proto(
+        tuple: &[VmValue],
+        name: &str,
+    ) -> Result<FnProto, String> {
+        let code = Self::extract_code(&tuple[0])?;
+        let constants = Self::extract_constants(&tuple[1])?;
+        let names = Self::extract_names(&tuple[2])?;
+
+        let chunk = Chunk {
+            code,
+            lines: Vec::new(), // no debug lines from self-hosted compiler yet
+            constants,
+            names,
+            handler_tables: Vec::new(),
+            name: name.to_string(),
+        };
+
+        Ok(FnProto {
+            chunk,
+            arity: 0,
+            local_count: 0,
+            upval_count: 0,
+            name: Some(name.to_string()),
+            field_registry: HashMap::new(),
+        })
+    }
+
+    /// Convert Lux code list (List<Int>) to Vec<u8>.
+    fn extract_code(val: &VmValue) -> Result<Vec<u8>, String> {
+        match val {
+            VmValue::List(elems) => {
+                elems
+                    .iter()
+                    .map(|e| match e {
+                        VmValue::Int(n) => Ok(*n as u8),
+                        _ => Err("load_chunk: code must be List<Int>".to_string()),
+                    })
+                    .collect()
+            }
+            _ => Err("load_chunk: code must be a list".to_string()),
+        }
+    }
+
+    /// Convert Lux names list (List<String>) to Vec<String>.
+    fn extract_names(val: &VmValue) -> Result<Vec<String>, String> {
+        match val {
+            VmValue::List(elems) => {
+                elems
+                    .iter()
+                    .map(|e| match e {
+                        VmValue::String(s) => Ok((**s).clone()),
+                        _ => Err("load_chunk: names must be List<String>".to_string()),
+                    })
+                    .collect()
+            }
+            _ => Err("load_chunk: names must be a list".to_string()),
+        }
+    }
+
+    /// Convert Lux constants list to Vec<Constant>.
+    /// Handles ("fn_proto", name, arity, code, constants, names) tuples recursively.
+    fn extract_constants(val: &VmValue) -> Result<Vec<Constant>, String> {
+        match val {
+            VmValue::List(elems) => {
+                elems
+                    .iter()
+                    .map(|e| Self::extract_constant(e))
+                    .collect()
+            }
+            _ => Err("load_chunk: constants must be a list".to_string()),
+        }
+    }
+
+    fn extract_constant(val: &VmValue) -> Result<Constant, String> {
+        match val {
+            // ("int", n)
+            VmValue::Tuple(t) if t.len() == 2 => {
+                match (&t[0], &t[1]) {
+                    (VmValue::String(tag), VmValue::Int(n)) if tag.as_str() == "int" => {
+                        Ok(Constant::Int(*n))
+                    }
+                    (VmValue::String(tag), VmValue::Float(n)) if tag.as_str() == "float" => {
+                        Ok(Constant::Float(*n))
+                    }
+                    (VmValue::String(tag), VmValue::String(s)) if tag.as_str() == "string" => {
+                        Ok(Constant::String(s.clone()))
+                    }
+                    _ => Err(format!("load_chunk: unknown constant tuple: {val}")),
+                }
+            }
+            // ("fn_proto", name, arity, code, constants, names)
+            VmValue::Tuple(t) if t.len() == 6 => {
+                match &t[0] {
+                    VmValue::String(tag) if tag.as_str() == "fn_proto" => {
+                        let name = match &t[1] {
+                            VmValue::String(s) => s.as_str().to_string(),
+                            _ => "<anon>".to_string(),
+                        };
+                        let arity = match &t[2] {
+                            VmValue::Int(n) => *n as u16,
+                            _ => 0,
+                        };
+                        let code = Self::extract_code(&t[3])?;
+                        let constants = Self::extract_constants(&t[4])?;
+                        let names = Self::extract_names(&t[5])?;
+
+                        let chunk = Chunk {
+                            code,
+                            lines: Vec::new(),
+                            constants,
+                            names,
+                            handler_tables: Vec::new(),
+                            name: name.clone(),
+                        };
+
+                        Ok(Constant::FnProto(Arc::new(FnProto {
+                            chunk,
+                            arity,
+                            local_count: 0,
+                            upval_count: 0,
+                            name: Some(name),
+                            field_registry: HashMap::new(),
+                        })))
+                    }
+                    _ => Err(format!("load_chunk: unknown 6-tuple constant: {val}")),
+                }
+            }
+            _ => Err(format!("load_chunk: unknown constant: {val}")),
+        }
     }
 }

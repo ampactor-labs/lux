@@ -152,12 +152,13 @@ Pipeline: `lexer.rs` → `parser/` → `checker/` → `compiler/` → `vm/`
 Shared types: `token.rs`, `ast.rs`, `types.rs`, `error.rs`
 Frontend: `main.rs` (CLI), `repl.rs` (VM-backed REPL), `lib.rs` (prelude loader)
 
-**Self-hosted compiler (Lux-in-Lux, running on the Rust VM):**
+**Self-hosted compiler (Lux-in-Lux, self-compiling):**
 ```
 source → [lexer.lux] → [parser.lux] → [checker.lux] → [codegen.lux] → bytecode
 ```
-All four components working. The self-hosted compiler can parse, type-check,
-and emit bytecode for Lux programs. See `std/compiler/`.
+All four components working. **The compiler compiles its own source** (70,752 chars
+total). Includes match expressions, lambda/closures with upvalue capture, type
+declarations, Why Engine. See `std/compiler/`.
 
 Standard library: `std/prelude.lux`, `std/test.lux`, `std/types.lux`, `std/dsp/`, `std/ml/`
 
@@ -280,14 +281,15 @@ fn safe_v2(x: Float) -> Float with DSP - Network - Alloc { ... }  // subtraction
 | 9C | Self-hosted type checker (`std/compiler/checker.lux`) — HM type inference with unification, occurs check, and constraint propagation. Infers Int, String, Bool, List<T>, function types. | HEAD |
 | 9D | Self-hosted codegen (`std/compiler/codegen.lux`) — bytecode emitter producing correct opcodes for all core constructs + full disassembler. Lux compiles Lux. | 81b8ed7 |
 | 9E | Why Engine (`std/compiler/checker.lux`) — every type inference carries a Reason ADT tree. 14 reason variants. `check_and_explain(source, name, depth)` explains any binding at any depth. The compiler teaches, not just checks. | 3b2eae4 |
+| 9F | Self-compilation — match expressions, lambda/upvalue capture, type declarations, import paths, read_file builtin. All four compiler modules (70,752 chars) compile themselves. Disassembler refactored to 4 helpers. | 1b951f6 |
 
 ## Roadmap
 
 > Full roadmap: `docs/ROADMAP.md` (10 phases to ultimate Lux)
 
-**Completed:** Phases 1-8D (VM, effects, evidence passing, effect algebra, teaching compiler)
+**Completed:** Phases 1-9F (VM, effects, evidence passing, effect algebra, teaching compiler, self-compilation)
 
-**Current:** Self-hosted compiler pipeline (lexer → parser → checker → codegen) ALL working in Lux.
+**Current:** Self-hosted compiler compiles its entire source (70,752 chars). Next: `load_chunk` to execute Lux-compiled bytecode, then effect tracking in the self-hosted checker.
 
 **Next 10 Phases** (see ROADMAP.md for full details):
 
