@@ -213,6 +213,36 @@ programmer and machine.
 
 ---
 
+## Allocation IS an Effect
+
+Rust treats ownership as a type system feature. Lux treats it as an **effect**.
+
+Every allocation — list literals, string concatenation, `push`, `range` — performs
+the `Alloc` effect. The effect algebra handles the rest:
+
+- `Alloc` is **ambient** — you never need to declare it. Freedom is the default.
+- `with !Alloc` **negates** it — compile-time proof of zero allocation.
+- It propagates **transitively** — if any callee allocates, the checker catches it.
+- Teaching hints **hide** it — `Alloc` is an implementation detail, not signal.
+
+```lux
+fn dsp_process(x: Float) -> Float with !Alloc =
+    x |> gain(0.8) |> soft_clip   // pure math — allowed
+
+// fn bad(x: Float) with !Alloc = [x]
+//   error: performs effect 'Alloc' but declares '!Alloc'
+```
+
+Rust CANNOT express this. `Vec::push` is safe Rust and it allocates — there's
+no way to prove a function is allocation-free. In Lux, `!Alloc` propagates
+through the ENTIRE transitive call graph. One annotation, total proof.
+
+This is the effect algebra doing what it does: turning capability negation
+into a compile-time proof. No special ownership system needed — just the same
+mechanism that handles `!IO`, `!Network`, and `Pure`.
+
+---
+
 ## Self-Hosting IS the Proof
 
 The self-hosted compiler is not vanity. It's the ultimate test:
