@@ -572,9 +572,7 @@ impl Vm {
                                 // Anonymous record: parse field names from the tag itself.
                                 // Tag format: "#record:field1,field2,..."  (sorted)
                                 let field_list = &variant_name["#record:".len()..];
-                                let idx = field_list
-                                    .split(',')
-                                    .position(|n| n == field_name);
+                                let idx = field_list.split(',').position(|n| n == field_name);
                                 if let Some(idx) = idx {
                                     self.stack
                                         .push(fields.get(idx).cloned().unwrap_or(VmValue::Unit));
@@ -976,8 +974,7 @@ impl Vm {
                 }
 
                 let total_args = argc + evidence.len();
-                let extra_locals =
-                    (closure.proto.local_count as usize).saturating_sub(total_args);
+                let extra_locals = (closure.proto.local_count as usize).saturating_sub(total_args);
                 for _ in 0..extra_locals {
                     self.stack.push(VmValue::Unit);
                 }
@@ -1310,14 +1307,10 @@ impl Vm {
             _ => Err("round expects a number".into()),
         });
         self.register_builtin("atan2", |args| match (args.first(), args.get(1)) {
-            (Some(VmValue::Float(y)), Some(VmValue::Float(x))) => {
-                Ok(VmValue::Float(y.atan2(*x)))
-            }
+            (Some(VmValue::Float(y)), Some(VmValue::Float(x))) => Ok(VmValue::Float(y.atan2(*x))),
             _ => Err("atan2 expects two floats".into()),
         });
-        self.register_builtin("pi", |_args| {
-            Ok(VmValue::Float(std::f64::consts::PI))
-        });
+        self.register_builtin("pi", |_args| Ok(VmValue::Float(std::f64::consts::PI)));
         // ── String builtins for self-hosting ──────────────────────
         self.register_builtin("char_at", |args| match (args.first(), args.get(1)) {
             (Some(VmValue::String(s)), Some(VmValue::Int(i))) => {
@@ -1424,28 +1417,22 @@ impl Vm {
         });
 
         // File I/O — enables self-hosted compiler to compile from files
-        self.register_builtin("read_file", |args| {
-            match args.first() {
-                Some(VmValue::String(path)) => {
-                    match std::fs::read_to_string(path.as_ref()) {
-                        Ok(contents) => Ok(VmValue::String(Arc::new(contents))),
-                        Err(e) => Err(format!("read_file: {e}")),
-                    }
-                }
-                _ => Err("read_file: expected string path".to_string()),
-            }
+        self.register_builtin("read_file", |args| match args.first() {
+            Some(VmValue::String(path)) => match std::fs::read_to_string(path.as_ref()) {
+                Ok(contents) => Ok(VmValue::String(Arc::new(contents))),
+                Err(e) => Err(format!("read_file: {e}")),
+            },
+            _ => Err("read_file: expected string path".to_string()),
         });
 
-        self.register_builtin("write_file", |args| {
-            match (args.first(), args.get(1)) {
-                (Some(VmValue::String(path)), Some(VmValue::String(content))) => {
-                    match std::fs::write(path.as_ref(), content.as_ref()) {
-                        Ok(()) => Ok(VmValue::Unit),
-                        Err(e) => Err(format!("write_file: {e}")),
-                    }
+        self.register_builtin("write_file", |args| match (args.first(), args.get(1)) {
+            (Some(VmValue::String(path)), Some(VmValue::String(content))) => {
+                match std::fs::write(path.as_ref(), content.as_ref()) {
+                    Ok(()) => Ok(VmValue::Unit),
+                    Err(e) => Err(format!("write_file: {e}")),
                 }
-                _ => Err("write_file: expected (path, content) strings".to_string()),
             }
+            _ => Err("write_file: expected (path, content) strings".to_string()),
         });
 
         // Read a line from stdin, returning it as a string (without trailing newline)
@@ -1511,10 +1498,7 @@ impl Vm {
         self.builtin_map.insert(name.to_string(), id);
     }
 
-    fn chunk_tuple_to_proto(
-        tuple: &[VmValue],
-        name: &str,
-    ) -> Result<FnProto, String> {
+    fn chunk_tuple_to_proto(tuple: &[VmValue], name: &str) -> Result<FnProto, String> {
         let code = Self::extract_code(&tuple[0])?;
         let constants = Self::extract_constants(&tuple[1])?;
         let names = Self::extract_names(&tuple[2])?;
@@ -1548,12 +1532,10 @@ impl Vm {
     /// Each entry is (op_name_idx, proto_idx, param_count, tail_resumptive).
     fn extract_handler_tables(val: &VmValue) -> Result<Vec<HandlerTable>, String> {
         match val {
-            VmValue::List(tables) => {
-                tables
-                    .iter()
-                    .map(|table| Self::extract_handler_table(table))
-                    .collect()
-            }
+            VmValue::List(tables) => tables
+                .iter()
+                .map(|table| Self::extract_handler_table(table))
+                .collect(),
             _ => Ok(Vec::new()), // gracefully handle non-list
         }
     }
@@ -1608,15 +1590,13 @@ impl Vm {
     /// Convert Lux code list (List<Int>) to Vec<u8>.
     fn extract_code(val: &VmValue) -> Result<Vec<u8>, String> {
         match val {
-            VmValue::List(elems) => {
-                elems
-                    .iter()
-                    .map(|e| match e {
-                        VmValue::Int(n) => Ok(*n as u8),
-                        _ => Err("load_chunk: code must be List<Int>".to_string()),
-                    })
-                    .collect()
-            }
+            VmValue::List(elems) => elems
+                .iter()
+                .map(|e| match e {
+                    VmValue::Int(n) => Ok(*n as u8),
+                    _ => Err("load_chunk: code must be List<Int>".to_string()),
+                })
+                .collect(),
             _ => Err("load_chunk: code must be a list".to_string()),
         }
     }
@@ -1624,15 +1604,13 @@ impl Vm {
     /// Convert Lux names list (List<String>) to Vec<String>.
     fn extract_names(val: &VmValue) -> Result<Vec<String>, String> {
         match val {
-            VmValue::List(elems) => {
-                elems
-                    .iter()
-                    .map(|e| match e {
-                        VmValue::String(s) => Ok((**s).clone()),
-                        _ => Err("load_chunk: names must be List<String>".to_string()),
-                    })
-                    .collect()
-            }
+            VmValue::List(elems) => elems
+                .iter()
+                .map(|e| match e {
+                    VmValue::String(s) => Ok((**s).clone()),
+                    _ => Err("load_chunk: names must be List<String>".to_string()),
+                })
+                .collect(),
             _ => Err("load_chunk: names must be a list".to_string()),
         }
     }
@@ -1641,12 +1619,7 @@ impl Vm {
     /// Handles ("fn_proto", name, arity, code, constants, names) tuples recursively.
     fn extract_constants(val: &VmValue) -> Result<Vec<Constant>, String> {
         match val {
-            VmValue::List(elems) => {
-                elems
-                    .iter()
-                    .map(|e| Self::extract_constant(e))
-                    .collect()
-            }
+            VmValue::List(elems) => elems.iter().map(|e| Self::extract_constant(e)).collect(),
             _ => Err("load_chunk: constants must be a list".to_string()),
         }
     }
@@ -1654,79 +1627,75 @@ impl Vm {
     fn extract_constant(val: &VmValue) -> Result<Constant, String> {
         match val {
             // ("int", n)
-            VmValue::Tuple(t) if t.len() == 2 => {
-                match (&t[0], &t[1]) {
-                    (VmValue::String(tag), VmValue::Int(n)) if tag.as_str() == "int" => {
-                        Ok(Constant::Int(*n))
-                    }
-                    (VmValue::String(tag), VmValue::Float(n)) if tag.as_str() == "float" => {
-                        Ok(Constant::Float(*n))
-                    }
-                    (VmValue::String(tag), VmValue::String(s)) if tag.as_str() == "string" => {
-                        Ok(Constant::String(s.clone()))
-                    }
-                    _ => Err(format!("load_chunk: unknown constant tuple: {val}")),
+            VmValue::Tuple(t) if t.len() == 2 => match (&t[0], &t[1]) {
+                (VmValue::String(tag), VmValue::Int(n)) if tag.as_str() == "int" => {
+                    Ok(Constant::Int(*n))
                 }
-            }
+                (VmValue::String(tag), VmValue::Float(n)) if tag.as_str() == "float" => {
+                    Ok(Constant::Float(*n))
+                }
+                (VmValue::String(tag), VmValue::String(s)) if tag.as_str() == "string" => {
+                    Ok(Constant::String(s.clone()))
+                }
+                _ => Err(format!("load_chunk: unknown constant tuple: {val}")),
+            },
             // ("fn_proto", name, arity, code, constants, names, local_count) or
             // ("fn_proto", name, arity, code, constants, names, local_count, upval_count)
-            VmValue::Tuple(t) if t.len() >= 6 && t.len() <= 8 => {
-                match &t[0] {
-                    VmValue::String(tag) if tag.as_str() == "fn_proto" => {
-                        let name = match &t[1] {
-                            VmValue::String(s) => s.as_str().to_string(),
-                            _ => "<anon>".to_string(),
-                        };
-                        let arity = match &t[2] {
+            VmValue::Tuple(t) if t.len() >= 6 && t.len() <= 8 => match &t[0] {
+                VmValue::String(tag) if tag.as_str() == "fn_proto" => {
+                    let name = match &t[1] {
+                        VmValue::String(s) => s.as_str().to_string(),
+                        _ => "<anon>".to_string(),
+                    };
+                    let arity = match &t[2] {
+                        VmValue::Int(n) => *n as u16,
+                        _ => 0,
+                    };
+                    let code = Self::extract_code(&t[3])?;
+                    let constants = Self::extract_constants(&t[4])?;
+                    let names = Self::extract_names(&t[5])?;
+                    let local_count = if t.len() >= 7 {
+                        match &t[6] {
                             VmValue::Int(n) => *n as u16,
                             _ => 0,
-                        };
-                        let code = Self::extract_code(&t[3])?;
-                        let constants = Self::extract_constants(&t[4])?;
-                        let names = Self::extract_names(&t[5])?;
-                        let local_count = if t.len() >= 7 {
-                            match &t[6] {
-                                VmValue::Int(n) => *n as u16,
-                                _ => 0,
-                            }
-                        } else {
-                            0
-                        };
-                        let upval_count = if t.len() >= 8 {
-                            match &t[7] {
-                                VmValue::Int(n) => *n as u16,
-                                _ => 0,
-                            }
-                        } else {
-                            0
-                        };
-                        let handler_tables = if t.len() >= 9 {
-                            Self::extract_handler_tables(&t[8])?
-                        } else {
-                            Vec::new()
-                        };
+                        }
+                    } else {
+                        0
+                    };
+                    let upval_count = if t.len() >= 8 {
+                        match &t[7] {
+                            VmValue::Int(n) => *n as u16,
+                            _ => 0,
+                        }
+                    } else {
+                        0
+                    };
+                    let handler_tables = if t.len() >= 9 {
+                        Self::extract_handler_tables(&t[8])?
+                    } else {
+                        Vec::new()
+                    };
 
-                        let chunk = Chunk {
-                            code,
-                            lines: Vec::new(),
-                            constants,
-                            names,
-                            handler_tables,
-                            name: name.clone(),
-                        };
+                    let chunk = Chunk {
+                        code,
+                        lines: Vec::new(),
+                        constants,
+                        names,
+                        handler_tables,
+                        name: name.clone(),
+                    };
 
-                        Ok(Constant::FnProto(Arc::new(FnProto {
-                            chunk,
-                            arity,
-                            local_count,
-                            upval_count,
-                            name: Some(name),
-                            field_registry: HashMap::new(),
-                        })))
-                    }
-                    _ => Err(format!("load_chunk: unknown 6-tuple constant: {val}")),
+                    Ok(Constant::FnProto(Arc::new(FnProto {
+                        chunk,
+                        arity,
+                        local_count,
+                        upval_count,
+                        name: Some(name),
+                        field_registry: HashMap::new(),
+                    })))
                 }
-            }
+                _ => Err(format!("load_chunk: unknown 6-tuple constant: {val}")),
+            },
             _ => Err(format!("load_chunk: unknown constant: {val}")),
         }
     }

@@ -147,9 +147,7 @@ impl Parser {
                         let decl = self.parse_fn_decl()?;
                         stmts.push(Stmt::FnDecl(decl));
                         self.skip_semis();
-                    } else if self.at_exact(&TokenKind::Eof)
-                        || self.at_exact(&TokenKind::RBrace)
-                    {
+                    } else if self.at_exact(&TokenKind::Eof) || self.at_exact(&TokenKind::RBrace) {
                         break;
                     } else {
                         // Try parsing a trailing expression — the final value
@@ -162,14 +160,20 @@ impl Parser {
                 let end = final_expr
                     .as_ref()
                     .map(|e| e.span().end)
-                    .or_else(|| stmts.last().map(|s| match s {
-                        Stmt::Let(d) => d.span.end,
-                        Stmt::Expr(e) => e.span().end,
-                        Stmt::FnDecl(d) => d.span.end,
-                    }))
+                    .or_else(|| {
+                        stmts.last().map(|s| match s {
+                            Stmt::Let(d) => d.span.end,
+                            Stmt::Expr(e) => e.span().end,
+                            Stmt::FnDecl(d) => d.span.end,
+                        })
+                    })
                     .unwrap_or(block_start.end);
                 let span = Span::new(block_start.start, end, block_start.line, block_start.column);
-                Expr::Block { stmts, expr: final_expr, span }
+                Expr::Block {
+                    stmts,
+                    expr: final_expr,
+                    span,
+                }
             } else {
                 self.parse_expr()?
             }

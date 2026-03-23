@@ -210,7 +210,12 @@ impl Parser {
                         }
                     }
                     let end_tok = self.expect(&TokenKind::RBrace)?;
-                    let span = Span::new(start_span.start, end_tok.span.end, start_span.line, start_span.column);
+                    let span = Span::new(
+                        start_span.start,
+                        end_tok.span.end,
+                        start_span.line,
+                        start_span.column,
+                    );
                     Ok(Expr::RecordLit { fields, span })
                 } else {
                     self.parse_block_expr()

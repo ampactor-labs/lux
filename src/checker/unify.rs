@@ -11,7 +11,10 @@ use crate::ast::TypeExpr;
 
 /// Check if a type is a runtime primitive (dynamically typed in the VM).
 fn is_primitive(ty: &Type) -> bool {
-    matches!(ty, Type::Int | Type::Float | Type::String | Type::Bool | Type::Unit)
+    matches!(
+        ty,
+        Type::Int | Type::Float | Type::String | Type::Bool | Type::Unit
+    )
 }
 
 #[allow(clippy::result_large_err)]

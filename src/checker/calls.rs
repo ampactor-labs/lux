@@ -319,7 +319,10 @@ impl TypeEnv {
                 span: pat_span,
             } => {
                 let (adt_name, idx) = self.lookup_constructor(name).ok_or_else(|| TypeError {
-                    kind: TypeErrorKind::UnboundVariable { name: name.clone(), suggestion: None },
+                    kind: TypeErrorKind::UnboundVariable {
+                        name: name.clone(),
+                        suggestion: None,
+                    },
                     span: pat_span.clone(),
                 })?;
                 let adt_def = self
@@ -363,7 +366,10 @@ impl TypeEnv {
                 span: pat_span,
             } => {
                 let (adt_name, idx) = self.lookup_constructor(name).ok_or_else(|| TypeError {
-                    kind: TypeErrorKind::UnboundVariable { name: name.clone(), suggestion: None },
+                    kind: TypeErrorKind::UnboundVariable {
+                        name: name.clone(),
+                        suggestion: None,
+                    },
                     span: pat_span.clone(),
                 })?;
                 let adt_def = self

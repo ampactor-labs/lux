@@ -74,7 +74,10 @@ fn vm_matches_golden_files() {
         // Examples importing self-hosted modules need --no-check due to a
         // known evidence-passing limitation in the Rust compiler. The
         // Lux-in-Lux compiler will resolve this.
-        let needs_no_check = name == "parser_test" || name == "lexer_test" || name == "checker_test" || name == "codegen_test";
+        let needs_no_check = name == "parser_test"
+            || name == "lexer_test"
+            || name == "checker_test"
+            || name == "codegen_test";
 
         let expected = std::fs::read_to_string(expected_file)
             .unwrap_or_else(|e| panic!("can't read {expected_file}: {e}"));

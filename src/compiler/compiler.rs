@@ -60,7 +60,6 @@ pub(super) struct Compiler {
     pub(super) evidence_state: Option<(u16, u8)>,
     /// Side table mapping expression/declaration spans to required evidence arguments.
     pub(super) effect_routing: HashMap<crate::token::Span, Vec<String>>,
-
 }
 
 /// Loop compilation context.
@@ -100,9 +99,9 @@ impl Compiler {
             Expr::FloatLit(f, _) => Some(FoldedConst::Float(*f)),
             Expr::BoolLit(b, _) => Some(FoldedConst::Bool(*b)),
             Expr::StringLit(s, _) => Some(FoldedConst::Str(s.clone())),
-            Expr::BinOp { op, left, right, .. } => {
-                Self::try_const_fold(op, left, right)
-            }
+            Expr::BinOp {
+                op, left, right, ..
+            } => Self::try_const_fold(op, left, right),
             Expr::UnaryOp { op, operand, .. } => {
                 let val = Self::try_eval_const(operand)?;
                 match (op, val) {
@@ -122,28 +121,60 @@ impl Compiler {
         let rhs = Self::try_eval_const(right)?;
         match (op, lhs, rhs) {
             // Int arithmetic
-            (BinOp::Add, FoldedConst::Int(a), FoldedConst::Int(b)) => Some(FoldedConst::Int(a.wrapping_add(b))),
-            (BinOp::Sub, FoldedConst::Int(a), FoldedConst::Int(b)) => Some(FoldedConst::Int(a.wrapping_sub(b))),
-            (BinOp::Mul, FoldedConst::Int(a), FoldedConst::Int(b)) => Some(FoldedConst::Int(a.wrapping_mul(b))),
-            (BinOp::Div, FoldedConst::Int(a), FoldedConst::Int(b)) if b != 0 => Some(FoldedConst::Int(a / b)),
-            (BinOp::Mod, FoldedConst::Int(a), FoldedConst::Int(b)) if b != 0 => Some(FoldedConst::Int(a % b)),
+            (BinOp::Add, FoldedConst::Int(a), FoldedConst::Int(b)) => {
+                Some(FoldedConst::Int(a.wrapping_add(b)))
+            }
+            (BinOp::Sub, FoldedConst::Int(a), FoldedConst::Int(b)) => {
+                Some(FoldedConst::Int(a.wrapping_sub(b)))
+            }
+            (BinOp::Mul, FoldedConst::Int(a), FoldedConst::Int(b)) => {
+                Some(FoldedConst::Int(a.wrapping_mul(b)))
+            }
+            (BinOp::Div, FoldedConst::Int(a), FoldedConst::Int(b)) if b != 0 => {
+                Some(FoldedConst::Int(a / b))
+            }
+            (BinOp::Mod, FoldedConst::Int(a), FoldedConst::Int(b)) if b != 0 => {
+                Some(FoldedConst::Int(a % b))
+            }
             // Float arithmetic
-            (BinOp::Add, FoldedConst::Float(a), FoldedConst::Float(b)) => Some(FoldedConst::Float(a + b)),
-            (BinOp::Sub, FoldedConst::Float(a), FoldedConst::Float(b)) => Some(FoldedConst::Float(a - b)),
-            (BinOp::Mul, FoldedConst::Float(a), FoldedConst::Float(b)) => Some(FoldedConst::Float(a * b)),
-            (BinOp::Div, FoldedConst::Float(a), FoldedConst::Float(b)) if b != 0.0 => Some(FoldedConst::Float(a / b)),
+            (BinOp::Add, FoldedConst::Float(a), FoldedConst::Float(b)) => {
+                Some(FoldedConst::Float(a + b))
+            }
+            (BinOp::Sub, FoldedConst::Float(a), FoldedConst::Float(b)) => {
+                Some(FoldedConst::Float(a - b))
+            }
+            (BinOp::Mul, FoldedConst::Float(a), FoldedConst::Float(b)) => {
+                Some(FoldedConst::Float(a * b))
+            }
+            (BinOp::Div, FoldedConst::Float(a), FoldedConst::Float(b)) if b != 0.0 => {
+                Some(FoldedConst::Float(a / b))
+            }
             // Int comparisons
-            (BinOp::Eq, FoldedConst::Int(a), FoldedConst::Int(b)) => Some(FoldedConst::Bool(a == b)),
-            (BinOp::Neq, FoldedConst::Int(a), FoldedConst::Int(b)) => Some(FoldedConst::Bool(a != b)),
+            (BinOp::Eq, FoldedConst::Int(a), FoldedConst::Int(b)) => {
+                Some(FoldedConst::Bool(a == b))
+            }
+            (BinOp::Neq, FoldedConst::Int(a), FoldedConst::Int(b)) => {
+                Some(FoldedConst::Bool(a != b))
+            }
             (BinOp::Lt, FoldedConst::Int(a), FoldedConst::Int(b)) => Some(FoldedConst::Bool(a < b)),
-            (BinOp::LtEq, FoldedConst::Int(a), FoldedConst::Int(b)) => Some(FoldedConst::Bool(a <= b)),
+            (BinOp::LtEq, FoldedConst::Int(a), FoldedConst::Int(b)) => {
+                Some(FoldedConst::Bool(a <= b))
+            }
             (BinOp::Gt, FoldedConst::Int(a), FoldedConst::Int(b)) => Some(FoldedConst::Bool(a > b)),
-            (BinOp::GtEq, FoldedConst::Int(a), FoldedConst::Int(b)) => Some(FoldedConst::Bool(a >= b)),
+            (BinOp::GtEq, FoldedConst::Int(a), FoldedConst::Int(b)) => {
+                Some(FoldedConst::Bool(a >= b))
+            }
             // Bool comparisons
-            (BinOp::Eq, FoldedConst::Bool(a), FoldedConst::Bool(b)) => Some(FoldedConst::Bool(a == b)),
-            (BinOp::Neq, FoldedConst::Bool(a), FoldedConst::Bool(b)) => Some(FoldedConst::Bool(a != b)),
+            (BinOp::Eq, FoldedConst::Bool(a), FoldedConst::Bool(b)) => {
+                Some(FoldedConst::Bool(a == b))
+            }
+            (BinOp::Neq, FoldedConst::Bool(a), FoldedConst::Bool(b)) => {
+                Some(FoldedConst::Bool(a != b))
+            }
             // String concat
-            (BinOp::Concat, FoldedConst::Str(a), FoldedConst::Str(b)) => Some(FoldedConst::Str(a + &b)),
+            (BinOp::Concat, FoldedConst::Str(a), FoldedConst::Str(b)) => {
+                Some(FoldedConst::Str(a + &b))
+            }
             _ => None,
         }
     }
@@ -165,7 +196,6 @@ impl Compiler {
             evidence_slots: HashMap::new(),
             evidence_state: None,
             effect_routing,
-
         }
     }
 
@@ -1084,7 +1114,8 @@ impl Compiler {
                 let line = Self::current_line(span);
                 // Sort by field name — same canonical order as the type checker.
                 // { y: 4, x: 3 } and { x: 3, y: 4 } have identical layout.
-                let mut sorted: Vec<(&String, &Expr)> = fields.iter().map(|(n, e)| (n, e)).collect();
+                let mut sorted: Vec<(&String, &Expr)> =
+                    fields.iter().map(|(n, e)| (n, e)).collect();
                 sorted.sort_by_key(|(n, _)| n.as_str());
 
                 for (_, value) in &sorted {
