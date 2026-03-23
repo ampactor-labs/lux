@@ -357,7 +357,7 @@ impl TypeEnv {
             _ => {
                 // Literal, Variant, Or patterns not supported in let destructuring
                 Err(TypeError {
-                    kind: TypeErrorKind::NonExhaustiveMatch,
+                    kind: TypeErrorKind::NonExhaustiveMatch { missing: vec![] },
                     span: span.clone(),
                 })
             }

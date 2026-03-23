@@ -239,7 +239,7 @@ pub enum TypeErrorKind {
         constraint: String,
     },
     InfiniteType,
-    NonExhaustiveMatch,
+    NonExhaustiveMatch { missing: Vec<String> },
     DuplicateDefinition(String),
     UnboundStateVar(String),
 }
@@ -383,8 +383,9 @@ impl fmt::Display for TypeError {
             TypeErrorKind::InfiniteType => {
                 write!(f, "infinite type at line {}", self.span.line)
             }
-            TypeErrorKind::NonExhaustiveMatch => {
-                write!(f, "non-exhaustive match at line {}", self.span.line)
+            TypeErrorKind::NonExhaustiveMatch { missing } => {
+                let names = missing.join(", ");
+                write!(f, "non-exhaustive match at line {} — missing: {names}", self.span.line)
             }
             TypeErrorKind::DuplicateDefinition(name) => {
                 write!(
@@ -472,7 +473,10 @@ impl LuxError {
                     format!("performs effect '{effect}' but declares '{constraint}'")
                 }
                 TypeErrorKind::InfiniteType => "infinite type".to_string(),
-                TypeErrorKind::NonExhaustiveMatch => "non-exhaustive match".to_string(),
+                TypeErrorKind::NonExhaustiveMatch { missing } => {
+                    let names = missing.join(", ");
+                    format!("non-exhaustive match — missing: {names}")
+                }
                 TypeErrorKind::DuplicateDefinition(name) => {
                     format!("duplicate definition '{name}'")
                 }

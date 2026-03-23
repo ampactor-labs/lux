@@ -256,7 +256,9 @@ impl TypeEnv {
 
         if !missing.is_empty() {
             return Err(TypeError {
-                kind: TypeErrorKind::NonExhaustiveMatch,
+                kind: TypeErrorKind::NonExhaustiveMatch {
+                    missing: missing.iter().map(|s| s.to_string()).collect(),
+                },
                 span: span.clone(),
             });
         }
