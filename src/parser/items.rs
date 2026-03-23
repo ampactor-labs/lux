@@ -211,6 +211,19 @@ impl Parser {
     }
 
     pub(crate) fn parse_param(&mut self) -> Result<Param, LuxError> {
+        // Check for ownership annotations: `own x: T` or `ref x: T`
+        let ownership = match self.peek() {
+            TokenKind::Own if self.peek_next_is_ident() => {
+                self.advance(); // consume `own`
+                crate::ast::Ownership::Own
+            }
+            TokenKind::Ref if self.peek_next_is_ident() => {
+                self.advance(); // consume `ref`
+                crate::ast::Ownership::Ref
+            }
+            _ => crate::ast::Ownership::Inferred,
+        };
+
         let (name, span) = self.expect_ident()?;
         let type_ann = if self.at_exact(&TokenKind::Colon) {
             self.advance();
@@ -220,6 +233,7 @@ impl Parser {
         };
         Ok(Param {
             name,
+            ownership,
             type_ann,
             span,
         })

@@ -48,7 +48,7 @@ println("=== Mixed capabilities and constraints ===")
 // Custom effect after import — previously broken by builtin name shadowing
 effect Log { log(msg: String) -> () }
 
-fn logged_safe(x: Float) -> Float with Log - Network - Alloc {
+fn logged_safe(x: Float) -> Float with Log - Network {
     log("processing: " ++ to_string(x))
     x |> soft_clip
 }

@@ -364,6 +364,13 @@ impl TypeEnv {
                     declared.insert(&eff_ref.name);
                 }
                 for eff in body_effects.effects() {
+                    // Alloc is an ambient/implicit effect — always allowed
+                    // unless explicitly negated with !Alloc (checked below).
+                    // This follows the annotation gradient: allocation is the
+                    // default, you opt INTO restriction.
+                    if eff.name == "Alloc" {
+                        continue;
+                    }
                     if !declared.contains(&eff.name) {
                         return Err(TypeError {
                             kind: TypeErrorKind::UnhandledEffect(eff.name.clone()),
@@ -373,9 +380,10 @@ impl TypeEnv {
                 }
             }
 
-            // Pure constraint: body must have no effects
+            // Pure constraint: body must have no observable effects
+            // (Alloc is an implementation detail, not an observable effect)
             if has_pure {
-                if let Some(eff) = body_effects.effects().iter().next() {
+                if let Some(eff) = body_effects.effects().iter().find(|e| e.name != "Alloc") {
                     return Err(TypeError {
                         kind: TypeErrorKind::EffectConstraintViolation {
                             effect: eff.name.clone(),
@@ -447,7 +455,12 @@ impl TypeEnv {
 
         let mut suggestions = Vec::new();
 
-        if effects.is_pure() {
+        // Alloc is an implementation detail — only observable effects
+        // (Console, State, IO, etc.) determine if a function is "pure"
+        // for teaching purposes.
+        let observable_pure = effects.effects().iter().all(|e| e.name == "Alloc");
+
+        if observable_pure {
             suggestions.push(HintSuggestion {
                 annotation: "with Pure".to_string(),
                 unlocks: "parallelization, memoization, compile-time evaluation".to_string(),
@@ -466,7 +479,7 @@ impl TypeEnv {
         }
 
         self.hints.push(CompilerHint {
-            kind: if effects.is_pure() {
+            kind: if observable_pure {
                 HintKind::PurityOpportunity
             } else {
                 HintKind::EffectsUndeclared
@@ -572,19 +585,25 @@ fn friendly_type(ty: &Type, var_names: &std::collections::HashMap<u32, char>) ->
 }
 
 /// Format an effect row with friendly display (open rows show as "effects, ..."
-/// instead of "effects, E0").
+/// instead of "effects, E0"). Alloc is filtered out — it's an
+/// implementation detail, not an observable effect.
 fn friendly_effects(row: &EffectRow) -> String {
     match row {
-        EffectRow::Closed(s) if s.is_empty() => "Pure".to_string(),
         EffectRow::Closed(s) => {
-            let names: Vec<&str> = s.iter().map(|e| e.name.as_str()).collect();
-            names.join(", ")
+            let names: Vec<&str> = s.iter()
+                .filter(|e| e.name != "Alloc")
+                .map(|e| e.name.as_str())
+                .collect();
+            if names.is_empty() { "Pure".to_string() } else { names.join(", ") }
         }
         EffectRow::Open { known, .. } => {
-            if known.is_empty() {
+            let names: Vec<&str> = known.iter()
+                .filter(|e| e.name != "Alloc")
+                .map(|e| e.name.as_str())
+                .collect();
+            if names.is_empty() {
                 "...".to_string()
             } else {
-                let names: Vec<&str> = known.iter().map(|e| e.name.as_str()).collect();
                 format!("{}, ...", names.join(", "))
             }
         }

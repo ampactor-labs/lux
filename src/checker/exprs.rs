@@ -105,7 +105,8 @@ impl TypeEnv {
 
             Expr::List(elems, span) => {
                 let elem_ty = self.fresh_var();
-                let mut effs = EffectRow::pure();
+                // List literals allocate — emit Alloc effect
+                let mut effs = EffectRow::single("Alloc");
                 for e in elems {
                     let (ty, eff) = self.infer_expr(e)?;
                     self.unify(&ty, &elem_ty, span)?;
@@ -520,10 +521,12 @@ impl TypeEnv {
                 Ok((Type::Bool, effs))
             }
 
-            // Concat: String or List
+            // Concat: String or List — allocates new heap object
             BinOp::Concat => {
                 self.unify(&l_ty, &r_ty, span)?;
                 let resolved = self.apply_subst(&l_ty);
+                // Concat allocates: new string or new list
+                let effs = effs.union(&EffectRow::single("Alloc"));
                 match &resolved {
                     Type::String | Type::List(_) => Ok((resolved, effs)),
                     Type::Var(_) => {

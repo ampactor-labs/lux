@@ -114,6 +114,12 @@ impl Parser {
             .unwrap_or(&TokenKind::Eof)
     }
 
+    /// Check if the next token (after current) is an identifier.
+    /// Used for contextual keyword parsing (e.g. `own x: T`).
+    pub(crate) fn peek_next_is_ident(&self) -> bool {
+        matches!(self.peek_next(), TokenKind::Ident(_))
+    }
+
     pub(crate) fn at(&self, kind: &TokenKind) -> bool {
         std::mem::discriminant(self.peek()) == std::mem::discriminant(kind)
     }

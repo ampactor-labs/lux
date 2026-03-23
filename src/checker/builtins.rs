@@ -26,14 +26,14 @@ impl TypeEnv {
             },
         );
 
-        // to_string: (T) -> String (polymorphic via fresh var)
+        // to_string: (T) -> String with Alloc (creates new string)
         let t = self.fresh_var();
         self.bind(
             "to_string",
             Type::Function {
                 params: vec![t],
                 return_type: Box::new(Type::String),
-                effects: EffectRow::pure(),
+                effects: EffectRow::single("Alloc"),
             },
         );
 
@@ -59,14 +59,14 @@ impl TypeEnv {
             },
         );
 
-        // push: (List<T>, T) -> List<T>
+        // push: (List<T>, T) -> List<T> with Alloc (creates new list)
         let t = self.fresh_var();
         self.bind(
             "push",
             Type::Function {
                 params: vec![Type::List(Box::new(t.clone())), t.clone()],
                 return_type: Box::new(Type::List(Box::new(t))),
-                effects: EffectRow::pure(),
+                effects: EffectRow::single("Alloc"),
             },
         );
 
@@ -91,13 +91,13 @@ impl TypeEnv {
             },
         );
 
-        // range: (Int, Int) -> List<Int>
+        // range: (Int, Int) -> List<Int> with Alloc (creates new list)
         self.bind(
             "range",
             Type::Function {
                 params: vec![Type::Int, Type::Int],
                 return_type: Box::new(Type::List(Box::new(Type::Int))),
-                effects: EffectRow::pure(),
+                effects: EffectRow::single("Alloc"),
             },
         );
 
@@ -112,7 +112,7 @@ impl TypeEnv {
             Type::Function {
                 params: vec![Type::String, Type::String],
                 return_type: Box::new(Type::List(Box::new(Type::String))),
-                effects: EffectRow::pure(),
+                effects: EffectRow::single("Alloc"),
             },
         );
         self.bind(
@@ -120,7 +120,7 @@ impl TypeEnv {
             Type::Function {
                 params: vec![Type::String],
                 return_type: Box::new(Type::String),
-                effects: EffectRow::pure(),
+                effects: EffectRow::single("Alloc"),
             },
         );
         // contains: polymorphic — works on strings and lists
@@ -146,7 +146,7 @@ impl TypeEnv {
             Type::Function {
                 params: vec![Type::String, Type::String, Type::String],
                 return_type: Box::new(Type::String),
-                effects: EffectRow::pure(),
+                effects: EffectRow::single("Alloc"),
             },
         );
         self.bind(
@@ -154,7 +154,7 @@ impl TypeEnv {
             Type::Function {
                 params: vec![Type::String],
                 return_type: Box::new(Type::List(Box::new(Type::String))),
-                effects: EffectRow::pure(),
+                effects: EffectRow::single("Alloc"),
             },
         );
         self.bind(
@@ -162,17 +162,17 @@ impl TypeEnv {
             Type::Function {
                 params: vec![Type::List(Box::new(Type::String)), Type::String],
                 return_type: Box::new(Type::String),
-                effects: EffectRow::pure(),
+                effects: EffectRow::single("Alloc"),
             },
         );
-        // slice: (List<T>, Int, Int) -> List<T>
+        // slice: (List<T>, Int, Int) -> List<T> with Alloc (creates new list)
         let t_slice = self.fresh_var();
         self.bind(
             "slice",
             Type::Function {
                 params: vec![Type::List(Box::new(t_slice.clone())), Type::Int, Type::Int],
                 return_type: Box::new(Type::List(Box::new(t_slice))),
-                effects: EffectRow::pure(),
+                effects: EffectRow::single("Alloc"),
             },
         );
         // Numeric builtins

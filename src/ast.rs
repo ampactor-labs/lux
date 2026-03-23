@@ -83,9 +83,24 @@ pub struct FnDecl {
     pub span: Span,
 }
 
+/// Ownership annotation on the annotation gradient.
+/// `Inferred` = no annotation (the default — compiler infers).
+/// `Own` = caller transfers ownership (move semantics).
+/// `Ref` = caller lends a reference (borrow semantics).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ownership {
+    /// No annotation — ownership inferred from usage.
+    Inferred,
+    /// `own` — takes ownership (value is moved).
+    Own,
+    /// `ref` — borrows a reference (value is not consumed).
+    Ref,
+}
+
 #[derive(Debug, Clone)]
 pub struct Param {
     pub name: String,
+    pub ownership: Ownership,
     pub type_ann: Option<TypeExpr>,
     pub span: Span,
 }

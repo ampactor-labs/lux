@@ -26,8 +26,10 @@ fn double(x: Int) -> Int with Pure = x * 2
 
 // ── Negation constraints: prove absence of specific effects ───────
 
-// This function can log, but provably cannot allocate or use network.
-fn safe_compute(x: Int) -> Int with Log, !Alloc, !Network {
+// This function can log, but provably cannot use network.
+// Note: !Alloc is NOT compatible with logging (string concat allocates).
+// That's the point — the compiler catches real constraint violations.
+fn safe_compute(x: Int) -> Int with Log, !Network {
     log("computing: " ++ to_string(x))
     // Calls a Pure function — compatible with any constraint
     double(x) + 1
@@ -80,7 +82,7 @@ println("=== Effect Subtraction ===")
 // Reads as capability removal: start with E, subtract F.
 // Same semantics as `with E, !F` but reads as transformation.
 
-fn sub_safe(x: Int) -> Int with Log - Alloc - Network {
+fn sub_safe(x: Int) -> Int with Log - Network {
     log("sub_safe: " ++ to_string(x))
     double(x) + 1
 }
