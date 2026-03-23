@@ -310,6 +310,13 @@ pub enum Expr {
         fields: Vec<(String, Expr)>,
         span: Span,
     },
+
+    /// Anonymous record literal: `{ x: 3, y: 4 }`
+    /// Distinct from `RecordConstruct` (which wraps a named ADT variant).
+    RecordLit {
+        fields: Vec<(String, Expr)>,
+        span: Span,
+    },
 }
 
 impl Expr {
@@ -343,7 +350,8 @@ impl Expr {
             | Expr::For { span, .. }
             | Expr::Break { span, .. }
             | Expr::Continue { span, .. }
-            | Expr::RecordConstruct { span, .. } => span,
+            | Expr::RecordConstruct { span, .. }
+            | Expr::RecordLit { span, .. } => span,
             Expr::Tuple(_, s) => s,
         }
     }

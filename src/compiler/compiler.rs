@@ -1080,6 +1080,30 @@ impl Compiler {
                 self.emit_u16(fields.len() as u16, line);
             }
 
+            Expr::RecordLit { fields, span } => {
+                let line = Self::current_line(span);
+                // Sort by field name — same canonical order as the type checker.
+                // { y: 4, x: 3 } and { x: 3, y: 4 } have identical layout.
+                let mut sorted: Vec<(&String, &Expr)> = fields.iter().map(|(n, e)| (n, e)).collect();
+                sorted.sort_by_key(|(n, _)| n.as_str());
+
+                for (_, value) in &sorted {
+                    self.compile_expr(value)?;
+                }
+
+                // Use a unique schema tag derived from sorted field names so that
+                // records with different schemas don't collide in the field registry.
+                // { x, y } → "#record:x,y"  |  { age, name } → "#record:age,name"
+                let field_names: Vec<String> = sorted.iter().map(|(n, _)| (*n).clone()).collect();
+                let schema_tag = format!("#record:{}", field_names.join(","));
+                self.field_registry.insert(schema_tag.clone(), field_names);
+
+                let tag_idx = self.chunk.intern_name(&schema_tag);
+                self.emit_op(OpCode::MakeVariant, line);
+                self.emit_u16(tag_idx, line);
+                self.emit_u16(sorted.len() as u16, line);
+            }
+
             // ── Effects ───────────────────────────────────────────
             Expr::Handle {
                 expr,

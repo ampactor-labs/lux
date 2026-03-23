@@ -43,6 +43,19 @@ pub enum Type {
     /// Tuple type
     Tuple(Vec<Type>),
 
+    /// Structural record type with optional row variable.
+    ///
+    /// `{ name: String, age: Int }` — closed record
+    /// `{ name: String, ..r }` — open record (row polymorphic): accepts any
+    /// record with at least a `name: String` field.
+    ///
+    /// Fields are stored sorted by name (BTreeMap order) so that two records
+    /// with the same fields in different order are the same type.
+    Record {
+        fields: Vec<(String, Type)>,  // sorted by field name
+        rest: Option<TypeVar>,        // row variable; None = closed record
+    },
+
     /// An error placeholder (allows type checking to continue after errors)
     Error,
 }
@@ -60,6 +73,7 @@ impl Type {
             Type::List(inner) => inner.is_concrete(),
             Type::Tuple(elems) => elems.iter().all(|e| e.is_concrete()),
             Type::Adt { type_args, .. } => type_args.iter().all(|a| a.is_concrete()),
+            Type::Record { fields, rest } => rest.is_none() && fields.iter().all(|(_, t)| t.is_concrete()),
             _ => true,
         }
     }
@@ -82,6 +96,16 @@ impl Type {
             Type::Adt { name, type_args } => Type::Adt {
                 name: name.clone(),
                 type_args: type_args.iter().map(|a| a.substitute(subst)).collect(),
+            },
+            Type::Record { fields, rest } => Type::Record {
+                fields: fields.iter().map(|(n, t)| (n.clone(), t.substitute(subst))).collect(),
+                rest: rest.and_then(|v| {
+                    // If the row variable is mapped to another type var, use that; otherwise keep
+                    match subst.get(&v) {
+                        Some(Type::Var(new_v)) => Some(*new_v),
+                        _ => Some(v),
+                    }
+                }),
             },
             _ => self.clone(),
         }
@@ -140,6 +164,18 @@ impl fmt::Display for Type {
                     write!(f, "{e}")?;
                 }
                 write!(f, ")")
+            }
+            Type::Record { fields, rest } => {
+                write!(f, "{{ ")?;
+                for (i, (name, ty)) in fields.iter().enumerate() {
+                    if i > 0 { write!(f, ", ")?; }
+                    write!(f, "{name}: {ty}")?;
+                }
+                if let Some(TypeVar(v)) = rest {
+                    if !fields.is_empty() { write!(f, ", ")?; }
+                    write!(f, "..r{v}")?;
+                }
+                write!(f, " }}")
             }
             Type::Error => write!(f, "<error>"),
         }

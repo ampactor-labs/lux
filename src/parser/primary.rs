@@ -181,8 +181,41 @@ impl Parser {
                 Ok(Expr::Var(name, tok.span))
             }
 
-            // Block expression
-            TokenKind::LBrace => self.parse_block_expr(),
+            // Block expression OR anonymous record literal `{ x: 3, y: 4 }`
+            // Disambiguate: if `{` is followed by `ident :`, it's a record literal.
+            TokenKind::LBrace => {
+                if self.is_record_construction_ahead() {
+                    // Anonymous record literal: `{ field: expr, ... }`
+                    let start_span = self.peek_span();
+                    self.advance(); // consume `{`
+                    let mut fields = Vec::new();
+                    if !self.at_exact(&TokenKind::RBrace) {
+                        loop {
+                            let (field_name, _) = self.expect_ident()?;
+                            let value = if self.at_exact(&TokenKind::Colon) {
+                                self.advance();
+                                self.parse_expr()?
+                            } else {
+                                // Shorthand: `{ name }` = `{ name: name }`
+                                Expr::Var(field_name.clone(), self.peek_span())
+                            };
+                            fields.push((field_name, value));
+                            if !self.at_exact(&TokenKind::Comma) {
+                                break;
+                            }
+                            self.advance();
+                            if self.at_exact(&TokenKind::RBrace) {
+                                break; // trailing comma
+                            }
+                        }
+                    }
+                    let end_tok = self.expect(&TokenKind::RBrace)?;
+                    let span = Span::new(start_span.start, end_tok.span.end, start_span.line, start_span.column);
+                    Ok(Expr::RecordLit { fields, span })
+                } else {
+                    self.parse_block_expr()
+                }
+            }
 
             // Parenthesized expression, unit `()`, or tuple `(a, b, ...)`
             TokenKind::LParen => {

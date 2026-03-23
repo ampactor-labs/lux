@@ -4,7 +4,7 @@ use crate::error::{TypeError, TypeErrorKind};
 use crate::token::Span;
 use crate::types::{EffectRow, Type};
 
-use super::TypeEnv;
+use super::{levenshtein, TypeEnv};
 
 #[allow(clippy::result_large_err)]
 impl TypeEnv {
@@ -128,11 +128,29 @@ impl TypeEnv {
             Expr::FieldAccess {
                 object,
                 field,
-                span: _,
+                span,
             } => {
                 let (obj_ty, effs) = self.infer_expr(object)?;
                 let obj_ty = self.apply_subst(&obj_ty);
-                // MVP: field access on tuples by index
+
+                // Structural record field access — the Lux way
+                if let Type::Record { fields, rest: _ } = &obj_ty {
+                    if let Some((_, field_ty)) = fields.iter().find(|(n, _)| n == field) {
+                        return Ok((field_ty.clone(), effs));
+                    }
+                    return Err(TypeError {
+                        kind: TypeErrorKind::UnboundVariable {
+                            name: format!(".{field}"),
+                            suggestion: fields.iter().min_by_key(|(n, _)| {
+                                let d = levenshtein(field, n);
+                                if d <= 2 { d } else { usize::MAX }
+                            }).map(|(n, _)| n.clone()),
+                        },
+                        span: span.clone(),
+                    }.into());
+                }
+
+                // Tuple element by index (legacy)
                 if let Type::Tuple(elems) = &obj_ty {
                     if let Ok(idx) = field.parse::<usize>() {
                         if idx < elems.len() {
@@ -140,7 +158,8 @@ impl TypeEnv {
                         }
                     }
                 }
-                // For MVP, treat unknown field access as returning a fresh var
+
+                // Unknown field access — fresh var (fallback for ADT field access)
                 let result_ty = self.fresh_var();
                 Ok((result_ty, effs))
             }
@@ -382,6 +401,21 @@ impl TypeEnv {
                 let (msg_ty, effs2) = self.infer_expr(message)?;
                 self.unify(&msg_ty, &Type::String, span)?;
                 Ok((Type::Unit, effs1.union(&effs2)))
+            }
+
+            // ── Anonymous record literal ──────────────────────────
+            Expr::RecordLit { fields, span: _ } => {
+                let mut field_types: Vec<(String, Type)> = Vec::new();
+                let mut effs = EffectRow::pure();
+                for (name, expr) in fields {
+                    let (ty, eff) = self.infer_expr(expr)?;
+                    field_types.push((name.clone(), ty));
+                    effs = effs.union(&eff);
+                }
+                // Sort fields by name — canonical order for structural equality
+                // { y: Int, x: Int } and { x: Int, y: Int } are the same type
+                field_types.sort_by(|(a, _), (b, _)| a.cmp(b));
+                Ok((Type::Record { fields: field_types, rest: None }, effs))
             }
 
             Expr::RecordConstruct {
