@@ -177,7 +177,7 @@ Standard library: `std/prelude.lux`, `std/test.lux`, `std/types.lux`, `std/dsp/`
 | `src/loader.rs` | Module import resolution, cycle detection | Rewritten in Lux |
 | `std/compiler/lexer.lux` | Self-hosted tokenizer | **YES — Lux forever** |
 | `std/compiler/parser.lux` | Self-hosted recursive descent parser (ADT-based AST) | **YES — Lux forever** |
-| `std/compiler/checker.lux` | Self-hosted HM type checker with unification | **YES — Lux forever** |
+| `std/compiler/checker.lux` | Self-hosted HM type checker with Why Engine (Reason trees on every inference) | **YES — Lux forever** |
 | `std/compiler/codegen.lux` | Self-hosted bytecode emitter + disassembler | **YES — Lux forever** |
 | `std/prelude.lux` | Self-hosted stdlib (38 functions: map, filter, fold, sort, etc.) | **YES — Lux forever** |
 | `std/test.lux` | Native test framework (assert_eq, run_tests) | **YES — Lux forever** |
