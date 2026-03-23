@@ -511,6 +511,75 @@ by being lower-level, but by being smarter.
 
 ---
 
+## Self-Describing Records
+
+Records in Lux are **self-describing**: the variant tag `#record:x,y` IS the
+schema. The tag IS the field list. The data carries its own decoder.
+
+```lux
+fn make_point(x, y) = { x: x, y: y }
+// At runtime: Variant { name: "#record:x,y", fields: [x_val, y_val] }
+```
+
+Why this matters:
+
+1. **No field registry needed.** The VM parses field names directly from the
+   tag. Records work across function boundaries, across modules, across
+   compilation units. No metadata propagation.
+
+2. **Row polymorphism for free.** `fn get_x(p) = p.x` accepts ANY record
+   with at least an `x` field. The type `{ x: a, ..rest }` unifies with
+   `{ x: Int, y: Int }` by binding `rest` to `{ y: Int }`. No explicit
+   structural subtyping declarations.
+
+3. **Zero-cost structure.** The fields are sorted alphabetically in the tag
+   and the value array. Field access is a string split + position lookup.
+   No hash maps. No vtables. The data structure IS its own access method.
+
+This is the same principle as effects: **the mechanism encodes its own
+semantics.** An effect name IS its dispatch key. A record tag IS its field
+schema. The representation IS the interface.
+
+---
+
+## Handler State Internalization
+
+Handle expressions return **just the body value**. Handler state is
+internal — an implementation detail of the handler, not part of its
+interface.
+
+```lux
+// State is accessed explicitly via effect operations:
+let count = handle {
+  inc(); inc(); inc()
+  get_count()              // body asks for state when it needs it
+} with count = 0 {
+  inc() => resume(()) with count = count + 1,
+  get_count() => resume(count),
+}
+// count == 3 — just the value, not (3, 3)
+```
+
+Why this is right:
+
+1. **Minimal ceremony.** The caller gets what they asked for. State is the
+   handler's business, not the caller's.
+
+2. **Explicit is better than implicit.** If you need the state, call an
+   effect operation. `get_count()` is clearer than `let (_, count) = result`.
+
+3. **Composability.** Handlers compose without forcing callers to destructure
+   implementation details. The body's return type IS the handle's return type.
+
+4. **The generator pattern reveals it.** Generators now call `collect()` at
+   the end of the body — the accumulated list IS the body value. Same effect
+   interface, same handler, explicit intent.
+
+This is the "annotation gradient" in action: start with nothing, add what
+you need. State is invisible until you ask for it.
+
+---
+
 ## The Masterpiece Test
 
 Before every change, every design decision, every line of code, ask:
