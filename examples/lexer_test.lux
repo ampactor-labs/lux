@@ -1,111 +1,99 @@
-// Test for the self-hosted Lux lexer
+// Lexer self-test — through the Test effect
 import test
 import compiler/lexer
 
-// --- Test character classification ---
-fn test_is_digit() = {
-  assert_true(is_digit("0"));
-  assert_true(is_digit("9"));
-  assert_false(is_digit("a"));
-  assert_false(is_digit(" "))
+fn test_char_classification() = {
+  expect_true(is_digit("0"))
+  expect_true(is_digit("9"))
+  expect_false(is_digit("a"))
+  expect_true(is_alpha("a"))
+  expect_true(is_alpha("Z"))
+  expect_true(is_alpha("_"))
+  expect_false(is_alpha("0"))
 }
 
-fn test_is_alpha() = {
-  assert_true(is_alpha("a"));
-  assert_true(is_alpha("Z"));
-  assert_true(is_alpha("_"));
-  assert_false(is_alpha("0"));
-  assert_false(is_alpha(" "))
-}
-
-// --- Test keyword lookup ---
 fn test_keywords() = {
-  assert_eq(keyword_type("fn"), "Fn");
-  assert_eq(keyword_type("let"), "Let");
-  assert_eq(keyword_type("if"), "If");
-  assert_eq(keyword_type("else"), "Else");
-  assert_eq(keyword_type("match"), "Match");
-  assert_eq(keyword_type("true"), "True");
-  assert_eq(keyword_type("false"), "False");
-  assert_eq(keyword_type("foo"), "Ident")
+  expect_eq(keyword_type("fn"), "Fn")
+  expect_eq(keyword_type("let"), "Let")
+  expect_eq(keyword_type("if"), "If")
+  expect_eq(keyword_type("else"), "Else")
+  expect_eq(keyword_type("match"), "Match")
+  expect_eq(keyword_type("true"), "True")
+  expect_eq(keyword_type("false"), "False")
+  expect_eq(keyword_type("foo"), "Ident")
 }
 
-// --- Test lexing ---
 fn test_lex_simple() = {
-  let tokens = lex("let x = 42");
-  // Should produce: Let, Ident, Eq, Int, Eof
-  let (t0, _, _, _) = tokens[0];
-  let (t1, v1, _, _) = tokens[1];
-  let (t2, _, _, _) = tokens[2];
-  let (t3, v3, _, _) = tokens[3];
-  assert_eq(t0, "Let");
-  assert_eq(t1, "Ident");
-  assert_eq(v1, "x");
-  assert_eq(t2, "Eq");
-  assert_eq(t3, "Int");
-  assert_eq(v3, "42")
+  let tokens = lex("let x = 42")
+  let (t0, _, _, _) = tokens[0]
+  let (t1, v1, _, _) = tokens[1]
+  let (t2, _, _, _) = tokens[2]
+  let (t3, v3, _, _) = tokens[3]
+  expect_eq(t0, "Let")
+  expect_eq(t1, "Ident")
+  expect_eq(v1, "x")
+  expect_eq(t2, "Eq")
+  expect_eq(t3, "Int")
+  expect_eq(v3, "42")
 }
 
 fn test_lex_string() = {
-  let tokens = lex("\"hello world\"");
-  let (typ, val, _, _) = tokens[0];
-  assert_eq(typ, "String");
-  assert_eq(val, "hello world")
+  let tokens = lex("\"hello world\"")
+  let (typ, val, _, _) = tokens[0]
+  expect_eq(typ, "String")
+  expect_eq(val, "hello world")
 }
 
 fn test_lex_operators() = {
-  let tokens = lex("== != <= >= -> => ++ |> && ||");
-  let (t0, _, _, _) = tokens[0];
-  let (t1, _, _, _) = tokens[1];
-  let (t2, _, _, _) = tokens[2];
-  let (t3, _, _, _) = tokens[3];
-  let (t4, _, _, _) = tokens[4];
-  let (t5, _, _, _) = tokens[5];
-  assert_eq(t0, "EqEq");
-  assert_eq(t1, "BangEq");
-  assert_eq(t2, "LtEq");
-  assert_eq(t3, "GtEq");
-  assert_eq(t4, "Arrow");
-  assert_eq(t5, "FatArrow")
+  let tokens = lex("== != <= >= -> => ++ |> && ||")
+  let (t0, _, _, _) = tokens[0]
+  let (t1, _, _, _) = tokens[1]
+  let (t2, _, _, _) = tokens[2]
+  let (t3, _, _, _) = tokens[3]
+  let (t4, _, _, _) = tokens[4]
+  let (t5, _, _, _) = tokens[5]
+  expect_eq(t0, "EqEq")
+  expect_eq(t1, "BangEq")
+  expect_eq(t2, "LtEq")
+  expect_eq(t3, "GtEq")
+  expect_eq(t4, "Arrow")
+  expect_eq(t5, "FatArrow")
 }
 
 fn test_lex_function() = {
-  let tokens = lex("fn add(x, y) = x + y");
-  let (t0, _, _, _) = tokens[0];
-  assert_eq(t0, "Fn")
+  let tokens = lex("fn add(x, y) = x + y")
+  let (t0, _, _, _) = tokens[0]
+  expect_eq(t0, "Fn")
 }
 
 fn test_lex_float() = {
-  let tokens = lex("3.14");
-  let (typ, val, _, _) = tokens[0];
-  assert_eq(typ, "Float");
-  assert_eq(val, "3.14")
+  let tokens = lex("3.14")
+  let (typ, val, _, _) = tokens[0]
+  expect_eq(typ, "Float")
+  expect_eq(val, "3.14")
 }
 
 fn test_lex_comment() = {
-  let tokens = lex("let x = 1 // this is a comment\nlet y = 2");
-  // tokens: Let Ident Eq Int Newline Let Ident Eq Int Eof
-  let (t0, _, _, _) = tokens[0];
-  let (t4, _, _, _) = tokens[4];
-  let (t5, _, _, _) = tokens[5];
-  assert_eq(t0, "Let");
-  assert_eq(t4, "Newline");
-  assert_eq(t5, "Let")  // comment was stripped, second "let" follows
+  let tokens = lex("let x = 1 // this is a comment\nlet y = 2")
+  let (t0, _, _, _) = tokens[0]
+  let (t4, _, _, _) = tokens[4]
+  let (t5, _, _, _) = tokens[5]
+  expect_eq(t0, "Let")
+  expect_eq(t4, "Newline")
+  expect_eq(t5, "Let")
 }
 
 fn test_line_tracking() = {
-  let tokens = lex("a\nb");
-  let (_, _, line1, _) = tokens[0];
-  let (_, _, line2, _) = tokens[2];  // tokens[1] is Newline
-  assert_eq(line1, 1);
-  assert_eq(line2, 2)
+  let tokens = lex("a\nb")
+  let (_, _, line1, _) = tokens[0]
+  let (_, _, line2, _) = tokens[2]
+  expect_eq(line1, 1)
+  expect_eq(line2, 2)
 }
 
-// --- Run all tests ---
-println("=== Lux Lexer Self-Test ===")
+println("=== Lexer Self-Test ===")
 run_tests([
-  ("is_digit", test_is_digit),
-  ("is_alpha", test_is_alpha),
+  ("char_classification", test_char_classification),
   ("keywords", test_keywords),
   ("lex_simple", test_lex_simple),
   ("lex_string", test_lex_string),

@@ -33,14 +33,16 @@ language would do? If not, design the way it SHOULD be.**
 | ML framework | ✅ Working | Autodiff via Compute effect, XOR trains to convergence |
 | DSP library | ✅ Working | std/dsp/ with effect-algebraic proofs |
 | Prelude | ✅ Working | 38+ functions (map, filter, fold, sort, etc.) |
-| REPL | ✅ Working | VM-backed with persistent state |
+| REPL | ✅ Working | Self-hosted effect-pipeline REPL with :teach/:trace/:normal modes |
+| **Effect pipeline** | ✅ **ACHIEVED** | Compiler pipeline IS an effect graph — `compile_standard`, `compile_teaching`, `compile_tracing` are handler swaps |
 
-**Current milestone**: Self-hosted compiler compiles Lux code through the
-full pipeline. All four modules (lexer, parser, checker, codegen) compile
-themselves. Phase 9F complete.
+**Current milestone**: Self-hosted compiler compiles AND EXECUTES Lux programs
+with algebraic effects. The compiler pipeline itself is an algebraic effect
+graph with swappable handlers (standard, teaching, tracing). REPL uses the
+effect-pipeline for interactive compilation.
 
-**Next**: Expand self-compiled pipeline to handle effects/handlers, then
-integrate checker into the bootstrap loop.
+**Next**: Implement testing as effect handler swap (aligned with DESIGN.md
+vision), deepen teaching compiler output, Why Engine CLI.
 
 ## READ THIS FIRST — What Lux IS
 
@@ -175,14 +177,16 @@ isolation
 - ML is the throughline connecting Phases 7-12 to a concrete demanding workload
 
 ## Build / Run / Test
-- `cargo run -- <file.lux>` — run a program (teaching output enabled by default)
-- `cargo run -- --quiet <file.lux>` — run without teaching output
-- `cargo run` — start REPL
+- `lux <file.lux>` — run a program (teaching output enabled by default)
+- `lux --quiet <file.lux>` — run without teaching output
+- `lux repl` — start self-hosted effect-pipeline REPL
+- `lux check <file.lux>` — type-check only
+- `lux test <file.lux>` — run tests
 - `cargo check` — type check the compiler
 - `cargo clippy` — lint (zero warnings policy)
 - `cargo fmt --check` — format check
 - `cargo test` — run all tests (36 type checker + golden-file tests)
-- `for f in examples/*.lux; do cargo run --quiet -- --quiet "$f"; done` — run all examples
+- `cargo install --path .` — install `lux` binary on PATH
 
 ## Architecture
 
@@ -230,6 +234,8 @@ Standard library: `std/prelude.lux`, `std/test.lux`, `std/types.lux`, `std/dsp/`
 | `std/ml/` | Tensor ops, autodiff via Compute effect | **YES — Lux forever** |
 | `std/dsp/` | DSP effects, processor library, spectral analysis | **YES — Lux forever** |
 | `examples/*.lux` | Language examples and test cases | **YES — Lux forever** |
+| `std/compiler/pipeline.lux` | Compiler effect + pipeline + handlers (meta-unification) | **YES — Lux forever** |
+| `std/repl.lux` | Self-hosted REPL using effect pipeline | **YES — Lux forever** |
 | `tests/type_tests.rs` | Unit tests for type checker (36 tests) | Rewritten in Lux |
 | `tests/examples.rs` | Golden-file integration tests | Rewritten in Lux |
 
@@ -331,9 +337,9 @@ fn safe_v2(x: Float) -> Float with DSP - Network - Alloc { ... }  // subtraction
 
 > Full roadmap: `docs/ROADMAP.md` (10 phases to ultimate Lux)
 
-**Completed:** Phases 1-9F (VM, effects, evidence passing, effect algebra, teaching compiler, self-compilation, **bootstrap pipeline execution**)
+**Completed:** Phases 1-9F (VM, effects, evidence passing, effect algebra, teaching compiler, self-compilation, **bootstrap pipeline execution**, **effects in self-hosted compiler**, **meta-unification: compiler pipeline as effects**, **interactive REPL with effect pipeline**)
 
-**Current milestone:** Self-hosted compiler compiles AND EXECUTES Lux code through the full pipeline: `println(2+3) → 5`. Next: expand self-compiled pipeline to handle effects/handlers, integrate checker into bootstrap.
+**Current milestone:** Self-hosted compiler compiles AND EXECUTES effectful programs. The compiler pipeline itself is an algebraic effect graph with swappable handlers. REPL uses the effect pipeline. `lux` binary installed on PATH. Next: testing as handler swap, Why Engine CLI, one-step gradient.
 
 **Next 10 Phases** (see ROADMAP.md for full details):
 

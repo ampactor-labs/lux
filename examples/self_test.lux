@@ -1,60 +1,50 @@
-// Self-test for Lux — exercises core language features
+// Self-test — exercises core Lux features through the Test effect
 import test
 
-// --- Arithmetic ---
-fn test_int_add() = assert_eq(1 + 2, 3)
-fn test_int_mul() = assert_eq(3 * 4, 12)
-fn test_float_add() = assert_eq(1.0 + 2.5, 3.5)
-fn test_modulo() = assert_eq(10 % 3, 1)
-
-// --- Strings ---
-fn test_concat() = assert_eq("hello" ++ " world", "hello world")
-fn test_string_starts() = assert_eq(starts_with("hello world", "hello"), true)
-
-// --- Lists ---
-fn test_list_len() = assert_eq(len([1, 2, 3]), 3)
-fn test_map() = assert_eq(map(|x| x * 2, [1, 2, 3]), [2, 4, 6])
-fn test_filter() = assert_eq(filter(|x| x > 2, [1, 2, 3, 4]), [3, 4])
-fn test_fold() = assert_eq(fold([1, 2, 3], 0, |a, x| a + x), 6)
-fn test_sort() = assert_eq(sort([3, 1, 2]), [1, 2, 3])
-fn test_reverse() = assert_eq(reverse([1, 2, 3]), [3, 2, 1])
-fn test_head() = assert_eq(head([10, 20, 30]), 10)
-fn test_tail() = assert_eq(tail([10, 20, 30]), [20, 30])
-
-// --- Tuples ---
-fn test_tuple() = {
-  let (a, b) = (1, 2);
-  assert_eq(a + b, 3)
+fn test_arithmetic() = {
+  expect_eq(1 + 2, 3)
+  expect_eq(3 * 4, 12)
+  expect_eq(1.0 + 2.5, 3.5)
+  expect_eq(10 % 3, 1)
 }
 
-// --- Boolean ---
-fn test_and() = assert_true(true && true)
-fn test_or() = assert_true(false || true)
-fn test_not() = assert_false(!true)
+fn test_strings() = {
+  expect_eq("hello" ++ " world", "hello world")
+  expect_true(starts_with("hello world", "hello"))
+}
 
-// --- Pipe ---
-fn test_pipe() = assert_eq([1, 2, 3] |> len, 3)
+fn test_lists() = {
+  expect_eq(len([1, 2, 3]), 3)
+  expect_eq(map(|x| x * 2, [1, 2, 3]), [2, 4, 6])
+  expect_eq(filter(|x| x > 2, [1, 2, 3, 4]), [3, 4])
+  expect_eq(fold([1, 2, 3], 0, |a, x| a + x), 6)
+  expect_eq(sort([3, 1, 2]), [1, 2, 3])
+  expect_eq(reverse([1, 2, 3]), [3, 2, 1])
+  expect_eq(head([10, 20, 30]), 10)
+  expect_eq(tail([10, 20, 30]), [20, 30])
+}
 
-// --- Run all tests ---
+fn test_tuples() = {
+  let (a, b) = (1, 2)
+  expect_eq(a + b, 3)
+}
+
+fn test_booleans() = {
+  expect_true(true && true)
+  expect_true(false || true)
+  expect_false(!true)
+}
+
+fn test_pipes() = {
+  expect_eq([1, 2, 3] |> len, 3)
+}
+
 println("=== Lux Self-Test ===")
 run_tests([
-  ("int_add", test_int_add),
-  ("int_mul", test_int_mul),
-  ("float_add", test_float_add),
-  ("modulo", test_modulo),
-  ("concat", test_concat),
-  ("string_starts", test_string_starts),
-  ("list_len", test_list_len),
-  ("map", test_map),
-  ("filter", test_filter),
-  ("fold", test_fold),
-  ("sort", test_sort),
-  ("reverse", test_reverse),
-  ("head", test_head),
-  ("tail", test_tail),
-  ("tuple", test_tuple),
-  ("and", test_and),
-  ("or", test_or),
-  ("not", test_not),
-  ("pipe", test_pipe),
+  ("arithmetic", test_arithmetic),
+  ("strings", test_strings),
+  ("lists", test_lists),
+  ("tuples", test_tuples),
+  ("booleans", test_booleans),
+  ("pipes", test_pipes),
 ])

@@ -1,22 +1,2 @@
 === Lux Self-Test ===
-  test int_add ... ok
-  test int_mul ... ok
-  test float_add ... ok
-  test modulo ... ok
-  test concat ... ok
-  test string_starts ... ok
-  test list_len ... ok
-  test map ... ok
-  test filter ... ok
-  test fold ... ok
-  test sort ... ok
-  test reverse ... ok
-  test head ... ok
-  test tail ... ok
-  test tuple ... ok
-  test and ... ok
-  test or ... ok
-  test not ... ok
-  test pipe ... ok
-
-test result: 19/19 passed
+â 19 passed
