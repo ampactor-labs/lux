@@ -1,0 +1,100 @@
+// Lux Compiler Pipeline — as an effect graph
+//
+// This is the meta-unification made real: the compiler pipeline is an
+// effect graph. Different handlers give different behaviors:
+//   - compile_standard: produce bytecode
+//   - compile_teaching: log each stage with explanations
+//   - compile_tracing: capture timing and metadata
+//
+// The pipeline function performs Compiler effects at each stage.
+// Handlers intercept and provide the actual implementation.
+// This proves: compiler, teacher, tracer = same pipeline, different handler.
+
+import compiler/lexer
+import compiler/parser
+import compiler/codegen
+
+// ─── The Compiler Effect ─────────────────────────────────────
+// Each compilation stage is an effect operation.
+// The pipeline doesn't know HOW stages execute — only WHAT they are.
+
+effect Compiler {
+  tokenize(source: String) -> List
+  parse_source(tokens: List) -> List
+  generate(ast: List) -> Tuple
+}
+
+// ─── The Pipeline ────────────────────────────────────────────
+// Pure computation flow. Performs effects, doesn't implement them.
+// This is the universal shape — WHAT compilation does.
+
+fn compile_pipeline(source) = {
+  let tokens = tokenize(source)
+  let ast = parse_source(tokens)
+  let chunk = generate(ast)
+  chunk
+}
+
+// ─── Handler: Standard Compilation ───────────────────────────
+// The default policy. Each stage calls the real implementation.
+
+fn compile_standard(source) =
+  handle {
+    compile_pipeline(source)
+  } {
+    tokenize(src) => resume(lex(src)),
+    parse_source(tokens) => resume(parse_program(tokens)),
+    generate(ast) => resume(compile_program(ast))
+  }
+
+// ─── Handler: Teaching Compilation ───────────────────────────
+// Same pipeline, but each stage explains what it did.
+// The teach handler captures metadata in handler-local state.
+
+fn compile_teaching(source) =
+  handle {
+    compile_pipeline(source)
+  } with log = [] {
+    tokenize(src) => {
+      let tokens = lex(src)
+      let n = len(tokens)
+      println("[teach] tokenize: " ++ to_string(n) ++ " tokens")
+      resume(tokens) with log = push(log, ("tokenize", n))
+    },
+    parse_source(tokens) => {
+      let ast = parse_program(tokens)
+      let n = len(ast)
+      println("[teach] parse: " ++ to_string(n) ++ " top-level items")
+      resume(ast) with log = push(log, ("parse", n))
+    },
+    generate(ast) => {
+      let chunk = compile_program(ast)
+      println("[teach] codegen: chunk ready")
+      resume(chunk) with log = push(log, ("codegen", 1))
+    }
+  }
+
+// ─── Handler: Tracing Compilation ────────────────────────────
+// Same pipeline, but captures intermediate representations.
+// Useful for debugging the compiler itself.
+
+fn compile_tracing(source) =
+  handle {
+    compile_pipeline(source)
+  } with stages = [] {
+    tokenize(src) => {
+      let tokens = lex(src)
+      println("[trace] tokens: " ++ to_string(tokens))
+      resume(tokens) with stages = push(stages, ("tokens", tokens))
+    },
+    parse_source(tokens) => {
+      let ast = parse_program(tokens)
+      println("[trace] ast: " ++ to_string(ast))
+      resume(ast) with stages = push(stages, ("ast", ast))
+    },
+    generate(ast) => {
+      let chunk = compile_program(ast)
+      println("[trace] chunk: " ++ to_string(chunk))
+      resume(chunk) with stages = push(stages, ("chunk", chunk))
+    }
+  }

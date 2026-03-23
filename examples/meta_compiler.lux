@@ -1,0 +1,49 @@
+// Meta-Unification Demo: Compiler Pipeline as Effects
+//
+// This program proves the deepest insight about Lux:
+// compiler, teacher, and tracer are the SAME pipeline
+// with different handlers.
+
+import compiler/pipeline
+
+println("═══════════════════════════════════════════")
+println("  The Meta-Unification: Compiler = Effects")
+println("═══════════════════════════════════════════")
+println("")
+
+let source = "let x = 2 + 3\nprintln(x)"
+
+println("Source program:")
+println("  " ++ source)
+println("")
+
+// ─── Standard compilation ───────────────────────────────
+println("── Handler 1: compile_standard ──")
+let chunk1 = compile_standard(source)
+let prog1 = load_chunk(chunk1)
+print("  output: ")
+prog1()
+println("")
+
+// ─── Teaching compilation ───────────────────────────────
+println("── Handler 2: compile_teaching ──")
+let (chunk2, teach_log) = compile_teaching(source)
+let prog2 = load_chunk(chunk2)
+print("  output: ")
+prog2()
+println("  log: " ++ to_string(teach_log))
+println("")
+
+// ─── Tracing compilation ────────────────────────────────
+println("── Handler 3: compile_tracing ──")
+let (chunk3, trace_stages) = compile_tracing(source)
+let prog3 = load_chunk(chunk3)
+print("  output: ")
+prog3()
+println("")
+
+println("═══════════════════════════════════════════")
+println("  Same pipeline. Three handlers.")
+println("  Same input → same output.")
+println("  The compiler IS the language.")
+println("═══════════════════════════════════════════")
