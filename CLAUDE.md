@@ -22,6 +22,7 @@ language would do? If not, design the way it SHOULD be.**
 |-----------|--------|-------|
 | Rust compiler | ✅ Working | Golden examples pass, TCO, auto-currying pipes |
 | Effect system | ✅ Working | Fail, Console, State, Compute, handler-local state, evidence-passing |
+| Handle semantics | ✅ Working | Handle returns body value only — state is internal to handler |
 | Effect algebra | ✅ Working | `!E`, `E-F`, `Pure` constraints, compile-time enforcement |
 | String interpolation | ✅ Working | `"hello {name}"` — `{expr}` inside double quotes |
 | Teaching compiler | ✅ Working | `--teach` flag, inferred types/effects display |
@@ -43,12 +44,12 @@ language would do? If not, design the way it SHOULD be.**
 | Math stdlib | ✅ Working | abs, max, min, clamp, round, sqrt, pow, log, exp, sin, cos, tanh, atan2, pi |
 | Test framework | ✅ Working | Test effect with `assert`, `expect_eq`, `run_tests`/`run_suite` handlers |
 
-**Current milestone**: Constant folding + dead branch elimination (compiler knows more than C).
+**Current milestone**: Handle internalization (state is internal to handler, body value is the return).
 Anonymous record types: `{ name: "Alice", age: 30 }` with structural field access.
 Elm-quality errors: did-you-mean, missing variants, tail-resumptive hints.
 Self-hosted checker tracks effect rows through inference.
 
-**Next**: Evidence passing for zero-overhead tail-resumptive handlers, Cranelift native backend.
+**Next**: Ownership inference (`own`/`ref`/`gc`), `!Alloc` enforcement, Cranelift native backend.
 
 ## READ THIS FIRST — What Lux IS
 

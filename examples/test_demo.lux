@@ -10,19 +10,20 @@ fn test_math() = {
 
 fn test_strings() = {
   check("hello" ++ " world" == "hello world", "concat")
-  check(len("lux") == 3, "length")
+  check(starts_with("lux", "l"), "starts_with")
   expect_eq("lux", "lux")
 }
 
+effect TestFail {
+  test_fail(msg: String) -> Never
+}
+
 fn test_effects() = {
-  effect Fail {
-    fail(msg: String) -> Never
-  }
   let result = handle {
-    fail("boom")
+    test_fail("boom")
     99
   } {
-    fail(msg) => 42
+    test_fail(msg) => 42
   }
   expect_eq(result, 42)
   check(true, "effects work")

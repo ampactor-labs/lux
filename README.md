@@ -69,7 +69,7 @@ let count = handle {
     get()    => resume(state),
     set(v)   => resume(()) with state = v,
 }
-// count = 3
+// count = 3 — handle returns the body value; state is internal
 ```
 
 Testing without mocks — swap the handler:
@@ -164,14 +164,16 @@ ideas — the goal is self-hosting.
 - Full effect system: declare, handle, resume, handler-local state
 - Effect algebra: union, negation, subtraction, Pure
 - Handler composition: named handlers, inheritance, bare references
+- Handle internalization: state is internal, handle returns body value
 - Teaching compiler (`--teach`): surfaces inferred types and effects
 - Pipe operator: `x |> f |> g` for natural data flow
 - Pattern matching with exhaustiveness warnings
+- Records with row polymorphism (structural typing, self-describing)
 - Self-hosted compiler: lexer → parser → checker → codegen, ALL in Lux
 - ML framework: autodiff via effect handlers (XOR trains to convergence)
 - DSP framework: provably safe audio processing via effect constraints
 - Bytecode VM with evidence-passing optimization
-- 28 working examples
+- 36 examples (27 passing, rest are known type checker issues)
 
 **What's next:**
 - Native codegen (Cranelift backend)
@@ -185,8 +187,9 @@ ideas — the goal is self-hosting.
 git clone https://github.com/ampactor/lux
 cd lux
 cargo run -- examples/effects.lux          # see algebraic effects
+cargo run -- examples/benchmark.lux        # comprehensive test suite
 cargo run -- examples/xor.lux              # ML via effect handlers
-cargo run -- examples/dsp_framework.lux    # provably safe DSP
+cargo run -- examples/generators.lux       # generators as effects
 cargo run -- --teach examples/progressive_demo.lux  # the teaching compiler
 ```
 

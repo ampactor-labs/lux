@@ -1,0 +1,14 @@
+=== Test Effect Demo ===
+ââ math ââ
+  â 2+2=4
+  â 3*7=21
+  â expected 42 got 42
+  â 1+1=3 (should fail)
+ââ strings ââ
+  â concat
+  â starts_with
+  â expected lux got lux
+ââ effects ââ
+  â expected 42 got 42
+  â effects work
+â 8/9 passed
