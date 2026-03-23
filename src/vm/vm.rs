@@ -568,10 +568,9 @@ impl Vm {
 
                             if let Some(val) = from_registry {
                                 self.stack.push(val);
-                            } else if variant_name.starts_with("#record:") {
+                            } else if let Some(field_list) = variant_name.strip_prefix("#record:") {
                                 // Anonymous record: parse field names from the tag itself.
                                 // Tag format: "#record:field1,field2,..."  (sorted)
-                                let field_list = &variant_name["#record:".len()..];
                                 let idx = field_list.split(',').position(|n| n == field_name);
                                 if let Some(idx) = idx {
                                     self.stack
@@ -1532,10 +1531,7 @@ impl Vm {
     /// Each entry is (op_name_idx, proto_idx, param_count, tail_resumptive).
     fn extract_handler_tables(val: &VmValue) -> Result<Vec<HandlerTable>, String> {
         match val {
-            VmValue::List(tables) => tables
-                .iter()
-                .map(|table| Self::extract_handler_table(table))
-                .collect(),
+            VmValue::List(tables) => tables.iter().map(Self::extract_handler_table).collect(),
             _ => Ok(Vec::new()), // gracefully handle non-list
         }
     }
@@ -1619,7 +1615,7 @@ impl Vm {
     /// Handles ("fn_proto", name, arity, code, constants, names) tuples recursively.
     fn extract_constants(val: &VmValue) -> Result<Vec<Constant>, String> {
         match val {
-            VmValue::List(elems) => elems.iter().map(|e| Self::extract_constant(e)).collect(),
+            VmValue::List(elems) => elems.iter().map(Self::extract_constant).collect(),
             _ => Err("load_chunk: constants must be a list".to_string()),
         }
     }

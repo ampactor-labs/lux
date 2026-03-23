@@ -232,12 +232,12 @@ fn resolve_dirs(file_path: &str) -> (std::path::PathBuf, std::path::PathBuf) {
 /// Find a file in the std directory.
 fn find_std_file(name: &str) -> Option<String> {
     // Try relative to executable first
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            let path = dir.join("../std").join(name);
-            if path.exists() {
-                return Some(path.to_string_lossy().to_string());
-            }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        let path = dir.join("../std").join(name);
+        if path.exists() {
+            return Some(path.to_string_lossy().to_string());
         }
     }
     // Try relative to CWD

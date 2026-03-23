@@ -153,8 +153,7 @@ impl TypeEnv {
                                 .map(|(n, _)| n.clone()),
                         },
                         span: span.clone(),
-                    }
-                    .into());
+                    });
                 }
 
                 // Tuple element by index (legacy)

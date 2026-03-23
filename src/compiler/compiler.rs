@@ -458,7 +458,7 @@ impl Compiler {
                 if let Some(folded) = Self::try_const_fold(op, left, right) {
                     match folded {
                         FoldedConst::Int(n) => {
-                            if n >= -128 && n <= 127 {
+                            if (-128..=127).contains(&n) {
                                 self.emit_op(OpCode::LoadInt, line);
                                 self.emit_u8(n as i8 as u8, line);
                             } else {
@@ -510,7 +510,7 @@ impl Compiler {
                     };
                     if let Some(result) = folded {
                         match result {
-                            FoldedConst::Int(n) if n >= -128 && n <= 127 => {
+                            FoldedConst::Int(n) if (-128..=127).contains(&n) => {
                                 self.emit_op(OpCode::LoadInt, line);
                                 self.emit_u8(n as i8 as u8, line);
                             }

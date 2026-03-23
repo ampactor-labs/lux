@@ -1,6 +1,6 @@
 # Lux
 
-<!-- [![build](https://github.com/ampactor/lux/actions/workflows/ci.yml/badge.svg)](https://github.com/ampactor/lux/actions) -->
+[![build](https://github.com/ampactor/lux/actions/workflows/ci.yml/badge.svg)](https://github.com/ampactor/lux/actions)
 [![license: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](#license)
 
 **The compiler teaches you what it knows.**
