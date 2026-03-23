@@ -513,6 +513,21 @@ impl Compiler {
                 span,
             } => {
                 let line = Self::current_line(span);
+
+                // ── Dead branch elimination ──────────────────────
+                // If the condition is a compile-time constant, emit
+                // only the taken branch. No jumps, no dead code.
+                if let Some(FoldedConst::Bool(cond_val)) = Self::try_eval_const(condition) {
+                    if cond_val {
+                        self.compile_expr(then_branch)?;
+                    } else if let Some(else_br) = else_branch {
+                        self.compile_expr(else_br)?;
+                    } else {
+                        self.emit_op(OpCode::LoadUnit, line);
+                    }
+                    return Ok(());
+                }
+
                 self.compile_expr(condition)?;
                 let else_jump = self.emit_jump(OpCode::JumpIfFalse, line);
                 self.emit_op(OpCode::Pop, line); // pop condition
