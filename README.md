@@ -173,7 +173,7 @@ ideas — the goal is self-hosting.
 - ML framework: autodiff via effect handlers (XOR trains to convergence)
 - DSP framework: provably safe audio processing via effect constraints
 - Bytecode VM with evidence-passing optimization
-- 36 examples (27 passing, rest are known type checker issues)
+- 36 examples (30 passing, 5 self-hosted codegen issues, 1 interactive REPL)
 
 **What's next:**
 - Native codegen (Cranelift backend)
