@@ -8,6 +8,7 @@
 
 effect Gen {
   emit(value: Int) -> ()
+  collect() -> List
 }
 
 // ── Simple generator: emits three values ───────────────────────
@@ -16,13 +17,14 @@ fn three_values() with Gen = {
   emit(1)
   emit(2)
   emit(3)
+  collect()
 }
 
 // Collect: handler accumulates emitted values into a list
-let collected = handle three_values() with acc = [] {
+let result1 = handle three_values() with acc = [] {
   emit(v) => resume(()) with acc = push(acc, v),
+  collect() => resume(acc),
 }
-let (_, result1) = collected
 println("collected: " ++ to_string(result1))
 
 // ── Range generator ────────────────────────────────────────────
@@ -30,12 +32,13 @@ println("collected: " ++ to_string(result1))
 fn gen_range(start, stop) with Gen = {
   fn go(i) = if i < stop { emit(i); go(i + 1) } else { () };
   go(start)
+  collect()
 }
 
-let range_result = handle gen_range(0, 5) with acc = [] {
+let result2 = handle gen_range(0, 5) with acc = [] {
   emit(v) => resume(()) with acc = push(acc, v),
+  collect() => resume(acc),
 }
-let (_, result2) = range_result
 println("range(0,5): " ++ to_string(result2))
 
 // ── For-each: just a different handler ─────────────────────────
@@ -46,12 +49,14 @@ handle gen_range(10, 14) {
     println(to_string(v))
     resume(())
   },
+  collect() => resume([]),
 }
 
 // ── Fibonacci generator ────────────────────────────────────────
 
 effect FibGen {
   fib_emit(value: Int) -> ()
+  fib_collect() -> List
 }
 
 fn gen_fibs(n) with FibGen = {
@@ -60,12 +65,13 @@ fn gen_fibs(n) with FibGen = {
     go(i + 1, b, a + b)
   };
   go(0, 0, 1)
+  fib_collect()
 }
 
-let fib_result = handle gen_fibs(10) with acc = [] {
+let fibs = handle gen_fibs(10) with acc = [] {
   fib_emit(v) => resume(()) with acc = push(acc, v),
+  fib_collect() => resume(acc),
 }
-let (_, fibs) = fib_result
 println("fibs(10): " ++ to_string(fibs))
 
 // ── Filtered generator: composition via control flow ───────────
@@ -76,12 +82,13 @@ fn gen_evens(stop) with Gen = {
     go(i + 1)
   };
   go(0)
+  collect()
 }
 
-let evens_result = handle gen_evens(10) with acc = [] {
+let evens = handle gen_evens(10) with acc = [] {
   emit(v) => resume(()) with acc = push(acc, v),
+  collect() => resume(acc),
 }
-let (_, evens) = evens_result
 println("evens: " ++ to_string(evens))
 
 // ── Take: early termination by not resuming ────────────────────
@@ -92,14 +99,14 @@ fn gen_naturals(i) with Gen = {
 }
 
 // Take first 5: handler stops resuming after 5 values
-let take_result = handle gen_naturals(0) with acc = [], n = 0 {
+let taken = handle gen_naturals(0) with acc = [], n = 0 {
   emit(v) => if n < 5 {
     resume(()) with acc = push(acc, v), n = n + 1
   } else {
-    ()
+    acc
   },
+  collect() => resume(acc),
 }
-let (_, taken, _) = take_result
 println("take(5, naturals): " ++ to_string(taken))
 
 println("")

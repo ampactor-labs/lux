@@ -86,6 +86,5 @@ let result = handle {
   get() => resume(state),
   set(v) => resume(()) with state = v,
 }
-// Handler state flows out as return value: (body_result, state)
-let (val, final_state) = result
-print("Counter after 3 increments: " ++ to_string(val) ++ ", " ++ to_string(final_state))
+// Handle result is the body value — get() returns the counter's final state
+print("Counter after 3 increments: " ++ to_string(result))

@@ -535,21 +535,8 @@ impl TypeEnv {
             }
         }
 
-        // The remaining effects from expr propagate, plus handler body effects
-        if state_bindings.is_empty() {
-            Ok((self.apply_subst(&result_ty), effs.union(&expr_effs)))
-        } else {
-            // Handler state flows out as return value: (result, state0, state1, ...)
-            let mut tuple_elts = vec![self.apply_subst(&result_ty)];
-            for binding in state_bindings {
-                let st = state_types
-                    .get(&binding.name)
-                    .cloned()
-                    .unwrap_or_else(|| self.fresh_var());
-                tuple_elts.push(self.apply_subst(&st));
-            }
-            Ok((Type::Tuple(tuple_elts), effs.union(&expr_effs)))
-        }
+        // Handle result is the body value — state is internal to the handler.
+        Ok((self.apply_subst(&result_ty), effs.union(&expr_effs)))
     }
 
     pub(crate) fn infer_perform(

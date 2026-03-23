@@ -17,7 +17,7 @@ fn increment() -> () with State {
 }
 
 print("=== Counter ===")
-let result = handle {
+let val = handle {
   increment()
   increment()
   increment()
@@ -28,7 +28,6 @@ let result = handle {
   get() => resume(state),
   set(v) => resume(()) with state = v,
 }
-let (val, _state) = result
 print("5 increments: " ++ to_string(val))
 
 // ── Logger: accumulate messages ───────────────────────────────
@@ -40,7 +39,7 @@ effect Log {
 
 print("")
 print("=== Logger ===")
-let log_result = handle {
+let logs = handle {
   log("starting up")
   log("processing data")
   log("all done")
@@ -49,7 +48,6 @@ let log_result = handle {
   log(msg) => resume(()) with state = state ++ "[" ++ msg ++ "] ",
   read_log() => resume(state),
 }
-let (logs, _) = log_result
 print("Captured: " ++ logs)
 
 // ── Multi-state: independent counters ─────────────────────────
@@ -66,8 +64,8 @@ effect CountB {
 
 print("")
 print("=== Multi-state (nested handlers) ===")
-let a_result = handle {
-  let b_result = handle {
+let a = handle {
+  let b = handle {
     bump_a()
     bump_b()
     bump_a()
@@ -79,7 +77,6 @@ let a_result = handle {
     bump_b() => resume(()) with b_count = b_count + 1,
     read_b() => resume(b_count),
   }
-  let (b, _) = b_result
   print("B count: " ++ to_string(b))
   bump_a()
   read_a()
@@ -87,7 +84,6 @@ let a_result = handle {
   bump_a() => resume(()) with a_count = a_count + 1,
   read_a() => resume(a_count),
 }
-let (a, _) = a_result
 print("A count: " ++ to_string(a))
 
 // ── State + computation: fibonacci via effects ────────────────
@@ -99,7 +95,7 @@ effect FibState {
 
 print("")
 print("=== Fibonacci via stateful handler ===")
-let fib_result = handle {
+let result = handle {
   step()
   step()
   step()
@@ -115,8 +111,6 @@ let fib_result = handle {
   get_pair() => resume((a, b)),
   step() => resume(()) with a = b, b = a + b,
 }
-// Multi-state handler: (body_result, a, b) — two state bindings
-let (result, _a, _b) = fib_result
 print("fib(10) = " ++ to_string(result))
 
 print("")

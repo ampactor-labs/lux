@@ -25,7 +25,7 @@ println("")
 
 // Handler 2: teach — shows types + gradient
 println("── compile_teaching ──")
-let (chunk2, _) = compile_teaching(source)
+let chunk2 = compile_teaching(source)
 let program2 = load_chunk(chunk2)
 program2()
 

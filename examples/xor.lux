@@ -44,6 +44,7 @@ handler compute_forward {
   forward_vec_add(a, b) => resume(vec_add(a, b)),
   forward_relu(xs) => resume(relu_vec(xs)),
   forward_sigmoid(xs) => resume(sigmoid_vec(xs)),
+  get_tape() => resume([]),
 }
 
 // ── Training step ───────────────────────────────────────────
@@ -51,9 +52,11 @@ handler compute_forward {
 // Returns (loss, updated_model).
 
 fn train_step(model, x, target, lr) = {
-  // Forward pass with tape recording — handler state returns as tuple
+  // Forward pass with tape recording
   let result = handle {
-    forward(model, x)
+    let out = forward(model, x)
+    let tape = get_tape()
+    (out, tape)
   } with tape = [] {
     forward_mat_vec_mul(w, xv) => {
       let r = mat_vec_mul(w, xv)
@@ -71,9 +74,9 @@ fn train_step(model, x, target, lr) = {
       let r = sigmoid_vec(xs)
       resume(r) with tape = push(tape, TapeSigmoid { out: r })
     },
+    get_tape() => resume(tape),
   }
 
-  // result is (out, tape) — handler state flows out as return value
   let (out, recorded_tape) = result
 
   let loss = mse(out, target)

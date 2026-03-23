@@ -11,6 +11,7 @@
 
 effect Test {
   check(condition: Bool, msg: String) -> ()
+  get_results() -> (Int, Int)
 }
 
 // ─── Convenience ─────────────────────────────────────────────
@@ -34,8 +35,9 @@ fn expect_false(value) =
 fn run_tests(tests) = {
   let totals = fold(tests, (0, 0), |acc, test| {
     let (name, test_fn) = test
-    let (_, (p, f)) = handle {
+    let (p, f) = handle {
       test_fn()
+      get_results()
     } with counts = (0, 0) {
       check(cond, msg) => {
         let (passed, failed) = counts
@@ -45,7 +47,8 @@ fn run_tests(tests) = {
           println("  FAIL [" ++ name ++ "]: " ++ msg)
           resume(()) with counts = (passed, failed + 1)
         }
-      }
+      },
+      get_results() => resume(counts),
     }
     let (tp, tf) = acc
     (tp + p, tf + f)
@@ -66,8 +69,9 @@ fn run_suite(tests) = {
   let totals = fold(tests, (0, 0), |acc, test| {
     let (name, test_fn) = test
     println("── " ++ name ++ " ──")
-    let (_, (p, f)) = handle {
+    let (p, f) = handle {
       test_fn()
+      get_results()
     } with counts = (0, 0) {
       check(cond, msg) => {
         let (passed, failed) = counts
@@ -78,7 +82,8 @@ fn run_suite(tests) = {
           println("  ✗ " ++ msg)
           resume(()) with counts = (passed, failed + 1)
         }
-      }
+      },
+      get_results() => resume(counts),
     }
     let (tp, tf) = acc
     (tp + p, tf + f)

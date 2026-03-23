@@ -62,13 +62,13 @@ fn repl_loop(mode) = {
 
 fn repl_eval(source, mode) = {
   if mode == "teach" {
-    let (chunk, _log) = repl_teaching(source)
+    let chunk = repl_teaching(source)
     let program = load_chunk(chunk)
     let result = program()
     print_result(result)
   }
   else { if mode == "trace" {
-    let (chunk, _stages) = repl_tracing(source)
+    let chunk = repl_tracing(source)
     let program = load_chunk(chunk)
     let result = program()
     print_result(result)

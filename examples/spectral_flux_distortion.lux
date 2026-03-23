@@ -99,7 +99,7 @@ let sfd_result = handle {
         resume(y) with fast_env = new_fast, slow_env = new_slow
     },
 }
-let (sfd_out, _, _) = sfd_result
+let sfd_out = sfd_result
 println("sfd:   " ++ to_string(sfd_out))
 
 // ── Section 3: Recording Mode — Debug Inside the Handler ─────
@@ -122,9 +122,8 @@ let rec_result = handle {
         resume(y) with fast_env = new_fast, slow_env = new_slow, flux_trace = push(flux_trace, flux)
     },
 }
-let (rec_out, _, _, rec_flux) = rec_result
+let rec_out = rec_result
 println("out:   " ++ to_string(rec_out))
-println("flux:  " ++ to_string(rec_flux))
 
 // Verify recording matches non-recording mode
 assert to_string(sfd_out) == to_string(rec_out), "recording must match adaptive"
@@ -150,7 +149,7 @@ let chain_result = handle {
         resume(y) with fast_env = new_fast, slow_env = new_slow
     },
 }
-let (chain_out, _, _) = chain_result
+let chain_out = chain_result
 println("chain: " ++ to_string(chain_out))
 
 // ── Section 5: Pure Waveshaping Safety Proofs ────────────────

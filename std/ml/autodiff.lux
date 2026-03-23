@@ -21,6 +21,7 @@ effect Compute {
   forward_vec_add(a: List<Float>, b: List<Float>) -> List<Float>
   forward_relu(xs: List<Float>) -> List<Float>
   forward_sigmoid(xs: List<Float>) -> List<Float>
+  get_tape() -> List
 }
 
 // ── Backward pass ───────────────────────────────────────────
