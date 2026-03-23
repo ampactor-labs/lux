@@ -124,21 +124,21 @@ fn sandbox(x: Float) -> Float with DSP - Network - Alloc {
 fn safe_add(a: Int, b: Int) -> Int with Pure { a + b }
 ```
 
-## Progressive levels
+## The gradient
 
-Five levels, each a proper subset of the next. Code never rewrites — only
-unlocks.
+Every annotation you add changes what the compiler can do for you. There
+are no levels — just more knowledge flowing to the compiler.
 
-| Level | What you write | What you get |
-|-------|----------------|--------------|
-| 1 | No annotations | Everything inferred. It runs. |
-| 2 | Type annotations | Compiler verifies your types |
-| 3 | Effect annotations | Compiler tracks effect dependencies |
-| 4 | Negation constraints | Compiler proves safety properties |
-| 5 | Full Lux | Refinement types, ownership, compile-time proofs |
+| What you write | What the compiler does |
+|----------------|----------------------|
+| No annotations | Infers everything. It runs. |
+| Type annotations | Confirms your understanding |
+| `with Pure` | Memoizes, parallelizes, compile-time evals |
+| `with !Alloc` | Proves allocation-free for real-time |
+| Refinement types | Proves properties, eliminates runtime checks |
 
-The `--teach` flag shows you exactly where you are and what the next level
-would give you. The compiler doesn't lecture — it illuminates.
+The compiler shows you exactly where you are and what the next step
+unlocks. It doesn't lecture — it illuminates.
 
 ## What falls out for free
 
@@ -167,10 +167,11 @@ ideas — the goal is self-hosting.
 - Teaching compiler (`--teach`): surfaces inferred types and effects
 - Pipe operator: `x |> f |> g` for natural data flow
 - Pattern matching with exhaustiveness warnings
+- Self-hosted compiler: lexer → parser → checker → codegen, ALL in Lux
 - ML framework: autodiff via effect handlers (XOR trains to convergence)
 - DSP framework: provably safe audio processing via effect constraints
 - Bytecode VM with evidence-passing optimization
-- 22 working examples
+- 28 working examples
 
 **What's next:**
 - Native codegen (Cranelift backend)

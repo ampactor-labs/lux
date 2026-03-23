@@ -83,14 +83,15 @@ deterministic cleanup), `gc` (shared, collected), `rc` (ref-counted). Borrow
 inference within function bodies — programmers never write `&` or lifetime
 annotations inside functions. Explicit only at module boundaries.
 
-### Progressive Levels (1-5)
+### The Gradient (not discrete levels)
 
-Five levels, each a proper subset of the next. Code never rewrites — only
-unlocks. Level 1 (pure functional, feels like Elm) → Level 2 (+effects,
-feels like Koka) → Level 3 (+ownership, feels like friendlier Rust) →
-Level 4 (+refinements, feels like Liquid Haskell) → Level 5 (full Lux,
-feels like nothing else). The compiler nudges you forward when your code
-would benefit from the next level.
+Every annotation you add changes what the compiler knows, and what it
+knows determines what it can do for you. Write `fn f(x) = x + 1` — the
+compiler infers `(Int) -> Int with Pure`. Add `with Pure` — the compiler
+can now memoize, parallelize, evaluate at compile time. Add a refinement
+type — the compiler proves properties. There are no "levels" — there's
+just MORE KNOWLEDGE flowing to the compiler. The compiler's power scales
+continuously with how much you tell it.
 
 ### What This Means for Development
 
@@ -141,18 +142,24 @@ isolation
 - `cargo test` — run all tests (36 type checker + golden-file tests)
 - `for f in examples/*.lux; do cargo run --quiet -- --quiet "$f"; done` — run all examples
 
-## Architecture (Rust prototype — temporary scaffolding)
+## Architecture
 
+**Rust prototype (temporary scaffolding):**
 ```
-source → lex → parse → check → compile → VM   ← current (bytecode VM, Rust)
-                          ↓
-                    codegen (future)             ← Cranelift → LLVM → self-hosted
+source → lex → parse → check → compile → VM
 ```
-
 Pipeline: `lexer.rs` → `parser/` → `checker/` → `compiler/` → `vm/`
 Shared types: `token.rs`, `ast.rs`, `types.rs`, `error.rs`
 Frontend: `main.rs` (CLI), `repl.rs` (VM-backed REPL), `lib.rs` (prelude loader)
-Standard library: `std/prelude.lux`, `std/test.lux`, `std/dsp/`, `std/ml/`
+
+**Self-hosted compiler (Lux-in-Lux, running on the Rust VM):**
+```
+source → [lexer.lux] → [parser.lux] → [checker.lux] → [codegen.lux] → bytecode
+```
+All four components working. The self-hosted compiler can parse, type-check,
+and emit bytecode for Lux programs. See `std/compiler/`.
+
+Standard library: `std/prelude.lux`, `std/test.lux`, `std/types.lux`, `std/dsp/`, `std/ml/`
 
 ## Key Files (Rust prototype)
 
@@ -168,8 +175,13 @@ Standard library: `std/prelude.lux`, `std/test.lux`, `std/dsp/`, `std/ml/`
 | `src/vm/` | Stack-based VM (execution, effects, builtins) | Rewritten in Lux |
 | `src/error.rs` | Error types, source-context formatting, teaching hints | Rewritten in Lux |
 | `src/loader.rs` | Module import resolution, cycle detection | Rewritten in Lux |
+| `std/compiler/lexer.lux` | Self-hosted tokenizer | **YES — Lux forever** |
+| `std/compiler/parser.lux` | Self-hosted recursive descent parser (ADT-based AST) | **YES — Lux forever** |
+| `std/compiler/checker.lux` | Self-hosted HM type checker with unification | **YES — Lux forever** |
+| `std/compiler/codegen.lux` | Self-hosted bytecode emitter + disassembler | **YES — Lux forever** |
 | `std/prelude.lux` | Self-hosted stdlib (38 functions: map, filter, fold, sort, etc.) | **YES — Lux forever** |
 | `std/test.lux` | Native test framework (assert_eq, run_tests) | **YES — Lux forever** |
+| `std/types.lux` | Option/Result ADTs | **YES — Lux forever** |
 | `std/ml/` | Tensor ops, autodiff via Compute effect | **YES — Lux forever** |
 | `std/dsp/` | DSP effects, processor library, spectral analysis | **YES — Lux forever** |
 | `examples/*.lux` | Language examples and test cases | **YES — Lux forever** |
@@ -263,24 +275,33 @@ fn safe_v2(x: Float) -> Float with DSP - Network - Alloc { ... }  // subtraction
 | 8B | Effect subtraction syntax `E - F` in annotations — desugars to negation constraint. Same semantics as `E, !F` but reads as capability removal. Enables readable sandbox patterns. Generic subtraction (row variables) deferred to Phase 9+. | HEAD |
 | 8C | Teaching compiler (`--teach`) — surfaces inferred types/effects, suggests annotations that unlock guarantees. Friendly type vars (a, b, c), import boundary tracking, purity/effect discovery. Progressive levels foundation. | HEAD |
 | 8D | Evidence-passing for higher-order functions — checker adds effect routing for function-typed Var refs, VM BundledClosure allocates extra locals, BundleEvidence opcode decoder fix. `dsp_sandbox` passes, removed from skip list. | HEAD |
+| 9A | Self-hosted lexer (`std/compiler/lexer.lux`) — tokenizer written in Lux generating Token ADTs. | HEAD |
+| 9B | Self-hosted parser (`std/compiler/parser.lux`) — ADT-based recursive descent parser in Lux. Handles expressions, let bindings, fn declarations, if/else, match, lists, tuples, pipes, blocks. | HEAD |
+| 9C | Self-hosted type checker (`std/compiler/checker.lux`) — HM type inference with unification, occurs check, and constraint propagation. Infers Int, String, Bool, List<T>, function types. | HEAD |
+| 9D | Self-hosted codegen (`std/compiler/codegen.lux`) — bytecode emitter producing correct opcodes for all core constructs + full disassembler. Lux compiles Lux. | 81b8ed7 |
 
-## Roadmap (beyond interpreter)
+## Roadmap
 
-| Phase | Layer | Deliverable |
-|-------|-------|-------------|
-| 6C | Modules + VM | Module system, bytecode compiler, stack-based VM (**DONE**) |
-| 7A | State-as-return | Handler state flows out as return value (**DONE**). Eliminates `get_tape()` anti-pattern. |
-| 7B | Tail-resumptive | VM fast-path for tail-resumptive handlers (**DONE**). Compiler detects, VM skips continuation capture. |
-| 7C | Handler composition | `handler` top-level item, handler reuse (**DONE**). **ML milestone:** inference = training minus tape. |
-| 7+ | Evidence-passing (local) | Direct handler dispatch via evidence values (**DONE**). Hybrid: handler on stack for indirect effects, PerformEvidence for direct. |
-| 7++ | Evidence threading | Cross-function evidence: thread evidence as hidden parameters. Eliminates handler stack search for indirect effects. |
-| 8A | Effect algebra (negation) | `!Effect` and `Pure` constraints (**DONE**). Compile-time proofs: `!Alloc` = real-time safe, `Pure` = parallelizable. |
-| 8B | Codegen | Cranelift backend, native binaries. **ML milestone:** native-speed tensor ops, training on real data. |
-| 9 | Ownership | own/ref/gc inference, borrow checking. **ML milestone:** `!Alloc` inference, Daisy Seed deployment. |
-| 9.5 | Concurrent handlers | Parallel resume with ownership-proven isolation |
-| 10 | Refinements | Z3-backed refinement types, !Alloc proof. **ML milestone:** compile-time shape checking, parameter constraints. |
-| 11 | Self-hosting | Parser + checker rewritten in Lux. ML framework compiled by Lux. |
-| 12 | Polish | LLVM backend, LSP, package manager. **ML milestone:** GPU compilation gate, auto-parallelization. |
+> Full roadmap: `docs/ROADMAP.md` (10 phases to ultimate Lux)
+
+**Completed:** Phases 1-8D (VM, effects, evidence passing, effect algebra, teaching compiler)
+
+**Current:** Self-hosted compiler pipeline (lexer → parser → checker → codegen) ALL working in Lux.
+
+**Next 10 Phases** (see ROADMAP.md for full details):
+
+| Phase | What |
+|-------|------|
+| 1 | Self-hosted codegen (**DONE**) |
+| 2 | Why Engine — reasoning chains on every inference |
+| 3 | Effect tracking — Pure proofs, effect rows |
+| 4 | Effect algebra — !E, E-F, E&F, compilation gates |
+| 5 | Ownership — own/ref/gc, borrow inference |
+| 6 | Refinement types — Z3-backed compile-time predicates |
+| 7 | Native backend — Cranelift (dev) + LLVM (release) |
+| 8 | Gradient system — continuous annotation→guarantee curve |
+| 9 | Type-directed synthesis — write the type, get the code |
+| 10 | Full self-hosting — delete every .rs file |
 
 ## Doc-to-Code Mapping
 

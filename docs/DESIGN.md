@@ -155,79 +155,65 @@ handle computation() with count = 0, log = [] {
 
 ---
 
-## Progressive Language Levels
+## The Annotation Gradient
 
-Lux has five levels, like Racket's teaching languages. Each is a
-**proper subset** of the next. Code written at Level 1 is valid at
-Level 5. You never rewrite — you only unlock.
+Lux doesn't have discrete levels. Every annotation you add changes what
+the compiler can prove about your code. The compiler's power scales
+continuously with how much you tell it.
 
-### Level 1: Pure Functional
+### No annotations: it works
 
-Algebraic types, pattern matching, traits, closures, pipes. All values
-are `gc`. No effects. No ownership. No refinements.
-
-*Feels like: a friendlier Haskell or Elm.*
-
-```
-lux new --level beginner my_project
+```lux
+fn double(x) = x * 2
 ```
 
-### Level 2: + Effects
+The compiler infers `double: (Int) -> Int with Pure`. You wrote nothing
+extra. It knows the type, the effect (none), and it works.
 
-Effect declarations and handlers. Row polymorphism. Structured
-concurrency. The full `handle`/`resume` mechanism.
+### Add `with Pure`: unlock optimizations
 
-*Feels like: Koka.*
-
-```
-lux new --level effects my_project
+```lux
+fn double(x) = x * 2 with Pure
 ```
 
-### Level 3: + Ownership
+Same function. Now the compiler can memoize it, parallelize calls,
+evaluate it at compile time. You told it one thing; it gave you three
+capabilities.
 
-`own`, `ref`, `gc` annotations. Borrow inference within function bodies.
-Resource management. Deterministic cleanup.
+### Add a refinement: unlock proofs
 
-*Feels like: a friendlier Rust.*
-
-```
-lux new --level systems my_project
-```
-
-### Level 4: + Refinements
-
-Predicate types verified at compile time by an SMT solver. Gradual
-verification with `assert` as a runtime fallback. Verification dashboard.
-
-*Feels like: Liquid Haskell but approachable.*
-
-```
-lux new --level verified my_project
+```lux
+fn double(x: Positive) -> Positive = x * 2 with Pure
 ```
 
-### Level 5: Full Lux
+Now the compiler proves the output is positive. Division by zero is
+impossible. Buffer overflows can't happen. The SMT solver handles it.
 
-First-class modules, typed macros, effect algebra, the complete language.
+### Add ownership: unlock real-time
 
-*Feels like: nothing else that exists.*
-
-```
-lux new my_project
-```
-
-The compiler nudges you forward. When your Level 1 code would benefit
-from effects, it says so:
-
-```
-note: your function `process` has side effects (reads from stdin)
-  = at Level 1 (Pure), side effects are handled through the main return value
-  = consider upgrading to Level 2 (Effects) to use the effect system directly:
-  |   lux level set effects
+```lux
+fn double(x: own Int) -> own Int with Pure, !Alloc = x * 2
 ```
 
-The gradient is real: Python-style prototyping → gradually tighten → progressive
-levels formalize the learning path. Every level is a complete, usable language.
-You don't need Level 5 to ship production software.
+Now the compiler proves this function never allocates. Safe for audio
+callbacks, embedded systems, GPU kernels.
+
+### The compiler shows you the gradient
+
+```
+  fn double: (Int) -> Int with Pure
+    → adding `with Pure` unlocks: memoization, parallelization
+    → adding `x: Positive` unlocks: output proof, zero-cost bounds
+    → adding `with !Alloc` unlocks: real-time safety, GPU eligibility
+```
+
+Each annotation is a conversation with the compiler. You tell it
+something; it tells you what that unlocks. There's no `lux level set` —
+there's just more knowledge flowing between you and the machine.
+
+The gradient is real: Python-style prototyping → gradually tighten →
+every annotation unlocks guarantees. All syntax is always valid.
+You don't need everything to ship production software.
 
 ---
 
