@@ -98,3 +98,67 @@ fn compile_tracing(source) =
       resume(chunk) with stages = push(stages, ("chunk", chunk))
     }
   }
+
+// ─── REPL Variants ───────────────────────────────────────────
+// Same pipeline, but uses compile_repl to preserve expression values.
+// In a REPL, `2 + 3` should return 5, not ().
+
+fn repl_compile_pipeline(source) = {
+  let tokens = tokenize(source)
+  let ast = parse_source(tokens)
+  let chunk = generate(ast)
+  chunk
+}
+
+fn repl_standard(source) =
+  handle {
+    repl_compile_pipeline(source)
+  } {
+    tokenize(src) => resume(lex(src)),
+    parse_source(tokens) => resume(parse_program(tokens)),
+    generate(ast) => resume(compile_repl(ast))
+  }
+
+fn repl_teaching(source) =
+  handle {
+    repl_compile_pipeline(source)
+  } with log = [] {
+    tokenize(src) => {
+      let tokens = lex(src)
+      let n = len(tokens)
+      println("[teach] " ++ to_string(n) ++ " tokens")
+      resume(tokens) with log = push(log, ("tokenize", n))
+    },
+    parse_source(tokens) => {
+      let ast = parse_program(tokens)
+      let n = len(ast)
+      println("[teach] " ++ to_string(n) ++ " AST nodes")
+      resume(ast) with log = push(log, ("parse", n))
+    },
+    generate(ast) => {
+      let chunk = compile_repl(ast)
+      println("[teach] compiled")
+      resume(chunk) with log = push(log, ("codegen", 1))
+    }
+  }
+
+fn repl_tracing(source) =
+  handle {
+    repl_compile_pipeline(source)
+  } with stages = [] {
+    tokenize(src) => {
+      let tokens = lex(src)
+      println("[trace] " ++ to_string(tokens))
+      resume(tokens) with stages = push(stages, ("tokens", tokens))
+    },
+    parse_source(tokens) => {
+      let ast = parse_program(tokens)
+      println("[trace] " ++ to_string(ast))
+      resume(ast) with stages = push(stages, ("ast", ast))
+    },
+    generate(ast) => {
+      let chunk = compile_repl(ast)
+      println("[trace] " ++ to_string(chunk))
+      resume(chunk) with stages = push(stages, ("chunk", chunk))
+    }
+  }

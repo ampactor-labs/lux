@@ -930,6 +930,30 @@ fn compile_stmts(ctx, stmts) = {
   }
 }
 
+// REPL compilation: like compile_program but preserves the last expression's value
+// so that `2 + 3` returns 5, not ()
+fn compile_repl(stmts) = {
+  let ctx = ctx_new()
+  let ctx2 = if len(stmts) > 0 {
+    // Compile all but last as normal statements
+    let init = slice(stmts, 0, len(stmts) - 1)
+    let ctx3 = compile_stmts(ctx, init)
+    // Compile last: if ExprStmt, compile as expression (no pop)
+    let last = stmts[len(stmts) - 1]
+    match last {
+      ExprStmt(expr) => compile_expr(ctx3, expr),
+      _ => compile_stmt(ctx3, last)
+    }
+  } else { ctx }
+  let ctx3 = emit_op(ctx2, OP_RETURN())
+  let ht = ctx_handler_tables(ctx3)
+  if len(ht) > 0 {
+    ("chunk", ctx_code(ctx3), ctx_constants(ctx3), ctx_names(ctx3), ht)
+  } else {
+    ("chunk", ctx_code(ctx3), ctx_constants(ctx3), ctx_names(ctx3))
+  }
+}
+
 // ─── Disassembly ─────────────────────────────────────────────
 // Pretty-print bytecode for debugging.
 

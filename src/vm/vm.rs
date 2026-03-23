@@ -1354,6 +1354,33 @@ impl Vm {
             }
         });
 
+        // Read a line from stdin, returning it as a string (without trailing newline)
+        self.register_builtin("read_line", |_args| {
+            use std::io::BufRead;
+            let stdin = std::io::stdin();
+            let mut line = String::new();
+            match stdin.lock().read_line(&mut line) {
+                Ok(0) => Ok(VmValue::Unit), // EOF
+                Ok(_) => {
+                    if line.ends_with('\n') {
+                        line.pop();
+                        if line.ends_with('\r') {
+                            line.pop();
+                        }
+                    }
+                    Ok(VmValue::String(Arc::new(line)))
+                }
+                Err(e) => Err(format!("read_line: {e}")),
+            }
+        });
+
+        // Flush stdout (useful for REPL prompts)
+        self.register_builtin("flush_stdout", |_args| {
+            use std::io::Write;
+            std::io::stdout().flush().ok();
+            Ok(VmValue::Unit)
+        });
+
         // Bootstrap bridge: convert Lux-compiled chunk to executable closure
         self.register_builtin("load_chunk", |args| {
             match args.first() {
