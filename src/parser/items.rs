@@ -130,7 +130,49 @@ impl Parser {
 
         let body = if self.at_exact(&TokenKind::Eq) {
             self.advance();
-            self.parse_expr()?
+            if self.at_exact(&TokenKind::Let) || self.at_exact(&TokenKind::Fn) {
+                // Implicit block: `fn f(n) = let a = ...; let b = ...; a + b`
+                // Collect stmts + final expression into a Block, just like { ... }
+                // but without requiring braces. Minimal ceremony, maximal clarity.
+                let block_start = self.peek_span();
+                let mut stmts: Vec<Stmt> = Vec::new();
+                let mut final_expr: Option<Box<Expr>> = None;
+
+                loop {
+                    if self.at_exact(&TokenKind::Let) {
+                        let decl = self.parse_let_decl()?;
+                        stmts.push(Stmt::Let(decl));
+                        self.skip_semis();
+                    } else if self.at_exact(&TokenKind::Fn) {
+                        let decl = self.parse_fn_decl()?;
+                        stmts.push(Stmt::FnDecl(decl));
+                        self.skip_semis();
+                    } else if self.at_exact(&TokenKind::Eof)
+                        || self.at_exact(&TokenKind::RBrace)
+                    {
+                        break;
+                    } else {
+                        // Try parsing a trailing expression — the final value
+                        let expr = self.parse_expr()?;
+                        final_expr = Some(Box::new(expr));
+                        break;
+                    }
+                }
+
+                let end = final_expr
+                    .as_ref()
+                    .map(|e| e.span().end)
+                    .or_else(|| stmts.last().map(|s| match s {
+                        Stmt::Let(d) => d.span.end,
+                        Stmt::Expr(e) => e.span().end,
+                        Stmt::FnDecl(d) => d.span.end,
+                    }))
+                    .unwrap_or(block_start.end);
+                let span = Span::new(block_start.start, end, block_start.line, block_start.column);
+                Expr::Block { stmts, expr: final_expr, span }
+            } else {
+                self.parse_expr()?
+            }
         } else {
             self.parse_block_expr()?
         };

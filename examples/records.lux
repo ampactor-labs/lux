@@ -1,79 +1,46 @@
-// Named Record Fields — Phase 6A
-//
-// ADT variants with named fields. Construction uses `Name { field: value }`,
-// destructuring uses `Name { field }` in patterns, and fields are accessible
-// via `.field_name`. Positional variants are unchanged.
+// Records in Lux — anonymous structural types
+// No declaration needed: { field: value } creates a record.
 
-// ── Named field variants ────────────────────────────────────────
+// ── Basic records ────────────────────────────────────────────────
+let origin = { x: 3, y: 4 }
 
-type Person = Person { name: String, age: Int }
-type Shape = Circle { radius: Float } | Rect { w: Float, h: Float }
+fn dist_sq(pt) =
+  let dx = pt.x * pt.x
+  let dy = pt.y * pt.y
+  dx + dy
 
-// ── Construction ────────────────────────────────────────────────
+println(dist_sq(origin))  // 25
 
-let alice = Person { name: "Alice", age: 30 }
-let bob = Person { name: "Bob", age: 25 }
-
-print("=== Record Construction ===")
-print("Alice: " ++ alice.name ++ ", age " ++ to_string(alice.age))
-print("Bob: " ++ bob.name ++ ", age " ++ to_string(bob.age))
-
-// ── Pattern matching with named fields ──────────────────────────
-
-fn describe(p: Person) -> String = match p {
-  Person { name, age } if age >= 30 => name ++ " is 30+",
-  Person { name, age } => name ++ " is " ++ to_string(age),
+// ── Records as config ────────────────────────────────────────────
+let config = {
+  sample_rate: 48000,
+  block_size:  256,
+  channels:    2,
 }
 
-print("")
-print("=== Record Patterns ===")
-print(describe(alice))
-print(describe(bob))
+fn describe_config(c) =
+  "SR=" ++ to_string(c.sample_rate) ++ " BS=" ++ to_string(c.block_size)
 
-// ── Shapes with mixed variant styles ────────────────────────────
+println(describe_config(config))   // SR=48000 BS=256
 
-fn area(s: Shape) -> Float = match s {
-  Circle { radius } => 3.14159 * radius * radius,
-  Rect { w, h } => w * h,
+// ── Nested records ───────────────────────────────────────────────
+let biquad = {
+  b0: 1.0,
+  b1: 0.0,
+  b2: 0.0,
+  cutoff: 440.0,
 }
 
-let c = Circle { radius: 5.0 }
-let r = Rect { w: 3.0, h: 4.0 }
+println(biquad.cutoff)  // 440.0
 
-print("")
-print("=== Shape Areas ===")
-print("Circle area: " ++ to_string(area(c)))
-print("Rect area: " ++ to_string(area(r)))
+// ── Field shorthand { name } = { name: name } ────────────────────
+let ax = 10
+let ay = 20
+let pt2 = { x: ax, y: ay }
+println(pt2.x)   // 10
+println(pt2.y)   // 20
 
-// ── List patterns ───────────────────────────────────────────────
-
-fn describe_list(items) = match items {
-  [] => "empty",
-  [only] => "just " ++ to_string(only),
-  [first, second, ...rest] => to_string(first) ++ ", " ++ to_string(second) ++ " and " ++ to_string(len(rest)) ++ " more",
-}
-
-print("")
-print("=== List Patterns ===")
-print(describe_list([]))
-print(describe_list([42]))
-print(describe_list([1, 2, 3, 4, 5]))
-
-// ── Or-patterns ─────────────────────────────────────────────────
-
-type Color = Red | Green | Blue | Yellow | Purple
-
-fn is_primary(c: Color) -> Bool = match c {
-  Red | Blue | Yellow => true,
-  _ => false,
-}
-
-print("")
-print("=== Or-Patterns ===")
-print("Red primary? " ++ to_string(is_primary(Red)))
-print("Green primary? " ++ to_string(is_primary(Green)))
-print("Blue primary? " ++ to_string(is_primary(Blue)))
-print("Purple primary? " ++ to_string(is_primary(Purple)))
-
-print("")
-print("Records, list patterns, and or-patterns: clarity through structure.")
+// ── Field order independence ─────────────────────────────────────
+let q = { y: 100, x: 999 }
+println(q.x)   // 999
+println(q.y)   // 100

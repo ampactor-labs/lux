@@ -29,6 +29,8 @@ language would do? If not, design the way it SHOULD be.**
 | Self-hosted lexer | ✅ Working | All token types, compiles itself |
 | Self-hosted parser | ✅ Working | All expression/statement forms, compiles itself |
 | Self-hosted checker | ✅ Working | HM inference + Why Engine + effect row tracking |
+| Math stdlib | ✅ Working | abs, max, min, clamp, round, sqrt, pow, log, exp, sin, cos, tanh, atan2, pi |
+| Record types | ✅ Working | Anonymous `{ x: 3, y: 4 }`, structural FieldAccess, schema-fingerprint codegen |
 | Self-hosted codegen | ✅ Working | Full bytecode emission, match+field binding, closures |
 | **Inference pipeline** | ✅ **ACHIEVED** | `tokenize→parse→infer→generate` as 4-op Compiler effect |
 | Pipeline handlers | ✅ Working | 6 handlers: standard, teaching, explaining (Why), documenting, checking, tracing |
@@ -41,14 +43,12 @@ language would do? If not, design the way it SHOULD be.**
 | Math stdlib | ✅ Working | abs, max, min, clamp, round, sqrt, pow, log, exp, sin, cos, tanh, atan2, pi |
 | Test framework | ✅ Working | Test effect with `assert`, `expect_eq`, `run_tests`/`run_suite` handlers |
 
-**Current milestone**: Inference-as-effect pipeline with 6 handlers. Same
-pipeline = compiler + teacher + docs + debugger + checker. Gradient engine
-suggests ONE annotation per compile. CLI: `lux why/doc/check`. REPL: `:why`.
-Elm-quality error messages: did-you-mean, missing variant names, fn context.
-Tail-resumptive handler detection for zero-cost evidence passing.
+**Current milestone**: Constant folding + dead branch elimination (compiler knows more than C).
+Anonymous record types: `{ name: "Alice", age: 30 }` with structural field access.
+Elm-quality errors: did-you-mean, missing variants, tail-resumptive hints.
 Self-hosted checker tracks effect rows through inference.
 
-**Next**: Record types, native backend, refinement types, ownership inference.
+**Next**: Evidence passing for zero-overhead tail-resumptive handlers, Cranelift native backend.
 
 ## READ THIS FIRST — What Lux IS
 

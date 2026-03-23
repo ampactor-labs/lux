@@ -179,16 +179,27 @@ impl Parser {
 
     /// Lookahead: is the current `{` the start of a record construction?
     ///
-    /// Returns true if the tokens after `{` match `ident :` (field: value).
-    /// This disambiguates `Name { field: value }` from `Name { block_expr }`.
+    /// Returns true if the tokens after `{` match a record literal pattern:
+    ///   `{ ident : ...`  — explicit field  (always record)
+    ///   `{ ident ,`      — shorthand field followed by more fields
+    ///   `{ ident }`      — single shorthand field
+    ///   `{ }`            — empty record
+    /// This disambiguates record literals from block expressions.
     pub(crate) fn is_record_construction_ahead(&self) -> bool {
         // Current token is `{`. Check pos+1 and pos+2.
         let tok1 = self.tokens.get(self.pos + 1).map(|t| &t.kind);
         let tok2 = self.tokens.get(self.pos + 2).map(|t| &t.kind);
-        matches!(
-            (tok1, tok2),
-            (Some(TokenKind::Ident(_)), Some(TokenKind::Colon))
-        )
+        match (tok1, tok2) {
+            // `{ field: expr }` — explicit field value
+            (Some(TokenKind::Ident(_)), Some(TokenKind::Colon)) => true,
+            // `{ field, ...}` — shorthand with more fields following
+            (Some(TokenKind::Ident(_)), Some(TokenKind::Comma)) => true,
+            // `{ field }` — single shorthand field
+            (Some(TokenKind::Ident(_)), Some(TokenKind::RBrace)) => true,
+            // `{}` — empty record
+            (Some(TokenKind::RBrace), _) => true,
+            _ => false,
+        }
     }
 }
 
