@@ -326,6 +326,49 @@ Same input. Same pipeline. Different handler. Different output.
 
 ---
 
+## The Three Things
+
+Lux has exactly three things:
+
+1. **Effects** — what computation *does*
+2. **Handlers** — what *policy* governs effects
+3. **Pure** — the absence of effects
+
+That's it. There is nothing else.
+
+| Concept | In Lux |
+|---------|--------|
+| IO | Effect |
+| State | Effect |
+| Exceptions | Effect |
+| Generators | Effect |
+| Async | Effect |
+| Memory allocation | Effect (`!Alloc` proves absence) |
+| Network access | Effect (`!Network` = sandboxed) |
+| Compilation | Effect (proven: the pipeline IS effects) |
+| Documentation | Effect (the doc handler captures it) |
+| Teaching | Handler (on the compilation effect) |
+| Tracing | Handler (on the compilation effect) |
+| LSP | Handler (on the inference effect) |
+| REPL | Handler (on the interaction effect) |
+| Memoization | Consequence of `Pure` |
+| Parallelization | Consequence of `Pure` |
+| Compile-time eval | Consequence of `Pure` |
+| Formal verification | Consequence of `Pure` |
+
+The rabbit hole goes all the way down. But the power comes from
+**Pure** — the zero-effect boundary. Without it, "everything is effects"
+would be meaningless. `Pure` is what distinguishes computation that can
+be trusted, cached, proven, and parallelized from computation that
+interacts with the world.
+
+The annotation gradient reveals this: write `fn f(x) = x + 1` and the
+compiler infers `Pure`. Add an effect operation and the compiler tracks
+it. The developer chooses how deep to go. The language is the same at
+every depth.
+
+---
+
 ## The Masterpiece Test
 
 Before every change, every design decision, every line of code, ask:
