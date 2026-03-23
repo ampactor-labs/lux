@@ -42,8 +42,13 @@ pub enum HintKind {
     UnusedBinding,
     /// Handler is tail-resumptive — zero-cost at runtime
     TailResumptiveHandler,
+    /// Function is allocation-free — qualifies for both Pure and !Alloc
+    AllocFreeOpportunity,
     /// Summary: effect budget for the module
-    EffectBudget { pure_count: usize, effectful_count: usize },
+    EffectBudget {
+        pure_count: usize,
+        effectful_count: usize,
+    },
 }
 
 /// Format a compiler hint for terminal display.
@@ -52,8 +57,11 @@ pub fn format_hint(hint: &CompilerHint, filename: Option<&str>) -> String {
     let mut out = String::new();
 
     match &hint.kind {
-        HintKind::PurityOpportunity | HintKind::EffectsUndeclared => {
+        HintKind::AllocFreeOpportunity
+        | HintKind::PurityOpportunity
+        | HintKind::EffectsUndeclared => {
             let label = match hint.kind {
+                HintKind::AllocFreeOpportunity => "is allocation-free",
                 HintKind::PurityOpportunity => "is pure",
                 HintKind::EffectsUndeclared => "has effects",
                 _ => unreachable!(),
@@ -73,10 +81,7 @@ pub fn format_hint(hint: &CompilerHint, filename: Option<&str>) -> String {
             }
         }
         HintKind::PipeSuggestion { nested, piped } => {
-            out.push_str(&format!(
-                "  pipe opportunity (line {})\n",
-                hint.span.line
-            ));
+            out.push_str(&format!("  pipe opportunity (line {})\n", hint.span.line));
             out.push_str(&format!(
                 "    --> {}:{}:{}\n",
                 filename, hint.span.line, hint.span.column
@@ -108,17 +113,17 @@ pub fn format_hint(hint: &CompilerHint, filename: Option<&str>) -> String {
             out.push_str("    = compiled via evidence passing — zero overhead\n");
             out.push_str("    = no continuation captured, no heap allocation\n");
         }
-        HintKind::EffectBudget { pure_count, effectful_count } => {
+        HintKind::EffectBudget {
+            pure_count,
+            effectful_count,
+        } => {
             let total = pure_count + effectful_count;
             if total > 0 {
                 let pct = (*pure_count as f64 / total as f64 * 100.0) as usize;
                 let bar_len = 20;
                 let filled = bar_len * pct / 100;
                 let bar: String = "█".repeat(filled) + &"░".repeat(bar_len - filled);
-                out.push_str(&format!(
-                    "  effect budget: {} pure  {}\n",
-                    bar, pct
-                ));
+                out.push_str(&format!("  effect budget: {} pure  {}\n", bar, pct));
                 out.push_str(&format!(
                     "    {} of {} functions are pure — candidates for memoization and parallelization\n",
                     pure_count, total
@@ -132,6 +137,10 @@ pub fn format_hint(hint: &CompilerHint, filename: Option<&str>) -> String {
 
 /// Format a summary of all hints for terminal display.
 pub fn format_hint_summary(hints: &[CompilerHint]) -> String {
+    let alloc_free_count = hints
+        .iter()
+        .filter(|h| matches!(h.kind, HintKind::AllocFreeOpportunity))
+        .count();
     let pure_count = hints
         .iter()
         .filter(|h| matches!(h.kind, HintKind::PurityOpportunity))
@@ -150,6 +159,9 @@ pub fn format_hint_summary(hints: &[CompilerHint]) -> String {
         .count();
 
     let mut parts = Vec::new();
+    if alloc_free_count > 0 {
+        parts.push(format!("{alloc_free_count} alloc-free"));
+    }
     if pure_count > 0 {
         parts.push(format!("{pure_count} pure"));
     }
@@ -163,7 +175,17 @@ pub fn format_hint_summary(hints: &[CompilerHint]) -> String {
         parts.push(format!("{unused_count} unused bindings"));
     }
 
-    let fn_count = hints.iter().filter(|h| matches!(h.kind, HintKind::PurityOpportunity | HintKind::EffectsUndeclared)).count();
+    let fn_count = hints
+        .iter()
+        .filter(|h| {
+            matches!(
+                h.kind,
+                HintKind::AllocFreeOpportunity
+                    | HintKind::PurityOpportunity
+                    | HintKind::EffectsUndeclared
+            )
+        })
+        .count();
     format!("  {} functions checked: {}", fn_count, parts.join(", "))
 }
 
@@ -243,7 +265,9 @@ pub enum TypeErrorKind {
         constraint: String,
     },
     InfiniteType,
-    NonExhaustiveMatch { missing: Vec<String> },
+    NonExhaustiveMatch {
+        missing: Vec<String>,
+    },
     DuplicateDefinition(String),
     UnboundStateVar(String),
 }
@@ -371,7 +395,11 @@ impl fmt::Display for TypeError {
                     self.span.line
                 )
             }
-            TypeErrorKind::WrongArity { expected, found, fn_name } => {
+            TypeErrorKind::WrongArity {
+                expected,
+                found,
+                fn_name,
+            } => {
                 write!(
                     f,
                     "wrong number of arguments: expected {expected}, found {found}",
@@ -396,7 +424,11 @@ impl fmt::Display for TypeError {
             }
             TypeErrorKind::NonExhaustiveMatch { missing } => {
                 let names = missing.join(", ");
-                write!(f, "non-exhaustive match at line {} — missing: {names}", self.span.line)
+                write!(
+                    f,
+                    "non-exhaustive match at line {} — missing: {names}",
+                    self.span.line
+                )
             }
             TypeErrorKind::DuplicateDefinition(name) => {
                 write!(
@@ -482,7 +514,11 @@ impl LuxError {
                     format!("unknown effect operation '{name}'")
                 }
                 TypeErrorKind::NotAFunction(ty) => format!("expected function, found {ty}"),
-                TypeErrorKind::WrongArity { expected, found, fn_name } => {
+                TypeErrorKind::WrongArity {
+                    expected,
+                    found,
+                    fn_name,
+                } => {
                     let mut msg = format!("expected {expected} args, found {found}");
                     if let Some(name) = fn_name {
                         msg.push_str(&format!(" in call to '{name}'"));

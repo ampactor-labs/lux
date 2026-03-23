@@ -152,13 +152,18 @@ impl TypeEnv {
                 if self.bindings.contains_key(&fd.name) {
                     continue;
                 }
-                let param_types: Vec<Type> = fd.params.iter().map(|p| {
-                    if let Some(ann) = &p.type_ann {
-                        self.resolve_type_expr(ann).unwrap_or_else(|_| self.fresh_var())
-                    } else {
-                        self.fresh_var()
-                    }
-                }).collect();
+                let param_types: Vec<Type> = fd
+                    .params
+                    .iter()
+                    .map(|p| {
+                        if let Some(ann) = &p.type_ann {
+                            self.resolve_type_expr(ann)
+                                .unwrap_or_else(|_| self.fresh_var())
+                        } else {
+                            self.fresh_var()
+                        }
+                    })
+                    .collect();
                 let ret = self.fresh_var();
                 let effects = self.fresh_eff_var();
                 let fn_type = Type::Function {
@@ -193,7 +198,10 @@ impl TypeEnv {
         if let Some(base_name) = &hd.base {
             if !self.handler_decls.contains_key(base_name) {
                 return Err(TypeError {
-                    kind: TypeErrorKind::UnboundVariable { name: base_name.clone(), suggestion: None },
+                    kind: TypeErrorKind::UnboundVariable {
+                        name: base_name.clone(),
+                        suggestion: None,
+                    },
                     span: hd.span.clone(),
                 });
             }
@@ -217,7 +225,10 @@ impl TypeEnv {
                 HandlerOp::UseHandler { name } => {
                     if !self.handler_decls.contains_key(name) {
                         return Err(TypeError {
-                            kind: TypeErrorKind::UnboundVariable { name: name.clone(), suggestion: None },
+                            kind: TypeErrorKind::UnboundVariable {
+                                name: name.clone(),
+                                suggestion: None,
+                            },
                             span: clause.span.clone(),
                         });
                     }
@@ -228,7 +239,10 @@ impl TypeEnv {
         // Emit teaching hint for tail-resumptive handlers
         let is_user_code = self.current_item_index >= self.import_item_count;
         if is_user_code && all_tail_resumptive && !hd.clauses.is_empty() {
-            let has_op_handlers = hd.clauses.iter().any(|c| matches!(&c.operation, HandlerOp::OpHandler { .. }));
+            let has_op_handlers = hd
+                .clauses
+                .iter()
+                .any(|c| matches!(&c.operation, HandlerOp::OpHandler { .. }));
             if has_op_handlers {
                 self.hints.push(CompilerHint {
                     kind: HintKind::TailResumptiveHandler,
@@ -253,10 +267,14 @@ impl TypeEnv {
             Expr::Resume { .. } => true,
 
             // Block: check the final expression
-            Expr::Block { stmts: _, expr: Some(final_expr), .. } => {
-                Self::is_tail_resumptive(final_expr)
-            }
-            Expr::Block { stmts, expr: None, .. } => {
+            Expr::Block {
+                stmts: _,
+                expr: Some(final_expr),
+                ..
+            } => Self::is_tail_resumptive(final_expr),
+            Expr::Block {
+                stmts, expr: None, ..
+            } => {
                 // Last statement must be an expression that is tail-resumptive
                 match stmts.last() {
                     Some(crate::ast::Stmt::Expr(e)) => Self::is_tail_resumptive(e),
@@ -265,9 +283,11 @@ impl TypeEnv {
             }
 
             // If/else: both branches must be tail-resumptive
-            Expr::If { then_branch, else_branch: Some(else_br), .. } => {
-                Self::is_tail_resumptive(then_branch) && Self::is_tail_resumptive(else_br)
-            }
+            Expr::If {
+                then_branch,
+                else_branch: Some(else_br),
+                ..
+            } => Self::is_tail_resumptive(then_branch) && Self::is_tail_resumptive(else_br),
 
             // Match: all arms must be tail-resumptive
             Expr::Match { arms, .. } => {
@@ -364,11 +384,9 @@ impl TypeEnv {
                     declared.insert(&eff_ref.name);
                 }
                 for eff in body_effects.effects() {
-                    // Alloc is an ambient/implicit effect — always allowed
-                    // unless explicitly negated with !Alloc (checked below).
-                    // This follows the annotation gradient: allocation is the
-                    // default, you opt INTO restriction.
-                    if eff.name == "Alloc" {
+                    // Ambient effects (Alloc) are always allowed unless
+                    // explicitly negated with !Alloc (checked below).
+                    if eff.is_ambient() {
                         continue;
                     }
                     if !declared.contains(&eff.name) {
@@ -381,9 +399,9 @@ impl TypeEnv {
             }
 
             // Pure constraint: body must have no observable effects
-            // (Alloc is an implementation detail, not an observable effect)
+            // (ambient effects like Alloc are implementation details)
             if has_pure {
-                if let Some(eff) = body_effects.effects().iter().find(|e| e.name != "Alloc") {
+                if let Some(eff) = body_effects.effects().iter().find(|e| !e.is_ambient()) {
                     return Err(TypeError {
                         kind: TypeErrorKind::EffectConstraintViolation {
                             effect: eff.name.clone(),
@@ -455,12 +473,23 @@ impl TypeEnv {
 
         let mut suggestions = Vec::new();
 
-        // Alloc is an implementation detail — only observable effects
-        // (Console, State, IO, etc.) determine if a function is "pure"
-        // for teaching purposes.
-        let observable_pure = effects.effects().iter().all(|e| e.name == "Alloc");
+        // Three-tier hint system:
+        //   truly_alloc_free: no effects at all (Pure + !Alloc)
+        //   observable_pure:  only ambient effects like Alloc (Pure but not !Alloc)
+        //   effectful:        has non-ambient effects
+        let truly_alloc_free = effects.is_pure();
+        let observable_pure = !truly_alloc_free && effects.effects().iter().all(|e| e.is_ambient());
 
-        if observable_pure {
+        if truly_alloc_free {
+            suggestions.push(HintSuggestion {
+                annotation: "with Pure".to_string(),
+                unlocks: "parallelization, memoization, compile-time evaluation".to_string(),
+            });
+            suggestions.push(HintSuggestion {
+                annotation: "with !Alloc".to_string(),
+                unlocks: "real-time audio safety, GPU offload, embedded deployment".to_string(),
+            });
+        } else if observable_pure {
             suggestions.push(HintSuggestion {
                 annotation: "with Pure".to_string(),
                 unlocks: "parallelization, memoization, compile-time evaluation".to_string(),
@@ -479,7 +508,9 @@ impl TypeEnv {
         }
 
         self.hints.push(CompilerHint {
-            kind: if observable_pure {
+            kind: if truly_alloc_free {
+                HintKind::AllocFreeOpportunity
+            } else if observable_pure {
                 HintKind::PurityOpportunity
             } else {
                 HintKind::EffectsUndeclared
@@ -585,20 +616,26 @@ fn friendly_type(ty: &Type, var_names: &std::collections::HashMap<u32, char>) ->
 }
 
 /// Format an effect row with friendly display (open rows show as "effects, ..."
-/// instead of "effects, E0"). Alloc is filtered out — it's an
-/// implementation detail, not an observable effect.
+/// instead of "effects, E0"). Ambient effects (Alloc) are filtered out —
+/// they're implementation details, not observable effects.
 fn friendly_effects(row: &EffectRow) -> String {
     match row {
         EffectRow::Closed(s) => {
-            let names: Vec<&str> = s.iter()
-                .filter(|e| e.name != "Alloc")
+            let names: Vec<&str> = s
+                .iter()
+                .filter(|e| !e.is_ambient())
                 .map(|e| e.name.as_str())
                 .collect();
-            if names.is_empty() { "Pure".to_string() } else { names.join(", ") }
+            if names.is_empty() {
+                "Pure".to_string()
+            } else {
+                names.join(", ")
+            }
         }
         EffectRow::Open { known, .. } => {
-            let names: Vec<&str> = known.iter()
-                .filter(|e| e.name != "Alloc")
+            let names: Vec<&str> = known
+                .iter()
+                .filter(|e| !e.is_ambient())
                 .map(|e| e.name.as_str())
                 .collect();
             if names.is_empty() {

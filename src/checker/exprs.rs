@@ -4,7 +4,7 @@ use crate::error::{TypeError, TypeErrorKind};
 use crate::token::Span;
 use crate::types::{EffectRow, Type};
 
-use super::{levenshtein, TypeEnv};
+use super::{TypeEnv, levenshtein};
 
 #[allow(clippy::result_large_err)]
 impl TypeEnv {
@@ -86,8 +86,7 @@ impl TypeEnv {
                         // have no concrete evidence to bundle.
                         if let Type::Function { effects, .. } = &ty {
                             if !effects.effects().is_empty() {
-                                self.effect_routing
-                                    .insert(span.clone(), effects.clone());
+                                self.effect_routing.insert(span.clone(), effects.clone());
                             }
                         }
                         Ok((ty, EffectRow::pure()))
@@ -96,7 +95,10 @@ impl TypeEnv {
                         // Find the closest match for "did you mean?" suggestions
                         let suggestion = self.find_similar_name(name);
                         Err(TypeError {
-                            kind: TypeErrorKind::UnboundVariable { name: name.clone(), suggestion },
+                            kind: TypeErrorKind::UnboundVariable {
+                                name: name.clone(),
+                                suggestion,
+                            },
                             span: span.clone(),
                         })
                     }
@@ -142,13 +144,17 @@ impl TypeEnv {
                     return Err(TypeError {
                         kind: TypeErrorKind::UnboundVariable {
                             name: format!(".{field}"),
-                            suggestion: fields.iter().min_by_key(|(n, _)| {
-                                let d = levenshtein(field, n);
-                                if d <= 2 { d } else { usize::MAX }
-                            }).map(|(n, _)| n.clone()),
+                            suggestion: fields
+                                .iter()
+                                .min_by_key(|(n, _)| {
+                                    let d = levenshtein(field, n);
+                                    if d <= 2 { d } else { usize::MAX }
+                                })
+                                .map(|(n, _)| n.clone()),
                         },
                         span: span.clone(),
-                    }.into());
+                    }
+                    .into());
                 }
 
                 // Tuple element by index (legacy)
@@ -266,7 +272,7 @@ impl TypeEnv {
             }
 
             Expr::StringInterp { parts, span: _ } => {
-                let mut effs = EffectRow::pure();
+                let mut effs = EffectRow::single("Alloc"); // creates new heap String
                 for part in parts {
                     if let StringPart::Expr(e) = part {
                         let (_, eff) = self.infer_expr(e)?;
@@ -290,7 +296,10 @@ impl TypeEnv {
             } => {
                 if !self.is_in_handler() {
                     return Err(TypeError {
-                        kind: TypeErrorKind::UnboundVariable { name: "resume".into(), suggestion: None },
+                        kind: TypeErrorKind::UnboundVariable {
+                            name: "resume".into(),
+                            suggestion: None,
+                        },
                         span: span.clone(),
                     });
                 }
@@ -416,7 +425,13 @@ impl TypeEnv {
                 // Sort fields by name — canonical order for structural equality
                 // { y: Int, x: Int } and { x: Int, y: Int } are the same type
                 field_types.sort_by(|(a, _), (b, _)| a.cmp(b));
-                Ok((Type::Record { fields: field_types, rest: None }, effs))
+                Ok((
+                    Type::Record {
+                        fields: field_types,
+                        rest: None,
+                    },
+                    effs,
+                ))
             }
 
             Expr::RecordConstruct {
@@ -426,7 +441,10 @@ impl TypeEnv {
             } => {
                 // Look up the variant constructor
                 let (adt_name, idx) = self.lookup_constructor(name).ok_or_else(|| TypeError {
-                    kind: TypeErrorKind::UnboundVariable { name: name.clone(), suggestion: None },
+                    kind: TypeErrorKind::UnboundVariable {
+                        name: name.clone(),
+                        suggestion: None,
+                    },
                     span: span.clone(),
                 })?;
                 let adt_def = self

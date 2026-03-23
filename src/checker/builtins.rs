@@ -105,7 +105,6 @@ impl TypeEnv {
         // implemented through the effect system. See examples/generators.lux.
         // yield() is an effect op, collection is a handler pattern.
 
-
         // String builtins
         self.bind(
             "split",
@@ -433,7 +432,6 @@ impl TypeEnv {
         // NOTE: Yield effect removed from builtins — generators declare their
         // own effects. See examples/generators.lux for the pattern.
 
-
         // ── Self-hosting builtins ────────────────────────────────
 
         // char_at: (String, Int) -> String
@@ -526,16 +524,16 @@ impl TypeEnv {
             Type::Function {
                 params: vec![Type::String],
                 return_type: Box::new(Type::String),
-                effects: EffectRow::pure(),
+                effects: EffectRow::single("Alloc"),
             },
         );
-        // to_lower: (String) -> String
+        // to_lower: (String) -> String with Alloc (creates new string)
         self.bind(
             "to_lower",
             Type::Function {
                 params: vec![Type::String],
                 return_type: Box::new(Type::String),
-                effects: EffectRow::pure(),
+                effects: EffectRow::single("Alloc"),
             },
         );
         // is_number: (T) -> Bool
