@@ -52,6 +52,10 @@ fn OP_MAKE_VARIANT()= 84
 fn OP_MATCH_VARIANT()= 93
 fn OP_MATCH_WILDCARD()= 97
 fn OP_BIND_LOCAL()  = 98
+fn OP_PERFORM()     = 110
+fn OP_PUSH_HANDLER()= 111
+fn OP_POP_HANDLER() = 112
+fn OP_RESUME()      = 113
 fn OP_STRING_INTERP()= 130
 
 // ─── Compilation Context ─────────────────────────────────────
@@ -60,32 +64,36 @@ fn OP_STRING_INTERP()= 130
 //         locals: List<(name, slot, depth)>, scope_depth: Int,
 //         next_slot: Int }
 
-// Context: (code, constants, names, locals, depth, next_slot, upvalues, enclosing)
+// Context: (code, constants, names, locals, depth, next_slot, upvalues, enclosing, effect_ops, handler_tables)
+// effect_ops: [(op_name, effect_name), ...] — maps effect operation names to their effects
+// handler_tables: [table, ...] where table = [(op_name_idx, proto_idx, param_count), ...]
 // enclosing is either [] (no parent) or [parent_ctx] (for lambda/fn bodies)
-fn ctx_new() = ([], [], [], [], 0, 0, [], [])
+fn ctx_new() = ([], [], [], [], 0, 0, [], [], [], [])
 
-fn ctx_child(parent) = ([], [], [], [], 0, 0, [], [parent])
+fn ctx_child(parent) = ([], [], [], [], 0, 0, [], [parent], ctx_effect_ops(parent), [])
 
 // Accessors
-fn ctx_code(ctx)       = { let (c,_,_,_,_,_,_,_) = ctx; c }
-fn ctx_constants(ctx)  = { let (_,c,_,_,_,_,_,_) = ctx; c }
-fn ctx_names(ctx)      = { let (_,_,n,_,_,_,_,_) = ctx; n }
-fn ctx_locals(ctx)     = { let (_,_,_,l,_,_,_,_) = ctx; l }
-fn ctx_depth(ctx)      = { let (_,_,_,_,d,_,_,_) = ctx; d }
-fn ctx_next_slot(ctx)  = { let (_,_,_,_,_,s,_,_) = ctx; s }
-fn ctx_upvalues(ctx)   = { let (_,_,_,_,_,_,u,_) = ctx; u }
-fn ctx_enclosing(ctx)  = { let (_,_,_,_,_,_,_,e) = ctx; e }
+fn ctx_code(ctx)       = { let (c,_,_,_,_,_,_,_,_,_) = ctx; c }
+fn ctx_constants(ctx)  = { let (_,c,_,_,_,_,_,_,_,_) = ctx; c }
+fn ctx_names(ctx)      = { let (_,_,n,_,_,_,_,_,_,_) = ctx; n }
+fn ctx_locals(ctx)     = { let (_,_,_,l,_,_,_,_,_,_) = ctx; l }
+fn ctx_depth(ctx)      = { let (_,_,_,_,d,_,_,_,_,_) = ctx; d }
+fn ctx_next_slot(ctx)  = { let (_,_,_,_,_,s,_,_,_,_) = ctx; s }
+fn ctx_upvalues(ctx)   = { let (_,_,_,_,_,_,u,_,_,_) = ctx; u }
+fn ctx_enclosing(ctx)  = { let (_,_,_,_,_,_,_,e,_,_) = ctx; e }
+fn ctx_effect_ops(ctx) = { let (_,_,_,_,_,_,_,_,eo,_) = ctx; eo }
+fn ctx_handler_tables(ctx) = { let (_,_,_,_,_,_,_,_,_,ht) = ctx; ht }
 
 fn ctx_set_code(ctx, code) = {
-  let (_,co,na,lo,de,sl,uv,enc) = ctx
-  (code, co, na, lo, de, sl, uv, enc)
+  let (_,co,na,lo,de,sl,uv,enc,eo,ht) = ctx
+  (code, co, na, lo, de, sl, uv, enc, eo, ht)
 }
 
 // ─── Emit Helpers ────────────────────────────────────────────
 
 fn emit_byte(ctx, byte) = {
-  let (code, co, na, lo, de, sl, uv, enc) = ctx
-  (push(code, byte), co, na, lo, de, sl, uv, enc)
+  let (code, co, na, lo, de, sl, uv, enc, eo, ht) = ctx
+  (push(code, byte), co, na, lo, de, sl, uv, enc, eo, ht)
 }
 
 fn emit_op(ctx, opcode) = emit_byte(ctx, opcode)
@@ -100,10 +108,10 @@ fn emit_u8(ctx, val) = emit_byte(ctx, val)
 
 // Add constant, return (ctx, index)
 fn add_constant(ctx, value) = {
-  let (code, co, na, lo, de, sl, uv, enc) = ctx
+  let (code, co, na, lo, de, sl, uv, enc, eo, ht) = ctx
   let constants = co
   let idx = len(constants)
-  let new_ctx = (code, push(constants, value), na, lo, de, sl, uv, enc)
+  let new_ctx = (code, push(constants, value), na, lo, de, sl, uv, enc, eo, ht)
   (new_ctx, idx)
 }
 
@@ -113,9 +121,9 @@ fn intern_name(ctx, name) = {
   let found = find_name(names, name, 0)
   if found >= 0 { (ctx, found) }
   else {
-    let (code, co, na, lo, de, sl, uv, enc) = ctx
+    let (code, co, na, lo, de, sl, uv, enc, eo, ht) = ctx
     let idx = len(na)
-    ((code, co, push(na, name), lo, de, sl, uv, enc), idx)
+    ((code, co, push(na, name), lo, de, sl, uv, enc, eo, ht), idx)
   }
 }
 
@@ -165,15 +173,15 @@ fn list_set(lst, idx, val) = {
 // ─── Scope Management ────────────────────────────────────────
 
 fn begin_scope(ctx) = {
-  let (code, co, na, lo, depth, sl, uv, enc) = ctx
-  (code, co, na, lo, depth + 1, sl, uv, enc)
+  let (code, co, na, lo, depth, sl, uv, enc, eo, ht) = ctx
+  (code, co, na, lo, depth + 1, sl, uv, enc, eo, ht)
 }
 
 fn end_scope(ctx) = {
-  let (code, co, na, locals, depth, sl, uv, enc) = ctx
+  let (code, co, na, locals, depth, sl, uv, enc, eo, ht) = ctx
   let (new_locals, count) = pop_locals(locals, depth, 0)
   let new_sl = sl - count
-  ((code, co, na, new_locals, depth - 1, new_sl, uv, enc), count)
+  ((code, co, na, new_locals, depth - 1, new_sl, uv, enc, eo, ht), count)
 }
 
 fn pop_locals(locals, depth, count) = {
@@ -189,9 +197,9 @@ fn pop_locals(locals, depth, count) = {
 }
 
 fn declare_local(ctx, name) = {
-  let (code, co, na, locals, depth, sl, uv, enc) = ctx
+  let (code, co, na, locals, depth, sl, uv, enc, eo, ht) = ctx
   let new_locals = push(locals, (name, sl, depth))
-  ((code, co, na, new_locals, depth, sl + 1, uv, enc), sl)
+  ((code, co, na, new_locals, depth, sl + 1, uv, enc, eo, ht), sl)
 }
 
 fn resolve_local(ctx, name) = {
@@ -264,10 +272,10 @@ fn add_upvalue(ctx, is_local, index) = {
   let existing = find_upvalue(upvalues, is_local, index, 0)
   if existing >= 0 { (existing, ctx) }
   else {
-    let (code, co, na, lo, de, sl, uv, enc) = ctx
+    let (code, co, na, lo, de, sl, uv, enc, eo, ht) = ctx
     let idx = len(uv)
     let new_uv = push(uv, (is_local, index))
-    (idx, (code, co, na, lo, de, sl, new_uv, enc))
+    (idx, (code, co, na, lo, de, sl, new_uv, enc, eo, ht))
   }
 }
 
@@ -342,9 +350,29 @@ fn compile_expr(ctx, expr) = match expr {
   },
 
   Call(func, args) => {
-    let ctx2 = compile_expr(ctx, func)
-    let ctx3 = compile_args(ctx2, args)
-    emit_u8(emit_op(ctx3, OP_CALL()), len(args))
+    // Check if calling a known effect operation → emit Perform
+    match func {
+      VarRef(name) => {
+        let eff = find_effect_op(ctx_effect_ops(ctx), name)
+        if eff != "" {
+          // Effect operation: emit args then Perform
+          let ctx2 = compile_args(ctx, args)
+          let (ctx3, op_name_idx) = intern_name(ctx2, name)
+          let ctx4 = emit_u16(emit_op(ctx3, OP_PERFORM()), op_name_idx)
+          emit_u8(ctx4, len(args))
+        } else {
+          // Normal call
+          let ctx2 = compile_expr(ctx, func)
+          let ctx3 = compile_args(ctx2, args)
+          emit_u8(emit_op(ctx3, OP_CALL()), len(args))
+        }
+      },
+      _ => {
+        let ctx2 = compile_expr(ctx, func)
+        let ctx3 = compile_args(ctx2, args)
+        emit_u8(emit_op(ctx3, OP_CALL()), len(args))
+      }
+    }
   },
 
   IfExpr(cond, then_br, else_br) => {
@@ -425,6 +453,14 @@ fn compile_expr(ctx, expr) = match expr {
     let ctx4 = compile_expr(ctx3, final_expr)
     let (ctx5, pops) = end_scope(ctx4)
     pop_keeping_top(ctx5, pops)
+  },
+
+  HandleExpr(body, handler_arms, state_bindings) => {
+    compile_handle_expr(ctx, body, handler_arms, state_bindings)
+  },
+
+  ResumeExpr(value, state_updates) => {
+    compile_resume_expr(ctx, value, state_updates)
   },
 
   _ => emit_op(ctx, OP_LOAD_UNIT())
@@ -534,6 +570,176 @@ fn patch_all(ctx, patches) = {
   else {
     let ctx2 = patch_jump(ctx, patches[0])
     patch_all(ctx2, slice(patches, 1, len(patches)))
+  }
+}
+
+// ─── Effect Compilation ──────────────────────────────────────
+// Handle { body } [with state = init] { op(params) => handler_body }
+
+// Find effect operation in effect_ops list: [(op_name, effect_name), ...]
+fn find_effect_op(ops, name) = {
+  if len(ops) == 0 { "" }
+  else {
+    let (op_name, eff_name) = ops[0]
+    if op_name == name { eff_name }
+    else { find_effect_op(slice(ops, 1, len(ops)), name) }
+  }
+}
+
+// Add effect operations to context
+fn ctx_add_effect_ops(ctx, effect_name, ops) = {
+  if len(ops) == 0 { ctx }
+  else {
+    let (op_name, _params) = ops[0]
+    let (code, co, na, lo, de, sl, uv, enc, eo, ht) = ctx
+    let new_eo = push(eo, (op_name, effect_name))
+    let ctx2 = (code, co, na, lo, de, sl, uv, enc, new_eo, ht)
+    ctx_add_effect_ops(ctx2, effect_name, slice(ops, 1, len(ops)))
+  }
+}
+
+// Add a handler table to context, return (ctx, table_idx)
+fn ctx_add_handler_table(ctx, table) = {
+  let (code, co, na, lo, de, sl, uv, enc, eo, ht) = ctx
+  let idx = len(ht)
+  ((code, co, na, lo, de, sl, uv, enc, eo, push(ht, table)), idx)
+}
+
+// Compile handle expression:
+//   HandleExpr(body, handler_arms, state_bindings)
+//   handler_arms: [(op_name, params, handler_body), ...]
+//   state_bindings: [(name, init_expr), ...]
+fn compile_handle_expr(ctx, body, handler_arms, state_bindings) = {
+  // 1. Compile state init expressions (left on stack for PushHandler)
+  let ctx2 = compile_state_inits(ctx, state_bindings)
+  let state_count = len(state_bindings)
+  let state_names = get_state_names(state_bindings)
+
+  // 2. Compile each handler body as separate FnProto
+  let (ctx3, table_entries) = compile_handler_protos(ctx2, handler_arms, state_names, [])
+
+  // 3. Build handler table and register it
+  let (ctx4, table_idx) = ctx_add_handler_table(ctx3, table_entries)
+
+  // 4. Emit PushHandler: table_idx, state_slot_base(unused=0), state_count
+  let ctx5 = emit_u16(emit_op(ctx4, OP_PUSH_HANDLER()), table_idx)
+  let ctx6 = emit_u16(ctx5, 0)  // state_slot_base (unused)
+  let ctx7 = emit_u8(ctx6, state_count)
+
+  // 5. Compile handle body
+  let ctx8 = compile_expr(ctx7, body)
+
+  // 6. Emit PopHandler
+  emit_op(ctx8, OP_POP_HANDLER())
+}
+
+fn compile_state_inits(ctx, bindings) = {
+  if len(bindings) == 0 { ctx }
+  else {
+    let (_name, init_expr) = bindings[0]
+    let ctx2 = compile_expr(ctx, init_expr)
+    compile_state_inits(ctx2, slice(bindings, 1, len(bindings)))
+  }
+}
+
+fn get_state_names(bindings) = {
+  if len(bindings) == 0 { [] }
+  else {
+    let (name, _) = bindings[0]
+    [name] ++ get_state_names(slice(bindings, 1, len(bindings)))
+  }
+}
+
+// Compile all handler arm bodies as FnProtos, accumulate table entries
+fn compile_handler_protos(ctx, arms, state_names, entries) = {
+  if len(arms) == 0 { (ctx, entries) }
+  else {
+    let (op_name, params, handler_body) = arms[0]
+    let (ctx2, entry) = compile_one_handler_proto(ctx, op_name, params, handler_body, state_names)
+    compile_handler_protos(ctx2, slice(arms, 1, len(arms)), state_names, push(entries, entry))
+  }
+}
+
+// Compile a single handler body as a FnProto.
+// Parameters: [effect_params..., state_vars..., resume]
+fn compile_one_handler_proto(ctx, op_name, params, handler_body, state_names) = {
+  // Create child context for handler body
+  let h_ctx = ctx_child(ctx)
+  let h_ctx2 = begin_scope(h_ctx)
+
+  // Declare effect params as locals
+  let h_ctx3 = declare_params(h_ctx2, params)
+
+  // Declare state vars as locals
+  let h_ctx4 = declare_params(h_ctx3, state_names)
+
+  // Declare resume as local
+  let (h_ctx5, _) = declare_local(h_ctx4, "resume")
+
+  // Compile handler body
+  let h_ctx6 = compile_expr(h_ctx5, handler_body)
+
+  // Emit Return
+  let h_ctx7 = emit_op(h_ctx6, OP_RETURN())
+
+  let total_arity = len(params) + len(state_names) + 1  // +1 for resume
+
+  // Build FnProto tuple (with handler_tables from sub-context if any)
+  let sub_ht = ctx_handler_tables(h_ctx7)
+  let proto = if len(sub_ht) > 0 {
+    ("fn_proto", "handler:" ++ op_name, total_arity, ctx_code(h_ctx7),
+      ctx_constants(h_ctx7), ctx_names(h_ctx7),
+      ctx_next_slot(h_ctx7), len(ctx_upvalues(h_ctx7)), sub_ht)
+  } else {
+    ("fn_proto", "handler:" ++ op_name, total_arity, ctx_code(h_ctx7),
+      ctx_constants(h_ctx7), ctx_names(h_ctx7),
+      ctx_next_slot(h_ctx7), len(ctx_upvalues(h_ctx7)))
+  }
+
+  // Add proto to parent context's constants
+  let (ctx2, proto_idx) = add_constant(ctx, proto)
+
+  // Intern op name and build handler table entry
+  let (ctx3, op_name_idx) = intern_name(ctx2, op_name)
+
+  // Entry: (op_name_idx, proto_idx, param_count, tail_resumptive=false)
+  let entry = (op_name_idx, proto_idx, len(params), false)
+
+  (ctx3, entry)
+}
+
+// Compile resume expression: resume(value) [with name = expr, ...]
+fn compile_resume_expr(ctx, value, state_updates) = {
+  if len(state_updates) == 0 {
+    // Stateless resume: compile value, emit Resume with 0 updates
+    let ctx2 = compile_expr(ctx, value)
+    emit_u8(emit_op(ctx2, OP_RESUME()), 0)
+  } else {
+    // Stateful resume: compile value, then state update values, then Resume
+    let ctx2 = compile_expr(ctx, value)
+    let ctx3 = compile_state_update_values(ctx2, state_updates)
+    let ctx4 = emit_u8(emit_op(ctx3, OP_RESUME()), len(state_updates))
+    // Emit state update indices (offsets into handler state array)
+    emit_state_offsets(ctx4, state_updates, 0)
+  }
+}
+
+fn compile_state_update_values(ctx, updates) = {
+  if len(updates) == 0 { ctx }
+  else {
+    let (_name, val) = updates[0]
+    let ctx2 = compile_expr(ctx, val)
+    compile_state_update_values(ctx2, slice(updates, 1, len(updates)))
+  }
+}
+
+fn emit_state_offsets(ctx, updates, idx) = {
+  if idx >= len(updates) { ctx }
+  else {
+    // For now, emit offsets in order (0, 1, 2, ...)
+    // Full state name resolution would match update names to handler state names
+    let ctx2 = emit_u16(ctx, idx)
+    emit_state_offsets(ctx2, updates, idx + 1)
   }
 }
 
@@ -661,6 +867,12 @@ fn compile_stmt(ctx, stmt) = match stmt {
     compile_variants(ctx, variants)
   },
 
+  EffectDeclStmt(name, ops) => {
+    // Register effect operations for Perform dispatch
+    // ops = [(op_name, param_names), ...]
+    ctx_add_effect_ops(ctx, name, ops)
+  },
+
   ImportStmt(_) => ctx,  // imports resolved before compilation
 
   _ => ctx
@@ -701,8 +913,13 @@ fn compile_program(stmts) = {
   let ctx = ctx_new()
   let ctx2 = compile_stmts(ctx, stmts)
   let ctx3 = emit_op(ctx2, OP_RETURN())
-  // Return the compiled chunk
-  ("chunk", ctx_code(ctx3), ctx_constants(ctx3), ctx_names(ctx3))
+  // Return the compiled chunk (with handler tables if any effects used)
+  let ht = ctx_handler_tables(ctx3)
+  if len(ht) > 0 {
+    ("chunk", ctx_code(ctx3), ctx_constants(ctx3), ctx_names(ctx3), ht)
+  } else {
+    ("chunk", ctx_code(ctx3), ctx_constants(ctx3), ctx_names(ctx3))
+  }
 }
 
 fn compile_stmts(ctx, stmts) = {

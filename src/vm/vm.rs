@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::chunk::{Chunk, Constant, FnProto};
+use super::chunk::{Chunk, Constant, FnProto, HandlerEntry, HandlerTable};
 use super::error::VmError;
 use super::frame::{CallFrame, VmHandlerFrame};
 use super::opcode::OpCode;
@@ -1359,14 +1359,17 @@ impl Vm {
             match args.first() {
                 Some(VmValue::Tuple(chunk_tuple)) => {
                     // Handle both ("chunk", code, constants, names) and (code, constants, names)
-                    let slice = if chunk_tuple.len() == 4 {
+                    let slice = if chunk_tuple.len() == 5 {
+                        // Tagged with handler tables: ("chunk", code, constants, names, handler_tables)
+                        &chunk_tuple[1..]
+                    } else if chunk_tuple.len() == 4 {
                         // Tagged: ("chunk", code, constants, names)
                         &chunk_tuple[1..]
                     } else if chunk_tuple.len() == 3 {
                         &chunk_tuple[..]
                     } else {
                         return Err(format!(
-                            "load_chunk: expected 3 or 4-element tuple, got {}",
+                            "load_chunk: expected 3-5 element tuple, got {}",
                             chunk_tuple.len()
                         ));
                     };
@@ -1387,7 +1390,6 @@ impl Vm {
         self.builtin_map.insert(name.to_string(), id);
     }
 
-    /// Convert a Lux (code, constants, names) tuple into a Rust FnProto.
     fn chunk_tuple_to_proto(
         tuple: &[VmValue],
         name: &str,
@@ -1395,13 +1397,18 @@ impl Vm {
         let code = Self::extract_code(&tuple[0])?;
         let constants = Self::extract_constants(&tuple[1])?;
         let names = Self::extract_names(&tuple[2])?;
+        let handler_tables = if tuple.len() >= 4 {
+            Self::extract_handler_tables(&tuple[3])?
+        } else {
+            Vec::new()
+        };
 
         let chunk = Chunk {
             code,
-            lines: Vec::new(), // no debug lines from self-hosted compiler yet
+            lines: Vec::new(),
             constants,
             names,
-            handler_tables: Vec::new(),
+            handler_tables,
             name: name.to_string(),
         };
 
@@ -1413,6 +1420,68 @@ impl Vm {
             name: Some(name.to_string()),
             field_registry: HashMap::new(),
         })
+    }
+
+    /// Convert Lux handler tables list to Vec<HandlerTable>.
+    /// Each handler table is a list of entries.
+    /// Each entry is (op_name_idx, proto_idx, param_count, tail_resumptive).
+    fn extract_handler_tables(val: &VmValue) -> Result<Vec<HandlerTable>, String> {
+        match val {
+            VmValue::List(tables) => {
+                tables
+                    .iter()
+                    .map(|table| Self::extract_handler_table(table))
+                    .collect()
+            }
+            _ => Ok(Vec::new()), // gracefully handle non-list
+        }
+    }
+
+    fn extract_handler_table(val: &VmValue) -> Result<HandlerTable, String> {
+        match val {
+            VmValue::List(entries) => {
+                let mut table_entries = Vec::new();
+                for entry in entries.iter() {
+                    match entry {
+                        VmValue::Tuple(t) if t.len() >= 3 => {
+                            let op_name_idx = match &t[0] {
+                                VmValue::Int(n) => *n as u16,
+                                _ => 0,
+                            };
+                            let proto_idx = match &t[1] {
+                                VmValue::Int(n) => *n as u16,
+                                _ => 0,
+                            };
+                            let param_count = match &t[2] {
+                                VmValue::Int(n) => *n as u8,
+                                _ => 0,
+                            };
+                            let tail_resumptive = if t.len() >= 4 {
+                                match &t[3] {
+                                    VmValue::Bool(b) => *b,
+                                    VmValue::Int(n) => *n != 0,
+                                    _ => false,
+                                }
+                            } else {
+                                false
+                            };
+                            table_entries.push(HandlerEntry {
+                                op_name_idx,
+                                proto_idx,
+                                param_count,
+                                tail_resumptive,
+                                evidence_eligible: false,
+                            });
+                        }
+                        _ => return Err("load_chunk: handler entry must be tuple".to_string()),
+                    }
+                }
+                Ok(HandlerTable {
+                    entries: table_entries,
+                })
+            }
+            _ => Err("load_chunk: handler table must be a list".to_string()),
+        }
     }
 
     /// Convert Lux code list (List<Int>) to Vec<u8>.
@@ -1510,13 +1579,18 @@ impl Vm {
                         } else {
                             0
                         };
+                        let handler_tables = if t.len() >= 9 {
+                            Self::extract_handler_tables(&t[8])?
+                        } else {
+                            Vec::new()
+                        };
 
                         let chunk = Chunk {
                             code,
                             lines: Vec::new(),
                             constants,
                             names,
-                            handler_tables: Vec::new(),
+                            handler_tables,
                             name: name.clone(),
                         };
 
