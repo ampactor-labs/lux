@@ -233,6 +233,99 @@ purpose and was surpassed by the thing it helped create.
 
 ---
 
+## The Meta-Unification: The Toolchain IS the Language
+
+If `|>` unifies DSP, ML, and compilers in *user code*, then the same
+principle must unify the *toolchain itself*. This is the deepest insight.
+
+The compiler pipeline is already a pipe:
+
+```
+source |> lex |> parse |> check |> compile
+```
+
+But what about documentation? Teaching? LSP? They're not separate tools —
+they're **handlers on the same pipeline**:
+
+```lux
+// The compilation pipeline IS an effect graph
+effect CompilerPipeline {
+  tokenize(source: String) -> List<Token>
+  parse(tokens: List<Token>) -> AST
+  infer(ast: AST) -> TypedAST
+  emit(ast: TypedAST) -> Bytecode
+  explain(node: AST, inference: Type) -> Reason  // Why Engine
+}
+
+// "Compile" handler: produce bytecode
+handle source |> full_pipeline {
+  emit(ast) => resume(bytecode_for(ast))
+}
+
+// "Teach" handler: produce explanations alongside compilation
+handle source |> full_pipeline with explanations = [] {
+  infer(ast) => {
+    let (typed, reason) = do_infer(ast)
+    resume(typed) with explanations = push(explanations, reason)
+  }
+}
+
+// "Document" handler: extract doc comments + types + effects
+handle source |> full_pipeline with docs = [] {
+  infer(ast) => {
+    let typed = do_infer(ast)
+    let doc = extract_doc(ast, typed)
+    resume(typed) with docs = push(docs, doc)
+  }
+}
+
+// "LSP" handler: respond to cursor position queries
+handle source |> full_pipeline {
+  infer(ast) => {
+    let typed = do_infer(ast)
+    if cursor_in(ast.span) { hover_info(typed) }
+    resume(typed)
+  }
+}
+```
+
+**The compiler, the teacher, the doc generator, and the LSP are the
+same computation with different handlers.** Not four tools that share
+some code — one pipeline, four policies.
+
+This means:
+- **Doc comments are effects.** `///` emits a `Document` effect that
+  the doc handler captures. The code doesn't know if it's being
+  compiled, documented, or taught — it just flows.
+- **`--teach` is a handler swap.** Same pipeline, different handler.
+  The teach handler captures reasoning chains. The compile handler
+  discards them.
+- **LSP hover is a handler.** Same pipeline, but the handler responds
+  to cursor position queries with type info + Why Engine output.
+- **Doc tests are the pipeline itself.** `/// ``` ... ``` ` in a doc
+  comment is source that flows through the same pipeline. Compilation
+  and documentation are self-verifying.
+
+This is the unification the user intuited: **there is no documentation
+system separate from the compiler. There is no LSP separate from the
+compiler. There is no teaching mode separate from compilation. There is
+ONE pipeline. Effects make each stage observable. Handlers choose what
+to observe.**
+
+The pipe doesn't just flow data. It flows *understanding*.
+
+```
+source |> lex |> parse |> check |> compile   -- developer gets: binary
+source |> lex |> parse |> check |> teach     -- developer gets: understanding  
+source |> lex |> parse |> check |> document  -- developer gets: reference
+source |> lex |> parse |> check |> hover(42) -- developer gets: type at cursor
+```
+
+Same input. Same pipeline. Different handler. Different output.
+**This IS the hourglass, applied to the toolchain itself.**
+
+---
+
 ## The Masterpiece Test
 
 Before every change, every design decision, every line of code, ask:
