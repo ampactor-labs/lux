@@ -394,10 +394,14 @@ fn compile_expr(ctx, expr) = match expr {
   },
 
   MatchExpr(scrutinee, arms) => {
-    // Compile scrutinee — result stays on stack
-    let ctx2 = compile_expr(ctx, scrutinee)
-    // Compile each arm as: dup, test pattern, jump-if-no-match, pop, body, jump-to-end
-    compile_match_arms(ctx2, arms, [])
+    // Compile scrutinee and store as persistent local
+    let ctx2 = begin_scope(compile_expr(ctx, scrutinee))
+    let (ctx3, scr_slot) = declare_local(ctx2, "_ms")
+    // Compile each arm with access to scrutinee via slot
+    let ctx4 = compile_match_arms(ctx3, arms, [], scr_slot)
+    // End scope: pop scrutinee local, keeping match result
+    let (ctx5, pops) = end_scope(ctx4)
+    pop_keeping_top(ctx5, pops)
   },
 
   LambdaExpr(params, body) => {
@@ -438,12 +442,11 @@ fn compile_args(ctx, args) = {
 // For each arm: dup scrutinee, test pattern, jump-if-no-match,
 // pop scrutinee, execute body, jump-to-end.
 
-fn compile_match_arms(ctx, arms, end_patches) = {
+fn compile_match_arms(ctx, arms, end_patches, scr_slot) = {
   if len(arms) == 0 {
-    // No arms matched — pop scrutinee and load unit
-    let ctx2 = emit_op(ctx, OP_POP())
-    let ctx3 = emit_op(ctx2, OP_LOAD_UNIT())
-    patch_all(ctx3, end_patches)
+    // No arms matched — load unit as result
+    let ctx2 = emit_op(ctx, OP_LOAD_UNIT())
+    patch_all(ctx2, end_patches)
   } else {
     let (pat, body) = arms[0]
     let rest = slice(arms, 1, len(arms))
@@ -456,28 +459,40 @@ fn compile_match_arms(ctx, arms, end_patches) = {
       // Always matches — bind if variable, then body
       let ctx2 = match pat {
         PVar(name) => {
-          let (ctx3, _) = declare_local(ctx, name)
-          ctx3
+          // Load scrutinee and bind as local
+          let ctx3 = emit_u16(emit_op(ctx, OP_LOAD_LOCAL()), scr_slot)
+          let (ctx4, _) = declare_local(ctx3, name)
+          ctx4
         },
-        _ => emit_op(ctx, OP_POP())
+        _ => ctx  // PWild: no binding needed
       }
       let ctx3 = compile_expr(ctx2, body)
       patch_all(ctx3, end_patches)
     } else {
-      // Dup scrutinee for test
-      let ctx2 = emit_op(ctx, OP_DUP())
-      // Test pattern
+      // Load scrutinee for pattern test
+      let ctx2 = emit_u16(emit_op(ctx, OP_LOAD_LOCAL()), scr_slot)
       let ctx3 = compile_pattern_test(ctx2, pat)
       let (ctx4, next_patch) = emit_jump(ctx3, OP_JUMP_FALSE())
-      let ctx5 = emit_op(ctx4, OP_POP())  // pop test result
-      let ctx6 = emit_op(ctx5, OP_POP())  // pop dup'd scrutinee
+      let ctx5 = emit_op(ctx4, OP_POP())  // pop test result (true)
+      let ctx6 = emit_op(ctx5, OP_POP())  // pop test scrutinee copy
+      // Begin scope for field bindings
+      let ctx_scoped = begin_scope(ctx6)
+      // Extract and bind fields if PCon pattern
+      let ctx7 = match pat {
+        PCon(_, fields) => bind_pattern_fields(ctx_scoped, fields, 0, scr_slot),
+        _ => ctx_scoped
+      }
       // Compile body
-      let ctx7 = compile_expr(ctx6, body)
-      let (ctx8, end_patch) = emit_jump(ctx7, OP_JUMP())
+      let ctx8 = compile_expr(ctx7, body)
+      // End scope: pop field locals, keeping body result
+      let (ctx9, pops) = end_scope(ctx8)
+      let ctx10 = pop_keeping_top(ctx9, pops)
+      let (ctx11, end_patch) = emit_jump(ctx10, OP_JUMP())
       // Patch: next arm starts here
-      let ctx9 = patch_jump(ctx8, next_patch)
-      let ctx10 = emit_op(ctx9, OP_POP())  // pop false test result
-      compile_match_arms(ctx10, rest, end_patches ++ [end_patch])
+      let ctx12 = patch_jump(ctx11, next_patch)
+      let ctx13 = emit_op(ctx12, OP_POP())  // pop false test result
+      let ctx14 = emit_op(ctx13, OP_POP())  // pop test scrutinee copy
+      compile_match_arms(ctx14, rest, end_patches ++ [end_patch], scr_slot)
     }
   }
 }
@@ -492,6 +507,26 @@ fn compile_pattern_test(ctx, pat) = match pat {
     emit_op(ctx2, OP_EQ())
   },
   _ => emit_op(ctx, OP_MATCH_WILDCARD())
+}
+
+// Bind fields from a matched variant: DUP scrutinee, index, store as local
+fn bind_pattern_fields(ctx, fields, i, scr_slot) = {
+  if i >= len(fields) { ctx }
+  else {
+    let field = fields[i]
+    match field {
+      PVar(name) => {
+        // Load scrutinee from hidden slot, extract field i, declare local
+        let ctx2 = emit_u16(emit_op(ctx, OP_LOAD_LOCAL()), scr_slot)
+        let ctx3 = emit_u8(emit_op(ctx2, OP_LOAD_INT()), i)
+        let ctx4 = emit_op(ctx3, OP_LIST_INDEX())
+        let (ctx5, _) = declare_local(ctx4, name)
+        bind_pattern_fields(ctx5, fields, i + 1, scr_slot)
+      },
+      PWild => bind_pattern_fields(ctx, fields, i + 1, scr_slot),
+      _ => bind_pattern_fields(ctx, fields, i + 1, scr_slot)
+    }
+  }
 }
 
 fn patch_all(ctx, patches) = {
