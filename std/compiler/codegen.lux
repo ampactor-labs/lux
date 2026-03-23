@@ -1,0 +1,584 @@
+// Lux Codegen — written in Lux, targeting the Lux VM
+//
+// Self-hosted bytecode emitter. Fourth compiler component
+// (lexer → parser → checker → codegen), proving Lux can compile itself.
+//
+// Takes the parser's AST (Expr, Stmt) and emits bytecode compatible
+// with the VM's opcode format. Uses a Ctx threading pattern to carry
+// the bytecode buffer, scope stack, and constant pool.
+
+import compiler/lexer
+import compiler/parser
+
+// ─── Opcodes ─────────────────────────────────────────────────
+// Numeric constants matching the Rust VM's OpCode enum.
+
+fn OP_LOAD_CONST()  = 0
+fn OP_LOAD_INT()    = 1
+fn OP_LOAD_BOOL()   = 2
+fn OP_LOAD_UNIT()   = 3
+fn OP_LOAD_LOCAL()  = 10
+fn OP_STORE_LOCAL() = 11
+fn OP_LOAD_UPVAL()  = 12
+fn OP_LOAD_GLOBAL() = 20
+fn OP_STORE_GLOBAL()= 21
+fn OP_ADD()         = 30
+fn OP_SUB()         = 31
+fn OP_MUL()         = 32
+fn OP_DIV()         = 33
+fn OP_MOD()         = 34
+fn OP_NEG()         = 35
+fn OP_NOT()         = 36
+fn OP_EQ()          = 40
+fn OP_NEQ()         = 41
+fn OP_LT()          = 42
+fn OP_LTEQ()        = 43
+fn OP_GT()          = 44
+fn OP_GTEQ()        = 45
+fn OP_CONCAT()      = 50
+fn OP_JUMP()        = 60
+fn OP_JUMP_FALSE()  = 61
+fn OP_JUMP_TRUE()   = 62
+fn OP_POP()         = 63
+fn OP_DUP()         = 64
+fn OP_MAKE_CLOSURE()= 70
+fn OP_CALL()        = 71
+fn OP_RETURN()      = 72
+fn OP_TAIL_CALL()   = 73
+fn OP_MAKE_LIST()   = 80
+fn OP_MAKE_TUPLE()  = 81
+fn OP_LIST_INDEX()  = 82
+fn OP_MAKE_VARIANT()= 84
+fn OP_MATCH_VARIANT()= 93
+fn OP_MATCH_WILDCARD()= 97
+fn OP_BIND_LOCAL()  = 98
+fn OP_STRING_INTERP()= 130
+
+// ─── Compilation Context ─────────────────────────────────────
+// Threading pattern: every emit function takes ctx and returns new ctx.
+// ctx = { code: List<Int>, constants: List, names: List,
+//         locals: List<(name, slot, depth)>, scope_depth: Int,
+//         next_slot: Int }
+
+fn ctx_new() = {
+  ([], [], [], [], 0, 0)
+  // code, constants, names, locals, scope_depth, next_slot
+}
+
+fn ctx_code(ctx)       = { let (c,_,_,_,_,_) = ctx; c }
+fn ctx_constants(ctx)  = { let (_,c,_,_,_,_) = ctx; c }
+fn ctx_names(ctx)      = { let (_,_,n,_,_,_) = ctx; n }
+fn ctx_locals(ctx)     = { let (_,_,_,l,_,_) = ctx; l }
+fn ctx_depth(ctx)      = { let (_,_,_,_,d,_) = ctx; d }
+fn ctx_next_slot(ctx)  = { let (_,_,_,_,_,s) = ctx; s }
+
+fn ctx_set_code(ctx, code) = {
+  let (_,co,na,lo,de,sl) = ctx
+  (code, co, na, lo, de, sl)
+}
+
+// ─── Emit Helpers ────────────────────────────────────────────
+
+fn emit_byte(ctx, byte) = {
+  let (code, co, na, lo, de, sl) = ctx
+  (push(code, byte), co, na, lo, de, sl)
+}
+
+fn emit_op(ctx, opcode) = emit_byte(ctx, opcode)
+
+fn emit_u16(ctx, val) = {
+  let hi = val / 256
+  let lo = val - hi * 256
+  emit_byte(emit_byte(ctx, hi), lo)
+}
+
+fn emit_u8(ctx, val) = emit_byte(ctx, val)
+
+// Add constant, return (ctx, index)
+fn add_constant(ctx, value) = {
+  let (code, constants, na, lo, de, sl) = ctx
+  let idx = len(constants)
+  let new_ctx = (code, push(constants, value), na, lo, de, sl)
+  (new_ctx, idx)
+}
+
+// Intern a name, return (ctx, index). Deduplicates.
+fn intern_name(ctx, name) = {
+  let names = ctx_names(ctx)
+  let found = find_name(names, name, 0)
+  if found >= 0 { (ctx, found) }
+  else {
+    let (code, co, na, lo, de, sl) = ctx
+    let idx = len(na)
+    ((code, co, push(na, name), lo, de, sl), idx)
+  }
+}
+
+fn find_name(names, name, idx) = {
+  if idx >= len(names) { 0 - 1 }
+  else { if names[idx] == name { idx }
+  else { find_name(names, name, idx + 1) }}
+}
+
+// Emit LoadConst with a constant value
+fn emit_constant(ctx, value) = {
+  let (ctx2, idx) = add_constant(ctx, value)
+  emit_u16(emit_op(ctx2, OP_LOAD_CONST()), idx)
+}
+
+// ─── Jump Helpers ────────────────────────────────────────────
+
+// Emit a jump with placeholder offset, return (ctx, patch_offset)
+fn emit_jump(ctx, jump_op) = {
+  let ctx2 = emit_op(ctx, jump_op)
+  let patch_offset = len(ctx_code(ctx2))
+  let ctx3 = emit_u16(ctx2, 0)  // placeholder
+  (ctx3, patch_offset)
+}
+
+// Patch a jump at the given offset to point to current position
+fn patch_jump(ctx, patch_offset) = {
+  let code = ctx_code(ctx)
+  let current = len(code)
+  let delta = current - (patch_offset + 2)
+  // Write delta as u16 big-endian
+  let hi = delta / 256
+  let lo = delta - hi * 256
+  let patched = list_set(list_set(code, patch_offset, hi), patch_offset + 1, lo)
+  ctx_set_code(ctx, patched)
+}
+
+fn list_set(lst, idx, val) = {
+  if idx >= len(lst) { lst }
+  else {
+    let before = slice(lst, 0, idx)
+    let after = slice(lst, idx + 1, len(lst))
+    before ++ [val] ++ after
+  }
+}
+
+// ─── Scope Management ────────────────────────────────────────
+
+fn begin_scope(ctx) = {
+  let (code, co, na, lo, depth, sl) = ctx
+  (code, co, na, lo, depth + 1, sl)
+}
+
+fn end_scope(ctx) = {
+  let (code, co, na, locals, depth, sl) = ctx
+  // Count locals at current depth
+  let (new_locals, count) = pop_locals(locals, depth, 0)
+  let new_sl = sl - count
+  ((code, co, na, new_locals, depth - 1, new_sl), count)
+}
+
+fn pop_locals(locals, depth, count) = {
+  if len(locals) == 0 { (locals, count) }
+  else {
+    let (name, slot, d) = locals[len(locals) - 1]
+    if d >= depth {
+      pop_locals(slice(locals, 0, len(locals) - 1), depth, count + 1)
+    } else {
+      (locals, count)
+    }
+  }
+}
+
+fn declare_local(ctx, name) = {
+  let (code, co, na, locals, depth, sl) = ctx
+  let new_locals = push(locals, (name, sl, depth))
+  ((code, co, na, new_locals, depth, sl + 1), sl)
+}
+
+fn resolve_local(ctx, name) = {
+  let locals = ctx_locals(ctx)
+  find_local(locals, name, len(locals) - 1)
+}
+
+fn find_local(locals, name, idx) = {
+  if idx < 0 { 0 - 1 }
+  else {
+    let (n, slot, _) = locals[idx]
+    if n == name { slot }
+    else { find_local(locals, name, idx - 1) }
+  }
+}
+
+// ─── Variable Resolution ─────────────────────────────────────
+
+fn emit_var_load(ctx, name) = {
+  let slot = resolve_local(ctx, name)
+  if slot >= 0 {
+    emit_u16(emit_op(ctx, OP_LOAD_LOCAL()), slot)
+  } else {
+    // Global fallback
+    let (ctx2, name_idx) = intern_name(ctx, name)
+    emit_u16(emit_op(ctx2, OP_LOAD_GLOBAL()), name_idx)
+  }
+}
+
+fn emit_var_store(ctx, name) = {
+  let slot = resolve_local(ctx, name)
+  if slot >= 0 {
+    emit_u16(emit_op(ctx, OP_STORE_LOCAL()), slot)
+  } else {
+    let (ctx2, name_idx) = intern_name(ctx, name)
+    emit_u16(emit_op(ctx2, OP_STORE_GLOBAL()), name_idx)
+  }
+}
+
+// ─── Expression Compilation ──────────────────────────────────
+
+fn compile_expr(ctx, expr) = match expr {
+  IntLit(s) => {
+    let n = parse_int(s)
+    if n >= 0 - 128 && n <= 127 {
+      emit_u8(emit_op(ctx, OP_LOAD_INT()), n)
+    } else {
+      emit_constant(ctx, ("int", n))
+    }
+  },
+
+  FloatLit(s) => emit_constant(ctx, ("float", parse_float(s))),
+
+  StringLit(s) => emit_constant(ctx, ("string", s)),
+
+  BoolLit(b) => emit_u8(emit_op(ctx, OP_LOAD_BOOL()), if b { 1 } else { 0 }),
+
+  NoneExpr => emit_op(ctx, OP_LOAD_UNIT()),
+
+  VarRef(name) => emit_var_load(ctx, name),
+
+  BinOp(op, left, right) => {
+    // Short-circuit for And/Or
+    if op == "And" {
+      let ctx2 = compile_expr(ctx, left)
+      let (ctx3, patch) = emit_jump(ctx2, OP_JUMP_FALSE())
+      let ctx4 = emit_op(ctx3, OP_POP())
+      let ctx5 = compile_expr(ctx4, right)
+      patch_jump(ctx5, patch)
+    } else { if op == "Or" {
+      let ctx2 = compile_expr(ctx, left)
+      let (ctx3, patch) = emit_jump(ctx2, OP_JUMP_TRUE())
+      let ctx4 = emit_op(ctx3, OP_POP())
+      let ctx5 = compile_expr(ctx4, right)
+      patch_jump(ctx5, patch)
+    } else {
+      let ctx2 = compile_expr(ctx, left)
+      let ctx3 = compile_expr(ctx2, right)
+      let opcode = binop_to_opcode(op)
+      emit_op(ctx3, opcode)
+    }}
+  },
+
+  UnaryOp(op, operand) => {
+    let ctx2 = compile_expr(ctx, operand)
+    if op == "Neg" { emit_op(ctx2, OP_NEG()) }
+    else { emit_op(ctx2, OP_NOT()) }
+  },
+
+  Call(func, args) => {
+    let ctx2 = compile_expr(ctx, func)
+    let ctx3 = compile_args(ctx2, args)
+    emit_u8(emit_op(ctx3, OP_CALL()), len(args))
+  },
+
+  IfExpr(cond, then_br, else_br) => {
+    let ctx2 = compile_expr(ctx, cond)
+    let (ctx3, else_patch) = emit_jump(ctx2, OP_JUMP_FALSE())
+    let ctx4 = emit_op(ctx3, OP_POP())  // pop condition
+    let ctx5 = compile_expr(ctx4, then_br)
+    let (ctx6, end_patch) = emit_jump(ctx5, OP_JUMP())
+    let ctx7 = patch_jump(ctx6, else_patch)
+    let ctx8 = emit_op(ctx7, OP_POP())  // pop condition
+    let ctx9 = compile_expr(ctx8, else_br)
+    patch_jump(ctx9, end_patch)
+  },
+
+  ListExpr(elems) => {
+    let ctx2 = compile_args(ctx, elems)
+    emit_u16(emit_op(ctx2, OP_MAKE_LIST()), len(elems))
+  },
+
+  TupleExpr(elems) => {
+    let ctx2 = compile_args(ctx, elems)
+    emit_u16(emit_op(ctx2, OP_MAKE_TUPLE()), len(elems))
+  },
+
+  PipeExpr(left, right) => {
+    // a |> f(b, c) => f(a, b, c)
+    match right {
+      Call(func, args) => {
+        let ctx2 = compile_expr(ctx, func)
+        let ctx3 = compile_expr(ctx2, left)
+        let ctx4 = compile_args(ctx3, args)
+        emit_u8(emit_op(ctx4, OP_CALL()), 1 + len(args))
+      },
+      _ => {
+        // a |> f => f(a)
+        let ctx2 = compile_expr(ctx, right)
+        let ctx3 = compile_expr(ctx2, left)
+        emit_u8(emit_op(ctx3, OP_CALL()), 1)
+      }
+    }
+  },
+
+  Index(obj, idx) => {
+    let ctx2 = compile_expr(ctx, obj)
+    let ctx3 = compile_expr(ctx2, idx)
+    emit_op(ctx3, OP_LIST_INDEX())
+  },
+
+  BlockExpr(stmts, final_expr) => {
+    let ctx2 = begin_scope(ctx)
+    let ctx3 = compile_block_stmts(ctx2, stmts)
+    let ctx4 = compile_expr(ctx3, final_expr)
+    // End scope: pop locals, keep result
+    let (ctx5, pops) = end_scope(ctx4)
+    pop_keeping_top(ctx5, pops)
+  },
+
+  _ => emit_op(ctx, OP_LOAD_UNIT())  // fallback for unhandled forms
+}
+
+fn compile_args(ctx, args) = {
+  if len(args) == 0 { ctx }
+  else {
+    let ctx2 = compile_expr(ctx, args[0])
+    compile_args(ctx2, slice(args, 1, len(args)))
+  }
+}
+
+fn pop_keeping_top(ctx, n) = {
+  if n <= 0 { ctx }
+  else {
+    // Store result in temp global, pop locals, restore result
+    let (ctx2, tmp_idx) = intern_name(ctx, "__codegen_tmp__")
+    let ctx3 = emit_u16(emit_op(ctx2, OP_STORE_GLOBAL()), tmp_idx)
+    let ctx4 = emit_pops(ctx3, n)
+    emit_u16(emit_op(ctx4, OP_LOAD_GLOBAL()), tmp_idx)
+  }
+}
+
+fn emit_pops(ctx, n) = {
+  if n <= 0 { ctx }
+  else { emit_pops(emit_op(ctx, OP_POP()), n - 1) }
+}
+
+fn binop_to_opcode(op) = {
+  if op == "Add" { OP_ADD() }
+  else { if op == "Sub" { OP_SUB() }
+  else { if op == "Mul" { OP_MUL() }
+  else { if op == "Div" { OP_DIV() }
+  else { if op == "Mod" { OP_MOD() }
+  else { if op == "Eq"  { OP_EQ() }
+  else { if op == "Neq" { OP_NEQ() }
+  else { if op == "Lt"  { OP_LT() }
+  else { if op == "Le"  { OP_LTEQ() }
+  else { if op == "Gt"  { OP_GT() }
+  else { if op == "Ge"  { OP_GTEQ() }
+  else { if op == "Concat" { OP_CONCAT() }
+  else { OP_ADD() }  // fallback
+  }}}}}}}}}}}
+}
+
+// ─── Statement Compilation ───────────────────────────────────
+
+fn compile_stmt(ctx, stmt) = match stmt {
+  LetStmt(name, value) => {
+    let ctx2 = compile_expr(ctx, value)
+    if ctx_depth(ctx2) > 0 {
+      // Local: declare in scope
+      let (ctx3, _slot) = declare_local(ctx2, name)
+      ctx3
+    } else {
+      // Global: store by name
+      let (ctx3, name_idx) = intern_name(ctx2, name)
+      emit_u16(emit_op(ctx3, OP_STORE_GLOBAL()), name_idx)
+    }
+  },
+
+  FnStmt(name, params, body) => {
+    // Compile function body as a separate chunk (nested ctx)
+    let fn_ctx = ctx_new()
+    let fn_ctx2 = begin_scope(fn_ctx)
+    // Declare params as locals
+    let fn_ctx3 = declare_params(fn_ctx2, params)
+    // Compile body
+    let fn_ctx4 = compile_expr(fn_ctx3, body)
+    let fn_ctx5 = emit_op(fn_ctx4, OP_RETURN())
+    // Package as FnProto constant
+    let proto = ("fn_proto", name, len(params), ctx_code(fn_ctx5),
+                  ctx_constants(fn_ctx5), ctx_names(fn_ctx5))
+    let (ctx2, proto_idx) = add_constant(ctx, proto)
+    let ctx3 = emit_u16(emit_op(ctx2, OP_MAKE_CLOSURE()), proto_idx)
+    // Store as global
+    let (ctx4, name_idx) = intern_name(ctx3, name)
+    emit_u16(emit_op(ctx4, OP_STORE_GLOBAL()), name_idx)
+  },
+
+  ExprStmt(expr) => {
+    let ctx2 = compile_expr(ctx, expr)
+    emit_op(ctx2, OP_POP())  // discard result
+  },
+
+  ImportStmt(_) => ctx,  // imports resolved before compilation
+
+  _ => ctx
+}
+
+fn declare_params(ctx, params) = {
+  if len(params) == 0 { ctx }
+  else {
+    let (ctx2, _) = declare_local(ctx, params[0])
+    declare_params(ctx2, slice(params, 1, len(params)))
+  }
+}
+
+fn compile_block_stmts(ctx, stmts) = {
+  if len(stmts) == 0 { ctx }
+  else {
+    let ctx2 = compile_stmt(ctx, stmts[0])
+    compile_block_stmts(ctx2, slice(stmts, 1, len(stmts)))
+  }
+}
+
+// ─── Program Compilation ─────────────────────────────────────
+
+fn compile_program(stmts) = {
+  let ctx = ctx_new()
+  let ctx2 = compile_stmts(ctx, stmts)
+  let ctx3 = emit_op(ctx2, OP_RETURN())
+  // Return the compiled chunk
+  ("chunk", ctx_code(ctx3), ctx_constants(ctx3), ctx_names(ctx3))
+}
+
+fn compile_stmts(ctx, stmts) = {
+  if len(stmts) == 0 { ctx }
+  else {
+    let ctx2 = compile_stmt(ctx, stmts[0])
+    compile_stmts(ctx2, slice(stmts, 1, len(stmts)))
+  }
+}
+
+// ─── Disassembly ─────────────────────────────────────────────
+// Pretty-print bytecode for debugging.
+
+fn disassemble(chunk) = {
+  let (_, code, constants, names) = chunk
+  dis_loop(code, constants, names, 0)
+}
+
+fn dis_loop(code, constants, names, offset) = {
+  if offset >= len(code) { "" }
+  else {
+    let opcode = code[offset]
+    let (text, next) = dis_instruction(code, constants, names, offset, opcode)
+    let prefix = pad_num(offset, 4) ++ " | "
+    prefix ++ text ++ "\n" ++ dis_loop(code, constants, names, next)
+  }
+}
+
+fn dis_instruction(code, constants, names, offset, opcode) = {
+  // No-operand instructions
+  if opcode == OP_ADD()     { ("Add", offset + 1) }
+  else { if opcode == OP_SUB()     { ("Sub", offset + 1) }
+  else { if opcode == OP_MUL()     { ("Mul", offset + 1) }
+  else { if opcode == OP_DIV()     { ("Div", offset + 1) }
+  else { if opcode == OP_MOD()     { ("Mod", offset + 1) }
+  else { if opcode == OP_NEG()     { ("Neg", offset + 1) }
+  else { if opcode == OP_NOT()     { ("Not", offset + 1) }
+  else { if opcode == OP_EQ()      { ("Eq", offset + 1) }
+  else { if opcode == OP_NEQ()     { ("Neq", offset + 1) }
+  else { if opcode == OP_LT()      { ("Lt", offset + 1) }
+  else { if opcode == OP_LTEQ()    { ("LtEq", offset + 1) }
+  else { if opcode == OP_GT()      { ("Gt", offset + 1) }
+  else { if opcode == OP_GTEQ()    { ("GtEq", offset + 1) }
+  else { if opcode == OP_CONCAT()  { ("Concat", offset + 1) }
+  else { if opcode == OP_POP()     { ("Pop", offset + 1) }
+  else { if opcode == OP_DUP()     { ("Dup", offset + 1) }
+  else { if opcode == OP_RETURN()  { ("Return", offset + 1) }
+  else { if opcode == OP_LOAD_UNIT() { ("LoadUnit", offset + 1) }
+  else { if opcode == OP_LIST_INDEX() { ("ListIndex", offset + 1) }
+  // u8 operand
+  else { if opcode == OP_LOAD_INT() {
+    ("LoadInt " ++ to_string(code[offset + 1]), offset + 2)
+  }
+  else { if opcode == OP_LOAD_BOOL() {
+    ("LoadBool " ++ to_string(code[offset + 1]), offset + 2)
+  }
+  else { if opcode == OP_CALL() {
+    ("Call argc=" ++ to_string(code[offset + 1]), offset + 2)
+  }
+  else { if opcode == OP_TAIL_CALL() {
+    ("TailCall argc=" ++ to_string(code[offset + 1]), offset + 2)
+  }
+  // u16 operand
+  else { if opcode == OP_LOAD_CONST() {
+    let idx = read_u16(code, offset + 1)
+    ("LoadConst " ++ to_string(idx), offset + 3)
+  }
+  else { if opcode == OP_LOAD_LOCAL() {
+    ("LoadLocal " ++ to_string(read_u16(code, offset + 1)), offset + 3)
+  }
+  else { if opcode == OP_STORE_LOCAL() {
+    ("StoreLocal " ++ to_string(read_u16(code, offset + 1)), offset + 3)
+  }
+  else { if opcode == OP_LOAD_GLOBAL() {
+    let idx = read_u16(code, offset + 1)
+    let name = if idx < len(names) { names[idx] } else { "?" }
+    ("LoadGlobal " ++ to_string(idx) ++ " (" ++ name ++ ")", offset + 3)
+  }
+  else { if opcode == OP_STORE_GLOBAL() {
+    let idx = read_u16(code, offset + 1)
+    let name = if idx < len(names) { names[idx] } else { "?" }
+    ("StoreGlobal " ++ to_string(idx) ++ " (" ++ name ++ ")", offset + 3)
+  }
+  else { if opcode == OP_MAKE_LIST() {
+    ("MakeList " ++ to_string(read_u16(code, offset + 1)), offset + 3)
+  }
+  else { if opcode == OP_MAKE_TUPLE() {
+    ("MakeTuple " ++ to_string(read_u16(code, offset + 1)), offset + 3)
+  }
+  else { if opcode == OP_MAKE_CLOSURE() {
+    ("MakeClosure proto=" ++ to_string(read_u16(code, offset + 1)), offset + 3)
+  }
+  // Jump instructions (i16 offset)
+  else { if opcode == OP_JUMP() {
+    let delta = read_u16(code, offset + 1)
+    ("Jump +" ++ to_string(delta), offset + 3)
+  }
+  else { if opcode == OP_JUMP_FALSE() {
+    let delta = read_u16(code, offset + 1)
+    ("JumpIfFalse +" ++ to_string(delta), offset + 3)
+  }
+  else { if opcode == OP_JUMP_TRUE() {
+    let delta = read_u16(code, offset + 1)
+    ("JumpIfTrue +" ++ to_string(delta), offset + 3)
+  }
+  else {
+    ("UNKNOWN(" ++ to_string(opcode) ++ ")", offset + 1)
+  }}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
+}
+
+fn read_u16(code, offset) = code[offset] * 256 + code[offset + 1]
+
+fn pad_num(n, width) = {
+  let s = to_string(n)
+  if len(s) >= width { s }
+  else { pad_num(n, width - 1) ++ " " }
+  // simplified padding — left-pads aren't easy without string multiply
+}
+
+// ─── Full Pipeline ───────────────────────────────────────────
+// parse → compile → disassemble
+
+fn compile(source) = {
+  let stmts = parse(source)
+  compile_program(stmts)
+}
+
+fn compile_and_show(source) = {
+  let chunk = compile(source)
+  disassemble(chunk)
+}

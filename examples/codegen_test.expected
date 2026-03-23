@@ -1,0 +1,57 @@
+=== Self-Hosted Codegen ===
+--- let x = 42 ---
+0    | LoadInt 42
+2    | StoreGlobal 0 (x)
+5    | Return
+
+--- let y = 1 + 2 * 3 ---
+0    | LoadInt 1
+2    | LoadInt 2
+4    | LoadInt 3
+6    | Mul
+7    | Add
+8    | StoreGlobal 0 (y)
+11   | Return
+
+--- fn double(x) = x * 2 ---
+0    | MakeClosure proto=0
+3    | StoreGlobal 0 (double)
+6    | Return
+
+--- fn add(a,b) = a + b  /  let r = add(1,2) ---
+0    | MakeClosure proto=0
+3    | StoreGlobal 0 (add)
+6    | LoadGlobal 0 (add)
+9    | LoadInt 1
+11   | LoadInt 2
+13   | Call argc=2
+15   | StoreGlobal 1 (r)
+18   | Return
+
+--- 5 |> double ---
+0    | LoadGlobal 0 (double)
+3    | LoadInt 5
+5    | Call argc=1
+7    | Pop
+8    | Return
+
+--- if true 1 else 2 ---
+0    | LoadBool 1
+2    | JumpIfFalse +6
+5    | Pop
+6    | LoadInt 1
+8    | Jump +3
+11   | Pop
+12   | LoadInt 2
+14   | Pop
+15   | Return
+
+--- [1, 2, 3] ---
+0    | LoadInt 1
+2    | LoadInt 2
+4    | LoadInt 3
+6    | MakeList 3
+9    | Pop
+10   | Return
+
+=== Lux compiles Lux ===
