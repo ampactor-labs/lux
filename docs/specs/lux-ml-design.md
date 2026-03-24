@@ -37,7 +37,7 @@ If any function in the chain performs the negated effect, compilation fails.
 | `!Alloc` | Provably does not allocate | Embedded deployment |
 | `!Random` | Provably deterministic | Inference without dropout |
 | `!IO` | Provably no I/O | Compile-time evaluation, GPU offload |
-| `Pure` | No effects at all | Auto-parallelization |
+| `Pure` | No declared effects | Auto-parallelization |
 
 ### Why ML
 

@@ -173,7 +173,7 @@ Boolean algebra over capabilities:
 | `!E` | Negation | Proves ABSENCE of capability |
 | `E - F` | Subtraction | Removes specific capability |
 | `E & F` | Intersection | Only shared capabilities |
-| `Pure` | Empty set | Provably no effects |
+| `Pure` | Empty set | No declared effects |
 
 Four compilation gates emerge for free:
 
@@ -182,9 +182,10 @@ Four compilation gates emerge for free:
 3. **`!Alloc`** → safe for real-time audio, embedded, GPU
 4. **`!Network`** → sandbox — capability security as types
 
-`!Alloc` is the real-time holy grail. Rust CANNOT do this — `Vec::push` is
-safe Rust and it allocates. In Lux, `!Alloc` propagates through the ENTIRE
-transitive call graph. If any callee allocates, compile error.
+`!Alloc` is the real-time holy grail. Most languages permit safe APIs that
+allocate, making allocation-freedom impossible to prove. In Lux, `!Alloc`
+propagates through the ENTIRE transitive call graph. If any callee allocates,
+compile error.
 
 ---
 
@@ -228,9 +229,10 @@ fn dsp_process(x: Float) -> Float with !Alloc =
 //   error: performs effect 'Alloc' but declares '!Alloc'
 ```
 
-Rust CANNOT express this. `Vec::push` is safe Rust and it allocates — there's
-no way to prove a function is allocation-free. In Lux, `!Alloc` propagates
-through the ENTIRE transitive call graph. One annotation, total proof.
+Other languages cannot express this — when safe standard library operations
+allocate freely, there's no way to prove a function is allocation-free. In Lux,
+`!Alloc` propagates through the ENTIRE transitive call graph. One annotation,
+total proof.
 
 This is the effect algebra doing what it does: turning capability negation
 into a compile-time proof. No special ownership system needed — just the same
@@ -524,9 +526,9 @@ More knowledge = more optimization opportunities:
 | Refinement `x > 0` | Eliminate bounds checks |
 | Ownership is affine | Deterministic deallocation, no ref counting |
 
-C can't memoize — it doesn't know if a function is pure. Rust can't
-eliminate allocation — `Vec::push` is safe and allocates. Lux PROVES
-purity and absence of allocation, enabling optimizations that are
+Languages without effect tracking can't memoize — they don't know if a
+function is pure. Languages with implicit allocation can't eliminate it. Lux
+PROVES purity and absence of allocation, enabling optimizations that are
 **impossible** in languages with less knowledge.
 
 **The performance thesis**: the more the compiler knows, the more it

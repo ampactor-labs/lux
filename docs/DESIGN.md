@@ -473,8 +473,9 @@ This is not a planned feature. It's a *consequence* of having effect negation.
 `!Alloc` falls out of the algebra for free. And it solves the #1 problem in
 real-time systems programming: "prove this code doesn't allocate."
 
-Rust can't do this. Rust can forbid `unsafe`, but it can't forbid allocation —
-`Vec::push` is safe Rust and it allocates. In Lux, `!Alloc` is a type-level
+Other languages can't guarantee this. Some forbid `unsafe`, but none can forbid
+allocation — safe standard library operations allocate freely. In Lux, `!Alloc`
+is a type-level
 proof that propagates through the entire call chain. If any function in
 `audio_callback`'s transitive call graph allocates, the constraint fails at
 compile time.
@@ -519,7 +520,7 @@ handler test_console(inputs: List<String>): Console {
 }
 
 // Test with deterministic inputs — no mock library, no DI framework
-handle greet() { use test_console(["Morgan"]) }
+handle greet() { use test_console(["World"]) }
 ```
 
 ### Deterministic Simulation
@@ -918,9 +919,9 @@ shapes data flow — IS the versor architecture expressed as a type system.
 Effect state machines for position lifecycle management. Safety gates as
 effect handlers — the type system enforces risk limits.
 
-Every constraint hit in Rust — "can't prove no allocation," "can't express
-capability restriction," "mocking requires a framework" — Lux resolves
-structurally. The language is the throughline project. Everything else is
+Every constraint hit in languages without effect algebra — "can't prove no
+allocation," "can't express capability restriction," "mocking requires a
+framework" — Lux resolves structurally. The language is the throughline project. Everything else is
 a projection.
 
 ---

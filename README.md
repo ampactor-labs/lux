@@ -70,7 +70,7 @@ fn greet(name: String) -> String with Console {
 }
 
 // Production: real output
-handle greet("Morgan") {
+handle greet("World") {
     say(msg) => { println(msg); resume(()) }
 }
 
@@ -87,7 +87,7 @@ handle greet("World") {
 | `with IO, State` | Can perform IO and State |
 | `with !IO` | Provably cannot perform IO |
 | `with E - Alloc` | E minus allocation |
-| `with Pure` | Provably no effects at all |
+| `with Pure` | No declared effects — safe to memoize and parallelize |
 
 `!Alloc` propagates through the entire call chain. If any transitive callee
 allocates, compilation fails. This proves real-time safety, gates GPU
@@ -109,8 +109,8 @@ There are no "levels" — just more knowledge flowing to the compiler:
 
 These aren't planned features. They're consequences of the algebra:
 
-- **`!Alloc` proves real-time safety.** Rust can't — `Vec::push` is safe Rust
-  and it allocates.
+- **`!Alloc` proves real-time safety.** In most languages, safe standard library
+  operations can allocate freely. `!Alloc` catches it at compile time.
 - **Pure functions auto-parallelize.** The effect system proves it's safe.
 - **`!Network` is capability security.** Type-system enforced, not sandboxed.
 - **Testing = handler swap.** No mock framework, no DI container.
@@ -154,13 +154,10 @@ lux --quiet examples/benchmark.lux    # comprehensive test suite
 
 ## Prism
 
-Lux's mascot is **Prism**, a bioluminescent comb jelly. Comb jellies diffract
-white light into cascading rainbow spectra along their cilia — a living prism.
-Many species also generate their own light from within.
-
-Unannotated code enters the compiler like white light. The teach system reveals
-the spectrum hidden inside — types, effects, purity, allocation freedom — each
-a different band. The language illuminates itself.
+Lux's mascot is **Prism**, a bioluminescent comb jelly — a creature that
+diffracts white light into rainbow spectra along its cilia. Unannotated code
+enters the compiler like white light; the teach system reveals the spectrum
+hidden inside.
 
 ## Design
 

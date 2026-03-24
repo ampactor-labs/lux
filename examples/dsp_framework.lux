@@ -36,7 +36,7 @@ println("")
 
 // ── Section 2: Mode 1 — Real-time (!Alloc proof) ─────────────────
 // The !Alloc annotation proves no allocation in the entire call chain.
-// Rust CANNOT do this — Vec::push is safe Rust and it allocates.
+// Other languages can't prove this — safe standard library operations allocate freely.
 // In Lux, !Alloc propagates through the entire call chain.
 
 println("=== Mode 1: Real-time (!Alloc proof) ===")

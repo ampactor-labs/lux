@@ -252,7 +252,7 @@ Effect-specific compilation:
 - Linear handlers: single-use CPS → one allocation
 - Multi-shot: full continuation capture → heap allocation
 
-**The performance thesis**: Lux beats Rust for effectful code because the compiler KNOWS which handlers are tail-resumptive. Rust can't — it uses `dyn Trait` dispatch. Lux generates direct calls with evidence passed in registers.
+**The performance thesis**: Lux beats dynamic dispatch for effectful code because the compiler KNOWS which handlers are tail-resumptive. Languages using `dyn Trait` or vtable dispatch can't — Lux generates direct calls with evidence passed in registers.
 
 **Unlocks**: Production deployment, real-time audio, embedded systems.
 

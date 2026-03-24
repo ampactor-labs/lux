@@ -45,7 +45,7 @@ fn greet(name: String) -> String with Console {
 // Handle with real output
 print("")
 print("=== Real Console Handler ===")
-let greeting = handle greet("Morgan") {
+let greeting = handle greet("World") {
   say(msg) => {
     print("[console] " ++ msg)
     resume(())

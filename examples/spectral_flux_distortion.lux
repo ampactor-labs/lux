@@ -3,7 +3,7 @@
 // The thesis: waveshaping should not be static. The distortion character
 // should ADAPT to the signal's spectral content in real-time.
 //
-// In C++/Rust, this requires class hierarchies, runtime dispatch, manual
+// Without algebraic effects, this requires class hierarchies, runtime dispatch, manual
 // state management. In Lux, the effect handler system does it ALL:
 //   - The distortion is an EFFECT (what to process)
 //   - The handler decides HOW to resolve it (which physics to apply)
