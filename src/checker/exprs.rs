@@ -76,6 +76,24 @@ impl TypeEnv {
                     }
                 }
 
+                // Ownership: check linearity for own-annotated bindings
+                if let Some(prev_uses) = self.linear_bindings.get(name) {
+                    if let Some(first_span) = prev_uses.first() {
+                        return Err(TypeError {
+                            kind: TypeErrorKind::ConsumedTwice {
+                                name: name.clone(),
+                                first_use: first_span.clone(),
+                            },
+                            span: span.clone(),
+                        });
+                    }
+                    // Mark as consumed (first use)
+                    self.linear_bindings
+                        .get_mut(name)
+                        .unwrap()
+                        .push(span.clone());
+                }
+
                 match self.lookup(name) {
                     Some(ty) => {
                         // If this variable is a function with concrete named effects,
@@ -224,7 +242,16 @@ impl TypeEnv {
             } => {
                 let (cond_ty, effs1) = self.infer_expr(condition)?;
                 self.unify(&cond_ty, &Type::Bool, span)?;
+
+                // Snapshot linear state before branches (ownership branch merging)
+                let linear_before = self.linear_bindings.clone();
+
                 let (then_ty, effs2) = self.infer_expr(then_branch)?;
+                let linear_after_then = self.linear_bindings.clone();
+
+                // Restore pre-branch state for else branch
+                self.linear_bindings = linear_before;
+
                 let mut effs = effs1.union(&effs2);
                 if let Some(else_br) = else_branch {
                     let (else_ty, effs3) = self.infer_expr(else_br)?;
@@ -233,6 +260,22 @@ impl TypeEnv {
                 } else {
                     // No else branch — then must be Unit
                     self.unify(&then_ty, &Type::Unit, span)?;
+                }
+                let linear_after_else = self.linear_bindings.clone();
+
+                // Merge: consumed if consumed in EITHER branch
+                for (name, then_spans) in &linear_after_then {
+                    let else_spans = linear_after_else.get(name);
+                    let then_consumed = !then_spans.is_empty();
+                    let else_consumed = else_spans.is_some_and(|s| !s.is_empty());
+                    if then_consumed || else_consumed {
+                        let merged = if then_consumed {
+                            then_spans.clone()
+                        } else {
+                            else_spans.cloned().unwrap_or_default()
+                        };
+                        self.linear_bindings.insert(name.clone(), merged);
+                    }
                 }
                 Ok((self.apply_subst(&then_ty), effs))
             }
@@ -638,6 +681,12 @@ impl TypeEnv {
         };
 
         self.merge_child(&child);
+        // Propagate linear consumption from block to enclosing scope
+        for (name, spans) in &child.linear_bindings {
+            if !spans.is_empty() && self.linear_bindings.contains_key(name) {
+                self.linear_bindings.insert(name.clone(), spans.clone());
+            }
+        }
         Ok((self.apply_subst(&result_ty), effs))
     }
 }

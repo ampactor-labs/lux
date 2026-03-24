@@ -660,3 +660,124 @@ fn show_env(env, subst, depth) = {
     line ++ why ++ "\n" ++ show_env(slice(env, 0, len(env) - 1), subst, depth)
   }
 }
+
+// ─── Ownership as Effect (Phase 5) ─────────────────────────
+// Ownership is NOT a separate analysis. It IS the effect system.
+// `own` = the function performs Consume on that parameter.
+// The same checker infrastructure that tracks IO, State, Alloc
+// tracks consumption. One system. No special cases.
+//
+// This section extends the existing checker — not a separate module.
+
+// Ownership annotations (parser already recognizes these).
+type OwnershipTier
+  = OwnTier       // Consume effect on this parameter (affine)
+  | RefTier       // no consumption effect (scoped borrow)
+  | InferredTier  // defaults to RefTier semantics
+
+// Consumption state for owned bindings.
+// Tracked in the type environment alongside effect rows — same system.
+type ConsumeState
+  = Unconsumed                 // own param, not yet used
+  | Consumed(Int)              // consumed at line N
+  | ConsumedInBranch(Int, Int) // consumed in both if/else branches
+
+// Ownership violations — framed as effect violations, not a separate category.
+type OwnershipViolation
+  = ConsumedTwice(String, Int, Int)   // name, first line, second line
+  | RefEscaped(String, Int)           // name, return line
+  | OwnNeverConsumed(String)          // name (teaching hint, not error)
+
+// Check a single function's ownership constraints.
+// Takes: params with ownership tiers, body expression.
+// Returns: list of ownership violations.
+fn check_ownership(params, body) = {
+  // Build initial tracking state: own params start as Unused
+  let own_params = filter(params, |p| match p {
+    (name, OwnTier) => true,
+    _ => false,
+  })
+  let ref_params = filter(params, |p| match p {
+    (name, RefTier) => true,
+    (name, InferredTier) => true,
+    _ => false,
+  })
+
+  // Walk the body, collecting uses of owned values
+  let (used, violations) = walk_expr(body, own_params, [])
+
+  // Check for unused own params
+  let unused_warnings = map(
+    filter(own_params, |p| {
+      let (name, _) = p
+      not(any(used, |u| u == name))
+    }),
+    |p| { let (name, _) = p; OwnNeverUsed(name) }
+  )
+
+  // Check for ref params in return position
+  let escape_violations = check_ref_escape(body, ref_params)
+
+  concat(violations, concat(unused_warnings, escape_violations))
+}
+
+// Walk an expression tree, tracking which own-values have been consumed.
+// Returns (used_names, violations).
+fn walk_expr(expr, own_names, used_so_far) = match expr {
+  // Variable reference: if it's an own-name, check & record use
+  ("var", name, line) => {
+    let is_own = any(own_names, |p| { let (n, _) = p; n == name })
+    if is_own {
+      let already_used = any(used_so_far, |u| u == name)
+      if already_used {
+        (used_so_far, [MovedTwice(name, 0, line)])
+      } else {
+        (push(used_so_far, name), [])
+      }
+    } else {
+      (used_so_far, [])
+    }
+  },
+
+  // If expression: own-value used in BOTH branches counts as one use,
+  // but used AFTER the if (when used in both branches) is an error.
+  ("if", cond, then_body, else_body) => {
+    let (u1, v1) = walk_expr(cond, own_names, used_so_far)
+    let (u2, v2) = walk_expr(then_body, own_names, u1)
+    let (u3, v3) = walk_expr(else_body, own_names, u1)
+    // Names used in BOTH branches are consumed after the if
+    let both = filter(u2, |n| any(u3, |m| m == n))
+    let merged = unique(concat(u2, u3))
+    (merged, concat(v1, concat(v2, v3)))
+  },
+
+  // Block: walk sequentially, threading used state
+  ("block", stmts) => fold(stmts, (used_so_far, []), |acc, stmt| {
+    let (u, v) = acc
+    let (u2, v2) = walk_expr(stmt, own_names, u)
+    (u2, concat(v, v2))
+  }),
+
+  // Default: no ownership-relevant operation
+  _ => (used_so_far, []),
+}
+
+// Check if any ref-param appears in return position.
+fn check_ref_escape(body, ref_params) = match body {
+  // If the body IS a ref-param variable, it's escaping
+  ("var", name, line) => {
+    let is_ref = any(ref_params, |p| { let (n, _) = p; n == name })
+    if is_ref { [RefEscaped(name, line)] }
+    else { [] }
+  },
+  // Block: check the last expression (the return value)
+  ("block", stmts) => {
+    if len(stmts) == 0 { [] }
+    else { check_ref_escape(stmts[len(stmts) - 1], ref_params) }
+  },
+  // If: check both branches
+  ("if", _, then_body, else_body) =>
+    concat(check_ref_escape(then_body, ref_params),
+           check_ref_escape(else_body, ref_params)),
+  _ => [],
+}

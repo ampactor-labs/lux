@@ -314,6 +314,61 @@ The Rust codebase becomes historical.
 
 ---
 
+## Phase Status
+
+| Phase | Status |
+|-------|--------|
+| 1. Self-hosted codegen | ✅ DONE |
+| 2. Why Engine | ✅ DONE |
+| 3. Effect tracking | ✅ DONE |
+| 4. Effect algebra | ✅ DONE |
+| 5. Ownership | Design needed |
+| 6. Refinement types | Design needed |
+| 7. Native backend | Design needed |
+| 8. Gradient system | Partially shipped (`--teach`) |
+| 9. Type-directed synthesis | Research stage |
+| 10. Full self-containment | Bootstrap ready |
+
+---
+
+## Dependency Lattice
+
+```
+Phase 5 (Ownership) ──→ Phase 7 (Native Backend) ──→ Phase 10 (Self-Containment)
+     │                       │
+     └──→ Phase 6 (Refinements) ──→ Phase 9 (Synthesis)
+
+Phase 8 (Gradient System) ←── threads through all phases
+```
+
+Phases 5 and 6 can overlap (independent type system extensions that compose later). Phase 7 depends on Phase 5 (native codegen needs move/drop semantics). Phase 10 depends on Phase 7 (need native backend for bootstrap binary).
+
+---
+
+## Hard Problems — Solved by Lux's Own Abstractions
+
+1. **Multi-shot continuations in native code** → State machine transform. The effect system knows every perform site at compile time. Each perform becomes a numbered state. The continuation is `{ state_index, saved_locals }`. Same insight as Rust's async, but effect rows give the compiler the suspension points for free.
+
+2. **Borrow inference** → Gradient, not analysis. Default everything to `ref` (scoped, no lifetime annotations). The teaching compiler suggests `own` where it enables zero-copy. `!Alloc` proves allocation-freedom transitively. The effect system carries the load Rust puts on its borrow checker.
+
+3. **Z3 dependency** → Handler swap. Verification strategy IS an effect handler on the compiler pipeline. Fourier-Motzkin (pure Lux, no deps) covers 90% of examples. Z3 is an optional handler, never a requirement.
+
+4. **Self-hosted compiler tracking** → Lux-first. Every feature is sketched in Lux first, then ported to Rust. The self-hosted compiler defines features; Rust implements them. Tracking disappears when Lux leads.
+
+5. **IR self-hostability** → Natural fit. ADTs ARE IRs. Codegen IS a handler swap on the compiler pipeline. The IR is expressed as Lux ADTs. If it can't be, the IR design is wrong.
+
+---
+
+## Custom Native Backend (Not Cranelift, Not LLVM)
+
+Cranelift and LLVM know nothing about algebraic effects. A Lux-specific backend sees effects natively: tail-resumptive handlers inline, Pure functions constant-fold, `!Alloc` functions stack-allocate everything. More information → better optimization in ALL areas.
+
+The backend is written in Lux. It runs on the Rust VM during bootstrap, emits machine code as byte lists, writes ELF/Mach-O binaries directly. No system assembler. No linker. Once it compiles itself natively, Rust is never needed again.
+
+Every optimization LLVM does is a known algorithm that can be implemented. But LLVM can never have the information Lux has — purity, allocation freedom, effect dispatch patterns. More information + same techniques = better optimization. There is no ceiling.
+
+---
+
 ## Why the Teaching Compiler Changes How You Code
 
 | Traditional tooling | Lux's compiler |

@@ -1,0 +1,15 @@
+consume([1,2,3]) = [1, 2, 3, 99]
+measure([1,2,3]) = 3
+inspect([10,20]) = length=2 first=10
+
+=== DSP (!Alloc enforced) ===
+dsp_chain(1.5) = 0.95
+dsp_chain(0.3) = 0.24
+uses_helper(3.0) = 7
+
+=== Mixed ownership ===
+4 items labeled: batch
+
+=== Inferred (default ref) ===
+identity(42) = 42
+double_use(5) = 10

@@ -1,0 +1,97 @@
+// Ownership Errors — Examples That MUST Fail
+//
+// Each section documents the exact error message expected.
+// Implementation is correct when each produces the specified error.
+//
+// NOTE: This file cannot be run as-is. Each section is an independent
+// test case. The test harness should try each section in isolation.
+
+// ── ERROR 1: own value used twice ───────────────────────────
+//
+// fn bad_double_use(own data: List) -> List =
+//     let a = push(data, 1)     // data moved here
+//     push(data, 2)             // ERROR: data already moved
+//
+// Expected error:
+//   error: 'data' was moved and cannot be used again
+//     --> ownership_errors.lux:3:10
+//     |
+//   2 |     let a = push(data, 1)
+//     |                  ^^^^ moved here
+//   3 |     push(data, 2)
+//     |          ^^^^ cannot use — already moved
+//     — remove 'own' or clone data if you need it twice
+
+// ── ERROR 2: ref value escapes ──────────────────────────────
+//
+// fn bad_escape(ref data: List) -> List =
+//     data                      // ERROR: cannot return borrowed value
+//
+// Expected error:
+//   error: cannot return borrowed value 'data'
+//     --> ownership_errors.lux:2:5
+//     |
+//   1 | fn bad_escape(ref data: List) -> List =
+//     |               ^^^^^^^^ declared as 'ref' — scoped to this call
+//   2 |     data
+//     |     ^^^^ cannot return — borrowed values cannot escape
+//     — change 'ref' to 'own' to take ownership, or to 'gc' to share
+
+// ── ERROR 3: !Alloc calling unannotated function ────────────
+//
+// fn unknown_effects(x: Float) -> Float = x + 1.0
+//
+// fn bad_alloc_call(x: Float) -> Float with !Alloc =
+//     unknown_effects(x)        // ERROR: cannot prove callee is !Alloc
+//
+// NOTE: This error only fires when the callee has an OPEN effect row
+// (truly unannotated, effect-polymorphic). If the callee is inferred
+// as Pure or allocation-free, the call is allowed. The error is about
+// uncertainty, not about known allocation.
+//
+// Expected error:
+//   error: function 'bad_alloc_call' declares '!Alloc' but calls
+//          'unknown_effects' which may allocate
+//     --> ownership_errors.lux:2:5
+//     |
+//   2 |     unknown_effects(x)
+//     |     ^^^^^^^^^^^^^^^^^^ effect row is open — allocation not disproven
+//     — add 'with !Alloc' to 'unknown_effects' or remove '!Alloc' from caller
+
+// ── ERROR 4: !Alloc with direct allocation ──────────────────
+//
+// fn bad_alloc(x: Float) -> List with !Alloc =
+//     [x]                       // ERROR: list literal allocates
+//
+// Expected error (ALREADY WORKS):
+//   error: 'bad_alloc' performs 'Alloc' but declares '!Alloc'
+//     — remove '!Alloc' or eliminate 'Alloc' from the call chain
+
+// ── ERROR 5: own in both branches ───────────────────────────
+//
+// fn bad_branch(own data: List, flag: Bool) -> List =
+//     if flag {
+//         push(data, 1)         // data moved here
+//     } else {
+//         push(data, 2)         // data moved here (OK — different branch)
+//     }
+//     push(data, 3)             // ERROR: data was moved in BOTH branches above
+//
+// Expected error:
+//   error: 'data' was moved and cannot be used again
+//     --> ownership_errors.lux:7:10
+//     |
+//   3 |         push(data, 1)
+//     |              ^^^^ moved in 'if' branch
+//   5 |         push(data, 2)
+//     |              ^^^^ moved in 'else' branch
+//   7 |     push(data, 3)
+//     |          ^^^^ cannot use — moved in both branches above
+
+// ── ERROR 6: own value never used ───────────────────────────
+//
+// fn wasteful(own data: List) -> Int = 42
+//
+// Expected warning (not error — but teaching compiler speaks):
+//   hint: 'data' is declared 'own' but never used
+//     — remove 'own' (value is not consumed) or use data in the body

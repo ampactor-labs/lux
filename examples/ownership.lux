@@ -57,8 +57,8 @@ println("dsp_process(0.3) = " ++ to_string(dsp_process(0.3)))
 
 // ── Level 4: own/ref — explicit ownership ─────────────────────
 
-// Ownership annotations are parsed but currently advisory.
-// They prepare the ground for native codegen where ownership matters.
+// Ownership annotations are now ENFORCED by the checker.
+// `own` = affine (used at most once). `ref` = scoped (cannot escape).
 
 fn transform(own data: List, ref label: String) -> List =
     push(data, label)
@@ -88,7 +88,7 @@ println("  nothing    → it runs (GC, dynamic)")
 println("  types      → type errors caught")
 println("  with Pure  → memoization, parallelization")
 println("  with !Alloc → real-time safety proof")
-println("  own/ref    → explicit ownership (future: zero-copy)")
+println("  own/ref    → explicit ownership (enforced: affine + scoped)")
 println("")
 println("Each step is optional. Each step unlocks more power.")
 println("The compiler shows you the next step. Your choice.")

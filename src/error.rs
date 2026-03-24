@@ -277,6 +277,15 @@ pub enum TypeErrorKind {
     },
     DuplicateDefinition(String),
     UnboundStateVar(String),
+    /// Owned value consumed more than once (affine violation).
+    ConsumedTwice {
+        name: String,
+        first_use: Span,
+    },
+    /// Borrowed value escaping its scope (ref returned from function).
+    RefEscaped {
+        name: String,
+    },
 }
 
 // ── Runtime errors ────────────────────────────────────────────
@@ -475,6 +484,25 @@ impl fmt::Display for TypeError {
                     self.span.line
                 )
             }
+            TypeErrorKind::ConsumedTwice { name, first_use } => {
+                write!(
+                    f,
+                    "'{name}' was consumed (moved) at line {} and cannot be used again at line {}",
+                    first_use.line, self.span.line
+                )?;
+                write!(
+                    f,
+                    " — 'own' parameters are linear: each use consumes the value"
+                )
+            }
+            TypeErrorKind::RefEscaped { name } => {
+                write!(
+                    f,
+                    "cannot return borrowed value '{name}' at line {}",
+                    self.span.line
+                )?;
+                write!(f, " — 'ref' parameters are scoped to the function call")
+            }
         }
     }
 }
@@ -595,6 +623,15 @@ impl LuxError {
                 }
                 TypeErrorKind::UnboundStateVar(name) => {
                     format!("unknown handler state variable '{name}'")
+                }
+                TypeErrorKind::ConsumedTwice { name, first_use } => {
+                    format!(
+                        "'{name}' consumed at line {} — cannot use again",
+                        first_use.line
+                    )
+                }
+                TypeErrorKind::RefEscaped { name } => {
+                    format!("cannot return borrowed value '{name}'")
                 }
             },
             LuxError::Runtime(e) => match &e.kind {

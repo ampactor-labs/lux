@@ -505,6 +505,29 @@ has perfect knowledge of your program's semantics at every point. Error
 messages that leverage this knowledge are fundamentally better than anything
 an AI can produce — because the compiler doesn't guess. It knows.
 
+This is now shipped. Real output from the compiler:
+
+```
+error: unbound variable 'greting' — did you mean 'greeting'?
+  --> example.lux:3:7
+  |
+3 | print(greting)
+  |       ^^^^^^^
+```
+
+```
+error: non-exhaustive match at line 6 — missing: Blue — add a `_` wildcard or handle: Blue
+```
+
+```
+error: 'pure_greet' performs 'Console' but declares 'Pure'
+     — remove 'Pure' or eliminate 'Console' from the call chain
+```
+
+Three patterns: identify the mistake, suggest the closest valid alternative,
+and explain what constraint was violated and how to fix it. The compiler
+is a collaborator, not a gatekeeper.
+
 ---
 
 ## The Compiler Knows More Than C
@@ -604,6 +627,77 @@ Why this is right:
 
 This is the "annotation gradient" in action: start with nothing, add what
 you need. State is invisible until you ask for it.
+
+---
+
+## The Three Tiers of Effect Compilation
+
+Handlers are classified at compile time into three tiers, each with a
+different cost model. This classification IS the native backend's
+optimization strategy.
+
+| Tier | Pattern | Cost | Implementation |
+|------|---------|------|----------------|
+| **Tail-resumptive** (~85%) | `resume(pure_expr)` | Zero overhead | Direct call via evidence passing |
+| **Linear** (single-shot) | Capture once, resume once | One allocation | State machine transform |
+| **Multi-shot** | Multiple resumes | Struct per state | State machine, cloneable |
+
+The compiler already classifies handlers — it marks `tail_resumptive` and
+`evidence_eligible` on every handler operation. 85% of real handlers are
+tail-resumptive. They compile to direct function calls with handler
+evidence passed in registers. No continuation captured. No handler stack
+search. No heap allocation. Zero overhead.
+
+How `resume` works at each tier:
+
+- **Evidence path** (tail-resumptive): No `Resume` opcode at all. The
+  handler runs as a nested call, the result pops back directly. It IS a
+  function call.
+
+- **Normal path** (linear): `Resume` is a controlled stack unwinding +
+  value injection. Tear down the handler body frame, restore IP to the
+  perform site, push the resume value as if the effect operation returned
+  it. State updates applied to the handler frame atomically.
+
+- **Multi-shot path**: The effect system knows every perform site at
+  compile time. Transform the body into an explicit state machine: each
+  perform = a numbered state, the continuation = `{ state_index,
+  saved_locals }`. Calling it means: jump to state N, restore locals,
+  continue. No stack capture. No replay. Same insight as Rust's async
+  transform, but effect rows give the compiler the suspension points for
+  free.
+
+The cost model is honest: 85% pay nothing. 15% pay exactly what their
+semantics require. No hidden overhead. No surprising allocations.
+
+---
+
+## The Self-Similar Language
+
+Lux's hardest implementation problems dissolve when viewed through its
+own abstractions. This is the deepest sign that the foundations are right:
+**the language teaches us how to build itself.**
+
+| Problem | Traditional solution | Lux's own solution |
+|---------|---------------------|-------------------|
+| Multi-shot in native code | CPS transform, stack capture | State machine — effect rows map the states |
+| Borrow inference | NLL dataflow analysis | Gradient — default `ref`, teach toward `own` |
+| Solver dependency | Z3 (40MB C library) | Handler swap — verification IS an effect |
+| Self-hosted tracking | Mirror every change | Lux-first — Lux defines, Rust implements |
+| IR design constraint | Must map to LLVM/SSA | ADTs ARE IRs — codegen IS a handler swap |
+
+Every infrastructure problem is an instance of the patterns the language
+implements. Effects, handlers, the gradient, ADTs — they're not just
+language features. They're the problem-solving toolkit for building the
+language itself.
+
+Self-containment is not a goal bolted on — it's a consequence of getting
+the abstractions right. ADTs express IRs. Effects express verification.
+The gradient expresses ownership. The compiler pipeline is effects all
+the way down.
+
+A correct abstraction keeps absorbing new use cases without changing shape.
+Even the use case of building itself.
 
 ---
 

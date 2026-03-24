@@ -317,6 +317,17 @@ impl TypeEnv {
             };
             child.bind(&p.name, ty.clone());
             param_types.push(ty);
+
+            // Ownership tracking — ownership IS an effect, tracked here
+            match p.ownership {
+                crate::ast::Ownership::Own => {
+                    child.linear_bindings.insert(p.name.clone(), Vec::new());
+                }
+                crate::ast::Ownership::Ref => {
+                    child.ref_bindings.insert(p.name.clone());
+                }
+                crate::ast::Ownership::Inferred => {} // default ref semantics
+            }
         }
 
         // Pre-bind function name for recursion (with fresh return type var)
@@ -371,6 +382,40 @@ impl TypeEnv {
         if let Some(ret_ann) = &fd.return_type {
             let ret_ty = child.resolve_type_expr(ret_ann)?;
             child.unify(&body_ty, &ret_ty, &fd.span)?;
+        }
+
+        // Check ref-escape: if body is a ref-binding variable, it's escaping
+        if let crate::ast::Expr::Var(name, span) = &fd.body {
+            if child.ref_bindings.contains(name.as_str()) {
+                return Err(TypeError {
+                    kind: TypeErrorKind::RefEscaped { name: name.clone() },
+                    span: span.clone(),
+                });
+            }
+        }
+        // Also check block tail position (the last expr in a block is the return value)
+        if let crate::ast::Expr::Block {
+            expr: Some(tail), ..
+        } = &fd.body
+        {
+            if let crate::ast::Expr::Var(name, span) = tail.as_ref() {
+                if child.ref_bindings.contains(name.as_str()) {
+                    return Err(TypeError {
+                        kind: TypeErrorKind::RefEscaped { name: name.clone() },
+                        span: span.clone(),
+                    });
+                }
+            }
+        }
+
+        // Teaching hint: own param never consumed
+        for (name, spans) in &child.linear_bindings {
+            if spans.is_empty() {
+                child.warnings.push((
+                    format!("'{name}' is declared 'own' but never consumed — remove 'own' or use the value"),
+                    fd.span.clone(),
+                ));
+            }
         }
 
         self.merge_child(&child);

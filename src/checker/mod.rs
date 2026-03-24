@@ -146,6 +146,11 @@ pub(crate) struct TypeEnv {
     pub(crate) fn_declared_effects: Option<BTreeSet<String>>,
     /// Side table mapping expression/declaration spans to required evidence arguments.
     pub(crate) effect_routing: HashMap<Span, crate::types::EffectRow>,
+    /// Bindings declared `own` — linearity tracking (ownership as effect).
+    /// Empty vec = unconsumed. Non-empty = consumed at these spans.
+    pub(crate) linear_bindings: HashMap<String, Vec<Span>>,
+    /// Bindings declared `ref` — escape checking.
+    pub(crate) ref_bindings: std::collections::HashSet<String>,
 }
 
 #[allow(clippy::result_large_err)]
@@ -175,6 +180,8 @@ impl TypeEnv {
             current_item_index: 0,
             fn_declared_effects: None,
             effect_routing: HashMap::new(),
+            linear_bindings: HashMap::new(),
+            ref_bindings: std::collections::HashSet::new(),
         }
     }
 
@@ -204,6 +211,8 @@ impl TypeEnv {
             current_item_index: self.current_item_index,
             fn_declared_effects: self.fn_declared_effects.clone(),
             effect_routing: HashMap::new(),
+            linear_bindings: self.linear_bindings.clone(),
+            ref_bindings: self.ref_bindings.clone(),
         }
     }
 
@@ -228,6 +237,8 @@ impl TypeEnv {
         }
         self.warnings.extend(child.warnings.iter().cloned());
         self.hints.extend(child.hints.iter().cloned());
+        // NOTE: linear_bindings are NOT propagated here — they're function-scoped.
+        // Block scopes propagate linear state explicitly in infer_block.
     }
 
     pub(crate) fn fresh_var(&mut self) -> Type {
