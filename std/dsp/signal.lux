@@ -3,8 +3,10 @@
 // Effect declarations for DSP capabilities, plus pure math functions
 // that form the building blocks of signal chains.
 //
-// Pure processors use data-last signatures for pipe compatibility:
+// Pure processors use data-FIRST signatures for pipe compatibility:
 //   x |> gain(0.8) |> soft_clip |> clip(0.95)
+//
+// `x |> f(a, b)` = `f(x, a, b)` — signal is always the first argument.
 
 // ── DSP Effects ─────────────────────────────────────────────
 
@@ -17,12 +19,12 @@ effect Alloc { alloc_buffer(size: Int) -> List<Float> }
 effect Network { fetch_param(url: String) -> String }
 effect Feedback { delay_tap(samples: Int, x: Float) -> Float }
 
-// ── Pure Processors (pipeable) ──────────────────────────────
+// ── Pure Processors (pipeable, data-first) ───────────────────
 
-fn clip(threshold: Float, x: Float) -> Float with Pure =
+fn clip(x: Float, threshold: Float) -> Float with Pure =
     clamp(x, 0.0 - threshold, threshold)
 
-fn gain(factor: Float, x: Float) -> Float with Pure =
+fn gain(x: Float, factor: Float) -> Float with Pure =
     x * factor
 
 fn mix(wet: Float, dry: Float, amount: Float) -> Float with Pure =

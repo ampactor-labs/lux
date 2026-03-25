@@ -8,6 +8,7 @@
 // the bytecode buffer, scope stack, and constant pool.
 
 import compiler/lexer
+import compiler/checker
 import compiler/parser
 
 // ─── Opcodes ─────────────────────────────────────────────────
@@ -1085,7 +1086,15 @@ fn pad_num(n, width) = {
 
 fn compile(source) = {
   let stmts = parse(source)
+  let (_env, _subst, _counter) = check_program(stmts)
   compile_program(stmts)
+}
+
+fn compile_checked(source) = {
+  let stmts = parse(source)
+  let check_result = check_program(stmts)
+  let chunk = compile_program(stmts)
+  (chunk, check_result)
 }
 
 fn compile_and_show(source) = {

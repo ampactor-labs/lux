@@ -166,6 +166,95 @@ fn is_evidence_eligible(body: &Expr, effect_ops: &HashMap<String, String>) -> bo
 }
 
 impl Compiler {
+    /// Check if a handler body would capture upvalues from the enclosing scope.
+    /// Used to decide whether evidence optimization is safe.
+    fn handler_body_captures_upvalues(
+        &self,
+        _op_name: &str,
+        params: &[String],
+        body: &Expr,
+        state_names: &[String],
+    ) -> bool {
+        // Collect all names that are local to the handler body (params + state + resume).
+        let mut local_names: std::collections::HashSet<&str> =
+            params.iter().map(|s| s.as_str()).collect();
+        for name in state_names {
+            local_names.insert(name);
+        }
+        local_names.insert("resume");
+        // Check if the body references any variable not in handler locals or globals.
+        self.expr_references_enclosing(body, &local_names)
+    }
+
+    /// Returns true if `expr` references a variable that exists in the enclosing
+    /// scope (i.e., it's not a handler-local and IS a local in self.scope).
+    fn expr_references_enclosing(
+        &self,
+        expr: &Expr,
+        handler_locals: &std::collections::HashSet<&str>,
+    ) -> bool {
+        match expr {
+            Expr::Var(name, _) => {
+                !handler_locals.contains(name.as_str()) && self.scope.resolve_local(name).is_some()
+            }
+            Expr::Call { func, args, .. } => {
+                self.expr_references_enclosing(func, handler_locals)
+                    || args
+                        .iter()
+                        .any(|a| self.expr_references_enclosing(a, handler_locals))
+            }
+            Expr::BinOp { left, right, .. } => {
+                self.expr_references_enclosing(left, handler_locals)
+                    || self.expr_references_enclosing(right, handler_locals)
+            }
+            Expr::UnaryOp { operand, .. } => {
+                self.expr_references_enclosing(operand, handler_locals)
+            }
+            Expr::If {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                self.expr_references_enclosing(condition, handler_locals)
+                    || self.expr_references_enclosing(then_branch, handler_locals)
+                    || else_branch
+                        .as_ref()
+                        .is_some_and(|e| self.expr_references_enclosing(e, handler_locals))
+            }
+            Expr::Block { stmts, expr, .. } => {
+                stmts.iter().any(|s| match s {
+                    Stmt::Expr(e) => self.expr_references_enclosing(e, handler_locals),
+                    Stmt::Let(ld) => self.expr_references_enclosing(&ld.value, handler_locals),
+                    _ => false,
+                }) || expr
+                    .as_ref()
+                    .is_some_and(|e| self.expr_references_enclosing(e, handler_locals))
+            }
+            Expr::Resume {
+                value,
+                state_updates,
+                ..
+            } => {
+                self.expr_references_enclosing(value, handler_locals)
+                    || state_updates
+                        .iter()
+                        .any(|u| self.expr_references_enclosing(&u.value, handler_locals))
+            }
+            Expr::StringInterp { parts, .. } => parts.iter().any(|p| match p {
+                crate::ast::StringPart::Expr(e) => {
+                    self.expr_references_enclosing(e, handler_locals)
+                }
+                _ => false,
+            }),
+            Expr::Pipe { left, right, .. } => {
+                self.expr_references_enclosing(left, handler_locals)
+                    || self.expr_references_enclosing(right, handler_locals)
+            }
+            _ => false,
+        }
+    }
+
     /// Compile a `handle { body } [with state = init, ...] { handlers }` expression.
     ///
     /// Each handler body becomes a separate `FnProto` stored in the chunk's
@@ -254,7 +343,24 @@ impl Compiler {
                     if is_evidence_eligible(hb, &self.effect_ops))
             });
 
-        if all_evidence_eligible {
+        // Skip evidence optimization when any handler body captures upvalues —
+        // the evidence scope tracking has a bookkeeping bug with upvalue-capturing
+        // handler bodies across multiple clauses. The fallback path is correct.
+        let any_captures_upvalues = expanded.iter().any(|clause| {
+            if let HandlerOp::OpHandler {
+                op_name,
+                params,
+                body: handler_body,
+                ..
+            } = &clause.operation
+            {
+                self.handler_body_captures_upvalues(op_name, params, handler_body, &state_names)
+            } else {
+                false
+            }
+        });
+
+        if all_evidence_eligible && !any_captures_upvalues {
             self.compile_handle_evidence(body, &expanded, state_count, &state_names, line)
         } else {
             self.compile_handle_fallback(body, &expanded, state_count, &state_names, line)
@@ -282,7 +388,7 @@ impl Compiler {
                 ..
             } = &clause.operation
             {
-                let proto =
+                let (proto, upvalue_descs) =
                     self.compile_handler_body(op_name, params, handler_body, state_names, line)?;
 
                 let proto_idx = self.chunk.add_constant(Constant::FnProto(Arc::new(proto)));
@@ -295,6 +401,7 @@ impl Compiler {
                     param_count: params.len() as u8,
                     tail_resumptive: tail_res,
                     evidence_eligible: ev_eligible,
+                    upvalue_descs,
                 });
             }
         }
@@ -344,7 +451,7 @@ impl Compiler {
                 ..
             } = &clause.operation
             {
-                let proto =
+                let (proto, upvalue_descs) =
                     self.compile_handler_body(op_name, params, handler_body, state_names, line)?;
                 let proto_idx = self.chunk.add_constant(Constant::FnProto(Arc::new(proto)));
                 let op_name_idx = self.chunk.intern_name(op_name);
@@ -355,6 +462,7 @@ impl Compiler {
                     param_count: params.len() as u8,
                     tail_resumptive: tail_res,
                     evidence_eligible: true,
+                    upvalue_descs,
                 });
             }
         }
@@ -373,7 +481,7 @@ impl Compiler {
                 ..
             } = &clause.operation
             {
-                let proto = self.compile_handler_body_evidence(
+                let (proto, upvalue_descs) = self.compile_handler_body_evidence(
                     op_name,
                     params,
                     handler_body,
@@ -388,6 +496,7 @@ impl Compiler {
                     param_count: params.len() as u8,
                     tail_resumptive: true,
                     evidence_eligible: true,
+                    upvalue_descs,
                 });
             }
         }
@@ -450,8 +559,10 @@ impl Compiler {
 
     /// Compile a handler body as a standalone `FnProto`.
     ///
-    /// Parameters: `[effect_params..., state_vars...]`
-    /// The VM passes effect args and current state when dispatching.
+    /// Parameters: `[effect_params..., state_vars..., resume]`
+    /// The VM passes effect args, current state, and resume continuation.
+    /// Returns `(proto, upvalue_descs)` — the handler body may capture
+    /// variables from the enclosing scope via upvalues.
     fn compile_handler_body(
         &mut self,
         op_name: &str,
@@ -459,10 +570,16 @@ impl Compiler {
         body: &Expr,
         state_names: &[String],
         line: u32,
-    ) -> Result<crate::vm::chunk::FnProto, LuxError> {
+    ) -> Result<(crate::vm::chunk::FnProto, Vec<(bool, u16)>), LuxError> {
+        // Move parent scope so the sub-compiler can resolve upvalues
+        // from enclosing locals (same pattern as compile_fn_decl/lambda).
+        let outer_scope = std::mem::replace(&mut self.scope, super::scope::Scope::new());
+
         let mut sub = Compiler::new(&format!("handler:{op_name}"), self.effect_routing.clone());
         sub.effect_ops = self.effect_ops.clone();
         sub.handler_decls = self.handler_decls.clone();
+        sub.field_registry = self.field_registry.clone();
+        sub.scope.enclosing = Some(Box::new(outer_scope));
         sub.scope.begin_scope();
 
         // Declare effect params as locals.
@@ -495,10 +612,22 @@ impl Compiler {
         // returned without calling resume).
         sub.emit_op(OpCode::Return, line);
 
+        // Extract upvalue descriptors before restoring scope.
+        let upvalue_descs: Vec<(bool, u16)> = sub
+            .scope
+            .upvalues
+            .iter()
+            .map(|u| (u.is_local, u.index))
+            .collect();
+
+        // Restore enclosing scope (with is_captured flags propagated).
+        let enclosing = sub.scope.enclosing.take().unwrap();
+        self.scope = *enclosing;
+
         let mut proto = sub.finish();
         // +1 for the `resume` parameter
         proto.arity = (params.len() + state_names.len() + 1) as u16;
-        Ok(proto)
+        Ok((proto, upvalue_descs))
     }
 
     /// Compile a handler body in evidence mode — `resume` becomes `Return`.
@@ -506,6 +635,7 @@ impl Compiler {
     /// Parameters: `[effect_params..., state_vars...]` (no resume parameter).
     /// The handler body returns the resume value directly (stateless) or a
     /// tuple `(resume_value, new_state_0, ...)` (stateful).
+    /// Returns `(proto, upvalue_descs)`.
     fn compile_handler_body_evidence(
         &mut self,
         op_name: &str,
@@ -513,13 +643,18 @@ impl Compiler {
         body: &Expr,
         state_names: &[String],
         line: u32,
-    ) -> Result<crate::vm::chunk::FnProto, LuxError> {
+    ) -> Result<(crate::vm::chunk::FnProto, Vec<(bool, u16)>), LuxError> {
+        // Move parent scope for upvalue resolution.
+        let outer_scope = std::mem::replace(&mut self.scope, super::scope::Scope::new());
+
         let mut sub = Compiler::new(
             &format!("handler:ev:{op_name}"),
             self.effect_routing.clone(),
         );
         sub.effect_ops = self.effect_ops.clone();
         sub.handler_decls = self.handler_decls.clone();
+        sub.field_registry = self.field_registry.clone();
+        sub.scope.enclosing = Some(Box::new(outer_scope));
         sub.scope.begin_scope();
 
         // Declare effect params as locals.
@@ -543,9 +678,21 @@ impl Compiler {
         sub.compile_expr(body)?;
         sub.emit_op(OpCode::Return, line);
 
+        // Extract upvalue descriptors before restoring scope.
+        let upvalue_descs: Vec<(bool, u16)> = sub
+            .scope
+            .upvalues
+            .iter()
+            .map(|u| (u.is_local, u.index))
+            .collect();
+
+        // Restore enclosing scope.
+        let enclosing = sub.scope.enclosing.take().unwrap();
+        self.scope = *enclosing;
+
         let mut proto = sub.finish();
         proto.arity = (params.len() + state_names.len()) as u16;
-        Ok(proto)
+        Ok((proto, upvalue_descs))
     }
 
     /// Compile a `perform Effect.op(args)` expression.

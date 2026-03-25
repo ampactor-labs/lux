@@ -37,12 +37,12 @@ impl TypeEnv {
             },
         );
 
-        // len: (List<T>) -> Int
+        // len: (T) -> Int — works on List<T> and String at runtime
         let t = self.fresh_var();
         self.bind(
             "len",
             Type::Function {
-                params: vec![Type::List(Box::new(t))],
+                params: vec![t],
                 return_type: Box::new(Type::Int),
                 effects: EffectRow::pure(),
             },
@@ -544,6 +544,47 @@ impl TypeEnv {
                 params: vec![t_isnum],
                 return_type: Box::new(Type::Bool),
                 effects: EffectRow::pure(),
+            },
+        );
+
+        // ── IO builtins ──────────────────────────────────────────
+        // These were missing — the self-hosted VM references them,
+        // and the checker must know they exist.
+
+        // read_file: (String) -> String with Console
+        self.bind(
+            "read_file",
+            Type::Function {
+                params: vec![Type::String],
+                return_type: Box::new(Type::String),
+                effects: EffectRow::single("Console"),
+            },
+        );
+        // write_file: (String, String) -> () with Console
+        self.bind(
+            "write_file",
+            Type::Function {
+                params: vec![Type::String, Type::String],
+                return_type: Box::new(Type::Unit),
+                effects: EffectRow::single("Console"),
+            },
+        );
+        // flush_stdout: () -> () with Console
+        self.bind(
+            "flush_stdout",
+            Type::Function {
+                params: vec![],
+                return_type: Box::new(Type::Unit),
+                effects: EffectRow::single("Console"),
+            },
+        );
+        // __assert_fail: (String) -> () — internal assertion failure
+        self.bind(
+            "__assert_fail",
+            Type::Function {
+                params: vec![Type::String],
+                return_type: Box::new(Type::Unit),
+                effects: EffectRow::single("Console"),
             },
         );
     }

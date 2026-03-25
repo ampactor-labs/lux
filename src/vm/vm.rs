@@ -46,9 +46,10 @@ pub struct Vm {
     pub(super) replay_log: Option<Vec<VmValue>>,
     /// Current position in the replay log.
     pub(super) replay_pos: usize,
-    /// When true, `PopHandler` at nesting depth 0 stops execution and returns TOS.
-    /// Used during continuation replay to stop after the handle body completes.
-    pub(super) stop_at_pop_handler: bool,
+    /// When set, `PopHandler` stops execution when the handler stack drops
+    /// to this depth. Used during continuation replay to stop after the
+    /// continuation's handle body completes (but not inner nested handlers).
+    pub(super) stop_at_handler_depth: Option<usize>,
     /// Target frame depth for evidence dispatch mini-loop. When set, the
     /// `Return` opcode stops nested execution when frames drop to this count.
     pub(super) evidence_return_depth: Option<usize>,
@@ -75,7 +76,7 @@ impl Vm {
             field_registry: HashMap::new(),
             replay_log: None,
             replay_pos: 0,
-            stop_at_pop_handler: false,
+            stop_at_handler_depth: None,
             evidence_return_depth: None,
         };
         vm.register_builtins();
@@ -448,9 +449,11 @@ impl Vm {
                             self.skip_past_pop_handler(handler_frame);
 
                             // In continuation replay, stop after handle body completes.
-                            if self.stop_at_pop_handler {
-                                let top = self.stack.pop();
-                                return Ok(top);
+                            if let Some(depth) = self.stop_at_handler_depth {
+                                if self.handler_stack.len() <= depth {
+                                    let top = self.stack.pop();
+                                    return Ok(top);
+                                }
                             }
 
                             continue;
@@ -711,9 +714,12 @@ impl Vm {
                     // the final state, access it through an effect operation
                     // (e.g., get_count()) in the handle body.
                     self.op_pop_handler();
-                    // In continuation replay mode, stop after the handle body completes.
-                    if self.stop_at_pop_handler {
-                        return Ok(self.stack.pop());
+                    // In continuation replay mode, stop when handler stack
+                    // drops to the target depth (the continuation's handler).
+                    if let Some(depth) = self.stop_at_handler_depth {
+                        if self.handler_stack.len() <= depth {
+                            return Ok(self.stack.pop());
+                        }
                     }
                 }
                 OpCode::Perform => {
@@ -1570,6 +1576,7 @@ impl Vm {
                                 param_count,
                                 tail_resumptive,
                                 evidence_eligible: false,
+                                upvalue_descs: Vec::new(),
                             });
                         }
                         _ => return Err("load_chunk: handler entry must be tuple".to_string()),

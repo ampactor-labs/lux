@@ -82,13 +82,13 @@ fn env_lookup(env, name) = {
 // threaded through every inference function for free.
 
 fn fresh_var(counter) = {
-  let n = counter[0]
-  (TVar(n), [n + 1, counter[1]])
+  let (n, esubst) = counter
+  (TVar(n), (n + 1, esubst))
 }
 
 fn fresh_eff_var(counter) = {
-  let n = counter[0]
-  (EfOpen([], n), [n + 1, counter[1]])
+  let (n, esubst) = counter
+  (EfOpen([], n), (n + 1, esubst))
 }
 
 // ─── Substitution ────────────────────────────────────────────
@@ -213,9 +213,9 @@ fn unify(subst, counter, t1, t2, context) = {
             if !ok2 { (false, s3, r2_reason, c3) }
             else {
               // Phase 14: unify effect rows — effects are first-class
-              let esubst = c3[1]
-              let (_, new_esubst) = unify_eff(esubst, eff1, eff2)
-              let c4 = [c3[0], new_esubst]
+              let (c3_id, c3_esubst) = c3
+              let (_, new_esubst) = unify_eff(c3_esubst, eff1, eff2)
+              let c4 = (c3_id, new_esubst)
               (true, s3, r2_reason, c4)
             }
           }
@@ -269,7 +269,8 @@ fn infer_expr(env, subst, counter, expr) = match expr {
     let (found_name, ty, bind_reason) = env_lookup(env, name)
     if found_name == "not_found" {
       let (tv, c2) = fresh_var(counter)
-      (tv, subst, c2, Because("unknown variable '" ++ name ++ "', assigned fresh type", Fresh(c2[0] - 1)), EfPure)
+      let (c2_id, _) = c2
+      (tv, subst, c2, Because("unknown variable '" ++ name ++ "', assigned fresh type", Fresh(c2_id - 1)), EfPure)
     } else {
       (ty, subst, counter, VarLookup(name, bind_reason), EfPure)
     }
@@ -325,7 +326,7 @@ fn infer_expr(env, subst, counter, expr) = match expr {
     let (ok, s3, unify_reason, c4) = unify(s2, c3b, ft, expected_fn_type, Because("function application", Applied(fr, arg_reasons)))
     // Extract callee's declared effects from its resolved function type
     let callee_effs = match apply(s3, ft) {
-      TFun(_, _, eff) => apply_eff_subst(c4[1], eff),
+      TFun(_, _, eff) => { let (_, c4_esubst) = c4; apply_eff_subst(c4_esubst, eff) },
       _ => EfPure
     }
     let call_effs = merge_effects(merge_effects(fe, arg_effs), callee_effs)
@@ -472,7 +473,8 @@ fn infer_expr(env, subst, counter, expr) = match expr {
 
   _ => {
     let (tv, c2) = fresh_var(counter)
-    (tv, subst, c2, Fresh(c2[0] - 1), EfPure)
+    let (c2_id, _) = c2
+    (tv, subst, c2, Fresh(c2_id - 1), EfPure)
   }
 }
 
@@ -524,9 +526,10 @@ fn check_stmt(env, subst, counter, stmt) = match stmt {
     let (body_ty, s1, c3, body_reason, body_effs) = infer_expr(rec_env, subst, c2, body)
     let (_, s2, _, c4) = unify(s1, c3, ret_tv, body_ty, FnReturn(name, body_reason))
     // Phase 14: resolve effect variables before constraint checking.
-    // The eff_subst in c4[1] has accumulated all effect variable bindings
+    // The eff_subst in c4 has accumulated all effect variable bindings
     // from unification within this function body.
-    let checked_effs = check_effect_constraints(name, body_effs, declared_effects, c4[1])
+    let (_, c4_esubst) = c4
+    let checked_effs = check_effect_constraints(name, body_effs, declared_effects, c4_esubst)
     let final_type = TFun(map(|p| apply(s2, p), param_types), apply(s2, body_ty), checked_effs)
     let fn_reason = Because("fn " ++ name ++ " declaration", FnReturn(name, body_reason))
     let new_env = env_extend(env, name, final_type, fn_reason)
@@ -772,7 +775,7 @@ fn check_program(stmts) = {
   let env = env_empty()
   let subst = subst_empty()
   // Counter is [fresh_id, eff_subst] — one channel for inference state
-  let counter = [0, eff_subst_empty()]
+  let counter = (0, eff_subst_empty())
   check_stmts(env, subst, counter, stmts)
 }
 

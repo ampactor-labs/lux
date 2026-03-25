@@ -355,6 +355,5 @@ fn gradient_suggestion(env, subst) = {
   let (fgs, _) = g
   if len(fgs) > 0 { render_fn_gradient(fgs[0]) }
   else { "" }
-  }
 }
 

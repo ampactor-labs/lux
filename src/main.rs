@@ -83,6 +83,10 @@ fn main() {
             // `lux doc <file>` — extract documentation (self-hosted pipeline)
             run_pipeline_mode(path, "doc");
         }
+        ["illuminate", path] => {
+            // `lux illuminate <file>` — the gradient as refraction
+            run_pipeline_mode(path, "illuminate");
+        }
         [path] => {
             // Single argument — run file
             let source = read_file(path);
@@ -96,7 +100,9 @@ fn main() {
             }
         }
         _ => {
-            eprintln!("Usage: lux [--quiet] [file.lux | test | check | why | doc | repl]");
+            eprintln!(
+                "Usage: lux [--quiet] [file.lux | test | check | why | doc | illuminate | repl]"
+            );
             process::exit(1);
         }
     }
@@ -251,22 +257,17 @@ fn find_std_file(name: &str) -> Option<String> {
 /// Run a file through the self-hosted effect pipeline with a specific handler.
 /// mode: "why" → compile_explaining, "doc" → compile_documenting
 fn run_pipeline_mode(file_path: &str, mode: &str) {
-    let source = read_file(file_path);
-    // Escape the source for embedding in a Lux string literal
-    let escaped = source
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n");
-
     let handler_fn = match mode {
         "why" => "compile_explaining",
         "doc" => "compile_documenting",
+        "illuminate" => "compile_illuminate",
         _ => "compile_standard",
     };
 
+    // Use read_file builtin to load source at runtime — avoids escape issues
     let wrapper = format!(
         "import compiler/pipeline\n\
-         let source = \"{escaped}\"\n\
+         let source = read_file(\"{file_path}\")\n\
          let chunk = {}(source)\n\
          let program = load_chunk(chunk)\n\
          program()\n",

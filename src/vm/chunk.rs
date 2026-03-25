@@ -47,6 +47,9 @@ pub struct HandlerEntry {
     pub tail_resumptive: bool,
     /// True if handler body is evidence-eligible (can use direct call dispatch).
     pub evidence_eligible: bool,
+    /// Upvalue descriptors for capturing enclosing locals into handler body.
+    /// Each entry is `(is_local, index)` — same semantics as closure upvalues.
+    pub upvalue_descs: Vec<(bool, u16)>,
 }
 
 /// Handler table — all handler clauses for one `handle { ... }` expression.

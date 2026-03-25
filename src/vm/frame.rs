@@ -78,6 +78,8 @@ pub struct VmHandlerEntry {
     pub tail_resumptive: bool,
     /// True if handler body is evidence-eligible (can use direct call dispatch).
     pub evidence_eligible: bool,
+    /// Captured upvalues from the enclosing scope at PushHandler time.
+    pub upvalues: Vec<VmValue>,
 }
 
 /// An active effect handler on the handler stack.

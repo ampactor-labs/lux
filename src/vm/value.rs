@@ -125,6 +125,8 @@ pub struct VmEvidenceEntry {
     pub op_name: String,
     pub proto: Arc<FnProto>,
     pub param_count: u8,
+    /// Captured upvalues from the enclosing scope at PushHandler time.
+    pub upvalues: Vec<VmValue>,
 }
 
 /// Generator state for coroutine-based yield.

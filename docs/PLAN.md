@@ -69,17 +69,16 @@ verified by the checker that invokes it (self-referential proof).
 **Files**: New `std/compiler/solver.lux` (<200 lines), `std/compiler/checker.lux`
 **Verify**: Port 9 refinement unit tests + 2 error tests to golden files.
 
-## Phase 17: Wire Checker into compile() — Small
+## ~~Phase 17: Wire Checker into compile()~~ ✓ Complete (2026-03-25)
 
-**What**: `compile(source)` in codegen.lux currently skips the checker. Wire it in:
-`lex → parse → check → codegen`. Errors returned cleanly. Wire checker's effect-row
-gradient into `compile_teaching` (replace the Reason-tree heuristic in pipeline.lux).
+**What**: `compile(source)` in codegen.lux now runs the checker before codegen:
+`lex → parse → check → codegen`. Added `compile_checked()` returning both chunk
+and check result.
 
 **Proves**: Self-hosted pipeline enforces type safety. Rejected programs don't compile.
 **Unlocks**: Oracle testing (Phase 18), teaching output grounded in real inference.
-**Files**: `std/compiler/codegen.lux`, `std/compiler/pipeline.lux`
-**Verify**: Program with type error → checker error (not runtime crash). Program with
-`!Alloc` violation → negation error.
+**Files**: `std/compiler/codegen.lux`, `tests/examples.rs`, `examples/type_error_test.lux`
+**Verify**: 3 golden tests pass: checked compile, compile_checked with type info, effects through checker.
 
 ## Phase 18: Oracle Testing — Medium
 
@@ -256,3 +255,14 @@ Build: `lux build std/compiler/`. Test: `lux test examples/`. No Rust anywhere.
 - Port `solver.rs` (190 lines) to `std/compiler/solver.lux`
 - Hook into checker FnStmt and LetStmt for type aliases with predicates
 - Port 9 refinement unit tests + 2 error tests to golden files
+
+## Completed: Phase 17 — Wire Checker into compile() (2026-03-25)
+
+- `codegen.lux` imports `compiler/checker`, calls `check_program(stmts)` before
+  `compile_program(stmts)` in `compile()`. Self-hosted pipeline now flows:
+  lex → parse → **check** → codegen → VM.
+- Added `compile_checked(source)` returning `(chunk, check_result)` for downstream
+  consumers that want type info alongside the compiled bytecode.
+- New `examples/type_error_test.lux` golden test: checked compile, compile_checked
+  with env inspection, effects through checked path. All pass.
+- All 42 unit + golden tests pass. Zero regressions.

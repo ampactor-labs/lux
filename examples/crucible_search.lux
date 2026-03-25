@@ -1,0 +1,192 @@
+// ═══════════════════════════════════════════════════════════════
+// CRUCIBLE: Nondeterministic Search via Effects
+// ═══════════════════════════════════════════════════════════════
+//
+// Can Lux search? Can a handler backtrack? Can nondeterminism
+// be expressed as an effect?
+//
+// This crucible tests the FORK path of multi-shot continuations.
+// The Choose effect picks a candidate. The Fail effect rejects it.
+// The handler tries each option and backtracks on failure.
+//
+// Convention: Lux pipe inserts as FIRST arg.
+// `x |> f(a, b)` = `f(x, a, b)`
+
+// ═══ Effects ═════════════════════════════════════════════════
+
+effect Choose {
+  choose(options: List) -> Int
+}
+
+// ═══ N-Queens: The Classic Search Problem ════════════════════
+//
+// Place N queens on an NxN board so no two attack each other.
+// Each queen occupies one row. choose() picks the column.
+// If a placement is unsafe, the computation returns [] (failure).
+
+fn threatens(placed, row, col) = {
+  // Check if (row, col) is attacked by any queen in placed
+  // placed is a list of [row, col] pairs
+  any(|queen| {
+    let qr = queen[0]
+    let qc = queen[1]
+    qc == col ||                       // same column
+    abs(qr - row) == abs(qc - col)     // same diagonal
+  }, placed)
+}
+
+fn solve_queens(n, placed, row) = {
+  if row > n {
+    // All queens placed — success!
+    placed
+  } else {
+    let col = choose(range(1, n + 1))
+    if threatens(placed, row, col) {
+      []   // This branch fails — return empty list
+    } else {
+      solve_queens(n, push(placed, [row, col]), row + 1)
+    }
+  }
+}
+
+// ═══ Handler: Backtracking Search ════════════════════════════
+//
+// Strategy: for each option from choose(), try resuming.
+// If the result is [], try the next option. First non-empty
+// result wins.
+//
+// This is the key multi-shot test: resume() is called once
+// per option inside fold(). Each call re-enters the continuation.
+
+fn search(computation) = {
+  handle { computation() } {
+    choose(options) => {
+      // Try each option — resume with it and check result
+      let results = fold(options, [], |acc, opt| {
+        if len(acc) > 0 { acc }   // already found a solution, skip
+        else {
+          let result = resume(opt)
+          if is_empty(result) { acc }    // failed, try next
+          else { result }                // success!
+        }
+      })
+      results
+    }
+  }
+}
+
+// ═══ Test 1: 4-Queens ════════════════════════════════════════
+
+fn run_demo() = {
+  println("═══ Lux Search: Nondeterminism as an Algebraic Effect ═══")
+  println("")
+
+  println("── Test 1: 4-Queens ──")
+  let solution = search(|| solve_queens(4, [], 1))
+  if is_empty(solution) {
+    println("No solution found!")
+  } else {
+    println("Solution found:")
+    for_each(|q| {
+      let row = q[0]
+      let col = q[1]
+      // Print a board row: . . Q . for queen at column
+      let cells = map(|c| if c == col { "Q" } else { "."}, range(1, 5))
+      println("  " ++ join(cells, " "))
+    }, solution)
+  }
+
+  // ── Test 2: Simple choice ──────────────────────────────────
+  println("")
+  println("── Test 2: Simple Choice ──")
+
+  // Find first x + y <= 22 where x in {1,2,3}, y in {10,20}
+  let result = handle {
+    let x = choose([1, 2, 3])
+    let y = choose([10, 20])
+    if x + y > 22 { [] }          // fail: return empty
+    else { [x + y] }              // success: return result wrapped in list
+  } {
+    choose(options) => {
+      fold(options, [], |acc, opt| {
+        if len(acc) > 0 { acc }
+        else { resume(opt) }
+      })
+    }
+  }
+  if is_empty(result) {
+    println("  No valid combination found!")
+  } else {
+    println("  First valid x + y where x + y <= 22: " ++ to_string(result[0]))
+    println("  (expected: 11 = 1 + 10)")
+  }
+
+  // ── Test 3: Pythagorean Triples ────────────────────────────
+  println("")
+  println("── Test 3: Pythagorean Triples ──")
+  println("  Finding a² + b² = c² where a,b,c in 1..20")
+  let triple = handle {
+    let a = choose(range(1, 21))
+    let b = choose(range(a, 21))    // b >= a to avoid duplicates
+    let c = choose(range(b, 21))    // c >= b
+    if a*a + b*b == c*c {
+      [a, b, c]
+    } else {
+      []
+    }
+  } {
+    choose(options) => {
+      fold(options, [], |acc, opt| {
+        if len(acc) > 0 { acc }
+        else { resume(opt) }
+      })
+    }
+  }
+  if is_empty(triple) {
+    println("  No triple found!")
+  } else {
+    println("  Found: (" ++ to_string(triple[0]) ++ ", " ++ to_string(triple[1]) ++ ", " ++ to_string(triple[2]) ++ ")")
+    println("  (expected: (3, 4, 5))")
+  }
+
+  // ── Test 4: All solutions ──────────────────────────────────
+  println("")
+  println("── Test 4: All Pythagorean Triples (collect all) ──")
+  let all_triples = handle {
+    let a = choose(range(1, 21))
+    let b = choose(range(a, 21))
+    let c = choose(range(b, 21))
+    if a*a + b*b == c*c {
+      [[a, b, c]]                   // one solution as singleton list
+    } else {
+      []                            // no solution
+    }
+  } {
+    choose(options) => {
+      // Collect ALL results (not just first) — concat results from each option
+      fold(options, [], |acc, opt| {
+        acc ++ resume(opt)
+      })
+    }
+  }
+  println("  Found " ++ to_string(len(all_triples)) ++ " triples:")
+  for_each(|t| {
+    println("    (" ++ to_string(t[0]) ++ ", " ++ to_string(t[1]) ++ ", " ++ to_string(t[2]) ++ ")")
+  }, all_triples)
+
+  println("")
+  println("── What This Crucible Proves ──")
+  println("• Choose as nondeterministic effect: pick from candidates")
+  println("• [] as backtracking signal: empty means failure")
+  println("• Handler-driven search: fold over options, resume per option")
+  println("• Multi-shot resume: resume() called N times in one handler arm")
+  println("• First-solution AND all-solutions from same computation")
+  println("")
+  println("── What This Crucible Demands of Lux ──")
+  println("• Multiple resume() calls in one handler arm (fork)")
+  println("• Continuation captured and re-entered per option")
+  println("• Deep nesting: choose inside choose inside recursion")
+  println("• Eventually: state machine transform for zero-alloc search")
+}
+
+run_demo()

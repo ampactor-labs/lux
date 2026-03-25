@@ -9,7 +9,7 @@
 //   - Handler-local state tracks spectral analysis across samples
 //   - Same pipe chain, different handler = different character
 //
-// Pure waveshaping functions use data-last signatures for pipe compat:
+// Pure waveshaping functions use data-FIRST signatures for pipe compat:
 //   x |> warm_shape(2.0) |> fold_shape(3.0)
 
 import dsp/signal
@@ -29,18 +29,18 @@ effect Distort {
 
 // Warm saturation — odd harmonics, asymptotically approaches ±1
 // Classic analog character. tanh(drive * x) normalized.
-fn warm_shape(drive: Float, x: Float) -> Float with Pure =
+fn warm_shape(x: Float, drive: Float) -> Float with Pure =
     tanh(drive * x)
 
 // Foldback distortion — signal folds back on itself past threshold.
 // Creates dense, inharmonic overtones at high drive. Gnarly.
 // Uses sin() to create the folding behavior.
-fn fold_shape(drive: Float, x: Float) -> Float with Pure =
+fn fold_shape(x: Float, drive: Float) -> Float with Pure =
     sin(drive * x)
 
 // Asymmetric soft clip — different positive/negative response.
 // Even harmonics (tube character). Positive pushes harder.
-fn asym_shape(drive: Float, x: Float) -> Float with Pure =
+fn asym_shape(x: Float, drive: Float) -> Float with Pure =
     if x >= 0.0 {
         tanh(drive * 1.2 * x)
     } else {
@@ -49,7 +49,7 @@ fn asym_shape(drive: Float, x: Float) -> Float with Pure =
 
 // Exponential wavefolder — cascaded folding with exponential decay.
 // The more drive, the more folds. Wild harmonics.
-fn exp_fold(drive: Float, x: Float) -> Float with Pure =
+fn exp_fold(x: Float, drive: Float) -> Float with Pure =
     tanh(sin(drive * x) * exp(0.0 - abs(x) * 0.5))
 
 // ── Spectral Flux Estimation ────────────────────────────────
@@ -74,10 +74,10 @@ fn estimate_flux(fast_env: Float, slow_env: Float) -> Float with Pure =
 //
 // The morph is continuous — no hard switching artifacts.
 
-fn adaptive_shape(drive: Float, flux: Float, x: Float) -> Float with Pure = {
-    let w = warm_shape(drive, x)
-    let a = asym_shape(drive, x)
-    let f = fold_shape(drive * 0.8, x)
+fn adaptive_shape(x: Float, drive: Float, flux: Float) -> Float with Pure = {
+    let w = warm_shape(x, drive)
+    let a = asym_shape(x, drive)
+    let f = fold_shape(x, drive * 0.8)
 
     // Three-way crossfade based on flux:
     //   flux [0, 0.3]   → warm dominates

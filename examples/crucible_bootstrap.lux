@@ -1,0 +1,62 @@
+// ═══════════════════════════════════════════════════════════════
+// CRUCIBLE: Bootstrap — Lux Compiling Lux
+// ═══════════════════════════════════════════════════════════════
+//
+// This program uses the self-hosted compiler pipeline to:
+//   1. Lex source code into tokens
+//   2. Parse tokens into an AST
+//   3. Compile the AST into bytecode
+//   4. Execute the bytecode on the self-hosted VM
+//
+// Every step runs in Lux. The Rust VM is just the host.
+// The compiler IS an effect handler. The VM IS a recursive loop.
+// Welcome to self-hosting.
+
+import compiler/lexer
+import compiler/parser
+import compiler/codegen
+import vm
+
+// The self-hosted pipeline: source → tokens → AST → bytecode → execution
+fn self_run(source) = {
+  let tokens = lex(source)
+  let ast = parse_program(tokens)
+  let chunk = compile_program(ast)
+  vm_run(chunk)
+}
+
+fn run_test(label, source) = {
+  println("  " ++ label ++ ":")
+  println("    source: " ++ source)
+  let result = self_run(source)
+  println("    ✓")
+}
+
+println("═══ Lux Bootstrap: A Language Compiling Itself ═══")
+println("")
+
+// ── Arithmetic ───────────────────────────────────────────────
+run_test("arithmetic", "println(to_string(6 * 7))")
+
+// ── Let binding + concatenation ──────────────────────────────
+run_test("let + concat", "let x = to_string(2 + 3)\nprintln(x)")
+
+// ── Function definition and call ─────────────────────────────
+run_test("fn def + call", "fn double(x) = x * 2\nprintln(to_string(double(21)))")
+
+// ── Nested function calls ────────────────────────────────────
+run_test("nested calls", "fn square(x) = x * x\nfn add(a, b) = a + b\nprintln(to_string(add(square(3), square(4))))")
+
+// ── List operations ──────────────────────────────────────────
+run_test("lists", "let xs = [10, 20, 30]\nprintln(to_string(len(xs)))")
+
+// ── Conditional ─────────────────────────────────────────────
+run_test("conditional", "let r = if 10 > 5 { 99 } else { 0 }\nprintln(to_string(r))")
+
+// ── Multiple functions ───────────────────────────────────────
+run_test("multi fn", "fn double(x) = x * 2\nfn quad(x) = double(double(x))\nprintln(to_string(quad(5)))")
+
+println("")
+println("═══ Bootstrap Complete ═══")
+println("Every test was compiled and executed by Lux code running on Lux.")
+println("The Rust VM is just the host. The mind is its own.")

@@ -42,7 +42,7 @@ println("=== Mode 1: Static Warm (tanh saturation) ===")
 let warm_out = handle {
     map(|x| distort(x, drive), test_signal)
 } {
-    distort(x, d) => resume(warm_shape(d, x)),
+    distort(x, d) => resume(warm_shape(x, d)),
 }
 println("warm:  " ++ to_string(warm_out))
 
@@ -52,7 +52,7 @@ println("=== Mode 2: Static Fold (foldback distortion) ===")
 let fold_out = handle {
     map(|x| distort(x, drive), test_signal)
 } {
-    distort(x, d) => resume(fold_shape(d, x)),
+    distort(x, d) => resume(fold_shape(x, d)),
 }
 println("fold:  " ++ to_string(fold_out))
 
@@ -62,7 +62,7 @@ println("=== Mode 3: Static Asymmetric (tube character) ===")
 let asym_out = handle {
     map(|x| distort(x, drive), test_signal)
 } {
-    distort(x, d) => resume(asym_shape(d, x)),
+    distort(x, d) => resume(asym_shape(x, d)),
 }
 println("asym:  " ++ to_string(asym_out))
 
@@ -94,7 +94,7 @@ let sfd_result = handle {
         let flux = estimate_flux(new_fast, new_slow)
 
         // Morph waveshaping based on flux
-        let y = adaptive_shape(d, flux, x)
+        let y = adaptive_shape(x, d, flux)
 
         resume(y) with fast_env = new_fast, slow_env = new_slow
     },
@@ -118,7 +118,7 @@ let rec_result = handle {
         let new_fast = fast_env + fast_alpha * (ax - fast_env)
         let new_slow = slow_env + slow_alpha * (ax - slow_env)
         let flux = estimate_flux(new_fast, new_slow)
-        let y = adaptive_shape(d, flux, x)
+        let y = adaptive_shape(x, d, flux)
         resume(y) with fast_env = new_fast, slow_env = new_slow, flux_trace = push(flux_trace, flux)
     },
 }
@@ -145,7 +145,7 @@ let chain_result = handle {
         let new_fast = fast_env + fast_alpha * (ax - fast_env)
         let new_slow = slow_env + slow_alpha * (ax - slow_env)
         let flux = estimate_flux(new_fast, new_slow)
-        let y = adaptive_shape(d, flux, x)
+        let y = adaptive_shape(x, d, flux)
         resume(y) with fast_env = new_fast, slow_env = new_slow
     },
 }
@@ -159,16 +159,16 @@ println("chain: " ++ to_string(chain_out))
 println("")
 println("=== Safety Proofs ===")
 
-fn rt_warm(x: Float) -> Float with !Alloc = warm_shape(3.0, x)
-fn rt_fold(x: Float) -> Float with !Alloc = fold_shape(3.0, x)
-fn rt_asym(x: Float) -> Float with !Alloc = asym_shape(3.0, x)
+fn rt_warm(x: Float) -> Float with !Alloc = warm_shape(x, 3.0)
+fn rt_fold(x: Float) -> Float with !Alloc = fold_shape(x, 3.0)
+fn rt_asym(x: Float) -> Float with !Alloc = asym_shape(x, 3.0)
 
 println("!Alloc warm_shape: " ++ to_string(rt_warm(0.8)))
 println("!Alloc fold_shape: " ++ to_string(rt_fold(0.8)))
 println("!Alloc asym_shape: " ++ to_string(rt_asym(0.8)))
 
 // Pure proof: waveshaping has zero effects at all
-fn pure_warm(x: Float) -> Float with Pure = warm_shape(3.0, x)
+fn pure_warm(x: Float) -> Float with Pure = warm_shape(x, 3.0)
 println("Pure  warm_shape:  " ++ to_string(pure_warm(0.8)))
 
 println("")

@@ -142,17 +142,20 @@ impl Vm {
                 None
             };
 
-            // Get the handler proto and state.
+            // Get the handler proto, state, and captured upvalues.
             let proto = self.handler_stack[handler_idx].entries[entry_idx]
                 .proto
                 .clone();
             let state = self.handler_stack[handler_idx].state.clone();
+            let upvalues = self.handler_stack[handler_idx].entries[entry_idx]
+                .upvalues
+                .clone();
 
             // Push call frame for the handler body.
             if let Some(cont) = continuation {
-                self.dispatch_handler_body_with_resume(proto, &args, &state, cont)?;
+                self.dispatch_handler_body_with_resume(proto, &args, &state, cont, upvalues)?;
             } else {
-                self.dispatch_handler_body(proto, &args, &state)?;
+                self.dispatch_handler_body(proto, &args, &state, upvalues)?;
             }
 
             // Track that we're in a handler dispatch (stack for nesting).
@@ -244,6 +247,10 @@ impl Vm {
     }
 
     /// Resolve handler table entries from the current chunk.
+    ///
+    /// Captures upvalue values from the current frame — same mechanism as
+    /// `MakeClosure`, but applied at `PushHandler` time so handler bodies
+    /// can reference enclosing locals.
     fn resolve_handler_entries(
         &self,
         frame_idx: usize,
@@ -256,6 +263,8 @@ impl Vm {
                 self.frames[frame_idx].current_line(),
             )
         })?;
+
+        let base = self.frames[frame_idx].stack_base;
 
         let mut entries = Vec::with_capacity(table.entries.len());
         for entry in &table.entries {
@@ -275,12 +284,33 @@ impl Vm {
                 }
             };
 
+            // Capture upvalues from the current frame (same as MakeClosure).
+            let upvalues: Vec<VmValue> = entry
+                .upvalue_descs
+                .iter()
+                .map(|&(is_local, idx)| {
+                    if is_local {
+                        self.stack
+                            .get(base + idx as usize)
+                            .cloned()
+                            .unwrap_or(VmValue::Unit)
+                    } else {
+                        self.frames[frame_idx]
+                            .upvalues
+                            .get(idx as usize)
+                            .cloned()
+                            .unwrap_or(VmValue::Unit)
+                    }
+                })
+                .collect();
+
             entries.push(VmHandlerEntry {
                 op_name,
                 proto,
                 param_count: entry.param_count,
                 tail_resumptive: entry.tail_resumptive,
                 evidence_eligible: entry.evidence_eligible,
+                upvalues,
             });
         }
 
@@ -296,8 +326,9 @@ impl Vm {
         proto: Arc<FnProto>,
         args: &[VmValue],
         state: &[VmValue],
+        upvalues: Vec<VmValue>,
     ) -> Result<(), VmError> {
-        self.dispatch_handler_body_with_resume(proto, args, state, VmValue::Unit)
+        self.dispatch_handler_body_with_resume(proto, args, state, VmValue::Unit, upvalues)
     }
 
     /// Push a call frame for a handler body FnProto with a `resume` value.
@@ -310,6 +341,7 @@ impl Vm {
         args: &[VmValue],
         state: &[VmValue],
         resume: VmValue,
+        upvalues: Vec<VmValue>,
     ) -> Result<(), VmError> {
         let stack_base = self.stack.len();
 
@@ -335,7 +367,7 @@ impl Vm {
 
         self.frames.push(CallFrame {
             proto,
-            upvalues: Vec::new(),
+            upvalues,
             ip: 0,
             stack_base,
             has_func_slot: false, // handler body, no function value below
@@ -358,13 +390,14 @@ impl Vm {
         // Resolve handler entries from the evidence handler table.
         let entries = self.resolve_handler_entries(frame_idx, table_idx)?;
 
-        // Convert to evidence entries.
+        // Convert to evidence entries (carry upvalues through).
         let ev_entries: Vec<VmEvidenceEntry> = entries
             .into_iter()
             .map(|e| VmEvidenceEntry {
                 op_name: e.op_name,
                 proto: e.proto,
                 param_count: e.param_count,
+                upvalues: e.upvalues,
             })
             .collect();
 
@@ -427,6 +460,7 @@ impl Vm {
             }
         };
         let proto = entry.proto.clone();
+        let entry_upvalues = entry.upvalues.clone();
         let h_idx = evidence.handler_stack_idx;
 
         // Pop effect args from stack.
@@ -453,11 +487,11 @@ impl Vm {
             self.stack.push(VmValue::Unit);
         }
 
-        // Push call frame.
+        // Push call frame with captured upvalues.
         let target_depth = self.frames.len();
         self.frames.push(CallFrame {
             proto,
-            upvalues: Vec::new(),
+            upvalues: entry_upvalues,
             ip: 0,
             stack_base: call_base,
             has_func_slot: false,
@@ -521,12 +555,17 @@ impl Vm {
         let saved_dispatch_stack = std::mem::take(&mut self.handler_dispatch_stack);
         let saved_replay = self.replay_log.take();
         let saved_replay_pos = self.replay_pos;
-        let saved_stop = self.stop_at_pop_handler;
+        let saved_stop = self.stop_at_handler_depth;
 
         // Set up replay state.
         self.replay_log = Some(replay_log);
         self.replay_pos = 0;
-        self.stop_at_pop_handler = true;
+        // Stop when the handler stack drops back to the depth we're about
+        // to push to. Inner nested handlers will push/pop above this depth
+        // without triggering the stop condition.
+        // (We set this BEFORE pushing our handler frame, so the depth is
+        // the outer handler stack length from the continuation.)
+        self.stop_at_handler_depth = Some(self.handler_stack.len());
 
         // Restore outer handler stack from the continuation snapshot.
         self.handler_stack = cont.outer_handler_stack.clone();
@@ -569,7 +608,7 @@ impl Vm {
         self.handler_dispatch_stack = saved_dispatch_stack;
         self.replay_log = saved_replay;
         self.replay_pos = saved_replay_pos;
-        self.stop_at_pop_handler = saved_stop;
+        self.stop_at_handler_depth = saved_stop;
 
         match result {
             Ok(Some(val)) => Ok(val),

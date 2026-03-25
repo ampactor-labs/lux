@@ -634,7 +634,13 @@ impl ReplChecker {
         self.env.pre_register_fn_decls(&program.items);
         for (i, item) in program.items.iter().enumerate() {
             self.env.current_item_index = i;
-            self.env.check_item(item).map_err(LuxError::Type)?;
+            // Imported items: tolerate type errors (stdlib uses dynamic patterns).
+            // User code: full checking with early abort on error.
+            if i < self.env.import_item_count {
+                let _ = self.env.check_item(item);
+            } else {
+                self.env.check_item(item).map_err(LuxError::Type)?;
+            }
         }
         Ok(())
     }

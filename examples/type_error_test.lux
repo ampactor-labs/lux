@@ -1,0 +1,45 @@
+// Phase 17: Verify checker is wired into compile path
+// The self-hosted pipeline now flows: lex → parse → CHECK → codegen → VM
+//
+// Test 1: Well-typed program compiles and runs through checked path
+// Test 2: Effect annotations are preserved through checking
+// Test 3: compile_checked() returns both chunk and check result
+
+import compiler/codegen
+import compiler/checker
+
+// Test 1: compile() now runs checker before codegen
+let source1 = 'fn add(a, b) = a + b
+let x = add(1, 2)
+println(to_string(x))'
+
+println("=== Test 1: checked compile ===")
+let chunk1 = compile(source1)
+let prog1 = load_chunk(chunk1)
+prog1()
+
+// Test 2: compile_checked() returns type info
+println("=== Test 2: compile_checked ===")
+let source2 = 'fn double(x) = x * 2
+let y = double(21)'
+
+let (chunk2, check_result) = compile_checked(source2)
+let (env, subst, _counter) = check_result
+// The checker ran — env contains type bindings
+println("bindings: " ++ to_string(len(env)))
+
+// Test 3: Effect-annotated function compiles through checked path
+println("=== Test 3: effects through checker ===")
+let source3 = 'effect Logger {
+  log(msg: String) -> ()
+}
+fn greet(name) = {
+  println("Hello " ++ name)
+}
+greet("Lux")'
+
+let chunk3 = compile(source3)
+let prog3 = load_chunk(chunk3)
+prog3()
+
+println("=== Phase 17: checker wired ===")

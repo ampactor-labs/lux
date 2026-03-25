@@ -1,0 +1,107 @@
+// ═══════════════════════════════════════════════════════════════
+// CRUCIBLE: The Ideal Lux DSP System
+// ═══════════════════════════════════════════════════════════════
+//
+// What Lux audio code SHOULD look like on a Daisy Seed Rev7.
+//
+// Convention: Lux pipe inserts as FIRST arg.
+// `x |> f(a, b)` = `f(x, a, b)`
+// So DSP processors are data-FIRST: fn gain(x, amount)
+
+// ═══ Effects ═════════════════════════════════════════════════
+
+effect Audio {
+  read_input(channel: Int) -> Float
+  write_output(channel: Int, value: Float) -> ()
+}
+
+effect Param {
+  knob(name: String) -> Float
+}
+
+// ═══ Pure Processors (data-FIRST for pipe) ═══════════════════
+
+fn soft_clip(x) = if x >= 0.0 { x / (1.0 + x) } else { x / (1.0 - x) }
+
+fn tanh_approx(x) = {
+  let x2 = x * x
+  x * (27.0 + x2) / (27.0 + 9.0 * x2)
+}
+
+fn dsp_gain(x, amount) = x * amount
+
+fn dsp_mix(wet, dry, amount) = dry * (1.0 - amount) + wet * amount
+
+fn dsp_abs(x) = if x < 0.0 { 0.0 - x } else { x }
+
+fn make_bar(n) = if n <= 0 { "" } else { "█" ++ make_bar(n - 1) }
+
+fn pad_str(s, width) = if len(s) >= width { s } else { " " ++ pad_str(s, width - 1) }
+
+// ═══ Simulation ══════════════════════════════════════════════
+
+fn simulate(inputs, i) = {
+  if i >= len(inputs) { () }
+  else {
+    let input_val = inputs[i]
+
+    let output = handle {
+      let left_in = read_input(0)
+      let drive_val = knob("drive")
+      let mix_amt = knob("mix")
+
+      // Pipe IS the signal chain. Data-first.
+      let processed = left_in
+        |> dsp_gain(drive_val)
+        |> soft_clip
+        |> dsp_gain(0.7)
+
+      let out = dsp_mix(processed, left_in, mix_amt)
+      write_output(0, out)
+      out
+    } {
+      read_input(ch) => resume(input_val),
+      write_output(ch, val) => resume(()),
+      knob(name) => {
+        if name == "drive" { resume(3.0) }
+        else { if name == "mix" { resume(0.8) }
+        else { resume(0.5) }}
+      }
+    }
+
+    let bar_len = dsp_abs(output) * 40.0
+    let bar = make_bar(floor(bar_len))
+    let sign = if output >= 0.0 { "+" } else { "-" }
+    println(pad_str(to_string(i), 3) ++ " | " ++ sign ++ bar
+      ++ " " ++ to_string(output))
+
+    simulate(inputs, i + 1)
+  }
+}
+
+// ═══ Run ═════════════════════════════════════════════════════
+
+println("═══ Lux DSP: Soft Clip + Drive ═══")
+println("Pipe-based signal chain through effect handlers")
+println("drive=3.0, mix=0.8")
+println("")
+
+// Impulse test: spike then silence
+let inputs = [1.0, 0.5, 0.0, 0.0 - 0.3, 0.0 - 0.8, 0.0 - 0.5, 0.0, 0.2,
+              0.6, 0.9, 0.4, 0.1, 0.0, 0.0, 0.0, 0.0]
+simulate(inputs, 0)
+
+println("")
+println("── What This Crucible Proves ──")
+println("• Effects as audio callback: read_input / write_output / knob")
+println("• Pipe as signal chain: x |> dsp_gain(drive) |> soft_clip")
+println("• Handler as hardware: resume(input_val) swaps for DMA")
+println("• Functions are pure, composable, allocation-free")
+println("")
+println("── What This Crucible Still Demands ──")
+println("• Handler-local state for filter memory (delays, biquads)")
+println("• !Alloc proof through entire callback chain")
+println("• Nested handlers: Audio wrapping Delay wrapping Param")
+println("• cos/sin builtins for filter coefficient computation")
+println("")
+println("On Daisy Seed Rev7: swap handler → SAI/DMA. Same algorithm.")
