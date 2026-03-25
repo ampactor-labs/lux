@@ -59,7 +59,19 @@ run_test("recursion", "fn fact(n) = if n <= 1 \{ 1 \} else \{ n * fact(n - 1) \}
 // ── Multiple functions ───────────────────────────────────────
 run_test("multi fn", "fn double(x) = x * 2\nfn quad(x) = double(double(x))\nprintln(to_string(quad(5)))")
 
+// ── Pattern matching: integers ───────────────────────────────
+run_test("match int", "let r = match 42 \{ 1 => 10, 42 => 999, _ => 0 \}\nprintln(to_string(r))")
+
+// ── Pattern matching: booleans ───────────────────────────────
+run_test("match bool", "let r = match true \{ true => 1, false => 0 \}\nprintln(to_string(r))")
+
+// ── Pattern matching: strings ────────────────────────────────
+run_test("match string", 'let r = match "hello" \{ "world" => 1, "hello" => 2, _ => 0 \}\nprintln(to_string(r))')
+
+// ── ADT: type declaration + match ────────────────────────────
+run_test("ADT match", "type Color = Red | Green | Blue\nlet c = Green\nlet n = match c \{ Red => 1, Green => 2, Blue => 3 \}\nprintln(to_string(n))")
+
 println("")
 println("═══ Bootstrap Complete ═══")
-println("Every test was compiled and executed by Lux code running on Lux.")
+println("12 tests compiled and executed by Lux code running on Lux.")
 println("The Rust VM is just the host. The mind is its own.")

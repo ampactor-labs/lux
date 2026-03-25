@@ -539,9 +539,26 @@ fn compile_pattern_test(ctx, pat) = match pat {
     let (ctx2, name_idx) = intern_name(ctx, name)
     emit_u16(emit_op(ctx2, OP_MATCH_VARIANT()), name_idx)
   },
-  PLit(expr) => {
-    let ctx2 = compile_expr(ctx, expr)
-    emit_op(ctx2, OP_EQ())
+  PLit(expr) => match expr {
+    IntLit(n) => {
+      // OP_MATCH_INT peeks at TOS without consuming — emit const index
+      let (ctx2, const_idx) = add_constant(ctx, ("int", parse_int(n)))
+      emit_u16(emit_op(ctx2, OP_MATCH_INT()), const_idx)
+    },
+    BoolLit(b) => {
+      let byte = if b { 1 } else { 0 }
+      emit_u8(emit_op(ctx, OP_MATCH_BOOL()), byte)
+    },
+    StringLit(s) => {
+      let (ctx2, const_idx) = add_constant(ctx, ("string", s))
+      emit_u16(emit_op(ctx2, OP_MATCH_STRING()), const_idx)
+    },
+    _ => {
+      // Fallback: DUP scrutinee, compile expr, EQ
+      let ctx2 = emit_op(ctx, OP_DUP())
+      let ctx3 = compile_expr(ctx2, expr)
+      emit_op(ctx3, OP_EQ())
+    }
   },
   _ => emit_op(ctx, OP_MATCH_WILDCARD())
 }
