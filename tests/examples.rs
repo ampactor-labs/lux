@@ -114,6 +114,71 @@ fn vm_matches_golden_files() {
     }
 }
 
+/// Error-expecting tests: `examples/errors/*.lux` files must fail to compile,
+/// and stderr must contain each `// EXPECT_ERROR: <substring>` from the file.
+#[test]
+fn error_examples_produce_expected_errors() {
+    let errors_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/errors");
+    if !errors_dir.exists() {
+        return; // no error examples yet
+    }
+
+    let mut files: Vec<_> = std::fs::read_dir(&errors_dir)
+        .expect("examples/errors/ dir")
+        .filter_map(|e| {
+            let p = e.ok()?.path();
+            (p.extension()?.to_str()? == "lux").then(|| p)
+        })
+        .collect();
+    files.sort();
+
+    assert!(!files.is_empty(), "no .lux files in examples/errors/");
+
+    let mut failures = Vec::new();
+    for path in &files {
+        let name = path.file_stem().unwrap().to_string_lossy();
+        let source = std::fs::read_to_string(path)
+            .unwrap_or_else(|e| panic!("can't read {}: {e}", path.display()));
+
+        // Extract expected error substrings.
+        let expectations: Vec<&str> = source
+            .lines()
+            .filter_map(|l| l.strip_prefix("// EXPECT_ERROR: "))
+            .collect();
+
+        if expectations.is_empty() {
+            failures.push(format!("FAIL: {name} — no EXPECT_ERROR comments found"));
+            continue;
+        }
+
+        let (_, stderr, success) = run_lux(&path.to_string_lossy());
+
+        if success {
+            failures.push(format!(
+                "FAIL: {name} — expected error but program succeeded"
+            ));
+            continue;
+        }
+
+        for exp in &expectations {
+            if !stderr.contains(exp) {
+                failures.push(format!(
+                    "FAIL: {name} — expected stderr to contain: {exp:?}\n  actual stderr: {}",
+                    stderr.lines().take(3).collect::<Vec<_>>().join("\n  ")
+                ));
+            }
+        }
+    }
+
+    if !failures.is_empty() {
+        panic!(
+            "\n{} error example(s) failed:\n\n{}\n",
+            failures.len(),
+            failures.join("\n\n")
+        );
+    }
+}
+
 #[test]
 #[ignore]
 fn regenerate_baselines() {

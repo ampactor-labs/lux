@@ -1,0 +1,5 @@
+// EXPECT_ERROR: performs 'Alloc' but declares '!Alloc'
+// Direct allocation inside !Alloc function.
+
+fn bad_alloc(x: Float) -> Float with !Alloc =
+    [x] |> len |> to_float
