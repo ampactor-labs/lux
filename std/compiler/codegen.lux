@@ -841,7 +841,10 @@ fn compile_stmt(ctx, stmt) = match stmt {
   },
 
   FnStmt(name, params, body) => {
-    let fn_ctx = ctx_child(ctx)
+    // Pre-declare: store Unit placeholder so recursive calls resolve via LoadGlobal
+    let (ctx_pre, name_idx_pre) = intern_name(ctx, name)
+    let ctx_pre2 = emit_u16(emit_op(emit_op(ctx_pre, OP_LOAD_UNIT()), OP_STORE_GLOBAL()), name_idx_pre)
+    let fn_ctx = ctx_child(ctx_pre2)
     let fn_ctx2 = begin_scope(fn_ctx)
     let fn_ctx3 = declare_params(fn_ctx2, params)
     let fn_ctx4 = compile_expr(fn_ctx3, body)
@@ -850,11 +853,11 @@ fn compile_stmt(ctx, stmt) = match stmt {
     let proto = ("fn_proto", name, len(params), ctx_code(fn_ctx5),
                   ctx_constants(fn_ctx5), ctx_names(fn_ctx5),
                   ctx_next_slot(fn_ctx5), len(upvals))
-    let (ctx2, proto_idx) = add_constant(ctx, proto)
+    let (ctx2, proto_idx) = add_constant(ctx_pre2, proto)
     let ctx3 = emit_u16(emit_op(ctx2, OP_MAKE_CLOSURE()), proto_idx)
     let ctx4 = emit_upvalue_descriptors(ctx3, upvals)
-    let (ctx5, name_idx) = intern_name(ctx4, name)
-    emit_u16(emit_op(ctx5, OP_STORE_GLOBAL()), name_idx)
+    // Overwrite placeholder with real closure
+    emit_u16(emit_op(ctx4, OP_STORE_GLOBAL()), name_idx_pre)
   },
 
   ExprStmt(expr) => {

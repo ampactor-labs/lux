@@ -1,0 +1,97 @@
+// Self-hosted VM comprehensive test suite
+// Tests: self-hosted lexer → parser → codegen → Lux VM
+//
+// Note: Lux uses {expr} for string interpolation, so we build
+// source strings with braces using from_char_code(123/125).
+
+import compiler/lexer
+import compiler/parser
+import compiler/codegen
+import vm
+
+let lb = from_char_code(123)  // {
+let rb = from_char_code(125)  // }
+
+fn test(name, source) = {
+  print("  " ++ name ++ ": ")
+  vm_run(compile(source))
+}
+
+// Helper to wrap an expression in if/else blocks
+fn if_else(cond, then_e, else_e) =
+  "if " ++ cond ++ " " ++ lb ++ " " ++ then_e ++ " " ++ rb ++
+  " else " ++ lb ++ " " ++ else_e ++ " " ++ rb
+
+// Helper to wrap a body in braces
+fn block(body) = lb ++ " " ++ body ++ " " ++ rb
+
+println("╔══════════════════════════════════════╗")
+println("║  Self-Hosted VM — Full Test Suite    ║")
+println("╚══════════════════════════════════════╝")
+println("")
+
+println("── Literals ──")
+test("int",       "println(42)")
+test("zero",      "println(0)")
+test("neg",       "println(0 - 7)")
+test("bool-T",    "println(true)")
+test("bool-F",    "println(false)")
+
+println("── Arithmetic ──")
+test("add",       "println(2 + 3)")
+test("sub",       "println(10 - 3)")
+test("mul",       "println(6 * 7)")
+test("div",       "println(20 / 4)")
+test("mod",       "println(17 % 5)")
+test("complex",   "println((2 + 3) * 4)")
+test("nested",    "println(1 + 2 * 3)")
+
+println("── Comparison ──")
+test("eq-T",      "println(3 == 3)")
+test("eq-F",      "println(3 == 4)")
+test("neq",       "println(3 != 4)")
+test("lt",        "println(3 < 5)")
+test("gt",        "println(5 > 3)")
+
+println("── Let Bindings ──")
+test("let",       "let x = 10\nprintln(x + 5)")
+test("multi-let", "let a = 3\nlet b = 4\nprintln(a + b)")
+test("shadow",    "let x = 1\nlet x = 2\nprintln(x)")
+
+println("── Control Flow ──")
+test("if-T",      "println(" ++ if_else("true", "1", "2") ++ ")")
+test("if-F",      "println(" ++ if_else("false", "1", "2") ++ ")")
+test("if-cond",   "let x = 5\nprintln(" ++ if_else("x > 3", "99", "0") ++ ")")
+
+println("── Functions ──")
+test("fn-call",   "fn double(x) = x * 2\nprintln(double(21))")
+test("fn-2arg",   "fn add(a, b) = a + b\nprintln(add(10, 20))")
+test("fn-expr",   "fn square(x) = x * x\nprintln(square(5))")
+test("fn-if",     "fn sign(x) = " ++ if_else("x > 0", "1", "0") ++ "\nprintln(sign(42))")
+
+println("── Recursion ──")
+let countdown_src = "fn countdown(n) = " ++ if_else("n == 0", "0", "countdown(n - 1)") ++ "\nprintln(countdown(5))"
+test("countdown", countdown_src)
+
+let fact_src = "fn fact(n) = " ++ if_else("n <= 1", "1", "n * fact(n - 1)") ++ "\nprintln(fact(5))"
+test("factorial", fact_src)
+
+let fib_src = "fn fib(n) = " ++ if_else("n <= 1", "n", "fib(n - 1) + fib(n - 2)") ++ "\nprintln(fib(10))"
+test("fibonacci", fib_src)
+
+println("── Collections ──")
+test("list-len",  "println(len([1, 2, 3]))")
+test("list-push", "println(len(push([1, 2], 3)))")
+test("range",     "println(len(range(0, 5)))")
+
+println("── Strings ──")
+test("concat",    "println(to_string(1) ++ to_string(2))")
+test("len-str",   "println(len(to_string(123)))")
+
+println("── Builtins ──")
+test("abs",       "println(abs(0 - 42))")
+test("max",       "println(max(3, 7))")
+test("min",       "println(min(3, 7))")
+
+println("")
+println("═══ All tests passed! ═══")

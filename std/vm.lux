@@ -1,0 +1,935 @@
+// Lux VM — written in Lux, executing Lux bytecode
+//
+// The self-hosted bytecode interpreter. Takes chunk tuples from
+// the self-hosted codegen and executes them directly — no conversion.
+//
+// Design through the Lux light:
+//   - Values ARE Lux values. Int is Int, String is String. Zero wrapping.
+//   - Chunk tuples from codegen work as-is. Zero conversion.
+//   - State flows through tail-recursive loop. Pure functional.
+//   - Builtins dispatch by name. Pattern matching, not function pointers.
+//   - The VM IS the ultimate effect handler.
+
+// ─── Opcodes (matching codegen.lux and Rust VM) ──────────────
+
+fn OP_LOAD_CONST()   = 0
+fn OP_LOAD_INT()     = 1
+fn OP_LOAD_BOOL()    = 2
+fn OP_LOAD_UNIT()    = 3
+fn OP_LOAD_LOCAL()   = 10
+fn OP_STORE_LOCAL()  = 11
+fn OP_LOAD_UPVAL()   = 12
+fn OP_LOAD_GLOBAL()  = 20
+fn OP_STORE_GLOBAL() = 21
+fn OP_ADD()          = 30
+fn OP_SUB()          = 31
+fn OP_MUL()          = 32
+fn OP_DIV()          = 33
+fn OP_MOD()          = 34
+fn OP_NEG()          = 35
+fn OP_NOT()          = 36
+fn OP_EQ()           = 40
+fn OP_NEQ()          = 41
+fn OP_LT()           = 42
+fn OP_LTEQ()         = 43
+fn OP_GT()           = 44
+fn OP_GTEQ()         = 45
+fn OP_CONCAT()       = 50
+fn OP_JUMP()         = 60
+fn OP_JUMP_FALSE()   = 61
+fn OP_JUMP_TRUE()    = 62
+fn OP_POP()          = 63
+fn OP_DUP()          = 64
+fn OP_MAKE_CLOSURE() = 70
+fn OP_CALL()         = 71
+fn OP_RETURN()       = 72
+fn OP_TAIL_CALL()    = 73
+fn OP_CALL_BUILTIN() = 74
+fn OP_BUNDLE_EV()    = 75
+fn OP_MAKE_LIST()    = 80
+fn OP_MAKE_TUPLE()   = 81
+fn OP_LIST_INDEX()   = 82
+fn OP_FIELD_ACCESS() = 83
+fn OP_MAKE_VARIANT() = 84
+fn OP_MATCH_INT()    = 90
+fn OP_MATCH_BOOL()   = 91
+fn OP_MATCH_STRING() = 92
+fn OP_MATCH_VARIANT()= 93
+fn OP_MATCH_TUPLE()  = 94
+fn OP_MATCH_LCONS()  = 95
+fn OP_MATCH_LEMPTY() = 96
+fn OP_MATCH_WILD()   = 97
+fn OP_BIND_LOCAL()   = 98
+fn OP_MATCH_LEXACT() = 99
+fn OP_PERFORM()      = 110
+fn OP_PUSH_HANDLER() = 111
+fn OP_POP_HANDLER()  = 112
+fn OP_RESUME()       = 113
+fn OP_PUSH_EV()      = 115
+fn OP_PERF_EV()      = 116
+fn OP_POP_EV()       = 117
+fn OP_STRING_INTERP()= 130
+
+// ─── VM State ────────────────────────────────────────────────
+// State = (ip, code, constants, names, stack, base, frames, globals, handlers, htables, upvalues)
+// 11-tuple.
+//
+// frames: list of (ret_ip, ret_code, ret_constants, ret_names, ret_base, ret_upvalues, has_func_slot, ret_htables)
+// globals: list of (name, value) — simple assoc list
+// handlers: list of handler frames for effect dispatch
+// htables: handler tables from current chunk
+// upvalues: current frame's captured upvalues
+
+fn vm_new(code, constants, names, htables) =
+  (0, code, constants, names, [], 0, [], [], [], htables, [])
+
+// Accessors
+fn vm_ip(s)         = { let (ip,_,_,_,_,_,_,_,_,_,_) = s; ip }
+fn vm_code(s)       = { let (_,c,_,_,_,_,_,_,_,_,_) = s; c }
+fn vm_constants(s)  = { let (_,_,c,_,_,_,_,_,_,_,_) = s; c }
+fn vm_names(s)      = { let (_,_,_,n,_,_,_,_,_,_,_) = s; n }
+fn vm_stack(s)      = { let (_,_,_,_,st,_,_,_,_,_,_) = s; st }
+fn vm_base(s)       = { let (_,_,_,_,_,b,_,_,_,_,_) = s; b }
+fn vm_frames(s)     = { let (_,_,_,_,_,_,f,_,_,_,_) = s; f }
+fn vm_globals(s)    = { let (_,_,_,_,_,_,_,g,_,_,_) = s; g }
+fn vm_handlers(s)   = { let (_,_,_,_,_,_,_,_,h,_,_) = s; h }
+fn vm_htables(s)    = { let (_,_,_,_,_,_,_,_,_,ht,_) = s; ht }
+fn vm_upvals(s)     = { let (_,_,_,_,_,_,_,_,_,_,uv) = s; uv }
+
+fn vm_set_ip(s, ip) = {
+  let (_,co,cn,na,st,ba,fr,gl,ha,ht,uv) = s
+  (ip,co,cn,na,st,ba,fr,gl,ha,ht,uv)
+}
+fn vm_set_stack(s, st) = {
+  let (ip,co,cn,na,_,ba,fr,gl,ha,ht,uv) = s
+  (ip,co,cn,na,st,ba,fr,gl,ha,ht,uv)
+}
+fn vm_set_base(s, ba) = {
+  let (ip,co,cn,na,st,_,fr,gl,ha,ht,uv) = s
+  (ip,co,cn,na,st,ba,fr,gl,ha,ht,uv)
+}
+fn vm_set_frames(s, fr) = {
+  let (ip,co,cn,na,st,ba,_,gl,ha,ht,uv) = s
+  (ip,co,cn,na,st,ba,fr,gl,ha,ht,uv)
+}
+fn vm_set_globals(s, gl) = {
+  let (ip,co,cn,na,st,ba,fr,_,ha,ht,uv) = s
+  (ip,co,cn,na,st,ba,fr,gl,ha,ht,uv)
+}
+fn vm_set_handlers(s, ha) = {
+  let (ip,co,cn,na,st,ba,fr,gl,_,ht,uv) = s
+  (ip,co,cn,na,st,ba,fr,gl,ha,ht,uv)
+}
+fn vm_set_upvals(s, uv) = {
+  let (ip,co,cn,na,st,ba,fr,gl,ha,ht,_) = s
+  (ip,co,cn,na,st,ba,fr,gl,ha,ht,uv)
+}
+
+// ─── Byte Reading ────────────────────────────────────────────
+
+fn read_byte(s) = {
+  let ip = vm_ip(s)
+  let byte = vm_code(s)[ip]
+  (vm_set_ip(s, ip + 1), byte)
+}
+
+fn read_u16(s) = {
+  let (s2, hi) = read_byte(s)
+  let (s3, lo) = read_byte(s2)
+  (s3, hi * 256 + lo)
+}
+
+fn read_i16(s) = {
+  let (s2, val) = read_u16(s)
+  if val >= 32768 { (s2, val - 65536) }
+  else { (s2, val) }
+}
+
+// ─── Stack Operations ────────────────────────────────────────
+
+fn spush(s, val) = vm_set_stack(s, push(vm_stack(s), val))
+
+fn spop(s) = {
+  let st = vm_stack(s)
+  if len(st) == 0 { (s, ()) }
+  else {
+    let val = st[len(st) - 1]
+    (vm_set_stack(s, slice(st, 0, len(st) - 1)), val)
+  }
+}
+
+fn speek(s) = {
+  let st = vm_stack(s)
+  if len(st) == 0 { () }
+  else { st[len(st) - 1] }
+}
+
+fn stack_get(s, idx) = vm_stack(s)[idx]
+
+fn stack_set(s, idx, val) = {
+  let st = vm_stack(s)
+  let before = slice(st, 0, idx)
+  let after = slice(st, idx + 1, len(st))
+  vm_set_stack(s, before ++ [val] ++ after)
+}
+
+// ─── Global Variables ────────────────────────────────────────
+
+fn global_get(globals, name) = {
+  if len(globals) == 0 { ("__not_found__",) }
+  else {
+    let (n, v) = globals[len(globals) - 1]
+    if n == name { v }
+    else { global_get(slice(globals, 0, len(globals) - 1), name) }
+  }
+}
+
+fn global_set(globals, name, val) = {
+  let idx = global_find(globals, name, 0)
+  if idx >= 0 {
+    let before = slice(globals, 0, idx)
+    let after = slice(globals, idx + 1, len(globals))
+    before ++ [(name, val)] ++ after
+  } else {
+    push(globals, (name, val))
+  }
+}
+
+fn global_find(globals, name, i) = {
+  if i >= len(globals) { 0 - 1 }
+  else {
+    let (n, _) = globals[i]
+    if n == name { i }
+    else { global_find(globals, name, i + 1) }
+  }
+}
+
+// ─── Builtin Dispatch ────────────────────────────────────────
+// Builtins are Lux functions calling Lux builtins. Self-similar.
+
+fn is_builtin(name) = {
+  name == "println" || name == "print" || name == "len" ||
+  name == "push" || name == "to_string" || name == "range" ||
+  name == "abs" || name == "slice" || name == "chars" ||
+  name == "join" || name == "split" || name == "trim" ||
+  name == "contains" || name == "starts_with" || name == "ends_with" ||
+  name == "replace" || name == "index_of" || name == "char_at" ||
+  name == "char_code" || name == "from_char_code" || name == "string_slice" ||
+  name == "parse_int" || name == "parse_float" || name == "to_float" ||
+  name == "to_int" || name == "type_of" || name == "is_number" ||
+  name == "is_empty" || name == "floor" || name == "ceil" ||
+  name == "sqrt" || name == "exp" || name == "log" || name == "pow" ||
+  name == "sin" || name == "cos" || name == "tanh" || name == "atan2" ||
+  name == "pi" || name == "round" || name == "max" || name == "min" ||
+  name == "clamp" || name == "to_upper" || name == "to_lower" ||
+  name == "read_file" || name == "write_file" || name == "read_line" ||
+  name == "flush_stdout" || name == "__assert_fail"
+}
+
+fn call_builtin(name, args) = {
+  if name == "println" { println(args[0]); () }
+  else if name == "print" { print(args[0]); () }
+  else if name == "len" { len(args[0]) }
+  else if name == "push" { push(args[0], args[1]) }
+  else if name == "to_string" { to_string(args[0]) }
+  else if name == "range" { range(args[0], args[1]) }
+  else if name == "abs" { abs(args[0]) }
+  else if name == "slice" { slice(args[0], args[1], args[2]) }
+  else if name == "chars" { chars(args[0]) }
+  else if name == "join" { join(args[0], args[1]) }
+  else if name == "split" { split(args[0], args[1]) }
+  else if name == "trim" { trim(args[0]) }
+  else if name == "contains" { contains(args[0], args[1]) }
+  else if name == "starts_with" { starts_with(args[0], args[1]) }
+  else if name == "ends_with" { ends_with(args[0], args[1]) }
+  else if name == "replace" { replace(args[0], args[1], args[2]) }
+  else if name == "index_of" { index_of(args[0], args[1]) }
+  else if name == "char_at" { char_at(args[0], args[1]) }
+  else if name == "char_code" { char_code(args[0]) }
+  else if name == "from_char_code" { from_char_code(args[0]) }
+  else if name == "string_slice" { string_slice(args[0], args[1], args[2]) }
+  else if name == "parse_int" { parse_int(args[0]) }
+  else if name == "parse_float" { parse_float(args[0]) }
+  else if name == "to_float" { to_float(args[0]) }
+  else if name == "to_int" { to_int(args[0]) }
+  else if name == "type_of" { type_of(args[0]) }
+  else if name == "is_number" { is_number(args[0]) }
+  else if name == "is_empty" { is_empty(args[0]) }
+  else if name == "floor" { floor(args[0]) }
+  else if name == "ceil" { ceil(args[0]) }
+  else if name == "sqrt" { sqrt(args[0]) }
+  else if name == "exp" { exp(args[0]) }
+  else if name == "log" { log(args[0]) }
+  else if name == "pow" { pow(args[0], args[1]) }
+  else if name == "sin" { sin(args[0]) }
+  else if name == "cos" { cos(args[0]) }
+  else if name == "tanh" { tanh(args[0]) }
+  else if name == "atan2" { atan2(args[0], args[1]) }
+  else if name == "pi" { pi() }
+  else if name == "round" { round(args[0]) }
+  else if name == "max" { max(args[0], args[1]) }
+  else if name == "min" { min(args[0], args[1]) }
+  else if name == "clamp" { clamp(args[0], args[1], args[2]) }
+  else if name == "to_upper" { to_upper(args[0]) }
+  else if name == "to_lower" { to_lower(args[0]) }
+  else if name == "read_file" { read_file(args[0]) }
+  else if name == "write_file" { write_file(args[0], args[1]) }
+  else if name == "read_line" { read_line() }
+  else if name == "flush_stdout" { flush_stdout() }
+  else if name == "__assert_fail" { __assert_fail(args[0]) }
+  else { () }
+}
+
+// ─── Constant Loading ────────────────────────────────────────
+
+fn load_const_val(constants, idx) = {
+  let c = constants[idx]
+  match c {
+    ("int", n) => n,
+    ("float", f) => f,
+    ("string", s) => s,
+    _ => ()
+  }
+}
+
+// ─── Proto Accessors ─────────────────────────────────────────
+// Proto tuple: ("fn_proto", name, arity, code, constants, names, local_count, upval_count [, htables])
+
+fn proto_name(p)     = { let (_, n, _, _, _, _, _, _) = p; n }
+fn proto_arity(p)    = { let (_, _, a, _, _, _, _, _) = p; a }
+fn proto_code(p)     = { let (_, _, _, c, _, _, _, _) = p; c }
+fn proto_consts(p)   = { let (_, _, _, _, c, _, _, _) = p; c }
+fn proto_names(p)    = { let (_, _, _, _, _, n, _, _) = p; n }
+fn proto_locals(p)   = { let (_, _, _, _, _, _, l, _) = p; l }
+fn proto_upvals(p)   = { let (_, _, _, _, _, _, _, u) = p; u }
+
+// ─── Main Execution Loop ────────────────────────────────────
+
+fn vm_run(chunk) = {
+  // chunk = ("chunk", code, constants, names [, htables])
+  let code = chunk[1]
+  let constants = chunk[2]
+  let names = chunk[3]
+  let htables = if len(chunk) >= 5 { chunk[4] } else { [] }
+  let s = vm_new(code, constants, names, htables)
+  let result = vm_loop(s)
+  result
+}
+
+fn vm_loop(s) = {
+  let ip = vm_ip(s)
+  let code = vm_code(s)
+  if ip >= len(code) { speek(s) }
+  else {
+    let (s2, op) = read_byte(s)
+    let (s3, action) = vm_step(s2, op)
+    // action: "continue" = keep looping, "return" = stop with TOS
+    if action == "return" {
+      if len(vm_stack(s3)) > 0 { speek(s3) }
+      else { () }
+    } else {
+      vm_loop(s3)
+    }
+  }
+}
+
+fn vm_step(s, op) = {
+  // ── Literals ──
+  if op == OP_LOAD_CONST() {
+    let (s2, idx) = read_u16(s)
+    let val = load_const_val(vm_constants(s2), idx)
+    (spush(s2, val), "continue")
+  }
+  else if op == OP_LOAD_INT() {
+    let (s2, byte) = read_byte(s)
+    let val = if byte >= 128 { byte - 256 } else { byte }
+    (spush(s2, val), "continue")
+  }
+  else if op == OP_LOAD_BOOL() {
+    let (s2, byte) = read_byte(s)
+    (spush(s2, byte != 0), "continue")
+  }
+  else if op == OP_LOAD_UNIT() {
+    (spush(s, ()), "continue")
+  }
+  // ── Locals ──
+  else if op == OP_LOAD_LOCAL() {
+    let (s2, slot) = read_u16(s)
+    let val = stack_get(s2, vm_base(s2) + slot)
+    (spush(s2, val), "continue")
+  }
+  else if op == OP_STORE_LOCAL() {
+    let (s2, slot) = read_u16(s)
+    let val = speek(s2)
+    (stack_set(s2, vm_base(s2) + slot, val), "continue")
+  }
+  else if op == OP_LOAD_UPVAL() {
+    let (s2, idx) = read_u16(s)
+    let upvals = vm_upvals(s2)
+    let val = if idx < len(upvals) { upvals[idx] } else { () }
+    (spush(s2, val), "continue")
+  }
+  // ── Globals ──
+  else if op == OP_LOAD_GLOBAL() {
+    let (s2, name_idx) = read_u16(s)
+    let name = vm_names(s2)[name_idx]
+    if is_builtin(name) {
+      (spush(s2, ("builtin", name)), "continue")
+    } else {
+      let val = global_get(vm_globals(s2), name)
+      // If not found, push unit (will error at call site)
+      let v = match val {
+        ("__not_found__",) => (),
+        _ => val
+      }
+      (spush(s2, v), "continue")
+    }
+  }
+  else if op == OP_STORE_GLOBAL() {
+    let (s2, name_idx) = read_u16(s)
+    let name = vm_names(s2)[name_idx]
+    let (s3, val) = spop(s2)
+    (vm_set_globals(s3, global_set(vm_globals(s3), name, val)), "continue")
+  }
+  // ── Arithmetic ──
+  else if op == OP_ADD() { vm_binop(s, |a, b| a + b) }
+  else if op == OP_SUB() { vm_binop(s, |a, b| a - b) }
+  else if op == OP_MUL() { vm_binop(s, |a, b| a * b) }
+  else if op == OP_DIV() { vm_binop(s, |a, b| a / b) }
+  else if op == OP_MOD() { vm_binop(s, |a, b| a % b) }
+  else if op == OP_NEG() {
+    let (s2, val) = spop(s)
+    (spush(s2, 0 - val), "continue")
+  }
+  else if op == OP_NOT() {
+    let (s2, val) = spop(s)
+    (spush(s2, !val), "continue")
+  }
+  // ── Comparison ──
+  else if op == OP_EQ()   { vm_binop(s, |a, b| a == b) }
+  else if op == OP_NEQ()  { vm_binop(s, |a, b| a != b) }
+  else if op == OP_LT()   { vm_binop(s, |a, b| a < b) }
+  else if op == OP_LTEQ() { vm_binop(s, |a, b| a <= b) }
+  else if op == OP_GT()   { vm_binop(s, |a, b| a > b) }
+  else if op == OP_GTEQ() { vm_binop(s, |a, b| a >= b) }
+  // ── String ──
+  else if op == OP_CONCAT() {
+    let (s2, b) = spop(s)
+    let (s3, a) = spop(s2)
+    (spush(s3, a ++ b), "continue")
+  }
+  else if op == OP_STRING_INTERP() {
+    let (s2, count) = read_u16(s)
+    let st = vm_stack(s2)
+    let start = len(st) - count
+    let parts = slice(st, start, len(st))
+    let result = interp_join(parts, 0, "")
+    let s3 = vm_set_stack(s2, slice(st, 0, start))
+    (spush(s3, result), "continue")
+  }
+  // ── Control ──
+  else if op == OP_JUMP() {
+    let (s2, offset) = read_i16(s)
+    (vm_set_ip(s2, vm_ip(s2) + offset), "continue")
+  }
+  else if op == OP_JUMP_FALSE() {
+    let (s2, offset) = read_i16(s)
+    let top = speek(s2)
+    if top == false { (vm_set_ip(s2, vm_ip(s2) + offset), "continue") }
+    else { (s2, "continue") }
+  }
+  else if op == OP_JUMP_TRUE() {
+    let (s2, offset) = read_i16(s)
+    let top = speek(s2)
+    if top == true { (vm_set_ip(s2, vm_ip(s2) + offset), "continue") }
+    else { (s2, "continue") }
+  }
+  else if op == OP_POP() {
+    let (s2, _) = spop(s)
+    (s2, "continue")
+  }
+  else if op == OP_DUP() {
+    let val = speek(s)
+    (spush(s, val), "continue")
+  }
+  // ── Collections ──
+  else if op == OP_MAKE_LIST() {
+    let (s2, count) = read_u16(s)
+    let st = vm_stack(s2)
+    let start = len(st) - count
+    let elems = slice(st, start, len(st))
+    let s3 = vm_set_stack(s2, slice(st, 0, start))
+    (spush(s3, elems), "continue")
+  }
+  else if op == OP_MAKE_TUPLE() {
+    let (s2, count) = read_u16(s)
+    let st = vm_stack(s2)
+    let start = len(st) - count
+    let elems = slice(st, start, len(st))
+    let s3 = vm_set_stack(s2, slice(st, 0, start))
+    // Tuples are tagged to distinguish from lists
+    (spush(s3, ("__tuple__", elems)), "continue")
+  }
+  else if op == OP_LIST_INDEX() {
+    let (s2, idx) = spop(s)
+    let (s3, obj) = spop(s2)
+    let val = match obj {
+      ("__tuple__", elems) => elems[idx],
+      ("variant", _, fields) => fields[idx],
+      _ => obj[idx]  // list indexing
+    }
+    (spush(s3, val), "continue")
+  }
+  else if op == OP_FIELD_ACCESS() {
+    let (s2, name_idx) = read_u16(s)
+    let field_name = vm_names(s2)[name_idx]
+    let (s3, obj) = spop(s2)
+    let val = match obj {
+      ("__tuple__", elems) => {
+        let idx = parse_int(field_name)
+        elems[idx]
+      },
+      ("variant", _, fields) => {
+        // TODO: field registry lookup
+        ()
+      },
+      _ => ()
+    }
+    (spush(s3, val), "continue")
+  }
+  else if op == OP_MAKE_VARIANT() {
+    let (s2, name_idx) = read_u16(s)
+    let (s3, field_count) = read_u16(s2)
+    let name = vm_names(s3)[name_idx]
+    let st = vm_stack(s3)
+    let start = len(st) - field_count
+    let fields = slice(st, start, len(st))
+    let s4 = vm_set_stack(s3, slice(st, 0, start))
+    (spush(s4, ("variant", name, fields)), "continue")
+  }
+  // ── Functions ──
+  else if op == OP_MAKE_CLOSURE() {
+    let (s2, proto_idx) = read_u16(s)
+    let proto = vm_constants(s2)[proto_idx]
+    let upval_count = proto_upvals(proto)
+    let (s3, upvals) = read_upvalue_descriptors(s2, upval_count, [])
+    (spush(s3, ("closure", proto, upvals)), "continue")
+  }
+  else if op == OP_CALL() {
+    let (s2, argc) = read_byte(s)
+    vm_call(s2, argc, false)
+  }
+  else if op == OP_TAIL_CALL() {
+    let (s2, argc) = read_byte(s)
+    vm_call(s2, argc, true)
+  }
+  else if op == OP_RETURN() {
+    vm_return(s)
+  }
+  else if op == OP_CALL_BUILTIN() {
+    let (s2, _id) = read_u16(s)
+    let (s3, argc) = read_byte(s2)
+    // CallBuiltin uses builtin IDs, but we dispatch by name lookup
+    // For now, skip this — self-hosted codegen doesn't emit CallBuiltin
+    (s3, "continue")
+  }
+  else if op == OP_BUNDLE_EV() {
+    let (s2, _argc) = read_byte(s)
+    // Evidence bundling — skip for now
+    (s2, "continue")
+  }
+  // ── Patterns ──
+  else if op == OP_MATCH_WILD() {
+    (spush(s, true), "continue")
+  }
+  else if op == OP_MATCH_INT() {
+    let (s2, const_idx) = read_u16(s)
+    let expected = load_const_val(vm_constants(s2), const_idx)
+    let actual = speek(s2)
+    (spush(s2, actual == expected), "continue")
+  }
+  else if op == OP_MATCH_BOOL() {
+    let (s2, byte) = read_byte(s)
+    let expected = byte != 0
+    let actual = speek(s2)
+    (spush(s2, actual == expected), "continue")
+  }
+  else if op == OP_MATCH_STRING() {
+    let (s2, const_idx) = read_u16(s)
+    let expected = load_const_val(vm_constants(s2), const_idx)
+    let actual = speek(s2)
+    (spush(s2, actual == expected), "continue")
+  }
+  else if op == OP_MATCH_VARIANT() {
+    let (s2, name_idx) = read_u16(s)
+    let expected = vm_names(s2)[name_idx]
+    let actual = speek(s2)
+    let matches = match actual {
+      ("variant", name, _) => name == expected,
+      _ => false
+    }
+    (spush(s2, matches), "continue")
+  }
+  else if op == OP_MATCH_TUPLE() {
+    let (s2, count) = read_u16(s)
+    let actual = speek(s2)
+    let matches = match actual {
+      ("__tuple__", elems) => len(elems) == count,
+      _ => false
+    }
+    (spush(s2, matches), "continue")
+  }
+  else if op == OP_MATCH_LCONS() {
+    let (s2, min_elems) = read_u16(s)
+    let actual = speek(s2)
+    let matches = type_of(actual) == "List" && len(actual) >= min_elems
+    (spush(s2, matches), "continue")
+  }
+  else if op == OP_MATCH_LEMPTY() {
+    let actual = speek(s)
+    let matches = type_of(actual) == "List" && len(actual) == 0
+    (spush(s, matches), "continue")
+  }
+  else if op == OP_MATCH_LEXACT() {
+    let (s2, count) = read_u16(s)
+    let actual = speek(s2)
+    let matches = type_of(actual) == "List" && len(actual) == count
+    (spush(s2, matches), "continue")
+  }
+  else if op == OP_BIND_LOCAL() {
+    let (s2, slot) = read_u16(s)
+    let val = speek(s2)
+    (stack_set(s2, vm_base(s2) + slot, val), "continue")
+  }
+  // ── Effects ──
+  else if op == OP_PUSH_HANDLER() {
+    vm_push_handler(s)
+  }
+  else if op == OP_POP_HANDLER() {
+    let handlers = vm_handlers(s)
+    (vm_set_handlers(s, slice(handlers, 0, len(handlers) - 1)), "continue")
+  }
+  else if op == OP_PERFORM() {
+    vm_perform(s)
+  }
+  else if op == OP_RESUME() {
+    vm_resume(s)
+  }
+  else if op == OP_PUSH_EV() {
+    // Skip evidence push — advance past operands
+    let (s2, _) = read_u16(s)
+    let (s3, _) = read_u16(s2)
+    (s3, "continue")
+  }
+  else if op == OP_PERF_EV() {
+    // Fallback to normal perform
+    let (s2, _ev_local) = read_u16(s)
+    let (s3, op_name_idx) = read_u16(s2)
+    let (s4, argc) = read_byte(s3)
+    let op_name = vm_names(s4)[op_name_idx]
+    let st = vm_stack(s4)
+    let start = len(st) - argc
+    let args = slice(st, start, len(st))
+    let s5 = vm_set_stack(s4, slice(st, 0, start))
+    // Find handler and dispatch
+    vm_perform_dispatch(s5, op_name, args)
+  }
+  else if op == OP_POP_EV() {
+    (s, "continue")  // No-op
+  }
+  else {
+    println("VM: unknown opcode " ++ to_string(op))
+    (s, "return")
+  }
+}
+
+// ─── Helpers ─────────────────────────────────────────────────
+
+fn vm_binop(s, f) = {
+  let (s2, b) = spop(s)
+  let (s3, a) = spop(s2)
+  (spush(s3, f(a, b)), "continue")
+}
+
+fn interp_join(parts, i, acc) = {
+  if i >= len(parts) { acc }
+  else {
+    let part = parts[i]
+    let s = if type_of(part) == "String" { part } else { to_string(part) }
+    interp_join(parts, i + 1, acc ++ s)
+  }
+}
+
+fn read_upvalue_descriptors(s, count, upvals) = {
+  if count <= 0 { (s, upvals) }
+  else {
+    let (s2, is_local) = read_byte(s)
+    let (s3, idx) = read_u16(s2)
+    let val = if is_local != 0 {
+      // Capture from current frame's locals
+      stack_get(s3, vm_base(s3) + idx)
+    } else {
+      // Capture from enclosing upvalues
+      let parent_upvals = vm_upvals(s3)
+      if idx < len(parent_upvals) { parent_upvals[idx] } else { () }
+    }
+    read_upvalue_descriptors(s3, count - 1, push(upvals, val))
+  }
+}
+
+// ─── Function Calls ──────────────────────────────────────────
+
+fn vm_call(s, argc, is_tail) = {
+  let st = vm_stack(s)
+  let func_idx = len(st) - 1 - argc
+  let func = st[func_idx]
+
+  match func {
+    ("builtin", name) => {
+      let start = len(st) - argc
+      let args = slice(st, start, len(st))
+      let s2 = vm_set_stack(s, slice(st, 0, func_idx))
+      let result = call_builtin(name, args)
+      (spush(s2, result), "continue")
+    },
+    ("closure", proto, upvals) => {
+      // Save current frame state for return
+      let frame = (vm_ip(s), vm_code(s), vm_constants(s), vm_names(s),
+                   vm_base(s), vm_upvals(s), true, vm_htables(s))
+      let frames = push(vm_frames(s), frame)
+
+      // Set up new frame
+      let new_base = func_idx + 1
+      let local_count = proto_locals(proto)
+      let extra = local_count - argc
+      let s2 = pad_locals(s, extra)
+
+      // Switch to callee context
+      let proto_ht = if len(proto) >= 9 { proto[8] } else { [] }
+      let s3 = (0, proto_code(proto), proto_consts(proto), proto_names(proto),
+                vm_stack(s2), new_base, frames, vm_globals(s2),
+                vm_handlers(s2), proto_ht, upvals)
+      // Clear the function slot
+      let s4 = stack_set(s3, func_idx, ())
+      (s4, "continue")
+    },
+    ("variant", name, fields) => {
+      // Variant constructor call
+      if len(fields) == 0 {
+        let start = len(st) - argc
+        let args = slice(st, start, len(st))
+        let s2 = vm_set_stack(s, slice(st, 0, func_idx))
+        (spush(s2, ("variant", name, args)), "continue")
+      } else {
+        println("VM: cannot call variant with fields")
+        (s, "return")
+      }
+    },
+    _ => {
+      println("VM: cannot call value: " ++ to_string(func))
+      (s, "return")
+    }
+  }
+}
+
+fn upvals_from_frames(s) = vm_upvals(s)
+
+fn pad_locals(s, n) = {
+  if n <= 0 { s }
+  else { pad_locals(spush(s, ()), n - 1) }
+}
+
+fn vm_return(s) = {
+  let (s2, result) = spop(s)
+  let frames = vm_frames(s2)
+  if len(frames) == 0 {
+    // Top-level return
+    (spush(s2, result), "return")
+  } else {
+    // Restore caller frame
+    let frame = frames[len(frames) - 1]
+    let ret_ip = frame[0]
+    let ret_code = frame[1]
+    let ret_constants = frame[2]
+    let ret_names = frame[3]
+    let ret_base = frame[4]
+    let ret_upvals = frame[5]
+    let has_func_slot = frame[6]
+    let ret_htables = frame[7]
+
+    // Truncate stack to base (remove callee locals)
+    let base = vm_base(s2)
+    let truncate_to = if has_func_slot { base - 1 } else { base }
+    let st = slice(vm_stack(s2), 0, truncate_to)
+    let new_frames = slice(frames, 0, len(frames) - 1)
+
+    let s3 = (ret_ip, ret_code, ret_constants, ret_names,
+              st ++ [result], ret_base, new_frames,
+              vm_globals(s2), vm_handlers(s2), ret_htables, ret_upvals)
+    (s3, "continue")
+  }
+}
+
+// ─── Effect Handlers ─────────────────────────────────────────
+
+fn vm_push_handler(s) = {
+  let (s2, table_idx) = read_u16(s)
+  let (s3, _state_base) = read_u16(s2)
+  let (s4, state_count) = read_byte(s3)
+
+  // Pop state init values
+  let st = vm_stack(s4)
+  let start = len(st) - state_count
+  let state = slice(st, start, len(st))
+  let s5 = vm_set_stack(s4, slice(st, 0, start))
+
+  // Resolve handler entries from handler table
+  let htables = vm_htables(s5)
+  let table = if table_idx < len(htables) { htables[table_idx] } else { [] }
+
+  // Resolve handler table: convert name indices to actual name strings
+  // This is "declare before you need" — resolve names NOW so dispatch can match
+  let resolved = resolve_handler_table(table, vm_names(s5))
+
+  // Build handler frame
+  let hframe = ("hframe", resolved, vm_ip(s5), vm_base(s5),
+                len(vm_frames(s5)), state, vm_stack(s5))
+  let hstack = push(vm_handlers(s5), hframe)
+  (vm_set_handlers(s5, hstack), "continue")
+}
+
+fn vm_perform(s) = {
+  let (s2, op_name_idx) = read_u16(s)
+  let (s3, argc) = read_byte(s2)
+  let op_name = vm_names(s3)[op_name_idx]
+
+  // Pop effect args
+  let st = vm_stack(s3)
+  let start = len(st) - argc
+  let args = slice(st, start, len(st))
+  let s4 = vm_set_stack(s3, slice(st, 0, start))
+
+  vm_perform_dispatch(s4, op_name, args)
+}
+
+fn vm_perform_dispatch(s, op_name, args) = {
+  // Search handler stack for matching handler
+  let hstack = vm_handlers(s)
+  let found = find_handler_for(hstack, op_name, len(hstack) - 1)
+  match found {
+    ("found", h_idx, entry) => {
+      // entry = (op_name_idx, proto_idx, param_count, tail_resumptive)
+      let proto_idx = entry[1]
+      let hframe = hstack[h_idx]
+      let state = hframe[5]
+
+      // Get handler proto from constants
+      let proto = vm_constants(s)[proto_idx]
+
+      // Save resume state
+      let resume_info = (vm_ip(s), vm_code(s), vm_constants(s), vm_names(s),
+                         vm_base(s), vm_stack(s), len(vm_frames(s)), vm_htables(s))
+
+      // Push caller frame
+      let frame = (vm_ip(s), vm_code(s), vm_constants(s), vm_names(s),
+                   vm_base(s), vm_upvals(s), false, vm_htables(s))
+      let frames = push(vm_frames(s), frame)
+
+      // Set up handler body locals: [args..., state..., resume_placeholder]
+      let body_stack = vm_stack(s) ++ args ++ state ++ [("resume_marker", h_idx, resume_info)]
+      let body_base = len(vm_stack(s))
+
+      // Extra locals for handler proto
+      let total_params = len(args) + len(state) + 1
+      let extra = proto_locals(proto) - total_params
+      let padded = pad_list(body_stack, extra)
+
+      let proto_ht = if len(proto) >= 9 { proto[8] } else { [] }
+      let s2 = (0, proto_code(proto), proto_consts(proto), proto_names(proto),
+                padded, body_base, frames, vm_globals(s), vm_handlers(s), proto_ht, [])
+      (s2, "continue")
+    },
+    _ => {
+      println("VM: unhandled effect: " ++ op_name)
+      (s, "return")
+    }
+  }
+}
+
+fn find_handler_for(hstack, op_name, idx) = {
+  if idx < 0 { "not_found" }
+  else {
+    let hframe = hstack[idx]
+    let table = hframe[1]  // handler table entries
+    let found_entry = find_entry_for(table, op_name, 0)
+    match found_entry {
+      ("found", entry) => ("found", idx, entry),
+      _ => find_handler_for(hstack, op_name, idx - 1)
+    }
+  }
+}
+
+fn find_entry_for(entries, op_name, i) = {
+  if i >= len(entries) { "not_found" }
+  else {
+    let entry = entries[i]
+    // entry[0] is now the resolved name string (not an index)
+    let entry_name = entry[0]
+    if entry_name == op_name { ("found", entry) }
+    else { find_entry_for(entries, op_name, i + 1) }
+  }
+}
+
+// Resolve handler table entries: convert name indices to name strings
+fn resolve_handler_table(table, names) = {
+  if len(table) == 0 { [] }
+  else { resolve_ht_loop(table, names, 0, []) }
+}
+
+fn resolve_ht_loop(table, names, i, acc) = {
+  if i >= len(table) { acc }
+  else {
+    let entry = table[i]
+    // Original: (name_idx, proto_idx, param_count, ...)
+    // Resolved: (name_string, proto_idx, param_count, ...)
+    let name_idx = entry[0]
+    let resolved_name = if name_idx < len(names) { names[name_idx] } else { "unknown" }
+    let resolved = [resolved_name] ++ slice(entry, 1, len(entry))
+    resolve_ht_loop(table, names, i + 1, push(acc, resolved))
+  }
+}
+
+fn vm_resume(s) = {
+  let (s2, update_count) = read_byte(s)
+  // Read state offsets
+  let (s3, offsets) = read_offsets(s2, update_count, [])
+  // Pop state update values
+  let (s4, updates) = pop_n(s3, update_count, [])
+  // Pop resume value
+  let (s5, resume_val) = spop(s4)
+
+  // For now, simplified resume: just push resume value back
+  // Full implementation needs handler dispatch stack unwinding
+  (spush(s5, resume_val), "continue")
+}
+
+fn read_offsets(s, n, acc) = {
+  if n <= 0 { (s, acc) }
+  else {
+    let (s2, off) = read_u16(s)
+    read_offsets(s2, n - 1, push(acc, off))
+  }
+}
+
+fn pop_n(s, n, acc) = {
+  if n <= 0 { (s, acc) }
+  else {
+    let (s2, val) = spop(s)
+    pop_n(s2, n - 1, [val] ++ acc)
+  }
+}
+
+fn pad_list(lst, n) = {
+  if n <= 0 { lst }
+  else { pad_list(push(lst, ()), n - 1) }
+}
