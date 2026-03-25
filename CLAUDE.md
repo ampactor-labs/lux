@@ -30,7 +30,7 @@ special cases, the architecture is wrong.
 > Full manifesto: `docs/DESIGN.md`
 > Full roadmap: `docs/ROADMAP.md`
 
-## STATE OF THE WORLD — Last Updated: 2026-03-24
+## STATE OF THE WORLD — Last Updated: 2026-03-25
 
 | Subsystem | Status | Notes |
 |-----------|--------|-------|
@@ -48,7 +48,8 @@ special cases, the architecture is wrong.
 | Math stdlib | ✅ Working | abs, max, min, clamp, round, sqrt, pow, log, exp, sin, cos, tanh, atan2, pi |
 | Record types | ✅ Working | Anonymous `{ x: 3, y: 4 }`, structural FieldAccess, schema-fingerprint codegen |
 | Self-hosted codegen | ✅ Working | Full bytecode emission, match+field binding, closures, forward references |
-| Self-hosted VM | ✅ Working | 930-line bytecode interpreter in Lux, all 46 opcodes, 45 builtins, recursion |
+| Self-hosted VM | ✅ Working | 930-line bytecode interpreter in Lux, all 46 opcodes, 45 builtins, effects, recursion |
+| **Effect handlers (self-hosted)** | ✅ **VERIFIED** | handle/resume, nested handlers, handler-local state, string effects — 10 golden-file tests |
 | **Inference pipeline** | ✅ **ACHIEVED** | `tokenize→parse→infer→generate` as 4-op Compiler effect |
 | Pipeline handlers | ✅ Working | 6 handlers: standard, teaching, explaining (Why), documenting, checking, tracing |
 | CLI subcommands | ✅ Working | `lux run/why/doc/check/test/repl` |
@@ -64,9 +65,9 @@ special cases, the architecture is wrong.
 | `!Alloc` transitivity | ✅ Working | Resolve-then-check, open-row rejection. Approach B (inferred): algebra resolves callee effects |
 | Refinement types | ✅ Working | `type Byte = Int where 0 <= self && self <= 255` — syntax, solver, compile-time verification of literals |
 
-**Achieved**: Handle internalization, anonymous records, elm-quality errors, ownership enforcement (`own`/`ref`), `!Alloc` transitivity, refinement type verification (solver), self-hosted checker with effect rows, **self-hosted VM** (fully self-hosted compile+execute pipeline). Self-hosting coverage: ~75%.
+**Achieved**: Handle internalization, anonymous records, elm-quality errors, ownership enforcement (`own`/`ref`), `!Alloc` transitivity, refinement type verification (solver), self-hosted checker with effect rows, **self-hosted VM** (fully self-hosted compile+execute pipeline), **effect handlers verified through self-hosted pipeline** (10 golden-file tests: handle/resume, nested handlers, handler-local state, string effects, unit effects, computed resume). Self-hosting coverage: ~80%.
 
-**Next**: Effect handler testing through self-hosted pipeline, oracle testing (golden-file parity), custom effect-aware native backend written in Lux (Phase 7).
+**Next**: Oracle testing (Rust vs self-hosted pipeline parity), custom effect-aware native backend written in Lux (Phase 7).
 
 ## READ THIS FIRST — What Lux IS
 
@@ -365,6 +366,8 @@ fn safe_v2(x: Float) -> Float with DSP - Network - Alloc { ... }  // subtraction
 | 11A | Refinement type syntax — `type Name = Base where predicate` parses, `self` references typed value. TypeAlias AST node separate from TypeDecl (ADTs). Side table in TypeEnv (not Type::Refined — follows ownership pattern). Resolves to base type transparently. Predicates stored, not yet verified. | HEAD |
 | 11B | Refinement type verification — `solver.rs` evaluates predicates at compile time via literal substitution. `check_refinement(predicate, known_value) -> Proven \| Disproven \| Unknown`. Interface mirrors effect handler response (verification IS an effect). Hooks in `check_fn_decl` and `check_let_decl`. `RefinementViolation` error type. 9 unit tests, 2 error tests. | HEAD |
 | 12A | Self-hosted VM (`std/vm.lux`) — 930-line bytecode interpreter. All 46 opcodes, 45 builtins, 11-tuple threaded state. Codegen forward references (recursive functions). Handler name resolution (indices→strings at install). 38 tests pass including fib(10)=55, fact(5)=120. Full pipeline: lex→parse→codegen→vm all in Lux. | cda9833 |
+| 13A | Effects all the way down — `vm_resume` implemented (finds resume_marker, applies state updates, restores VM state). Checker wildcard replaced with real inference for MatchExpr, LambdaExpr, HandleExpr, ResumeExpr, FieldAccess + LetDestructure, EffectDeclStmt. | fb1bf35 |
+| 13B | Effect handler golden-file verification — `vm_test` wired into `--no-check` test harness. 10 effect tests verified through self-hosted pipeline. Parser fix: disambiguate `resume ... with` state updates from handler arm commas (mirrors `parse_state_bindings` pattern). | 607baa1 |
 
 ## Roadmap
 
@@ -372,7 +375,7 @@ fn safe_v2(x: Float) -> Float with DSP - Network - Alloc { ... }  // subtraction
 
 **Completed:** Phases 1-9F (VM, effects, evidence passing, effect algebra, teaching compiler, self-compilation, **bootstrap pipeline execution**, **effects in self-hosted compiler**, **meta-unification: compiler pipeline as effects**, **interactive REPL with effect pipeline**, **self-hosted VM**)
 
-**Current milestone:** Fully self-hosted compile-and-execute pipeline: source → lexer → parser → codegen → VM, all written in Lux. 38 tests pass including recursive fibonacci and factorial. The Rust VM is now bootstrap-only scaffolding.
+**Current milestone:** Fully self-hosted compile-and-execute pipeline with verified effect handlers: source → lexer → parser → codegen → VM, all written in Lux. 48 tests pass (38 core + 10 effect handler tests) including nested handlers, handler-local state, and multi-resume patterns. The Rust VM is now bootstrap-only scaffolding.
 
 **Remaining Phases** (see ROADMAP.md for full details):
 

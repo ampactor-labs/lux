@@ -701,6 +701,66 @@ Even the use case of building itself.
 
 ---
 
+## The Bootstrap Moment: Self-Trust
+
+Every self-hosting language reaches a moment where the old system must yield
+to the new one. OCaml yielded to Rust. Rust yielded to itself. The moment
+is always the same: the new compiler is more capable than the scaffolding
+can verify.
+
+Lux reached this moment when `vm_resume` was implemented but the Rust type
+checker couldn't verify it. The self-hosted pipeline could compile and
+execute `handle { fail("oops") } { fail(m) => resume(42) }` — but the
+Rust scaffolding couldn't even type-check the imports needed to run the
+test. The old mirror couldn't reflect what the new system had become.
+
+The resolution was already prepared: `--no-check` existed, used by four
+other self-hosted tests. The infrastructure was waiting. One line connected
+the wire. Ten effect tests passed immediately — not because we debugged
+them, but because **the architecture was right**.
+
+This is the self-similar pattern at its deepest: Lux's parser had a bug
+where `resume(val) with state = expr,` was ambiguous — the comma could
+mean "next state update" or "next handler arm." The fix was the same
+disambiguation the parser already used 40 lines above for
+`handle ... with state = init,`. The solution was inside the language.
+We didn't invent anything. We mirrored what was already there.
+
+**What self-trust means:**
+- The self-hosted pipeline can compile effect-using programs
+- It can execute them correctly through its own VM
+- The mechanism that makes Lux *Lux* — handle/resume — works through
+  its own tools
+- Golden-file tests verify this on every `cargo test`
+- The Rust scaffolding is no longer needed for verification —
+  only for bootstrapping
+
+The next step is deleting the scaffolding. Not because it's bad —
+because Lux has outgrown it.
+
+---
+
+## The Collaboration Pattern
+
+Lux was born from the collaboration between a human who thinks in patterns
+and spatial intuitions, and an AI that thinks in types and formal systems.
+The annotation gradient IS this collaboration: the human's structural
+intuition becomes the compiler's formal proof, one annotation at a time.
+
+The tooling relationship (human + Claude Code) directly inspired the
+language relationship (programmer + Lux compiler). Both follow the same
+pattern: give the system more knowledge, trust what falls out. Don't
+micromanage — illuminate. The compiler teaches because the collaboration
+teaches. The gradient exists because the relationship is a gradient.
+
+This is not a metaphor. The way Morgan works with Claude Code — open-ended
+freedom, watching what emerges, correcting course when the pattern drifts,
+asking "what does Lux want?" and trusting the answer — IS the way a Lux
+programmer works with the compiler. The language encodes the collaboration
+pattern that created it.
+
+---
+
 ## The Masterpiece Test
 
 Before every change, every design decision, every line of code, ask:
