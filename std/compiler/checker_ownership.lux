@@ -1,0 +1,70 @@
+// Lux Ownership Tracking — extracted from checker.lux
+//
+// Ownership is NOT a separate analysis. It IS the effect system.
+// `own` = the function performs Consume on that parameter.
+// The same checker infrastructure that tracks IO, State, Alloc
+// tracks consumption. One system. No special cases.
+
+// ─── Ownership Annotations ──────────────────────────────────
+
+type OwnershipTier
+  = OwnTier       // Consume effect on this parameter (affine)
+  | RefTier       // no consumption effect (scoped borrow)
+  | InferredTier  // defaults to RefTier semantics
+
+// Consumption state for owned bindings.
+// Tracked in the type environment alongside effect rows — same system.
+type ConsumeState
+  = Unconsumed                 // own param, not yet used
+  | Consumed(Int)              // consumed at line N
+  | ConsumedInBranch(Int, Int) // consumed in both if/else branches
+
+// Ownership violations — framed as effect violations, not a separate category.
+type OwnershipViolation
+  = ConsumedTwice(String, Int, Int)   // name, first line, second line
+  | RefEscaped(String, Int)           // name, return line
+  | OwnNeverConsumed(String)          // name (teaching hint, not error)
+
+// ─── Ownership Checking ─────────────────────────────────────
+// Check a single function's ownership constraints.
+// Takes: params with ownership tiers, body expression.
+// Returns: list of ownership violations.
+
+fn check_ownership(params, body) = {
+  // Build initial tracking state: own params start as Unused
+  let own_params = filter(|p| match p {
+    (name, OwnTier) => true,
+    _ => false,
+  }, params)
+  let ref_params = filter(|p| match p {
+    (name, RefTier) => true,
+    (name, InferredTier) => true,
+    _ => false,
+  }, params)
+
+  // Walk the body, collecting uses of owned values
+  let (used, violations) = walk_expr(body, own_params, [])
+
+  // Check for unused own params
+  let unused_warnings = map(
+    |p| { let (name, _) = p; OwnNeverConsumed(name) },
+    filter(|p| {
+      let (name, _) = p
+      not(any(|u| u == name, used))
+    }, own_params)
+  )
+
+  // Check for ref params in return position
+  let escape_violations = check_ref_escape(body, ref_params)
+
+  violations ++ unused_warnings ++ escape_violations
+}
+
+// Walk an expression tree, tracking which own-values have been consumed.
+// Returns (used_names, violations).
+// NOTE: Stub — will be rewritten to match ADT-based AST (VarRef, IfExpr, BlockExpr).
+fn walk_expr(expr, own_names, used_so_far) = (used_so_far, [])
+
+// Check if any ref-param appears in return position.
+// NOTE: Stub — will be rewritten to match ADT-based AST.
+fn check_ref_escape(body, ref_params) = []

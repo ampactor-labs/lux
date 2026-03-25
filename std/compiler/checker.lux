@@ -10,9 +10,17 @@
 // This is what makes Lux's compiler a teaching compiler. It doesn't just
 // CHECK your code — it can EXPLAIN every decision it made, and show you
 // what each annotation would unlock.
+//
+// Phase 14: Effect unification. Effect rows are first-class in
+// unification — no longer discarded with `_` in TFun matching.
+// The counter carries [fresh_id, eff_subst] — one channel for
+// inference state, absorbing effect substitution the way effects
+// absorb every other mechanism in Lux.
 
 import compiler/lexer
 import compiler/parser
+import compiler/checker_effects
+import compiler/checker_ownership
 
 // ─── Type Representation ─────────────────────────────────────
 
@@ -28,17 +36,6 @@ type Ty
   | TVar(Int)
   | TName(String, List)
 
-// ─── Effect Row Representation ───────────────────────────────
-// Tracks which algebraic effects an expression may perform.
-//   EfPure       — no effects (parallelizable, memoizable)
-//   EfClosed(es) — exactly these effects (es is a list of strings)
-//   EfOpen(es,v) — these effects plus unknown (effect-polymorphic)
-
-type EffRow
-  = EfPure
-  | EfClosed(List)
-  | EfOpen(List, Int)
-
 // ─── Reason ADT ──────────────────────────────────────────────
 // Every type inference produces a Reason explaining HOW and WHY.
 // Reasons form a tree: each node has a human summary and links
@@ -50,9 +47,9 @@ type EffRow
 
 type Reason
   = Literal(String)                    // "42 is Int (integer literal)"
-  | VarLookup(String, Reason)          // "x is Int (bound in scope)"  
+  | VarLookup(String, Reason)          // "x is Int (bound in scope)"
   | Declared(String)                   // "x: Int (user annotation)"
-  | OpConstraint(String, Reason, Reason)  // "* requires both args Int" 
+  | OpConstraint(String, Reason, Reason)  // "* requires both args Int"
   | Unified(Reason, Reason)            // "unified LHS with RHS"
   | FnReturn(String, Reason)           // "return type of fn add"
   | FnParam(String, Int, Reason)       // "parameter 0 of fn add"
@@ -80,10 +77,18 @@ fn env_lookup(env, name) = {
 }
 
 // ─── Fresh Type Variables ────────────────────────────────────
+// Counter is [fresh_id, eff_subst] — one channel for inference state.
+// Effect substitution rides alongside the fresh variable counter,
+// threaded through every inference function for free.
 
 fn fresh_var(counter) = {
   let n = counter[0]
-  (TVar(n), [n + 1])
+  (TVar(n), [n + 1, counter[1]])
+}
+
+fn fresh_eff_var(counter) = {
+  let n = counter[0]
+  (EfOpen([], n), [n + 1, counter[1]])
 }
 
 // ─── Substitution ────────────────────────────────────────────
@@ -135,10 +140,13 @@ fn apply_reason(subst, ty) = match ty {
   _ => Inferred("concrete type")
 }
 
-// ─── Unification with Reasoning ──────────────────────────────
-// Returns (success, new_subst, reason).
-// On success, reason explains WHY the types are compatible.
-// On failure, reason explains WHY they conflict.
+// ─── Unification with Reasoning + Effect Unification ─────────
+// Returns (success, new_subst, reason, new_counter).
+// Counter carries [fresh_id, eff_subst] — effect unification
+// updates the eff_subst within the counter.
+//
+// Phase 14: TFun case unifies effect rows instead of discarding
+// them with _. Effects are first-class in unification.
 
 fn occurs(subst, var_id, ty) = match apply(subst, ty) {
   TVar(id2) => id2 == var_id,
@@ -149,224 +157,106 @@ fn occurs(subst, var_id, ty) = match apply(subst, ty) {
   _ => false
 }
 
-fn unify(subst, t1, t2, context) = {
+fn unify(subst, counter, t1, t2, context) = {
   let a = apply(subst, t1)
   let b = apply(subst, t2)
   match a {
     TVar(id1) => match b {
-      TVar(id2) => if id1 == id2 { (true, subst, context) }
-        else { (true, subst_set(subst, id1, TVar(id2), context), context) },
-      _ => if occurs(subst, id1, b) { (false, subst, Because("infinite type (occurs check)", context)) }
-        else { (true, subst_set(subst, id1, b, context), context) }
+      TVar(id2) => if id1 == id2 { (true, subst, context, counter) }
+        else { (true, subst_set(subst, id1, TVar(id2), context), context, counter) },
+      _ => if occurs(subst, id1, b) { (false, subst, Because("infinite type (occurs check)", context), counter) }
+        else { (true, subst_set(subst, id1, b, context), context, counter) }
     },
     TInt => match b {
-      TInt => (true, subst, context),
-      TVar(id) => (true, subst_set(subst, id, TInt, context), context),
-      _ => (false, subst, Because("expected Int, got " ++ type_to_string(subst, b), context))
+      TInt => (true, subst, context, counter),
+      TVar(id) => (true, subst_set(subst, id, TInt, context), context, counter),
+      _ => (false, subst, Because("expected Int, got " ++ type_to_string(subst, b), context), counter)
     },
     TFloat => match b {
-      TFloat => (true, subst, context),
-      TVar(id) => (true, subst_set(subst, id, TFloat, context), context),
-      _ => (false, subst, Because("expected Float, got " ++ type_to_string(subst, b), context))
+      TFloat => (true, subst, context, counter),
+      TVar(id) => (true, subst_set(subst, id, TFloat, context), context, counter),
+      _ => (false, subst, Because("expected Float, got " ++ type_to_string(subst, b), context), counter)
     },
     TString => match b {
-      TString => (true, subst, context),
-      TVar(id) => (true, subst_set(subst, id, TString, context), context),
-      _ => (false, subst, Because("expected String, got " ++ type_to_string(subst, b), context))
+      TString => (true, subst, context, counter),
+      TVar(id) => (true, subst_set(subst, id, TString, context), context, counter),
+      _ => (false, subst, Because("expected String, got " ++ type_to_string(subst, b), context), counter)
     },
     TBool => match b {
-      TBool => (true, subst, context),
-      TVar(id) => (true, subst_set(subst, id, TBool, context), context),
-      _ => (false, subst, Because("expected Bool, got " ++ type_to_string(subst, b), context))
+      TBool => (true, subst, context, counter),
+      TVar(id) => (true, subst_set(subst, id, TBool, context), context, counter),
+      _ => (false, subst, Because("expected Bool, got " ++ type_to_string(subst, b), context), counter)
     },
     TUnit => match b {
-      TUnit => (true, subst, context),
-      TVar(id) => (true, subst_set(subst, id, TUnit, context), context),
-      _ => (false, subst, Because("expected (), got " ++ type_to_string(subst, b), context))
+      TUnit => (true, subst, context, counter),
+      TVar(id) => (true, subst_set(subst, id, TUnit, context), context, counter),
+      _ => (false, subst, Because("expected (), got " ++ type_to_string(subst, b), context), counter)
     },
     TList(e1) => match b {
       TList(e2) => {
-        let (ok, s2, r) = unify(subst, e1, e2, Because("list element types must match", context))
-        (ok, s2, r)
+        let (ok, s2, r, c2) = unify(subst, counter, e1, e2, Because("list element types must match", context))
+        (ok, s2, r, c2)
       },
-      TVar(id) => if occurs(subst, id, a) { (false, subst, Because("infinite type", context)) }
-        else { (true, subst_set(subst, id, a, context), context) },
-      _ => (false, subst, Because("expected List, got " ++ type_to_string(subst, b), context))
+      TVar(id) => if occurs(subst, id, a) { (false, subst, Because("infinite type", context), counter) }
+        else { (true, subst_set(subst, id, a, context), context, counter) },
+      _ => (false, subst, Because("expected List, got " ++ type_to_string(subst, b), context), counter)
     },
-    TFun(p1, r1, _) => match b {
-      TFun(p2, r2, _) => {
+    TFun(p1, r1, eff1) => match b {
+      TFun(p2, r2, eff2) => {
         if len(p1) != len(p2) {
-          (false, subst, Because("arity mismatch: " ++ to_string(len(p1)) ++ " vs " ++ to_string(len(p2)), context))
+          (false, subst, Because("arity mismatch: " ++ to_string(len(p1)) ++ " vs " ++ to_string(len(p2)), context), counter)
         } else {
-          let (ok, s2, reason) = unify_list(subst, p1, p2, Because("parameter types must match", context))
-          if !ok { (false, s2, reason) }
+          let (ok, s2, reason, c2) = unify_list(subst, counter, p1, p2, Because("parameter types must match", context))
+          if !ok { (false, s2, reason, c2) }
           else {
-            let (ok2, s3, r2_reason) = unify(s2, r1, r2, Because("return types must match", context))
-            (ok2, s3, r2_reason)
+            let (ok2, s3, r2_reason, c3) = unify(s2, c2, r1, r2, Because("return types must match", context))
+            if !ok2 { (false, s3, r2_reason, c3) }
+            else {
+              // Phase 14: unify effect rows — effects are first-class
+              let esubst = c3[1]
+              let (_, new_esubst) = unify_eff(esubst, eff1, eff2)
+              let c4 = [c3[0], new_esubst]
+              (true, s3, r2_reason, c4)
+            }
           }
         }
       },
-      TVar(id) => if occurs(subst, id, a) { (false, subst, Because("infinite type", context)) }
-        else { (true, subst_set(subst, id, a, context), context) },
-      _ => (false, subst, Because("expected function, got " ++ type_to_string(subst, b), context))
+      TVar(id) => if occurs(subst, id, a) { (false, subst, Because("infinite type", context), counter) }
+        else { (true, subst_set(subst, id, a, context), context, counter) },
+      _ => (false, subst, Because("expected function, got " ++ type_to_string(subst, b), context), counter)
     },
     TTuple(e1) => match b {
       TTuple(e2) => {
         if len(e1) != len(e2) {
-          (false, subst, Because("tuple size mismatch: " ++ to_string(len(e1)) ++ " vs " ++ to_string(len(e2)), context))
-        } else { unify_list(subst, e1, e2, Because("tuple element types must match", context)) }
+          (false, subst, Because("tuple size mismatch: " ++ to_string(len(e1)) ++ " vs " ++ to_string(len(e2)), context), counter)
+        } else { unify_list(subst, counter, e1, e2, Because("tuple element types must match", context)) }
       },
-      TVar(id) => if occurs(subst, id, a) { (false, subst, Because("infinite type", context)) }
-        else { (true, subst_set(subst, id, a, context), context) },
-      _ => (false, subst, Because("expected tuple, got " ++ type_to_string(subst, b), context))
+      TVar(id) => if occurs(subst, id, a) { (false, subst, Because("infinite type", context), counter) }
+        else { (true, subst_set(subst, id, a, context), context, counter) },
+      _ => (false, subst, Because("expected tuple, got " ++ type_to_string(subst, b), context), counter)
     },
     _ => match b {
-      TVar(id) => if occurs(subst, id, a) { (false, subst, Because("infinite type", context)) }
-        else { (true, subst_set(subst, id, a, context), context) },
-      _ => (false, subst, Because("type mismatch", context))
+      TVar(id) => if occurs(subst, id, a) { (false, subst, Because("infinite type", context), counter) }
+        else { (true, subst_set(subst, id, a, context), context, counter) },
+      _ => (false, subst, Because("type mismatch", context), counter)
     }
   }
 }
 
-fn unify_list(subst, ts1, ts2, context) = {
-  if len(ts1) == 0 { (true, subst, context) }
+fn unify_list(subst, counter, ts1, ts2, context) = {
+  if len(ts1) == 0 { (true, subst, context, counter) }
   else {
-    let (ok, s2, r) = unify(subst, ts1[0], ts2[0], context)
-    if !ok { (false, s2, r) }
-    else { unify_list(s2, slice(ts1, 1, len(ts1)), slice(ts2, 1, len(ts2)), context) }
+    let (ok, s2, r, c2) = unify(subst, counter, ts1[0], ts2[0], context)
+    if !ok { (false, s2, r, c2) }
+    else { unify_list(s2, c2, slice(ts1, 1, len(ts1)), slice(ts2, 1, len(ts2)), context) }
   }
-}
-
-// ─── Effect Merging ──────────────────────────────────────────
-// Merge two effect rows: EfPure + E = E, closed ∪ closed, etc.
-
-fn merge_effects(a, b) = match a {
-  EfPure => b,
-  EfClosed(ea) => match b {
-    EfPure => a,
-    EfClosed(eb) => EfClosed(list_union(ea, eb)),
-    EfOpen(eb, v) => EfOpen(list_union(ea, eb), v)
-  },
-  EfOpen(ea, v) => match b {
-    EfPure => a,
-    EfClosed(eb) => EfOpen(list_union(ea, eb), v),
-    EfOpen(eb, _) => EfOpen(list_union(ea, eb), v)
-  }
-}
-
-fn list_union(a, b) = {
-  if len(b) == 0 { a }
-  else {
-    let item = b[0]
-    let rest = slice(b, 1, len(b))
-    if list_contains(a, item) { list_union(a, rest) }
-    else { list_union(a ++ [item], rest) }
-  }
-}
-
-fn list_contains(lst, item) = {
-  if len(lst) == 0 { false }
-  else { if lst[0] == item { true } else { list_contains(slice(lst, 1, len(lst)), item) }
-  }
-}
-
-// ─── Effect Negation Enforcement ─────────────────────────────
-// Validates body effects against declared effect annotations.
-// Negated effects (!Name) must be absent. Pure means no effects.
-
-fn check_effect_constraints(fn_name, body_effs, declared) = {
-  if len(declared) == 0 { body_effs }
-  else {
-    let _ = check_each_constraint(fn_name, body_effs, declared)
-    // If Pure declared, enforce it
-    let has_pure = any_pure(declared)
-    if has_pure {
-      match body_effs {
-        EfPure => EfPure,
-        EfClosed(effs) => {
-          if len(effs) == 0 { EfPure }
-          else {
-            println("effect error: '" ++ fn_name ++ "' declares Pure but performs: " ++ join(effs, ", "))
-            EfPure
-          }
-        },
-        EfOpen(_, _) => {
-          println("effect error: '" ++ fn_name ++ "' declares Pure but has open effect row")
-          EfPure
-        }
-      }
-    } else {
-      // Apply negation: remove negated effects from body row
-      apply_negations(body_effs, declared)
-    }
-  }
-}
-
-fn check_each_constraint(fn_name, body_effs, constraints) = {
-  if len(constraints) == 0 { true }
-  else {
-    let (eff_name, negated) = constraints[0]
-    let rest = slice(constraints, 1, len(constraints))
-    if negated {
-      // Negated: effect must NOT be present
-      let present = effect_in_row(eff_name, body_effs)
-      if present {
-        println("effect error: '" ++ fn_name ++ "' declares !" ++ eff_name ++ " but performs " ++ eff_name)
-        check_each_constraint(fn_name, body_effs, rest)
-      } else {
-        // Open rows can't prove absence
-        match body_effs {
-          EfOpen(_, _) => {
-            println("effect error: '" ++ fn_name ++ "' declares !" ++ eff_name ++ " but effect row is open — cannot prove absence")
-            check_each_constraint(fn_name, body_effs, rest)
-          },
-          _ => check_each_constraint(fn_name, body_effs, rest)
-        }
-      }
-    } else {
-      check_each_constraint(fn_name, body_effs, rest)
-    }
-  }
-}
-
-fn effect_in_row(name, row) = match row {
-  EfPure => false,
-  EfClosed(effs) => list_contains(effs, name),
-  EfOpen(effs, _) => list_contains(effs, name)
-}
-
-fn any_pure(declared) = {
-  if len(declared) == 0 { false }
-  else {
-    let (name, negated) = declared[0]
-    if name == "Pure" { true }
-    else { any_pure(slice(declared, 1, len(declared))) }
-  }
-}
-
-fn apply_negations(effs, declared) = {
-  if len(declared) == 0 { effs }
-  else {
-    let (name, negated) = declared[0]
-    let rest = slice(declared, 1, len(declared))
-    if negated {
-      apply_negations(remove_effect(effs, name), rest)
-    } else {
-      apply_negations(effs, rest)
-    }
-  }
-}
-
-fn remove_effect(row, name) = match row {
-  EfPure => EfPure,
-  EfClosed(effs) => EfClosed(filter(|e| e != name, effs)),
-  EfOpen(effs, v) => EfOpen(filter(|e| e != name, effs), v)
 }
 
 // ─── Type Inference with Why Engine + Effects ────────────────
 // Returns (type, subst, counter, reason, effects).
 // The reason explains WHY this expression has this type.
 // The effects track WHICH algebraic effects it may perform.
+// Counter carries [fresh_id, eff_subst] — effect state flows for free.
 
 fn infer_expr(env, subst, counter, expr) = match expr {
   IntLit(_) => (TInt, subst, counter, Literal("integer literal"), EfPure),
@@ -391,33 +281,33 @@ fn infer_expr(env, subst, counter, expr) = match expr {
     let effs = merge_effects(e1, e2)
     if op == "Add" || op == "Sub" || op == "Mul" || op == "Div" || op == "Mod" {
       let op_reason = OpConstraint(op ++ " requires numeric arguments", r1, r2)
-      let (ok1, s3, _) = unify(s2, t1, TInt, Because("left side of " ++ op, r1))
-      let (ok2, s4, _) = unify(s3, t2, TInt, Because("right side of " ++ op, r2))
-      (TInt, s4, c2, op_reason, effs)
+      let (ok1, s3, _, c3) = unify(s2, c2, t1, TInt, Because("left side of " ++ op, r1))
+      let (ok2, s4, _, c4) = unify(s3, c3, t2, TInt, Because("right side of " ++ op, r2))
+      (TInt, s4, c4, op_reason, effs)
     } else { if op == "Eq" || op == "Neq" || op == "Lt" || op == "Gt" || op == "Le" || op == "Ge" {
       let op_reason = OpConstraint(op ++ " produces Bool", r1, r2)
-      let (_, s3, _) = unify(s2, t1, t2, Because("comparison requires same types", Unified(r1, r2)))
-      (TBool, s3, c2, op_reason, effs)
+      let (_, s3, _, c3) = unify(s2, c2, t1, t2, Because("comparison requires same types", Unified(r1, r2)))
+      (TBool, s3, c3, op_reason, effs)
     } else { if op == "And" || op == "Or" {
       let op_reason = OpConstraint(op ++ " requires Bool operands", r1, r2)
-      let (_, s3, _) = unify(s2, t1, TBool, Because("left side of " ++ op, r1))
-      let (_, s4, _) = unify(s3, t2, TBool, Because("right side of " ++ op, r2))
-      (TBool, s4, c2, op_reason, effs)
+      let (_, s3, _, c3) = unify(s2, c2, t1, TBool, Because("left side of " ++ op, r1))
+      let (_, s4, _, c4) = unify(s3, c3, t2, TBool, Because("right side of " ++ op, r2))
+      (TBool, s4, c4, op_reason, effs)
     } else { if op == "Concat" {
       (t1, s2, c2, OpConstraint("++ concatenation", r1, r2), effs)
     } else {
       (t1, s2, c2, Inferred("binary operation"), effs)
-    }}}}  
+    }}}}
   },
 
   UnaryOp(op, operand) => {
     let (t1, s1, c1, r1, e1) = infer_expr(env, subst, counter, operand)
     if op == "Neg" {
-      let (_, s2, _) = unify(s1, t1, TInt, Because("negation requires numeric type", r1))
-      (TInt, s2, c1, OpConstraint("negation produces numeric type", r1, r1), e1)
+      let (_, s2, _, c2) = unify(s1, c1, t1, TInt, Because("negation requires numeric type", r1))
+      (TInt, s2, c2, OpConstraint("negation produces numeric type", r1, r1), e1)
     } else { if op == "Not" {
-      let (_, s2, _) = unify(s1, t1, TBool, Because("logical not requires Bool", r1))
-      (TBool, s2, c1, OpConstraint("logical not produces Bool", r1, r1), e1)
+      let (_, s2, _, c2) = unify(s1, c1, t1, TBool, Because("logical not requires Bool", r1))
+      (TBool, s2, c2, OpConstraint("logical not produces Bool", r1, r1), e1)
     } else {
       (t1, s1, c1, r1, e1)
     }}
@@ -427,25 +317,29 @@ fn infer_expr(env, subst, counter, expr) = match expr {
     let (ft, s1, c1, fr, fe) = infer_expr(env, subst, counter, func)
     let (arg_types, arg_reasons, s2, c2, arg_effs) = infer_args(env, s1, c1, args)
     let (ret_tv, c3) = fresh_var(c2)
-    let expected_fn_type = TFun(arg_types, ret_tv, EfPure)
-    let (ok, s3, unify_reason) = unify(s2, ft, expected_fn_type, Because("function application", Applied(fr, arg_reasons)))
+    // Phase 14: fresh effect variable instead of EfPure placeholder —
+    // effects are first-class, the expected function type must carry
+    // an effect variable that unification can bind.
+    let (eff_tv, c3b) = fresh_eff_var(c3)
+    let expected_fn_type = TFun(arg_types, ret_tv, eff_tv)
+    let (ok, s3, unify_reason, c4) = unify(s2, c3b, ft, expected_fn_type, Because("function application", Applied(fr, arg_reasons)))
     // Extract callee's declared effects from its resolved function type
     let callee_effs = match apply(s3, ft) {
-      TFun(_, _, eff) => eff,
+      TFun(_, _, eff) => apply_eff_subst(c4[1], eff),
       _ => EfPure
     }
     let call_effs = merge_effects(merge_effects(fe, arg_effs), callee_effs)
-    (apply(s3, ret_tv), s3, c3, Applied(fr, arg_reasons), call_effs)
+    (apply(s3, ret_tv), s3, c4, Applied(fr, arg_reasons), call_effs)
   },
 
   IfExpr(cond, then_br, else_br) => {
     let (tc, s1, c1, rc, ec) = infer_expr(env, subst, counter, cond)
-    let (_, s2, _) = unify(s1, tc, TBool, Because("if condition must be Bool", rc))
-    let (tt, s3, c2, rt, et) = infer_expr(env, s2, c1, then_br)
+    let (_, s2, _, c1b) = unify(s1, c1, tc, TBool, Because("if condition must be Bool", rc))
+    let (tt, s3, c2, rt, et) = infer_expr(env, s2, c1b, then_br)
     let (te, s4, c3, re, ee) = infer_expr(env, s3, c2, else_br)
-    let (_, s5, _) = unify(s4, tt, te, Because("if branches must have same type", CondBranch(rt, re)))
+    let (_, s5, _, c3b) = unify(s4, c3, tt, te, Because("if branches must have same type", CondBranch(rt, re)))
     let effs = merge_effects(ec, merge_effects(et, ee))
-    (apply(s5, tt), s5, c3, CondBranch(rt, re), effs)
+    (apply(s5, tt), s5, c3b, CondBranch(rt, re), effs)
   },
 
   ListExpr(elems) => {
@@ -551,20 +445,20 @@ fn infer_expr(env, subst, counter, expr) = match expr {
   Index(obj, idx) => {
     let (obj_ty, s1, c1, obj_reason, obj_effs) = infer_expr(env, subst, counter, obj)
     let (idx_ty, s2, c2, _, idx_effs) = infer_expr(env, s1, c1, idx)
-    let (_, s3, _) = unify(s2, idx_ty, TInt, Because("index must be Int", Inferred("index")))
+    let (_, s3, _, c2b) = unify(s2, c2, idx_ty, TInt, Because("index must be Int", Inferred("index")))
     let resolved = apply(s3, obj_ty)
     let elem_ty = match resolved {
       TList(inner) => inner,
       TTuple(elems) => {
-        let (tv, _) = fresh_var(c2)
+        let (tv, _) = fresh_var(c2b)
         tv
       },
       _ => {
-        let (tv, _) = fresh_var(c2)
+        let (tv, _) = fresh_var(c2b)
         tv
       }
     }
-    let (_, c3) = fresh_var(c2)
+    let (_, c3) = fresh_var(c2b)
     (elem_ty, s3, c3, Because("index into " ++ type_to_string(s3, resolved), obj_reason), merge_effects(obj_effs, idx_effs))
   },
 
@@ -587,8 +481,8 @@ fn infer_list_elems(env, subst, counter, elem_ty, elems) = {
   if len(elems) == 0 { (subst, counter, EfPure) }
   else {
     let (ty, s1, c1, _, eff) = infer_expr(env, subst, counter, elems[0])
-    let (_, s2, _) = unify(s1, elem_ty, ty, Inferred("list elements must have uniform type"))
-    let (s3, c3, rest_effs) = infer_list_elems(env, s2, c1, elem_ty, slice(elems, 1, len(elems)))
+    let (_, s2, _, c1b) = unify(s1, c1, elem_ty, ty, Inferred("list elements must have uniform type"))
+    let (s3, c3, rest_effs) = infer_list_elems(env, s2, c1b, elem_ty, slice(elems, 1, len(elems)))
     (s3, c3, merge_effects(eff, rest_effs))
   }
 }
@@ -620,13 +514,15 @@ fn check_stmt(env, subst, counter, stmt) = match stmt {
     let fn_type = TFun(param_types, ret_tv, EfPure)
     let rec_env = env_extend(fn_env, name, fn_type, Declared("recursive binding"))
     let (body_ty, s1, c3, body_reason, body_effs) = infer_expr(rec_env, subst, c2, body)
-    let (_, s2, _) = unify(s1, ret_tv, body_ty, FnReturn(name, body_reason))
-    // Enforce effect negation constraints
-    let checked_effs = check_effect_constraints(name, body_effs, declared_effects)
+    let (_, s2, _, c4) = unify(s1, c3, ret_tv, body_ty, FnReturn(name, body_reason))
+    // Phase 14: resolve effect variables before constraint checking.
+    // The eff_subst in c4[1] has accumulated all effect variable bindings
+    // from unification within this function body.
+    let checked_effs = check_effect_constraints(name, body_effs, declared_effects, c4[1])
     let final_type = TFun(map(|p| apply(s2, p), param_types), apply(s2, body_ty), checked_effs)
     let fn_reason = Because("fn " ++ name ++ " declaration", FnReturn(name, body_reason))
     let new_env = env_extend(env, name, final_type, fn_reason)
-    (new_env, s2, c3, EfPure)
+    (new_env, s2, c4, EfPure)
   },
 
   ExprStmt(expr) => {
@@ -724,8 +620,8 @@ fn unify_match_arms(env, subst, counter, scr_ty, result_ty, arms, effs) = {
     let (pat, body) = arms[0]
     let (arm_env, s1, c1) = bind_pattern(env, subst, counter, pat, scr_ty)
     let (arm_ty, s2, c2, _, arm_effs) = infer_expr(arm_env, s1, c1, body)
-    let (_, s3, _) = unify(s2, result_ty, arm_ty, Because("match arms must have same type", CondBranch(Inferred("first arm"), Inferred("this arm"))))
-    unify_match_arms(env, s3, c2, scr_ty, result_ty, slice(arms, 1, len(arms)), merge_effects(effs, arm_effs))
+    let (_, s3, _, c3) = unify(s2, c2, result_ty, arm_ty, Because("match arms must have same type", CondBranch(Inferred("first arm"), Inferred("this arm"))))
+    unify_match_arms(env, s3, c3, scr_ty, result_ty, slice(arms, 1, len(arms)), merge_effects(effs, arm_effs))
   }
 }
 
@@ -744,8 +640,8 @@ fn check_handler_arms(env, subst, counter, arms, state_bindings) = {
     let (resume_tv, c3) = fresh_var(c2)
     let resume_env = env_extend(state_env, "resume", TFun([resume_tv], resume_tv, EfPure), Declared("resume continuation"))
     let (_, s3, c4, _, arm_effs) = infer_expr(resume_env, s2, c3, body)
-    let (s4, c5, rest_effs) = check_handler_arms(env, s3, c4, slice(arms, 1, len(arms)), state_bindings)
-    (s4, c5, merge_effects(arm_effs, rest_effs))
+    let (s5, c5, rest_effs) = check_handler_arms(env, s3, c4, slice(arms, 1, len(arms)), state_bindings)
+    (s5, c5, merge_effects(arm_effs, rest_effs))
   }
 }
 
@@ -835,7 +731,8 @@ fn register_type_variants(env, counter, type_name, variants) = {
 fn check_program(stmts) = {
   let env = env_empty()
   let subst = subst_empty()
-  let counter = [0]
+  // Counter is [fresh_id, eff_subst] — one channel for inference state
+  let counter = [0, eff_subst_empty()]
   check_stmts(env, subst, counter, stmts)
 }
 
@@ -970,12 +867,6 @@ fn type_to_string(subst, ty) = match apply(subst, ty) {
   }
 }
 
-fn join(strs, sep) = {
-  if len(strs) == 0 { "" }
-  else { if len(strs) == 1 { strs[0] }
-  else { strs[0] ++ sep ++ join(slice(strs, 1, len(strs)), sep) }}
-}
-
 // ─── Why Query ───────────────────────────────────────────────
 // The flagship API: check code, then ask WHY for any binding.
 //
@@ -1083,72 +974,3 @@ fn suggest_from_closed(name, effects) = {
     ++ "\n       sandboxed  (capability restriction as types)"
   } else { "" }}
 }
-
-// ─── Ownership as Effect (Phase 5) ─────────────────────────
-// Ownership is NOT a separate analysis. It IS the effect system.
-// `own` = the function performs Consume on that parameter.
-// The same checker infrastructure that tracks IO, State, Alloc
-// tracks consumption. One system. No special cases.
-//
-// This section extends the existing checker — not a separate module.
-
-// Ownership annotations (parser already recognizes these).
-type OwnershipTier
-  = OwnTier       // Consume effect on this parameter (affine)
-  | RefTier       // no consumption effect (scoped borrow)
-  | InferredTier  // defaults to RefTier semantics
-
-// Consumption state for owned bindings.
-// Tracked in the type environment alongside effect rows — same system.
-type ConsumeState
-  = Unconsumed                 // own param, not yet used
-  | Consumed(Int)              // consumed at line N
-  | ConsumedInBranch(Int, Int) // consumed in both if/else branches
-
-// Ownership violations — framed as effect violations, not a separate category.
-type OwnershipViolation
-  = ConsumedTwice(String, Int, Int)   // name, first line, second line
-  | RefEscaped(String, Int)           // name, return line
-  | OwnNeverConsumed(String)          // name (teaching hint, not error)
-
-// Check a single function's ownership constraints.
-// Takes: params with ownership tiers, body expression.
-// Returns: list of ownership violations.
-fn check_ownership(params, body) = {
-  // Build initial tracking state: own params start as Unused
-  let own_params = filter(|p| match p {
-    (name, OwnTier) => true,
-    _ => false,
-  }, params)
-  let ref_params = filter(|p| match p {
-    (name, RefTier) => true,
-    (name, InferredTier) => true,
-    _ => false,
-  }, params)
-
-  // Walk the body, collecting uses of owned values
-  let (used, violations) = walk_expr(body, own_params, [])
-
-  // Check for unused own params
-  let unused_warnings = map(
-    |p| { let (name, _) = p; OwnNeverConsumed(name) },
-    filter(|p| {
-      let (name, _) = p
-      not(any(|u| u == name, used))
-    }, own_params)
-  )
-
-  // Check for ref params in return position
-  let escape_violations = check_ref_escape(body, ref_params)
-
-  violations ++ unused_warnings ++ escape_violations
-}
-
-// Walk an expression tree, tracking which own-values have been consumed.
-// Returns (used_names, violations).
-// NOTE: Stub — will be rewritten to match ADT-based AST (VarRef, IfExpr, BlockExpr).
-fn walk_expr(expr, own_names, used_so_far) = (used_so_far, [])
-
-// Check if any ref-param appears in return position.
-// NOTE: Stub — will be rewritten to match ADT-based AST.
-fn check_ref_escape(body, ref_params) = []

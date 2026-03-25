@@ -1,0 +1,37 @@
+=== Phase 14: Effect Unification ===
+
+--- transitive !Alloc: pure callee passes ---
+caller: (Int) -> Int
+  WHY: fn caller declaration
+
+--- transitive !Alloc: violation detected ---
+effect error: 'bad_caller' declares !Alloc but performs Alloc
+bad_caller: (?8) -> ?8 with 
+  WHY: fn bad_caller declaration
+
+--- transitive chain: three levels ---
+effect error: 'level_a' declares !Network but performs Network
+level_a: (Int) -> Int with 
+  WHY: fn level_a declaration
+
+--- Pure calls Pure ---
+pure_fn: (Int) -> Int
+  WHY: fn pure_fn declaration
+
+--- effect union from callees ---
+both: (?17) -> ?17 with Log, Store
+  WHY: fn both declaration
+
+--- gradient: transitive purity ---
+quad: (Int) -> Int
+  -> quad is Pure
+     add 'with Pure' to unlock:
+       memoization  (same input = same output, guaranteed)
+       parallelism  (no side effects to race)
+       compile-time (if inputs are known, evaluate at build)
+
+--- !Alloc on pure arithmetic ---
+clamp: (?2, ?2, ?2) -> ?2
+  WHY: fn clamp declaration
+
+=== Effect unification complete ===

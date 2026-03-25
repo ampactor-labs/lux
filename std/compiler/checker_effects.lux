@@ -1,0 +1,288 @@
+// Lux Effect Row Operations — extracted from checker.lux
+//
+// Effect row algebra: merge, unify, negate, constrain.
+// The effect system's core engine. Everything that reasons about
+// WHICH effects an expression may perform lives here.
+//
+// Phase 14: Effect unification — effect rows are first-class in
+// unification, not discarded. This enables transitive reasoning:
+// calling a !Alloc function from a !Alloc context provably works.
+
+import compiler/lexer
+import compiler/parser
+
+// ─── Effect Row Representation ───────────────────────────────
+// Tracks which algebraic effects an expression may perform.
+//   EfPure       — no effects (parallelizable, memoizable)
+//   EfClosed(es) — exactly these effects (es is a list of strings)
+//   EfOpen(es,v) — these effects plus unknown (effect-polymorphic)
+
+type EffRow
+  = EfPure
+  | EfClosed(List)
+  | EfOpen(List, Int)
+
+// ─── Effect Merging ──────────────────────────────────────────
+// Merge two effect rows: EfPure + E = E, closed ∪ closed, etc.
+
+fn merge_effects(a, b) = match a {
+  EfPure => b,
+  EfClosed(ea) => match b {
+    EfPure => a,
+    EfClosed(eb) => EfClosed(list_union(ea, eb)),
+    EfOpen(eb, v) => EfOpen(list_union(ea, eb), v)
+  },
+  EfOpen(ea, v) => match b {
+    EfPure => a,
+    EfClosed(eb) => EfOpen(list_union(ea, eb), v),
+    EfOpen(eb, _) => EfOpen(list_union(ea, eb), v)
+  }
+}
+
+fn list_union(a, b) = {
+  if len(b) == 0 { a }
+  else {
+    let item = b[0]
+    let rest = slice(b, 1, len(b))
+    if list_contains(a, item) { list_union(a, rest) }
+    else { list_union(a ++ [item], rest) }
+  }
+}
+
+fn list_contains(lst, item) = {
+  if len(lst) == 0 { false }
+  else { if lst[0] == item { true } else { list_contains(slice(lst, 1, len(lst)), item) }
+  }
+}
+
+// ─── Effect Unification (Phase 14) ──────────────────────────
+// Unify two effect rows, producing an effect substitution.
+// Effect substitution maps effect variable IDs to resolved EffRows.
+//
+// The key insight: TFun carries an EffRow. When we unify two TFuns,
+// we must also unify their effect rows. An EfOpen(es, v) variable
+// can be bound — just like a TVar in type unification.
+
+fn eff_subst_empty() = []
+
+fn eff_subst_set(esubst, var_id, row) = [(var_id, row)] ++ esubst
+
+fn eff_subst_get(esubst, var_id) = {
+  if len(esubst) == 0 { EfOpen([], var_id) }
+  else {
+    let (k, v) = esubst[0]
+    if k == var_id { v }
+    else { eff_subst_get(slice(esubst, 1, len(esubst)), var_id) }
+  }
+}
+
+// Apply effect substitution: resolve EfOpen variables.
+fn apply_eff_subst(esubst, row) = match row {
+  EfPure => EfPure,
+  EfClosed(es) => EfClosed(es),
+  EfOpen(es, v) => {
+    let resolved = eff_subst_get(esubst, v)
+    match resolved {
+      EfOpen(res_es, v2) => {
+        if v == v2 { EfOpen(list_union(es, res_es), v) }
+        else { apply_eff_subst(esubst, EfOpen(list_union(es, res_es), v2)) }
+      },
+      EfClosed(res_es) => EfClosed(list_union(es, res_es)),
+      EfPure => {
+        if len(es) == 0 { EfPure }
+        else { EfClosed(es) }
+      }
+    }
+  }
+}
+
+// Unify two effect rows. Returns (success, new_eff_subst).
+//
+// Rules:
+//   Pure ~ Pure                → success
+//   Pure ~ Closed([])          → success
+//   Closed(a) ~ Closed(b)     → success iff a ⊆ b and b ⊆ a (set equality)
+//   Open(es, v) ~ row         → bind v to (row - es)
+//   Closed(a) ~ Open(es, v)   → bind v to Closed(a - es)
+//   Pure ~ Open([], v)        → bind v to Pure
+fn unify_eff(esubst, e1, e2) = {
+  let a = apply_eff_subst(esubst, e1)
+  let b = apply_eff_subst(esubst, e2)
+  match a {
+    EfPure => match b {
+      EfPure => (true, esubst),
+      EfClosed(bs) => {
+        if len(bs) == 0 { (true, esubst) }
+        else { (false, esubst) }
+      },
+      EfOpen(bs, v) => {
+        if len(bs) == 0 { (true, eff_subst_set(esubst, v, EfPure)) }
+        else { (false, esubst) }
+      }
+    },
+    EfClosed(as_) => match b {
+      EfPure => {
+        if len(as_) == 0 { (true, esubst) }
+        else { (false, esubst) }
+      },
+      EfClosed(bs) => {
+        // Set equality: a ⊆ b and b ⊆ a
+        if list_subset(as_, bs) && list_subset(bs, as_) { (true, esubst) }
+        else { (false, esubst) }
+      },
+      EfOpen(bs, v) => {
+        // Bind v to Closed(as_ - bs)
+        let remainder = list_diff(as_, bs)
+        (true, eff_subst_set(esubst, v, EfClosed(remainder)))
+      }
+    },
+    EfOpen(as_, v1) => match b {
+      EfPure => {
+        if len(as_) == 0 { (true, eff_subst_set(esubst, v1, EfPure)) }
+        else { (false, esubst) }
+      },
+      EfClosed(bs) => {
+        // Bind v1 to Closed(bs - as_)
+        let remainder = list_diff(bs, as_)
+        (true, eff_subst_set(esubst, v1, EfClosed(remainder)))
+      },
+      EfOpen(bs, v2) => {
+        if v1 == v2 {
+          // Same variable — unify known effects
+          if list_subset(as_, bs) && list_subset(bs, as_) { (true, esubst) }
+          else {
+            // Merge known effects into the variable
+            (true, eff_subst_set(esubst, v1, EfOpen(list_union(as_, bs), v1)))
+          }
+        } else {
+          // Different variables — bind v1 to Open(bs - as_, v2)
+          let remainder = list_diff(bs, as_)
+          (true, eff_subst_set(esubst, v1, EfOpen(remainder, v2)))
+        }
+      }
+    }
+  }
+}
+
+// Set operations for effect name lists
+fn list_subset(a, b) = {
+  if len(a) == 0 { true }
+  else {
+    if list_contains(b, a[0]) { list_subset(slice(a, 1, len(a)), b) }
+    else { false }
+  }
+}
+
+fn list_diff(a, b) = {
+  if len(a) == 0 { [] }
+  else {
+    let item = a[0]
+    let rest = list_diff(slice(a, 1, len(a)), b)
+    if list_contains(b, item) { rest }
+    else { [item] ++ rest }
+  }
+}
+
+// ─── Effect Negation Enforcement ─────────────────────────────
+// Validates body effects against declared effect annotations.
+// Negated effects (!Name) must be absent. Pure means no effects.
+//
+// Phase 14: apply_eff_subst resolves EfOpen variables BEFORE
+// negation checks, so transitive effects are visible.
+
+fn check_effect_constraints(fn_name, body_effs, declared, esubst) = {
+  // Resolve effect variables before checking constraints
+  let resolved_effs = apply_eff_subst(esubst, body_effs)
+  if len(declared) == 0 { resolved_effs }
+  else {
+    let _ = check_each_constraint(fn_name, resolved_effs, declared)
+    // If Pure declared, enforce it
+    let has_pure = any_pure(declared)
+    if has_pure {
+      match resolved_effs {
+        EfPure => EfPure,
+        EfClosed(effs) => {
+          if len(effs) == 0 { EfPure }
+          else {
+            println("effect error: '" ++ fn_name ++ "' declares Pure but performs: " ++ join(effs, ", "))
+            EfPure
+          }
+        },
+        EfOpen(_, _) => {
+          println("effect error: '" ++ fn_name ++ "' declares Pure but has open effect row")
+          EfPure
+        }
+      }
+    } else {
+      // Apply negation: remove negated effects from body row
+      apply_negations(resolved_effs, declared)
+    }
+  }
+}
+
+fn check_each_constraint(fn_name, body_effs, constraints) = {
+  if len(constraints) == 0 { true }
+  else {
+    let (eff_name, negated) = constraints[0]
+    let rest = slice(constraints, 1, len(constraints))
+    if negated {
+      // Negated: effect must NOT be present
+      let present = effect_in_row(eff_name, body_effs)
+      if present {
+        println("effect error: '" ++ fn_name ++ "' declares !" ++ eff_name ++ " but performs " ++ eff_name)
+        check_each_constraint(fn_name, body_effs, rest)
+      } else {
+        // Open rows can't prove absence
+        match body_effs {
+          EfOpen(_, _) => {
+            println("effect error: '" ++ fn_name ++ "' declares !" ++ eff_name ++ " but effect row is open — cannot prove absence")
+            check_each_constraint(fn_name, body_effs, rest)
+          },
+          _ => check_each_constraint(fn_name, body_effs, rest)
+        }
+      }
+    } else {
+      check_each_constraint(fn_name, body_effs, rest)
+    }
+  }
+}
+
+fn effect_in_row(name, row) = match row {
+  EfPure => false,
+  EfClosed(effs) => list_contains(effs, name),
+  EfOpen(effs, _) => list_contains(effs, name)
+}
+
+fn any_pure(declared) = {
+  if len(declared) == 0 { false }
+  else {
+    let (name, negated) = declared[0]
+    if name == "Pure" { true }
+    else { any_pure(slice(declared, 1, len(declared))) }
+  }
+}
+
+fn apply_negations(effs, declared) = {
+  if len(declared) == 0 { effs }
+  else {
+    let (name, negated) = declared[0]
+    let rest = slice(declared, 1, len(declared))
+    if negated {
+      apply_negations(remove_effect(effs, name), rest)
+    } else {
+      apply_negations(effs, rest)
+    }
+  }
+}
+
+fn remove_effect(row, name) = match row {
+  EfPure => EfPure,
+  EfClosed(effs) => EfClosed(filter(|e| e != name, effs)),
+  EfOpen(effs, v) => EfOpen(filter(|e| e != name, effs), v)
+}
+
+fn join(strs, sep) = {
+  if len(strs) == 0 { "" }
+  else { if len(strs) == 1 { strs[0] }
+  else { strs[0] ++ sep ++ join(slice(strs, 1, len(strs)), sep) }}
+}

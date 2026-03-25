@@ -219,21 +219,40 @@ Build: `lux build std/compiler/`. Test: `lux test examples/`. No Rust anywhere.
 | 28 | Self-contained bootstrap | Large | Zero-Rust install |
 | 29 | Delete every .rs file | Sm+Doc | Self-containment |
 
-## Next Session: Checker Split → Phase 14
+## Completed: Checker Split + Phase 14 (2026-03-25)
 
-**Start with checker split** (file discipline, pre-requisite):
-1. Extract `std/compiler/checker_effects.lux` — effect row ops, unify_eff, negation
-2. Extract `std/compiler/checker_ownership.lux` — walk_expr, check_ref_escape
-3. Checker.lux orchestrates, imports both
+**Checker split** (file discipline):
+- Extracted `std/compiler/checker_effects.lux` (288 lines) — EffRow type, merge/union/contains,
+  effect negation enforcement, **plus Phase 14 additions**: unify_eff, eff_subst, apply_eff_subst
+- Extracted `std/compiler/checker_ownership.lux` (70 lines) — OwnershipTier, ConsumeState,
+  check_ownership stubs
+- `checker.lux` (976 lines) orchestrates via `import compiler/checker_effects` and
+  `import compiler/checker_ownership`
 
-**Then Phase 14** (the keystone):
-1. Add `unify_eff(e1, e2, eff_subst)` to checker_effects.lux
-2. Thread `eff_subst` through inference pipeline alongside type subst
-3. Update `unify` TFun case to unify effect rows instead of discarding
-4. `apply_eff_subst` resolves EfOpen variables before negation checks
-5. Add transitive golden-file tests
+**Phase 14** (effect unification):
+- Counter carries `[fresh_id, eff_subst]` — one channel for inference state. Effect
+  substitution rides alongside the fresh variable counter, threaded through every
+  inference function for free. No signature changes to infer_expr.
+- `unify` TFun case now calls `unify_eff(eff1, eff2)` instead of discarding with `_`.
+  Effects are first-class in unification.
+- `fresh_eff_var(counter)` creates fresh effect variables alongside fresh type vars.
+- Call case uses fresh effect variable in expected function type.
+- `check_effect_constraints` resolves effect variables via `apply_eff_subst` before
+  negation checks.
+- 7 transitive golden-file tests (`examples/effect_unification.lux`):
+  pure callee in !Alloc ✓, Alloc violation detected ✓, three-level chain ✓,
+  Pure calls Pure ✓, effect union from callees ✓, gradient suggestion ✓,
+  !Alloc on arithmetic ✓
 
-**Why this first**: Effect unification is the foundation the entire correctness arc
-hangs from. Without it, Phases 15-18 are blocked. With it, everything accelerates.
-Transitive `!Alloc` becomes possible. Oracle testing becomes meaningful. The unique
-claim of Lux — proving real-time safety through its own tools — becomes real.
+## Next Session: Phase 15 → Phase 16
+
+**Phase 15** (transitive !Alloc proof):
+- Resolve-then-check with open-row rejection
+- Real `walk_expr` (count uses for affine check) and `check_ref_escape`
+- Handle expression should subtract handled effects from body row
+- Port ownership/!Alloc golden tests from `examples/ownership*.lux`
+
+**Phase 16** (refinement solver port):
+- Port `solver.rs` (190 lines) to `std/compiler/solver.lux`
+- Hook into checker FnStmt and LetStmt for type aliases with predicates
+- Port 9 refinement unit tests + 2 error tests to golden files

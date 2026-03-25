@@ -65,9 +65,9 @@ special cases, the architecture is wrong.
 | `!Alloc` transitivity | ✅ Working | Resolve-then-check, open-row rejection. Approach B (inferred): algebra resolves callee effects |
 | Refinement types | ✅ Working | `type Byte = Int where 0 <= self && self <= 255` — syntax, solver, compile-time verification of literals |
 
-**Achieved**: Handle internalization, anonymous records, elm-quality errors, ownership enforcement (`own`/`ref`), `!Alloc` transitivity, refinement type verification (solver), self-hosted checker with effect rows, **self-hosted VM** (fully self-hosted compile+execute pipeline), **effect handlers verified through self-hosted pipeline** (10 golden-file tests: handle/resume, nested handlers, handler-local state, string effects, unit effects, computed resume). Self-hosting coverage: ~80%.
+**Achieved**: Handle internalization, anonymous records, elm-quality errors, ownership enforcement (`own`/`ref`), `!Alloc` transitivity, refinement type verification (solver), self-hosted checker with effect rows, **self-hosted VM** (fully self-hosted compile+execute pipeline), **effect handlers verified through self-hosted pipeline** (10 golden-file tests: handle/resume, nested handlers, handler-local state, string effects, unit effects, computed resume), **checker split** (checker_effects.lux + checker_ownership.lux extracted), **effect unification** (Phase 14: effect rows first-class in unification, 7 transitive golden tests). Self-hosting coverage: ~80%.
 
-**Next**: Oracle testing (Rust vs self-hosted pipeline parity), custom effect-aware native backend written in Lux (Phase 7).
+**Next**: Phase 15 (transitive !Alloc proof + handler effect absorption), Phase 16 (refinement solver port).
 
 ## READ THIS FIRST — What Lux IS
 
@@ -251,7 +251,9 @@ Standard library: `std/prelude.lux`, `std/test.lux`, `std/types.lux`, `std/vm.lu
 | `src/loader.rs` | Module import resolution, cycle detection | Rewritten in Lux |
 | `std/compiler/lexer.lux` | Self-hosted tokenizer | **YES — Lux forever** |
 | `std/compiler/parser.lux` | Self-hosted recursive descent parser (ADT-based AST) | **YES — Lux forever** |
-| `std/compiler/checker.lux` | Self-hosted HM type checker with Why Engine (Reason trees on every inference) | **YES — Lux forever** |
+| `std/compiler/checker.lux` | Self-hosted HM type checker + Why Engine + gradient engine (orchestrator) | **YES — Lux forever** |
+| `std/compiler/checker_effects.lux` | Effect row algebra: merge, unify, negate, constrain, eff_subst | **YES — Lux forever** |
+| `std/compiler/checker_ownership.lux` | Ownership tracking: affine/scoped checking stubs | **YES — Lux forever** |
 | `std/compiler/codegen.lux` | Self-hosted bytecode emitter + disassembler | **YES — Lux forever** |
 | `std/vm.lux` | Self-hosted bytecode VM (930 lines, all 46 opcodes, 45 builtins) | **YES — Lux forever** |
 | `std/prelude.lux` | Self-hosted stdlib (38 functions: map, filter, fold, sort, etc.) | **YES — Lux forever** |
@@ -368,6 +370,7 @@ fn safe_v2(x: Float) -> Float with DSP - Network - Alloc { ... }  // subtraction
 | 12A | Self-hosted VM (`std/vm.lux`) — 930-line bytecode interpreter. All 46 opcodes, 45 builtins, 11-tuple threaded state. Codegen forward references (recursive functions). Handler name resolution (indices→strings at install). 38 tests pass including fib(10)=55, fact(5)=120. Full pipeline: lex→parse→codegen→vm all in Lux. | cda9833 |
 | 13A | Effects all the way down — `vm_resume` implemented (finds resume_marker, applies state updates, restores VM state). Checker wildcard replaced with real inference for MatchExpr, LambdaExpr, HandleExpr, ResumeExpr, FieldAccess + LetDestructure, EffectDeclStmt. | fb1bf35 |
 | 13B | Effect handler golden-file verification — `vm_test` wired into `--no-check` test harness. 10 effect tests verified through self-hosted pipeline. Parser fix: disambiguate `resume ... with` state updates from handler arm commas (mirrors `parse_state_bindings` pattern). | 607baa1 |
+| 14 | Checker split + effect unification — extracted `checker_effects.lux` (288 lines: EffRow ops, unify_eff, eff_subst, negation) and `checker_ownership.lux` (70 lines). Counter carries `[fresh_id, eff_subst]` — one channel for inference state. `unify` TFun case unifies effect rows instead of discarding with `_`. `fresh_eff_var` creates effect variables. `apply_eff_subst` resolves before negation checks. 7 transitive golden tests: !Alloc/Pure/!Network through call chains. | HEAD |
 
 ## Roadmap
 
@@ -397,6 +400,7 @@ fn safe_v2(x: Float) -> Float with DSP - Network - Alloc { ... }  // subtraction
 | `src/checker/` (TypeEnv) | docs/DESIGN.md (Type System) | Inference changes |
 | `src/compiler/` (compiler.rs, effects.rs) | CLAUDE.md (Architecture) | Bytecode compilation |
 | `src/vm/` (vm.rs, opcode.rs) | CLAUDE.md (VM Internals) | VM opcodes, execution |
+| `std/compiler/checker*.lux` | CLAUDE.md (Key Files, Phase History), docs/PLAN.md | Checker split, effect unification, ownership |
 | `examples/*.lux` | CLAUDE.md (Effect System), docs/DESIGN.md | New patterns |
 | `std/prelude.lux` | CLAUDE.md (Key Files) | New stdlib functions |
 | `std/ml/*.lux`, `std/dsp/*.lux` | `docs/specs/lux-ml-design.md` | ML/DSP framework changes |

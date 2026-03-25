@@ -1,0 +1,93 @@
+// Phase 14: Effect Unification — Transitive Effect Reasoning
+//
+// The checker now unifies effect rows when matching function types.
+// Effect variables are first-class in unification, the same way
+// type variables are. This enables transitive reasoning: calling a
+// !Alloc callee from a !Alloc context provably works.
+
+import compiler/parser
+import compiler/checker
+
+println("=== Phase 14: Effect Unification ===")
+println("")
+
+// ── Test 1: Transitive !Alloc — pure callee passes ────────────
+// A !Alloc function calling a pure function should compile fine.
+// The callee has no effects, so the caller's negation is satisfied.
+
+println("--- transitive !Alloc: pure callee passes ---")
+println(check_and_explain('
+fn pure_helper(x) = x * 2
+fn caller(x) with !Alloc = pure_helper(x)
+', "caller", 0))
+println("")
+
+// ── Test 2: Transitive !Alloc — violation detected ──────────
+// A !Alloc function calling an Alloc callee must fail.
+// Effect propagation through Call merges callee effects into body effects.
+
+println("--- transitive !Alloc: violation detected ---")
+println(check_and_explain('
+effect Alloc { alloc(n) -> Int }
+fn allocator(x) = { alloc(x); x }
+fn bad_caller(x) with !Alloc = allocator(x)
+', "bad_caller", 0))
+println("")
+
+// ── Test 3: Transitive chain — three levels deep ────────────
+// !Network propagates through a multi-level call chain.
+// a() -> b() -> c() where c performs Network and a declares !Network.
+
+println("--- transitive chain: three levels ---")
+println(check_and_explain('
+effect Network { fetch(url) -> String }
+fn level_c(x) = { fetch("http://example.com"); x }
+fn level_b(x) = level_c(x + 1)
+fn level_a(x) with !Network = level_b(x)
+', "level_a", 0))
+println("")
+
+// ── Test 4: Pure callee in Pure context ─────────────────────
+// A Pure function can call other pure functions freely.
+
+println("--- Pure calls Pure ---")
+println(check_and_explain('
+fn helper(x) = x + 1
+fn pure_fn(x) with Pure = helper(x) * 2
+', "pure_fn", 0))
+println("")
+
+// ── Test 5: Effect union — multiple effects propagate ───────
+// Calling callees with different effects accumulates both.
+
+println("--- effect union from callees ---")
+println(check_and_explain('
+effect Log { log(msg) -> () }
+effect Store { save(key, val) -> () }
+fn logger(x) = { log("computing"); x }
+fn saver(x) = { save("result", x); x }
+fn both(x) = { let a = logger(x); saver(a) }
+', "both", 0))
+println("")
+
+// ── Test 6: Gradient suggestion for transitive purity ───────
+// A function that only calls pure functions should get the Pure suggestion.
+
+println("--- gradient: transitive purity ---")
+println(check_and_teach('
+fn double(x) = x * 2
+fn quad(x) = double(double(x))
+', "quad"))
+println("")
+
+// ── Test 7: !Alloc on arithmetic-only function ──────────────
+// A function that only does arithmetic — no effects at all.
+// The !Alloc constraint passes trivially (body is Pure).
+
+println("--- !Alloc on pure arithmetic ---")
+println(check_and_explain('
+fn clamp(x, lo, hi) with !Alloc = if x < lo { lo } else { if x > hi { hi } else { x } }
+', "clamp", 0))
+println("")
+
+println("=== Effect unification complete ===")

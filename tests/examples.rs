@@ -78,7 +78,8 @@ fn vm_matches_golden_files() {
             || name == "lexer_test"
             || name == "checker_test"
             || name == "codegen_test"
-            || name == "vm_test";
+            || name == "vm_test"
+            || name == "effect_unification";
 
         let expected = std::fs::read_to_string(expected_file)
             .unwrap_or_else(|e| panic!("can't read {expected_file}: {e}"));
@@ -193,7 +194,8 @@ fn regenerate_baselines() {
                 || name == "lexer_test"
                 || name == "checker_test"
                 || name == "codegen_test"
-                || name == "vm_test";
+                || name == "vm_test"
+                || name == "effect_unification";
             let (stdout, _, success) = if needs_no_check {
                 run_lux_no_check(&path.to_string_lossy())
             } else {
