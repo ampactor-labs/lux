@@ -74,4 +74,12 @@ b: Int
 add: (Int) -> (Int) -> Int
   WHY: let add = ..
 
+--- pure function ---
+pure_add: (Int, Int) -> Int
+  WHY: fn pure_add declaration
+
+--- negated effect ---
+no_alloc: (Int) -> Int
+  WHY: fn no_alloc declaration
+
 === The compiler teaches ===

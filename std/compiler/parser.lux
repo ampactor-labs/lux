@@ -41,7 +41,7 @@ type Pat
 type Stmt
   = LetStmt(String, Expr)
   | LetDestructure(List, Expr)
-  | FnStmt(String, List, Expr)
+  | FnStmt(String, List, Expr, List)
   | TypeStmt(String, List)
   | EffectDeclStmt(String, List)
   | ExprStmt(Expr)
@@ -187,17 +187,41 @@ fn parse_let(tokens, pos) = {
 }
 
 // Fn declaration → Stmt
+// fn name(params) [with EffectAnnotations] = body
+// Effect annotations: Name, !Name, Pure
 fn parse_fn(tokens, pos) = {
   let p = skip_ws(tokens, pos);
   let name = tok_val(tokens, p);
   let p2 = expect(tokens, skip_ws(tokens, p + 1), "LParen");
   let (params, p3) = parse_names(tokens, p2, "RParen");
-  let p4 = expect(tokens, skip_ws(tokens, p3), "Eq");
-  let p5 = skip_ws(tokens, p4);
-  let (body, p6) =
-    if check(tokens, p5, "LBrace") { parse_block(tokens, p5 + 1) }
-    else { parse_expr(tokens, p5) };
-  (FnStmt(name, params, body), p6)
+  let p4 = skip_ws(tokens, p3);
+  // Parse optional "with" effect annotations before "="
+  let (effects, p5) = if check(tokens, p4, "With") {
+    parse_effect_annotations(tokens, p4 + 1)
+  } else { ([], p4) };
+  let p6 = expect(tokens, skip_ws(tokens, p5), "Eq");
+  let p7 = skip_ws(tokens, p6);
+  let (body, p8) =
+    if check(tokens, p7, "LBrace") { parse_block(tokens, p7 + 1) }
+    else { parse_expr(tokens, p7) };
+  (FnStmt(name, params, body, effects), p8)
+}
+
+// Parse effect annotations: comma-separated list of Name or !Name or Pure
+// Returns list of (name, negated) tuples
+fn parse_effect_annotations(tokens, pos) = {
+  let p = skip_ws(tokens, pos);
+  // Check for ! (negation)
+  let (negated, p2) = if check(tokens, p, "Bang") { (true, p + 1) } else { (false, p) };
+  let name = tok_val(tokens, p2);
+  let entry = (name, negated);
+  let p3 = skip_ws(tokens, p2 + 1);
+  if check(tokens, p3, "Comma") {
+    let (rest, p4) = parse_effect_annotations(tokens, p3 + 1);
+    ([entry] ++ rest, p4)
+  } else {
+    ([entry], p3)
+  }
 }
 
 // Block { stmts; final_expr } → Expr

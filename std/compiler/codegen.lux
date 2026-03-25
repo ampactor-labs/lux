@@ -840,7 +840,7 @@ fn compile_stmt(ctx, stmt) = match stmt {
     }
   },
 
-  FnStmt(name, params, body) => {
+  FnStmt(name, params, body, _effects) => {
     // Pre-declare: store Unit placeholder so recursive calls resolve via LoadGlobal
     let (ctx_pre, name_idx_pre) = intern_name(ctx, name)
     let ctx_pre2 = emit_u16(emit_op(emit_op(ctx_pre, OP_LOAD_UNIT()), OP_STORE_GLOBAL()), name_idx_pre)

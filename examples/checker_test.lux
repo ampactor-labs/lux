@@ -70,4 +70,14 @@ println("--- nested lambda ---")
 println(check_and_explain('let add = |a| |b| a + b', "add", 0))
 println("")
 
+// Test 12: Effect annotation — Pure function
+println("--- pure function ---")
+println(check_and_explain('fn pure_add(a, b) with Pure = a + b', "pure_add", 0))
+println("")
+
+// Test 13: Effect annotation — !Alloc
+println("--- negated effect ---")
+println(check_and_explain('fn no_alloc(x) with !Alloc = x + 1', "no_alloc", 0))
+println("")
+
 println("=== The compiler teaches ===")
