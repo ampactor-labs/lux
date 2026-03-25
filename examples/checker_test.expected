@@ -82,4 +82,14 @@ pure_add: (Int, Int) -> Int
 no_alloc: (Int) -> Int
   WHY: fn no_alloc declaration
 
+--- Pure violation ---
+effect error: 'impure' declares Pure but performs: Console
+impure: () -> Int
+  WHY: fn impure declaration
+
+--- !Alloc violation ---
+effect error: 'bad' declares !Alloc but performs Alloc
+bad: (?2) -> ?2 with 
+  WHY: fn bad declaration
+
 === The compiler teaches ===

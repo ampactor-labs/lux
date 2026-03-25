@@ -75,9 +75,21 @@ println("--- pure function ---")
 println(check_and_explain('fn pure_add(a, b) with Pure = a + b', "pure_add", 0))
 println("")
 
-// Test 13: Effect annotation — !Alloc
+// Test 13: Effect annotation — !Alloc on pure body (passes)
 println("--- negated effect ---")
 println(check_and_explain('fn no_alloc(x) with !Alloc = x + 1', "no_alloc", 0))
+println("")
+
+// Test 14: Pure VIOLATION — declares Pure but calls an effect operation
+println("--- Pure violation ---")
+println(check_and_explain('effect Console { say(s) -> () }
+fn impure() with Pure = { say("hi"); 42 }', "impure", 0))
+println("")
+
+// Test 15: !Alloc VIOLATION — body performs Alloc
+println("--- !Alloc violation ---")
+println(check_and_explain('effect Alloc { alloc(n) -> Int }
+fn bad(x) with !Alloc = { alloc(x); x }', "bad", 0))
 println("")
 
 println("=== The compiler teaches ===")

@@ -429,7 +429,12 @@ fn infer_expr(env, subst, counter, expr) = match expr {
     let (ret_tv, c3) = fresh_var(c2)
     let expected_fn_type = TFun(arg_types, ret_tv, EfPure)
     let (ok, s3, unify_reason) = unify(s2, ft, expected_fn_type, Because("function application", Applied(fr, arg_reasons)))
-    let call_effs = merge_effects(fe, arg_effs)
+    // Extract callee's declared effects from its resolved function type
+    let callee_effs = match apply(s3, ft) {
+      TFun(_, _, eff) => eff,
+      _ => EfPure
+    }
+    let call_effs = merge_effects(merge_effects(fe, arg_effs), callee_effs)
     (apply(s3, ret_tv), s3, c3, Applied(fr, arg_reasons), call_effs)
   },
 
@@ -649,9 +654,9 @@ fn check_stmt(env, subst, counter, stmt) = match stmt {
   EffectDeclStmt(name, ops) => {
     // Register the effect name in the environment
     let new_env = env_extend(env, name, TName(name, []), Declared("effect " ++ name))
-    // Register each operation as a function type
-    let final_env = register_effect_ops(new_env, subst, counter, name, ops)
-    (final_env, subst, counter, EfPure)
+    // Register each op as a function type performing this effect
+    let (final_env, c1) = register_effect_ops(new_env, subst, counter, name, ops)
+    (final_env, subst, c1, EfPure)
   },
 
   TypeStmt(name, variants) => {
@@ -798,13 +803,16 @@ fn bind_destructure_fresh(env, subst, counter, names, reason) = {
 }
 
 // Register effect operation signatures as function types in env.
+// Each op becomes a TFun that PERFORMS its parent effect.
 fn register_effect_ops(env, subst, counter, effect_name, ops) = {
-  if len(ops) == 0 { env }
+  if len(ops) == 0 { (env, counter) }
   else {
-    // Each op descriptor is (op_name, param_names) from parser
-    let (op_name, _) = ops[0]
-    let new_env = env_extend(env, op_name, TName(effect_name ++ "." ++ op_name, []), Declared("effect operation of " ++ effect_name))
-    register_effect_ops(new_env, subst, counter, effect_name, slice(ops, 1, len(ops)))
+    let (op_name, param_names) = ops[0]
+    let (param_types, c1) = fresh_params(counter, param_names)
+    let (ret_tv, c2) = fresh_var(c1)
+    let op_type = TFun(param_types, ret_tv, EfClosed([effect_name]))
+    let new_env = env_extend(env, op_name, op_type, Declared("effect op " ++ op_name ++ " of " ++ effect_name))
+    register_effect_ops(new_env, subst, c2, effect_name, slice(ops, 1, len(ops)))
   }
 }
 
