@@ -1,0 +1,187 @@
+// Did-you-mean suggestions + exhaustive match analysis
+// Part of the self-hosted checker — error quality module.
+//
+// Pure functions: no I/O, no checker imports. Returns data that
+// the checker callsite formats via format_diagnostic.
+
+// No imports needed — this module is pure computation.
+// Types (Ty, Pat, etc.) are available via the checker that imports us.
+
+// ─── Levenshtein Edit Distance ──────────────────────────────
+// Two-row DP on chars(). Returns integer distance.
+
+fn lev_min3(a, b, c) = {
+  let m = if a < b { a } else { b }
+  if m < c { m } else { c }
+}
+
+// Build one row of the DP table with an accumulator.
+fn lev_build_row(prev, b_chars, a_char, j, acc) = {
+  if j > len(b_chars) { acc }
+  else {
+    if j == 0 {
+      let val = prev[0] + 1
+      lev_build_row(prev, b_chars, a_char, j + 1, acc ++ [val])
+    } else {
+      let cost = if a_char == b_chars[j - 1] { 0 } else { 1 }
+      let diag = prev[j - 1] + cost
+      let above = prev[j] + 1
+      let left = acc[j - 1] + 1
+      let val = lev_min3(diag, above, left)
+      lev_build_row(prev, b_chars, a_char, j + 1, acc ++ [val])
+    }
+  }
+}
+
+// Build initial row [0, 1, 2, ..., n]
+fn lev_init_row(n, i) = {
+  if i > n { [] }
+  else { [i] ++ lev_init_row(n, i + 1) }
+}
+
+// Iterate through rows of a
+fn lev_rows(prev, a_chars, b_chars, i) = {
+  if i >= len(a_chars) { prev }
+  else {
+    let row = lev_build_row(prev, b_chars, a_chars[i], 0, [])
+    lev_rows(row, a_chars, b_chars, i + 1)
+  }
+}
+
+fn levenshtein(a, b) = {
+  let a_chars = chars(a)
+  let b_chars = chars(b)
+  if len(a_chars) == 0 { len(b_chars) }
+  else { if len(b_chars) == 0 { len(a_chars) }
+  else {
+    let init = lev_init_row(len(b_chars), 0)
+    let final_row = lev_rows(init, a_chars, b_chars, 0)
+    final_row[len(b_chars)]
+  }}
+}
+
+// ─── Environment Name Collection ────────────────────────────
+
+fn collect_env_names(env) = {
+  if len(env) == 0 { [] }
+  else {
+    let (name, _, _) = env[0]
+    let rest = collect_env_names(slice(env, 1, len(env)))
+    if len(name) == 0 { rest }
+    else {
+      let first = chars(name)[0]
+      if first == "_" { rest }
+      else { [name] ++ rest }
+    }
+  }
+}
+
+// ─── Did-You-Mean for Variables ─────────────────────────────
+
+fn find_best_match(candidates, target, i, best_name, best_dist) = {
+  if i >= len(candidates) { (best_name, best_dist) }
+  else {
+    let candidate = candidates[i]
+    let d = levenshtein(candidate, target)
+    if d < best_dist {
+      find_best_match(candidates, target, i + 1, candidate, d)
+    } else {
+      find_best_match(candidates, target, i + 1, best_name, best_dist)
+    }
+  }
+}
+
+fn find_similar_name(env, name) = {
+  let names = collect_env_names(env)
+  let (best, dist) = find_best_match(names, name, 0, "", 999)
+  if dist <= 3 { best } else { "" }
+}
+
+// ─── Did-You-Mean for Types ─────────────────────────────────
+
+fn collect_env_types(env) = {
+  let builtins = ["Int", "Float", "String", "Bool", "List"]
+  let names = collect_type_names_from_env(env)
+  builtins ++ names
+}
+
+fn collect_type_names_from_env(env) = {
+  if len(env) == 0 { [] }
+  else {
+    let (name, ty, _) = env[0]
+    let rest = collect_type_names_from_env(slice(env, 1, len(env)))
+    match ty {
+      TName(n, _) => if n == name { [name] ++ rest } else { rest },
+      _ => rest
+    }
+  }
+}
+
+fn find_similar_type(env, name) = {
+  let types = collect_env_types(env)
+  let (best, dist) = find_best_match(types, name, 0, "", 999)
+  if dist <= 3 { best } else { "" }
+}
+
+// ─── Exhaustive Match Analysis ──────────────────────────────
+
+fn collect_constructors(env, type_name) = {
+  if len(env) == 0 { [] }
+  else {
+    let (name, ty, _) = env[0]
+    let rest = collect_constructors(slice(env, 1, len(env)), type_name)
+    match ty {
+      TName(tn, _) => {
+        if tn == type_name && name != type_name {
+          [name] ++ rest
+        } else { rest }
+      },
+      _ => rest
+    }
+  }
+}
+
+fn collect_pat_names(arms, i) = {
+  if i >= len(arms) { ([], false) }
+  else {
+    let (pat, _) = arms[i]
+    let (rest_names, rest_wild) = collect_pat_names(arms, i + 1)
+    match pat {
+      PCon(name, _) => ([name] ++ rest_names, rest_wild),
+      PWild => (rest_names, true),
+      PVar(_) => (rest_names, true),
+      _ => (rest_names, rest_wild)
+    }
+  }
+}
+
+fn suggest_list_contains(lst, item, i) = {
+  if i >= len(lst) { false }
+  else {
+    if lst[i] == item { true }
+    else { suggest_list_contains(lst, item, i + 1) }
+  }
+}
+
+fn find_missing(all, covered, i) = {
+  if i >= len(all) { [] }
+  else {
+    let name = all[i]
+    let rest = find_missing(all, covered, i + 1)
+    if suggest_list_contains(covered, name, 0) { rest }
+    else { [name] ++ rest }
+  }
+}
+
+fn check_exhaustive(env, type_name, arms) = {
+  if type_name == "" { [] }
+  else {
+    let constructors = collect_constructors(env, type_name)
+    if len(constructors) == 0 { [] }
+    else {
+      let (covered, has_wild) = collect_pat_names(arms, 0)
+      if has_wild { [] }
+      else { find_missing(constructors, covered, 0) }
+    }
+  }
+}

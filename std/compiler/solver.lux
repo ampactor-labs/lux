@@ -1,0 +1,124 @@
+// Refinement Type Solver — compile-time predicate verification
+//
+// Evaluates refinement predicates against known literal values.
+// The solver is deliberately simple: it handles the common case
+// (literal assignments) and returns Unknown for anything complex.
+// This matches the Rust solver in src/checker/solver.rs.
+//
+// NOTE: The Rust VM does not match string literals inside constructor
+// patterns, so we use BinOp(op, l, r) + if/else on op instead of
+// BinOp("Add", l, r) directly.
+
+import compiler/parser
+
+type SolverResult = Proven | Disproven(String) | Unknown
+
+// Unwrap SExpr to get the bare Expr inside.
+fn unwrap_sexpr(e) = match e {
+  S(inner, _, _) => inner,
+  _ => e
+}
+
+// Extract a numeric literal from an expression (may be SExpr-wrapped).
+// Returns (found: Bool, value: Float).
+fn extract_literal(raw_expr) = {
+  let expr = unwrap_sexpr(raw_expr)
+  match expr {
+    IntLit(s) => (true, to_float(parse_int(s))),
+    FloatLit(s) => (true, parse_float(s)),
+    UnaryOp(op, inner) =>
+      if op == "Neg" {
+        let (found, val) = extract_literal(inner)
+        if found { (true, 0.0 - val) } else { (false, 0.0) }
+      } else { (false, 0.0) },
+    _ => (false, 0.0)
+  }
+}
+
+// Evaluate a numeric expression given a self_val substitution.
+// Returns (evaluated: Bool, value: Float).
+fn eval_numeric(raw_expr, self_val) = {
+  let expr = unwrap_sexpr(raw_expr)
+  match expr {
+    VarRef(name) => if name == "self" { (true, self_val) } else { (false, 0.0) },
+    IntLit(s) => (true, to_float(parse_int(s))),
+    FloatLit(s) => (true, parse_float(s)),
+    UnaryOp(op, inner) =>
+      if op == "Neg" {
+        let (ok, v) = eval_numeric(inner, self_val)
+        if ok { (true, 0.0 - v) } else { (false, 0.0) }
+      } else { (false, 0.0) },
+    BinOp(op, l, r) => {
+      let (lok, lv) = eval_numeric(l, self_val)
+      let (rok, rv) = eval_numeric(r, self_val)
+      if lok && rok {
+        if op == "Add" { (true, lv + rv) }
+        else if op == "Sub" { (true, lv - rv) }
+        else if op == "Mul" { (true, lv * rv) }
+        else if op == "Div" { (true, lv / rv) }
+        else { (false, 0.0) }
+      } else { (false, 0.0) }
+    },
+    _ => (false, 0.0)
+  }
+}
+
+// Evaluate a predicate expression to a boolean.
+// Returns (evaluated: Bool, result: Bool).
+fn eval_pred(raw_expr, self_val) = {
+  let expr = unwrap_sexpr(raw_expr)
+  match expr {
+    BoolLit(b) => (true, b),
+    BinOp(op, l, r) => {
+      if op == "And" {
+        let (lok, lv) = eval_pred(l, self_val)
+        let (rok, rv) = eval_pred(r, self_val)
+        if lok && rok { (true, lv && rv) } else { (false, false) }
+      }
+      else if op == "Or" {
+        let (lok, lv) = eval_pred(l, self_val)
+        let (rok, rv) = eval_pred(r, self_val)
+        if lok && rok { (true, lv || rv) } else { (false, false) }
+      }
+      else if op == "LtEq" {
+        let (lok, lv) = eval_numeric(l, self_val)
+        let (rok, rv) = eval_numeric(r, self_val)
+        if lok && rok { (true, lv <= rv) } else { (false, false) }
+      }
+      else if op == "GtEq" {
+        let (lok, lv) = eval_numeric(l, self_val)
+        let (rok, rv) = eval_numeric(r, self_val)
+        if lok && rok { (true, lv >= rv) } else { (false, false) }
+      }
+      else if op == "Lt" {
+        let (lok, lv) = eval_numeric(l, self_val)
+        let (rok, rv) = eval_numeric(r, self_val)
+        if lok && rok { (true, lv < rv) } else { (false, false) }
+      }
+      else if op == "Gt" {
+        let (lok, lv) = eval_numeric(l, self_val)
+        let (rok, rv) = eval_numeric(r, self_val)
+        if lok && rok { (true, lv > rv) } else { (false, false) }
+      }
+      else if op == "Eq" {
+        let (lok, lv) = eval_numeric(l, self_val)
+        let (rok, rv) = eval_numeric(r, self_val)
+        if lok && rok { (true, abs(lv - rv) < 0.0001) } else { (false, false) }
+      }
+      else { (false, false) }
+    },
+    _ => (false, false)
+  }
+}
+
+// Check a refinement predicate against a value expression.
+fn check_refinement(predicate, value_expr) = {
+  let (found, lit_val) = extract_literal(value_expr)
+  if !found { Unknown }
+  else {
+    let (evaluated, result) = eval_pred(predicate, lit_val)
+    if !evaluated { Unknown }
+    else if result { Proven }
+    else { Disproven("value " ++ to_string(lit_val) ++ " violates refinement predicate") }
+  }
+}

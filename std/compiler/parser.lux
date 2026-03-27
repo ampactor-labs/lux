@@ -43,6 +43,7 @@ type Stmt
   | LetDestructure(List, Expr)
   | FnStmt(String, List, Expr, List)
   | TypeStmt(String, List)
+  | TypeAliasStmt(String, String, Expr)
   | EffectDeclStmt(String, List)
   | ExprStmt(Expr)
   | ImportStmt(String)
@@ -542,8 +543,16 @@ fn parse_type_decl(tokens, pos) = {
   let p2 = skip_ws(tokens, p + 1);
   // Skip optional = sign
   let p3 = if check(tokens, p2, "Eq") { skip_ws(tokens, p2 + 1) } else { p2 };
-  let (variants, p4) = parse_variants(tokens, p3);
-  (TypeStmt(name, variants), p4)
+  // Check for type alias: type Name = Base where predicate
+  let base_name = tok_val(tokens, p3);
+  let p3b = skip_ws(tokens, p3 + 1);
+  if check(tokens, p3b, "Ident") && tok_val(tokens, p3b) == "where" {
+    let (pred, p4) = parse_expr(tokens, skip_ws(tokens, p3b + 1));
+    (TypeAliasStmt(name, base_name, pred), p4)
+  } else {
+    let (variants, p4) = parse_variants(tokens, p3);
+    (TypeStmt(name, variants), p4)
+  }
 }
 
 fn parse_variants(tokens, pos) = {

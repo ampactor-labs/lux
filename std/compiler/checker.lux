@@ -21,6 +21,8 @@ import compiler/lexer
 import compiler/parser
 import compiler/checker_effects
 import compiler/checker_ownership
+import compiler/checker_suggest
+import compiler/solver
 
 // ─── Type Representation ─────────────────────────────────────
 
@@ -279,6 +281,12 @@ fn infer_expr(env, subst, counter, sexpr) = {
   VarRef(name) => {
     let (found_name, ty, bind_reason) = env_lookup(env, name)
     if found_name == "not_found" {
+      let similar = find_similar_name(env, name)
+      let _ = if similar != "" {
+        let msg = "unknown variable '" ++ name ++ "' — did you mean '" ++ similar ++ "'?"
+        let source = env_source(env)
+        println(format_diagnostic(source, "Error", msg, line, col))
+      } else { () }
       let (tv, c2) = fresh_var(counter)
       let (c2_id, _) = c2
       (tv, subst, c2, Because("unknown variable '" ++ name ++ "', assigned fresh type", Fresh(c2_id - 1)), EfPure)
@@ -405,6 +413,18 @@ fn infer_expr(env, subst, counter, sexpr) = {
       let (result_ty, s3, c3, result_reason, arm_effs) = infer_expr(arm_env, s2, c2, first_body)
       // Unify remaining arms with first arm's type
       let (s_final, c_final, all_effs) = unify_match_arms(env, s3, c3, scr_ty, result_ty, slice(arms, 1, len(arms)), merge_effects(scr_effs, arm_effs))
+      // Exhaustive match check — resolve ADT type name
+      let resolved_scr = apply(s_final, scr_ty)
+      let adt_name = match resolved_scr {
+        TName(tn, _) => tn,
+        _ => infer_adt_from_arms(env, arms, 0)
+      }
+      let missing = check_exhaustive(env, adt_name, arms)
+      let _ = if len(missing) > 0 {
+        let source = env_source(env)
+        let msg = "non-exhaustive match — missing: " ++ join(missing, ", ")
+        println(format_diagnostic(source, "Warning", msg, line, col))
+      } else { () }
       (apply(s_final, result_ty), s_final, c_final, Because("match expression", result_reason), all_effs)
     }
   },
@@ -590,6 +610,18 @@ fn check_stmt(env, subst, counter, stmt) = match stmt {
     (final_env, subst, counter, EfPure)
   },
 
+  TypeAliasStmt(name, base_type, _predicate) => {
+    let base_ty = match base_type {
+      "Int" => TInt,
+      "Float" => TFloat,
+      "String" => TString,
+      "Bool" => TBool,
+      _ => TName(base_type, [])
+    }
+    let new_env = env_extend(env, name, base_ty, Declared("type alias " ++ name))
+    (new_env, subst, counter, EfPure)
+  },
+
   ImportStmt(_) => (env, subst, counter, EfPure),
 
   _ => (env, subst, counter, EfPure)
@@ -673,6 +705,29 @@ fn report_ownership_violations(source, fn_name, violations) = {
       _ => ()
     };
     report_ownership_violations(source, fn_name, slice(violations, 1, len(violations)))
+  }
+}
+
+// ─── ADT Type Inference from Patterns ────────────────────────
+// When scrutinee type is unresolved (TVar), infer ADT name from constructor patterns.
+
+fn infer_adt_from_arms(env, arms, i) = {
+  if i >= len(arms) { "" }
+  else {
+    let (pat, _) = arms[i]
+    match pat {
+      PCon(name, _) => {
+        let (found, ty, _) = env_lookup(env, name)
+        if found == "not_found" { infer_adt_from_arms(env, arms, i + 1) }
+        else {
+          match ty {
+            TName(tn, _) => tn,
+            _ => infer_adt_from_arms(env, arms, i + 1)
+          }
+        }
+      },
+      _ => infer_adt_from_arms(env, arms, i + 1)
+    }
   }
 }
 
@@ -886,11 +941,51 @@ fn format_diagnostic(source, kind, msg, line, col) = {
 
 fn repeat_char(ch, n) = if n <= 0 { "" } else { ch ++ repeat_char(ch, n - 1) }
 
-fn check_stmts(env, subst, counter, stmts) = {
+fn check_stmts(env, subst, counter, stmts) =
+  check_stmts_with_aliases(env, subst, counter, stmts, [])
+
+fn check_stmts_with_aliases(env, subst, counter, stmts, aliases) = {
   if len(stmts) == 0 { (env, subst, counter) }
   else {
-    let (new_env, s1, c1, _) = check_stmt(env, subst, counter, stmts[0])
-    check_stmts(new_env, s1, c1, slice(stmts, 1, len(stmts)))
+    let stmt = stmts[0]
+    let rest = slice(stmts, 1, len(stmts))
+    let (new_env, s1, c1, _) = check_stmt(env, subst, counter, stmt)
+    let new_aliases = match stmt {
+      TypeAliasStmt(name, base, pred) => aliases ++ [(name, base, pred)],
+      _ => aliases
+    }
+    let _ = match stmt {
+      LetStmt(name, value) => verify_let_refinements(new_env, name, value, new_aliases),
+      _ => ()
+    }
+    check_stmts_with_aliases(new_env, s1, c1, rest, new_aliases)
+  }
+}
+
+fn verify_let_refinements(env, name, value, aliases) =
+  verify_aliases_loop(env, name, value, aliases)
+
+fn verify_aliases_loop(env, name, value, aliases) = {
+  if len(aliases) == 0 { () }
+  else {
+    let (alias_name, base_type, predicate) = aliases[0]
+    let (_, ty, _) = env_lookup(env, name)
+    let type_matches = match ty {
+      TInt => base_type == "Int",
+      TFloat => base_type == "Float",
+      _ => false
+    }
+    let _ = if type_matches {
+      let result = check_refinement(predicate, value)
+      match result {
+        Disproven(reason) =>
+          println("[refinement] " ++ alias_name ++ " violation: " ++ name ++ " -- " ++ reason),
+        Proven =>
+          println("[refinement] " ++ alias_name ++ " satisfied: " ++ name),
+        _ => ()
+      }
+    } else { () }
+    verify_aliases_loop(env, name, value, slice(aliases, 1, len(aliases)))
   }
 }
 
