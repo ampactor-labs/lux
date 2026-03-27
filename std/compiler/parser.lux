@@ -41,6 +41,7 @@ type Pat
 type Stmt
   = LetStmt(String, Expr)
   | LetDestructure(List, Expr)
+  | LetPattern(Pat, Expr)
   | FnStmt(String, List, Expr, List)
   | TypeStmt(String, List)
   | TypeAliasStmt(String, String, Expr)
@@ -231,9 +232,17 @@ fn parse_let(tokens, pos) = {
   }
   else {
     let name = tok_val(tokens, p);
-    let p2 = expect(tokens, skip_ws(tokens, p + 1), "Eq");
-    let (val, p3) = parse_expr(tokens, skip_ws(tokens, p2));
-    (LetStmt(name, val), p3)
+    if check(tokens, p + 1, "LParen") {
+      // Constructor pattern: let S(a, b, c) = expr
+      let (pat, p2) = parse_pattern(tokens, p);
+      let p3 = expect(tokens, skip_ws(tokens, p2), "Eq");
+      let (val, p4) = parse_expr(tokens, skip_ws(tokens, p3));
+      (LetPattern(pat, val), p4)
+    } else {
+      let p2 = expect(tokens, skip_ws(tokens, p + 1), "Eq");
+      let (val, p3) = parse_expr(tokens, skip_ws(tokens, p2));
+      (LetStmt(name, val), p3)
+    }
   }
 }
 

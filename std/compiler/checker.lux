@@ -624,6 +624,12 @@ fn check_stmt(env, subst, counter, stmt) = match stmt {
 
   ImportStmt(_) => (env, subst, counter, EfPure),
 
+  LetPattern(pat, value) => {
+    let (val_ty, s1, c1, val_reason, eff) = infer_expr(env, subst, counter, value)
+    let (new_env, s2, c2) = bind_pattern(env, s1, c1, pat, val_ty)
+    (new_env, s2, c2, eff)
+  },
+
   _ => (env, subst, counter, EfPure)
 }
 

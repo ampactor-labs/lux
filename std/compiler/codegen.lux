@@ -843,6 +843,23 @@ fn destructure_globals(ctx, names, i) = {
   }
 }
 
+fn destructure_con_fields_global(ctx, scratch_idx, fields, i) = {
+  if i >= len(fields) { ctx }
+  else {
+    match fields[i] {
+      PVar(name) => {
+        let ctx2 = emit_u16(emit_op(ctx, OP_LOAD_GLOBAL), scratch_idx)
+        let ctx3 = emit_u8(emit_op(ctx2, OP_LOAD_INT), i)
+        let ctx4 = emit_op(ctx3, OP_LIST_INDEX)
+        let (ctx5, name_idx) = intern_name(ctx4, name)
+        let ctx6 = emit_u16(emit_op(ctx5, OP_STORE_GLOBAL), name_idx)
+        destructure_con_fields_global(ctx6, scratch_idx, fields, i + 1)
+      },
+      _ => destructure_con_fields_global(ctx, scratch_idx, fields, i + 1)
+    }
+  }
+}
+
 // ─── Statement Compilation ───────────────────────────────────
 
 fn compile_stmt(ctx, stmt) = match stmt {
@@ -868,6 +885,32 @@ fn compile_stmt(ctx, stmt) = match stmt {
       // Global scope: DUP-based (no local slots at depth 0)
       let ctx3 = destructure_globals(ctx2, names, 0)
       emit_op(ctx3, OP_POP)
+    }
+  },
+
+  LetPattern(pat, value) => {
+    let ctx2 = compile_expr(ctx, value)
+    match pat {
+      PCon(_, fields) => {
+        if ctx_depth(ctx2) > 0 {
+          let (ctx3, val_slot) = declare_local(ctx2, "_lp")
+          bind_pattern_fields(ctx3, fields, 0, val_slot)
+        } else {
+          let (ctx3, name_idx) = intern_name(ctx2, "_lp_g")
+          let ctx4 = emit_u16(emit_op(ctx3, OP_STORE_GLOBAL), name_idx)
+          destructure_con_fields_global(ctx4, name_idx, fields, 0)
+        }
+      },
+      PVar(name) => {
+        if ctx_depth(ctx2) > 0 {
+          let (ctx3, _) = declare_local(ctx2, name)
+          ctx3
+        } else {
+          let (ctx3, name_idx) = intern_name(ctx2, name)
+          emit_u16(emit_op(ctx3, OP_STORE_GLOBAL), name_idx)
+        }
+      },
+      _ => emit_op(ctx2, OP_POP)
     }
   },
 
