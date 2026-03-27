@@ -37,6 +37,7 @@ type Pat
   | PLit(Expr)
   | PWild
   | PCon(String, List)
+  | PTuple(List)
 
 type Stmt
   = LetStmt(String, Expr)
@@ -424,13 +425,18 @@ fn parse_pattern(tokens, pos) = {
       }
     }
   }
+  else { if typ == "LParen" {
+    // Tuple pattern: (a, b, _)
+    let (args, p2) = parse_pattern_args(tokens, p + 1);
+    (PTuple(args), p2)
+  }
   else { if typ == "Int" || typ == "String" || typ == "True" || typ == "False" {
     let (atom, ap) = parse_atom(tokens, p);
     (PLit(atom), ap)
   }
   else {
     (PWild, p + 1)
-  }}
+  }}}
 }
 
 fn parse_pattern_args(tokens, pos) = {

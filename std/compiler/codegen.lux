@@ -527,6 +527,7 @@ fn compile_match_arms(ctx, arms, end_patches, scr_slot) = {
       // Extract and bind fields if PCon pattern
       let ctx7 = match pat {
         PCon(_, fields) => bind_pattern_fields(ctx_scoped, fields, 0, scr_slot),
+        PTuple(fields) => bind_pattern_fields(ctx_scoped, fields, 0, scr_slot),
         _ => ctx_scoped
       }
       // Compile body
@@ -549,6 +550,7 @@ fn compile_pattern_test(ctx, pat) = match pat {
     let (ctx2, name_idx) = intern_name(ctx, name)
     emit_u16(emit_op(ctx2, OP_MATCH_VARIANT), name_idx)
   },
+  PTuple(_) => emit_op(ctx, OP_MATCH_WILD),
   PLit(sexpr) => {
     let S(expr, _, _) = sexpr;
     match expr {
@@ -892,6 +894,16 @@ fn compile_stmt(ctx, stmt) = match stmt {
     let ctx2 = compile_expr(ctx, value)
     match pat {
       PCon(_, fields) => {
+        if ctx_depth(ctx2) > 0 {
+          let (ctx3, val_slot) = declare_local(ctx2, "_lp")
+          bind_pattern_fields(ctx3, fields, 0, val_slot)
+        } else {
+          let (ctx3, name_idx) = intern_name(ctx2, "_lp_g")
+          let ctx4 = emit_u16(emit_op(ctx3, OP_STORE_GLOBAL), name_idx)
+          destructure_con_fields_global(ctx4, name_idx, fields, 0)
+        }
+      },
+      PTuple(fields) => {
         if ctx_depth(ctx2) > 0 {
           let (ctx3, val_slot) = declare_local(ctx2, "_lp")
           bind_pattern_fields(ctx3, fields, 0, val_slot)

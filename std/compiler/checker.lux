@@ -748,7 +748,10 @@ fn bind_pattern(env, subst, counter, pat, scrutinee_ty) = match pat {
   PWild => (env, subst, counter),
   PLit(_) => (env, subst, counter),
   PCon(name, sub_pats) => {
-    // Bind sub-pattern variables to fresh type vars
+    let (new_env, new_counter) = bind_con_sub_pats(env, subst, counter, sub_pats, scrutinee_ty)
+    (new_env, subst, new_counter)
+  },
+  PTuple(sub_pats) => {
     let (new_env, new_counter) = bind_con_sub_pats(env, subst, counter, sub_pats, scrutinee_ty)
     (new_env, subst, new_counter)
   },
