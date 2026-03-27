@@ -15,7 +15,7 @@ type OwnershipViolation
 
 // ─── Helpers ───────────────────────────────────────────────
 
-fn is_own_param(name, own_params) = {
+fn is_own_param(name, own_params) with Pure = {
   if len(own_params) == 0 { false }
   else {
     let (n, _) = own_params[0];
@@ -24,7 +24,7 @@ fn is_own_param(name, own_params) = {
   }
 }
 
-fn is_ref_param(name, ref_params) = {
+fn is_ref_param(name, ref_params) with Pure = {
   if len(ref_params) == 0 { false }
   else {
     let (n, _) = ref_params[0];
@@ -34,7 +34,7 @@ fn is_ref_param(name, ref_params) = {
 }
 
 // used list is [(name, first_use_line)] pairs
-fn used_has(name, used) = {
+fn used_has(name, used) with Pure = {
   if len(used) == 0 { false }
   else {
     let (n, _) = used[0];
@@ -42,7 +42,7 @@ fn used_has(name, used) = {
   }
 }
 
-fn used_line(name, used) = {
+fn used_line(name, used) with Pure = {
   if len(used) == 0 { 0 }
   else {
     let (n, line) = used[0];
@@ -50,7 +50,7 @@ fn used_line(name, used) = {
   }
 }
 
-fn used_union(a, b) = {
+fn used_union(a, b) with Pure = {
   if len(b) == 0 { a }
   else {
     let (name, line) = b[0];
@@ -64,7 +64,7 @@ fn used_union(a, b) = {
 // Takes: params as [(name, tier)] where tier is "own"/"ref"/"inferred".
 // Returns: list of OwnershipViolation.
 
-fn check_ownership(params, body) = {
+fn check_ownership(params, body) with Pure = {
   let own_params = filter_tier(params, "own")
   let ref_params = filter_tier(params, "ref")
 
@@ -77,7 +77,7 @@ fn check_ownership(params, body) = {
   }
 }
 
-fn filter_tier(params, tier) = {
+fn filter_tier(params, tier) with Pure = {
   if len(params) == 0 { [] }
   else {
     let (name, t) = params[0];
@@ -86,7 +86,7 @@ fn filter_tier(params, tier) = {
   }
 }
 
-fn check_unused_own(own_params, used) = {
+fn check_unused_own(own_params, used) with Pure = {
   if len(own_params) == 0 { [] }
   else {
     let (name, _) = own_params[0];
@@ -100,7 +100,7 @@ fn check_unused_own(own_params, used) = {
 // Walk an expression, tracking uses of own-qualified parameters.
 // Returns (used_names, violations).
 
-fn walk_expr(sexpr, own_params, used) = {
+fn walk_expr(sexpr, own_params, used) with Pure = {
   let S(expr, line, _) = sexpr;
   match expr {
   VarRef(name) => {
@@ -179,7 +179,7 @@ fn walk_expr(sexpr, own_params, used) = {
 }
 }
 
-fn walk_list(exprs, own_params, used, violations) = {
+fn walk_list(exprs, own_params, used, violations) with Pure = {
   if len(exprs) == 0 { (used, violations) }
   else {
     let (u1, v1) = walk_expr(exprs[0], own_params, used)
@@ -187,7 +187,7 @@ fn walk_list(exprs, own_params, used, violations) = {
   }
 }
 
-fn walk_stmts(stmts, own_params, used) = {
+fn walk_stmts(stmts, own_params, used) with Pure = {
   if len(stmts) == 0 { (used, []) }
   else {
     let (u1, v1) = walk_stmt(stmts[0], own_params, used)
@@ -196,13 +196,13 @@ fn walk_stmts(stmts, own_params, used) = {
   }
 }
 
-fn walk_stmt(stmt, own_params, used) = match stmt {
+fn walk_stmt(stmt, own_params, used) with Pure = match stmt {
   LetStmt(_, value) => walk_expr(value, own_params, used),
   ExprStmt(expr) => walk_expr(expr, own_params, used),
   _ => (used, [])
 }
 
-fn walk_match_arms(arms, own_params, used, violations) = {
+fn walk_match_arms(arms, own_params, used, violations) with Pure = {
   if len(arms) == 0 { (used, violations) }
   else {
     let (_, body) = arms[0];
@@ -215,12 +215,12 @@ fn walk_match_arms(arms, own_params, used, violations) = {
 // A ref parameter must not appear in return position.
 // Return position = the final expression the function evaluates to.
 
-fn check_ref_escape(body, ref_params) = {
+fn check_ref_escape(body, ref_params) with Pure = {
   if len(ref_params) == 0 { [] }
   else { check_return_pos(body, ref_params) }
 }
 
-fn check_return_pos(sexpr, ref_params) = {
+fn check_return_pos(sexpr, ref_params) with Pure = {
   let S(expr, line, _) = sexpr;
   match expr {
     VarRef(name) => {
@@ -235,7 +235,7 @@ fn check_return_pos(sexpr, ref_params) = {
   }
 }
 
-fn check_return_arms(arms, ref_params) = {
+fn check_return_arms(arms, ref_params) with Pure = {
   if len(arms) == 0 { [] }
   else {
     let (_, body) = arms[0];

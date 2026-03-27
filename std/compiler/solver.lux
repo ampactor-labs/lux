@@ -14,14 +14,14 @@ import compiler/parser
 type SolverResult = Proven | Disproven(String) | Unknown
 
 // Unwrap SExpr to get the bare Expr inside.
-fn unwrap_sexpr(e) = match e {
+fn unwrap_sexpr(e) with Pure = match e {
   S(inner, _, _) => inner,
   _ => e
 }
 
 // Extract a numeric literal from an expression (may be SExpr-wrapped).
 // Returns (found: Bool, value: Float).
-fn extract_literal(raw_expr) = {
+fn extract_literal(raw_expr) with Pure = {
   let expr = unwrap_sexpr(raw_expr)
   match expr {
     IntLit(s) => (true, to_float(parse_int(s))),
@@ -37,7 +37,7 @@ fn extract_literal(raw_expr) = {
 
 // Evaluate a numeric expression given a self_val substitution.
 // Returns (evaluated: Bool, value: Float).
-fn eval_numeric(raw_expr, self_val) = {
+fn eval_numeric(raw_expr, self_val) with Pure = {
   let expr = unwrap_sexpr(raw_expr)
   match expr {
     VarRef(name) => if name == "self" { (true, self_val) } else { (false, 0.0) },
@@ -65,7 +65,7 @@ fn eval_numeric(raw_expr, self_val) = {
 
 // Evaluate a predicate expression to a boolean.
 // Returns (evaluated: Bool, result: Bool).
-fn eval_pred(raw_expr, self_val) = {
+fn eval_pred(raw_expr, self_val) with Pure = {
   let expr = unwrap_sexpr(raw_expr)
   match expr {
     BoolLit(b) => (true, b),
@@ -112,7 +112,7 @@ fn eval_pred(raw_expr, self_val) = {
 }
 
 // Check a refinement predicate against a value expression.
-fn check_refinement(predicate, value_expr) = {
+fn check_refinement(predicate, value_expr) with Pure = {
   let (found, lit_val) = extract_literal(value_expr)
   if !found { Unknown }
   else {

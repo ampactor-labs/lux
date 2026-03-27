@@ -47,18 +47,18 @@ type Unlock
 // A step has: what dimension, what to write, what it unlocks,
 // and which prior steps it requires (DAG as adjacency list).
 
-fn make_step(dim, annotation, unlocks, requires) =
+fn make_step(dim, annotation, unlocks, requires) with Pure =
   (dim, annotation, unlocks, requires)
 
 // ─── FnGradient ──────────────────────────────────────────────
 // Everything the gradient knows about one function.
 
-fn make_fn_gradient(name, sig, steps, priority) =
+fn make_fn_gradient(name, sig, steps, priority) with Pure =
   (name, sig, steps, priority)
 
 // ─── Unlock Weights ──────────────────────────────────────────
 
-fn unlock_weight(u) = match u {
+fn unlock_weight(u) with Pure = match u {
   Memoization => 3,
   Parallelism => 3,
   CompileTimeEval => 2,
@@ -71,7 +71,7 @@ fn unlock_weight(u) = match u {
   _ => 0
 }
 
-fn unlock_name(u) = match u {
+fn unlock_name(u) with Pure = match u {
   Memoization => "memoization",
   Parallelism => "parallelism",
   CompileTimeEval => "compile-time eval",
@@ -84,7 +84,7 @@ fn unlock_name(u) = match u {
   _ => "unknown"
 }
 
-fn total_weight(unlocks) = {
+fn total_weight(unlocks) with Pure = {
   if len(unlocks) == 0 { 0 }
   else { unlock_weight(unlocks[0]) + total_weight(slice(unlocks, 1, len(unlocks))) }
 }
@@ -94,7 +94,7 @@ fn total_weight(unlocks) = {
 // Returns a ranked gradient: all function gradients, sorted by
 // priority, with the top function identified.
 
-fn compute_gradient(env, subst, ast) = {
+fn compute_gradient(env, subst, ast) with Pure = {
   // Build declared map: which functions have user annotations?
   let declared = build_declared_map(ast)
   // Analyze each function in the environment
@@ -106,7 +106,7 @@ fn compute_gradient(env, subst, ast) = {
 }
 
 // Walk AST to find FnStmt nodes and their declared effects
-fn build_declared_map(ast) = {
+fn build_declared_map(ast) with Pure = {
   if len(ast) == 0 { [] }
   else {
     let entry = match ast[0] {
@@ -117,7 +117,7 @@ fn build_declared_map(ast) = {
   }
 }
 
-fn lookup_declared(declared, name) = {
+fn lookup_declared(declared, name) with Pure = {
   if len(declared) == 0 { [] }
   else {
     let (n, effs) = declared[0]
@@ -127,7 +127,7 @@ fn lookup_declared(declared, name) = {
 }
 
 // Analyze all functions in the environment
-fn analyze_all_fns(env, subst, declared) = {
+fn analyze_all_fns(env, subst, declared) with Pure = {
   if len(env) == 0 { [] }
   else {
     let (name, ty, reason) = env[0]
@@ -140,7 +140,7 @@ fn analyze_all_fns(env, subst, declared) = {
 }
 
 // Analyze a single function for gradient opportunities
-fn analyze_fn(name, ty, reason, subst, declared) = {
+fn analyze_fn(name, ty, reason, subst, declared) with Pure = {
   let resolved = apply(subst, ty)
   match resolved {
     TFun(params, ret, effs) => {
@@ -165,7 +165,7 @@ fn analyze_fn(name, ty, reason, subst, declared) = {
 // ─── Effect Dimension ────────────────────────────────────────
 // Detect: is the function Pure? Does it avoid Alloc/Network?
 
-fn probe_effect_dim(name, eff_row, declared, has_annotations) = {
+fn probe_effect_dim(name, eff_row, declared, has_annotations) with Pure = {
   let resolved = eff_row
   match resolved {
     EfPure => {
@@ -215,7 +215,7 @@ fn probe_effect_dim(name, eff_row, declared, has_annotations) = {
   }
 }
 
-fn has_pure_declared(declared) = {
+fn has_pure_declared(declared) with Pure = {
   if len(declared) == 0 { false }
   else {
     let (name, negated) = declared[0]
@@ -224,7 +224,7 @@ fn has_pure_declared(declared) = {
   }
 }
 
-fn has_negation_declared(declared, eff_name) = {
+fn has_negation_declared(declared, eff_name) with Pure = {
   if len(declared) == 0 { false }
   else {
     let (name, negated) = declared[0]
@@ -237,7 +237,7 @@ fn has_negation_declared(declared, eff_name) = {
 // Detect: does the function perform effects that a handler could absorb?
 // If the user declared !E but the body performs E, suggest wrapping.
 
-fn probe_handler_dim(name, eff_row, declared) = {
+fn probe_handler_dim(name, eff_row, declared) with Pure = {
   // When a function declares !E, the constraint checker already caught
   // violations and printed errors. The gradient's job is to show the
   // PATH: wrap in handler to absorb, which satisfies the constraint.
@@ -245,7 +245,7 @@ fn probe_handler_dim(name, eff_row, declared) = {
   collect_negation_steps(declared)
 }
 
-fn collect_negation_steps(declared) = {
+fn collect_negation_steps(declared) with Pure = {
   if len(declared) == 0 { [] }
   else {
     let (eff_name, negated) = declared[0]
@@ -265,7 +265,7 @@ fn collect_negation_steps(declared) = {
 // Handler steps come first. Effect steps that depend on handler
 // absorption get requires pointing to the handler step index.
 
-fn renumber_requires(handler_steps, effect_steps) = {
+fn renumber_requires(handler_steps, effect_steps) with Pure = {
   let n_handlers = len(handler_steps)
   if n_handlers == 0 { effect_steps }
   else {
@@ -276,7 +276,7 @@ fn renumber_requires(handler_steps, effect_steps) = {
   }
 }
 
-fn link_effect_to_handler(effect_steps, handler_steps, offset) = {
+fn link_effect_to_handler(effect_steps, handler_steps, offset) with Pure = {
   if len(effect_steps) == 0 { [] }
   else {
     let step = effect_steps[0]
@@ -293,7 +293,7 @@ fn link_effect_to_handler(effect_steps, handler_steps, offset) = {
   }
 }
 
-fn find_handler_dep(step, handler_steps, idx) = {
+fn find_handler_dep(step, handler_steps, idx) with Pure = {
   if idx >= len(handler_steps) { 0 - 1 }
   else {
     let (h_dim, _, _, _) = handler_steps[idx]
@@ -312,7 +312,7 @@ fn find_handler_dep(step, handler_steps, idx) = {
 
 // ─── Scoring ─────────────────────────────────────────────────
 
-fn score_steps(steps) = {
+fn score_steps(steps) with Pure = {
   if len(steps) == 0 { 0 }
   else {
     let (_, _, unlocks, _) = steps[0]
@@ -320,7 +320,7 @@ fn score_steps(steps) = {
   }
 }
 
-fn sort_by_priority(fgs) = {
+fn sort_by_priority(fgs) with Pure = {
   // Simple insertion sort — gradient lists are small
   if len(fgs) == 0 { [] }
   else {
@@ -328,7 +328,7 @@ fn sort_by_priority(fgs) = {
   }
 }
 
-fn insert_by_priority(fg, sorted) = {
+fn insert_by_priority(fg, sorted) with Pure = {
   if len(sorted) == 0 { [fg] }
   else {
     let (_, _, _, p1) = fg
@@ -345,7 +345,7 @@ fn insert_by_priority(fg, sorted) = {
 // The gradient speaks in paths. Not a wall of warnings.
 // One function. Numbered steps. Where they lead.
 
-fn render_gradient(gradient) = {
+fn render_gradient(gradient) with Pure = {
   let (fn_gradients, top_fn) = gradient
   if len(fn_gradients) == 0 { "" }
   else {
@@ -354,7 +354,7 @@ fn render_gradient(gradient) = {
   }
 }
 
-fn render_fn_gradient(fg) = {
+fn render_fn_gradient(fg) with Pure = {
   let (name, sig, steps, _) = fg
   if len(steps) == 0 { "" }
   else {
@@ -366,7 +366,7 @@ fn render_fn_gradient(fg) = {
   }
 }
 
-fn render_steps(steps, idx) = {
+fn render_steps(steps, idx) with Pure = {
   if len(steps) == 0 { "" }
   else {
     let line = render_step(steps[0], idx)
@@ -376,7 +376,7 @@ fn render_steps(steps, idx) = {
   }
 }
 
-fn render_step(step, idx) = {
+fn render_step(step, idx) with Pure = {
   let (dim, annotation, unlocks, requires) = step
   let action = dim_action(dim)
   let unlock_str = if len(unlocks) > 0 {
@@ -385,7 +385,7 @@ fn render_step(step, idx) = {
   "   " ++ to_string(idx) ++ ". " ++ action ++ unlock_str
 }
 
-fn dim_action(dim) = match dim {
+fn dim_action(dim) with Pure = match dim {
   EffectPure => "add `with Pure`",
   EffectNegate(eff) => "add `with !" ++ eff ++ "`",
   HandlerAbsorb(eff) => "wrap " ++ eff ++ " calls in handler",
@@ -393,7 +393,7 @@ fn dim_action(dim) = match dim {
   _ => "unknown action"
 }
 
-fn render_unlocks(unlocks) = {
+fn render_unlocks(unlocks) with Pure = {
   if len(unlocks) == 0 { "" }
   else {
     let first = unlock_name(unlocks[0])
@@ -404,7 +404,7 @@ fn render_unlocks(unlocks) = {
 }
 
 // Find the first step with no requires (the entry point)
-fn find_first_step(steps, idx) = {
+fn find_first_step(steps, idx) with Pure = {
   if idx >= len(steps) { 1 }
   else {
     let (_, _, _, requires) = steps[idx]

@@ -10,13 +10,13 @@
 // ─── Levenshtein Edit Distance ──────────────────────────────
 // Two-row DP on chars(). Returns integer distance.
 
-fn lev_min3(a, b, c) = {
+fn lev_min3(a, b, c) with Pure = {
   let m = if a < b { a } else { b }
   if m < c { m } else { c }
 }
 
 // Build one row of the DP table with an accumulator.
-fn lev_build_row(prev, b_chars, a_char, j, acc) = {
+fn lev_build_row(prev, b_chars, a_char, j, acc) with Pure = {
   if j > len(b_chars) { acc }
   else {
     if j == 0 {
@@ -34,13 +34,13 @@ fn lev_build_row(prev, b_chars, a_char, j, acc) = {
 }
 
 // Build initial row [0, 1, 2, ..., n]
-fn lev_init_row(n, i) = {
+fn lev_init_row(n, i) with Pure = {
   if i > n { [] }
   else { [i] ++ lev_init_row(n, i + 1) }
 }
 
 // Iterate through rows of a
-fn lev_rows(prev, a_chars, b_chars, i) = {
+fn lev_rows(prev, a_chars, b_chars, i) with Pure = {
   if i >= len(a_chars) { prev }
   else {
     let row = lev_build_row(prev, b_chars, a_chars[i], 0, [])
@@ -48,7 +48,7 @@ fn lev_rows(prev, a_chars, b_chars, i) = {
   }
 }
 
-fn levenshtein(a, b) = {
+fn levenshtein(a, b) with Pure = {
   let a_chars = chars(a)
   let b_chars = chars(b)
   if len(a_chars) == 0 { len(b_chars) }
@@ -62,7 +62,7 @@ fn levenshtein(a, b) = {
 
 // ─── Environment Name Collection ────────────────────────────
 
-fn collect_env_names(env) = {
+fn collect_env_names(env) with Pure = {
   if len(env) == 0 { [] }
   else {
     let (name, _, _) = env[0]
@@ -78,7 +78,7 @@ fn collect_env_names(env) = {
 
 // ─── Did-You-Mean for Variables ─────────────────────────────
 
-fn find_best_match(candidates, target, i, best_name, best_dist) = {
+fn find_best_match(candidates, target, i, best_name, best_dist) with Pure = {
   if i >= len(candidates) { (best_name, best_dist) }
   else {
     let candidate = candidates[i]
@@ -91,7 +91,7 @@ fn find_best_match(candidates, target, i, best_name, best_dist) = {
   }
 }
 
-fn find_similar_name(env, name) = {
+fn find_similar_name(env, name) with Pure = {
   let names = collect_env_names(env)
   let (best, dist) = find_best_match(names, name, 0, "", 999)
   if dist <= 3 { best } else { "" }
@@ -99,13 +99,13 @@ fn find_similar_name(env, name) = {
 
 // ─── Did-You-Mean for Types ─────────────────────────────────
 
-fn collect_env_types(env) = {
+fn collect_env_types(env) with Pure = {
   let builtins = ["Int", "Float", "String", "Bool", "List"]
   let names = collect_type_names_from_env(env)
   builtins ++ names
 }
 
-fn collect_type_names_from_env(env) = {
+fn collect_type_names_from_env(env) with Pure = {
   if len(env) == 0 { [] }
   else {
     let (name, ty, _) = env[0]
@@ -117,7 +117,7 @@ fn collect_type_names_from_env(env) = {
   }
 }
 
-fn find_similar_type(env, name) = {
+fn find_similar_type(env, name) with Pure = {
   let types = collect_env_types(env)
   let (best, dist) = find_best_match(types, name, 0, "", 999)
   if dist <= 3 { best } else { "" }
@@ -125,7 +125,7 @@ fn find_similar_type(env, name) = {
 
 // ─── Exhaustive Match Analysis ──────────────────────────────
 
-fn collect_constructors(env, type_name) = {
+fn collect_constructors(env, type_name) with Pure = {
   if len(env) == 0 { [] }
   else {
     let (name, ty, _) = env[0]
@@ -141,7 +141,7 @@ fn collect_constructors(env, type_name) = {
   }
 }
 
-fn collect_pat_names(arms, i) = {
+fn collect_pat_names(arms, i) with Pure = {
   if i >= len(arms) { ([], false) }
   else {
     let (pat, _) = arms[i]
@@ -155,7 +155,7 @@ fn collect_pat_names(arms, i) = {
   }
 }
 
-fn suggest_list_contains(lst, item, i) = {
+fn suggest_list_contains(lst, item, i) with Pure = {
   if i >= len(lst) { false }
   else {
     if lst[i] == item { true }
@@ -163,7 +163,7 @@ fn suggest_list_contains(lst, item, i) = {
   }
 }
 
-fn find_missing(all, covered, i) = {
+fn find_missing(all, covered, i) with Pure = {
   if i >= len(all) { [] }
   else {
     let name = all[i]
@@ -173,7 +173,7 @@ fn find_missing(all, covered, i) = {
   }
 }
 
-fn check_exhaustive(env, type_name, arms) = {
+fn check_exhaustive(env, type_name, arms) with Pure = {
   if type_name == "" { [] }
   else {
     let constructors = collect_constructors(env, type_name)
