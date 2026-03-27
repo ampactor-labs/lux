@@ -254,8 +254,11 @@ impl Parser {
         {
             self.parse_pattern()?
         } else if let TokenKind::Ident(name) = self.peek() {
-            if name.chars().next().is_some_and(|c| c.is_uppercase()) {
-                // Uppercase ident → variant/record pattern
+            if name.chars().next().is_some_and(|c| c.is_uppercase())
+                && !matches!(self.peek_next(), TokenKind::Eq | TokenKind::Colon)
+            {
+                // Uppercase ident followed by ( or { → variant/record pattern
+                // Uppercase ident followed by = or : → simple binding (e.g., let OP_ADD = 30)
                 self.parse_pattern()?
             } else {
                 // Simple variable binding
