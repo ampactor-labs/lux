@@ -30,11 +30,16 @@ special cases, the architecture is wrong.
 > Full manifesto: `docs/DESIGN.md`
 > Full roadmap: `docs/ROADMAP.md`
 
-## STATE OF THE WORLD — Last Updated: 2026-03-25
+## STATE OF THE WORLD — Last Updated: 2026-03-26
+
+**THE LETTING GO IS COMPLETE.** The Rust type checker has been deleted.
+The self-hosted pipeline is now the only intelligence. Lux thinks in Lux.
 
 | Subsystem | Status | Notes |
 |-----------|--------|-------|
-| Rust compiler | ✅ Working | Golden examples pass, TCO, auto-currying pipes |
+| **Self-hosted pipeline** | ✅ **PRIMARY** | Default for `lux run` and `lux check` — the only intelligence |
+| **Rust checker** | **DELETED** | 4,200 lines retired (c84cd43). Self-hosted checker replaces it. |
+| Rust bootstrap | ✅ Scaffolding | lexer, parser, compiler (AST→bytecode), VM — bootstrap only, Arc 2 deletes these |
 | Effect system | ✅ Working | Fail, Console, State, Compute, handler-local state, evidence-passing |
 | Handle semantics | ✅ Working | Handle returns body value only — state is internal to handler |
 | Effect algebra | ✅ Working | `!E`, `E-F`, `Pure` constraints, compile-time enforcement |
@@ -43,10 +48,8 @@ special cases, the architecture is wrong.
 | Teaching compiler | ✅ Working | `--teach` flag, inferred types/effects display |
 | Handler composition | ✅ Working | `handler` items, bare ref, inheritance, `use` clause |
 | Self-hosted lexer | ✅ Working | All token types, compiles itself |
-| Self-hosted parser | ✅ Working | All expression/statement forms, compiles itself |
-| Self-hosted checker | ✅ Working | HM inference + Why Engine + effect row tracking |
-| Math stdlib | ✅ Working | abs, max, min, clamp, round, sqrt, pow, log, exp, sin, cos, tanh, atan2, pi |
-| Record types | ✅ Working | Anonymous `{ x: 3, y: 4 }`, structural FieldAccess, schema-fingerprint codegen |
+| Self-hosted parser | ✅ Working | All expression/statement forms, TypeAliasStmt, compiles itself |
+| Self-hosted checker | ✅ Working | HM inference + Why Engine + effect rows + did-you-mean + exhaustive match + refinement solver |
 | Self-hosted codegen | ✅ Working | Full bytecode emission, match+field binding, closures, forward references |
 | Self-hosted VM | ✅ Working | 930-line bytecode interpreter in Lux, all 46 opcodes, 45 builtins, effects, recursion |
 | **Effect handlers (self-hosted)** | ✅ **VERIFIED** | handle/resume, nested handlers, handler-local state, string effects — 10 golden-file tests |
@@ -57,19 +60,21 @@ special cases, the architecture is wrong.
 | ML framework | ✅ Working | Autodiff via Compute effect, XOR trains to convergence |
 | DSP library | ✅ Working | std/dsp/ with effect-algebraic proofs, uses abs() |
 | Prelude | ✅ Working | 45+ functions (map, filter, fold, sort, max, min, clamp, etc.) |
-| REPL | ✅ Working | `:normal :teach :why :trace :quit` modes |
 | Math stdlib | ✅ Working | abs, max, min, clamp, round, sqrt, pow, log, exp, sin, cos, tanh, atan2, pi |
 | Test framework | ✅ Working | Test effect with `assert`, `expect_eq`, `run_tests`/`run_suite` handlers |
 | Elm-quality errors | ✅ Working | Did-you-mean (Levenshtein), exhaustive match hints, effect violation suggestions |
+| Did-you-mean suggestions | ✅ Working | Levenshtein distance, threshold ≤ 3, self-hosted `checker_suggest.lux` |
+| Exhaustive match analysis | ✅ Working | ADT variant coverage, wildcard detection, missing variant warnings |
+| Refinement solver | ✅ Working | `solver.lux` — Proven/Disproven/Unknown, compile-time predicate verification |
 | Ownership enforcement | ✅ Working | `own` = affine (linear), `ref` = scoped (no escape), tracked through effect system, self-hosted walk_expr |
 | **AST spans (SExpr)** | ✅ **Working** | `S(Expr, line, col)` wrapper on all 29 parser sites, source-context diagnostics |
 | **Diagnostic architecture** | ✅ **Working** | `format_diagnostic` with source line + caret, structured EffectViolation type |
 | `!Alloc` transitivity | ✅ Working | Resolve-then-check, open-row rejection. Approach B (inferred): algebra resolves callee effects |
 | Refinement types | ✅ Working | `type Byte = Int where 0 <= self && self <= 255` — syntax, solver, compile-time verification of literals |
 
-**Achieved**: Handle internalization, anonymous records, elm-quality errors, ownership enforcement (`own`/`ref`), `!Alloc` transitivity, refinement type verification (solver), self-hosted checker with effect rows, **self-hosted VM** (fully self-hosted compile+execute pipeline), **effect handlers verified through self-hosted pipeline** (10 golden-file tests: handle/resume, nested handlers, handler-local state, string effects, unit effects, computed resume), **checker split** (checker_effects.lux + checker_ownership.lux extracted), **effect unification** (Phase 14: effect rows first-class in unification, 7 transitive golden tests), **Phase 15 ownership** (own/ref parsing, affine walk_expr, ref-escape checking, 8 golden tests), **SExpr spans** (S wrapper on all AST nodes, source-context diagnostics with caret underlines), **structured diagnostics** (EffectViolation type, format_diagnostic, source threading via env). Self-hosting coverage: ~85%.
+**Achieved**: Everything above, plus: **Rust checker deleted** (Arc 1 complete), **self-hosted pipeline as default** (27/30 oracle parity, 0 mismatches), **did-you-mean suggestions** (Levenshtein in checker_suggest.lux), **exhaustive match analysis** (ADT variant coverage), **refinement solver** (solver.lux, compile-time predicate verification), **oracle parity test** (self-hosted vs Rust behavioral verification).
 
-**Next**: Phase 16 (refinement solver port), Phase 18 (oracle testing).
+**Next**: Arc 2 (kill the Rust runtime: LowIR → WASM → self-containment), Arc 3 (compound interest: compiler verifies itself).
 
 ## READ THIS FIRST — What Lux IS
 
@@ -212,18 +217,19 @@ isolation
 - `cargo check` — type check the compiler
 - `cargo clippy` — lint (zero warnings policy)
 - `cargo fmt --check` — format check
-- `cargo test` — run all tests (36 type checker + golden-file tests)
+- `cargo test` — run all tests (golden-file tests, Rust checker tests deleted)
 - `cargo install --path .` — install `lux` binary on PATH
 
 ## Architecture
 
-**Rust prototype (temporary scaffolding):**
+**Rust bootstrap (runtime scaffolding — checker DELETED):**
 ```
-source → lex → parse → check → compile → VM
+source → lex → parse → compile → VM (executes self-hosted pipeline)
 ```
-Pipeline: `lexer.rs` → `parser/` → `checker/` → `compiler/` → `vm/`
+Pipeline: `lexer.rs` → `parser/` → `compiler/` → `vm/`
 Shared types: `token.rs`, `ast.rs`, `types.rs`, `error.rs`
-Frontend: `main.rs` (CLI), `repl.rs` (VM-backed REPL), `lib.rs` (prelude loader)
+Frontend: `main.rs` (CLI), `lib.rs` (prelude loader)
+**Deleted**: `src/checker/` (4,200 lines, retired c84cd43)
 
 **Self-hosted compiler (Lux-in-Lux, self-compiling — BOOTSTRAP ACHIEVED):**
 ```
@@ -237,37 +243,46 @@ See `std/compiler/` and `std/vm.lux`.
 
 Standard library: `std/prelude.lux`, `std/test.lux`, `std/types.lux`, `std/vm.lux`, `std/dsp/`, `std/ml/`
 
-## Key Files (Rust prototype)
+## Key Files
 
-| File | Owns | Survives self-hosting? |
-|------|------|----------------------|
-| `src/token.rs` | Token types, Span | Rewritten in Lux |
-| `src/lexer.rs` | Tokenization, string interpolation | Rewritten in Lux |
-| `src/ast.rs` | AST nodes, patterns, type expressions | Rewritten in Lux |
-| `src/parser/` | Recursive descent, Pratt precedence climbing | Rewritten in Lux |
-| `src/types.rs` | Internal types, row-polymorphic effects, ADT defs | Rewritten in Lux |
-| `src/checker/` | HM inference, effect tracking, exhaustive match, trait resolution | Rewritten in Lux |
-| `src/compiler/` | Bytecode compiler (expressions, effects, patterns) | Rewritten in Lux |
-| `src/vm/` | Stack-based VM (execution, effects, builtins) | **Rewritten — `std/vm.lux`** |
-| `src/error.rs` | Error types, source-context formatting, teaching hints | Rewritten in Lux |
-| `src/loader.rs` | Module import resolution, cycle detection | Rewritten in Lux |
-| `std/compiler/lexer.lux` | Self-hosted tokenizer | **YES — Lux forever** |
-| `std/compiler/parser.lux` | Self-hosted recursive descent parser (ADT-based AST) | **YES — Lux forever** |
-| `std/compiler/checker.lux` | Self-hosted HM type checker + Why Engine + gradient engine (orchestrator) | **YES — Lux forever** |
-| `std/compiler/checker_effects.lux` | Effect row algebra: merge, unify, negate, constrain, eff_subst | **YES — Lux forever** |
-| `std/compiler/checker_ownership.lux` | Ownership tracking: affine/scoped checking stubs | **YES — Lux forever** |
-| `std/compiler/codegen.lux` | Self-hosted bytecode emitter + disassembler | **YES — Lux forever** |
-| `std/vm.lux` | Self-hosted bytecode VM (930 lines, all 46 opcodes, 45 builtins) | **YES — Lux forever** |
-| `std/prelude.lux` | Self-hosted stdlib (38 functions: map, filter, fold, sort, etc.) | **YES — Lux forever** |
-| `std/test.lux` | Native test framework (assert_eq, run_tests) | **YES — Lux forever** |
-| `std/types.lux` | Option/Result ADTs | **YES — Lux forever** |
-| `std/ml/` | Tensor ops, autodiff via Compute effect | **YES — Lux forever** |
-| `std/dsp/` | DSP effects, processor library, spectral analysis | **YES — Lux forever** |
-| `examples/*.lux` | Language examples and test cases | **YES — Lux forever** |
-| `std/compiler/pipeline.lux` | Compiler effect + pipeline + handlers (meta-unification) | **YES — Lux forever** |
-| `std/repl.lux` | Self-hosted REPL using effect pipeline | **YES — Lux forever** |
-| `tests/type_tests.rs` | Unit tests for type checker (36 tests) | Rewritten in Lux |
-| `tests/examples.rs` | Golden-file integration tests | Rewritten in Lux |
+**Rust bootstrap (11,065 lines remaining — Arc 2 deletes these):**
+
+| File | Owns | Status |
+|------|------|--------|
+| `src/token.rs` | Token types, Span | Bootstrap only |
+| `src/lexer.rs` | Tokenization, string interpolation | Bootstrap only |
+| `src/ast.rs` | AST nodes, patterns, type expressions | Bootstrap only |
+| `src/parser/` | Recursive descent, Pratt precedence climbing | Bootstrap only |
+| `src/types.rs` | Internal types, row-polymorphic effects, ADT defs | Bootstrap only |
+| `src/compiler/` | Bytecode compiler (expressions, effects, patterns) | Bootstrap only |
+| `src/vm/` | Stack-based VM (execution, effects, builtins) | Bootstrap only |
+| `src/error.rs` | Error types, source-context formatting | Bootstrap only |
+| `src/loader.rs` | Module import resolution, cycle detection | Bootstrap only |
+| ~~`src/checker/`~~ | ~~HM inference, effect tracking~~ | **DELETED** (c84cd43) |
+| `tests/examples.rs` | Golden-file integration tests | Bootstrap only |
+
+**Lux forever — the real compiler:**
+
+| File | Owns |
+|------|------|
+| `std/compiler/lexer.lux` | Self-hosted tokenizer |
+| `std/compiler/parser.lux` | Self-hosted recursive descent parser (ADT-based AST, TypeAliasStmt) |
+| `std/compiler/checker.lux` | Self-hosted HM type checker + Why Engine + gradient engine |
+| `std/compiler/checker_effects.lux` | Effect row algebra: merge, unify, negate, constrain, eff_subst |
+| `std/compiler/checker_ownership.lux` | Ownership tracking: affine/scoped checking stubs |
+| `std/compiler/checker_suggest.lux` | Did-you-mean (Levenshtein) + exhaustive match analysis |
+| `std/compiler/solver.lux` | Refinement type solver: Proven/Disproven/Unknown |
+| `std/compiler/codegen.lux` | Self-hosted bytecode emitter + disassembler |
+| `std/compiler/pipeline.lux` | Compiler effect + pipeline + handlers (meta-unification) |
+| `std/compiler/gradient.lux` | Gradient engine — annotation suggestions |
+| `std/vm.lux` | Self-hosted bytecode VM (930 lines, all 46 opcodes, 45 builtins) |
+| `std/prelude.lux` | Self-hosted stdlib (45+ functions: map, filter, fold, sort, etc.) |
+| `std/test.lux` | Native test framework (assert_eq, run_tests) |
+| `std/types.lux` | Option/Result ADTs |
+| `std/repl.lux` | Self-hosted REPL using effect pipeline |
+| `std/ml/` | Tensor ops, autodiff via Compute effect |
+| `std/dsp/` | DSP effects, processor library, spectral analysis |
+| `examples/*.lux` | Language examples and test cases |
 
 ## Effect System — Syntax Reference
 
@@ -374,25 +389,34 @@ fn safe_v2(x: Float) -> Float with DSP - Network - Alloc { ... }  // subtraction
 | 13B | Effect handler golden-file verification — `vm_test` wired into `--no-check` test harness. 10 effect tests verified through self-hosted pipeline. Parser fix: disambiguate `resume ... with` state updates from handler arm commas (mirrors `parse_state_bindings` pattern). | 607baa1 |
 | 14 | Checker split + effect unification — extracted `checker_effects.lux` (288 lines: EffRow ops, unify_eff, eff_subst, negation) and `checker_ownership.lux` (70 lines). Counter carries `[fresh_id, eff_subst]` — one channel for inference state. `unify` TFun case unifies effect rows instead of discarding with `_`. `fresh_eff_var` creates effect variables. `apply_eff_subst` resolves before negation checks. 7 transitive golden tests: !Alloc/Pure/!Network through call chains. | a6de722 |
 | 15 | Ownership + SExpr spans + diagnostics — `parse_fn_params` with `own`/`ref` qualifiers, `walk_expr` affine checking (17 AST variants), `check_ref_escape` return-position tracing, `type SExpr = S(Expr, Int, Int)` wrapper on all 29 parser sites, `format_diagnostic` source-context renderer with caret underlines, structured `EffectViolation` type (replacing println), source threading via env, first-use line tracking. Discovery: Rust VM doesn't support nested constructor patterns — workaround: explicit unwrap-then-match. 8 ownership golden tests. | HEAD |
+| 16 | Did-you-mean + exhaustive match + refinement solver (self-hosted) — `checker_suggest.lux` (Levenshtein, 187 lines), `solver.lux` (predicate verification, 124 lines), `TypeAliasStmt` in parser, checker integration. Golden tests for both. | 2c73e67 |
+| 17 | Oracle parity — self-hosted vs Rust pipeline verification. 27/30 match, 0 mismatches. 3 cases where self-hosted surpasses Rust (!Alloc transitivity). | 26a412d |
+| 18 | Self-hosted pipeline as default — `lux run` and `lux check` route through self-hosted by default. `needs_no_check` list removed. All 42 tests pass. | c26b942 |
+| 19 | **Rust checker deleted** — 4,200 lines of scaffolding retired. 5,405 total lines removed. The self-hosted checker is the only intelligence. The student surpassed the teacher. | c84cd43 |
 
 ## Roadmap
 
 > Full roadmap: `docs/ROADMAP.md` (10 phases to ultimate Lux)
 
-**Completed:** Phases 1-9F (VM, effects, evidence passing, effect algebra, teaching compiler, self-compilation, **bootstrap pipeline execution**, **effects in self-hosted compiler**, **meta-unification: compiler pipeline as effects**, **interactive REPL with effect pipeline**, **self-hosted VM**)
+**Completed:** Phases 1-19 (VM, effects, evidence passing, effect algebra, teaching compiler, self-compilation, bootstrap pipeline, self-hosted VM, effect handlers verified, checker split, effect unification, ownership, SExpr spans, diagnostics, **did-you-mean + exhaustive match + refinement solver**, **oracle parity**, **self-hosted as default**, **Rust checker deleted**)
 
-**Current milestone:** Fully self-hosted compile-and-execute pipeline with verified effect handlers: source → lexer → parser → codegen → VM, all written in Lux. 48 tests pass (38 core + 10 effect handler tests) including nested handlers, handler-local state, and multi-resume patterns. The Rust VM is now bootstrap-only scaffolding.
+**Current milestone:** The Rust type checker has been deleted. The self-hosted pipeline (`std/compiler/*.lux`) is the only intelligence. 11,065 lines of Rust bootstrap remain (lexer, parser, compiler, VM) — these are runtime scaffolding, not intelligence. Arc 1 (Letting Go) is complete.
 
-**Remaining Phases** (see ROADMAP.md for full details):
+**Remaining Arcs:**
 
-| Phase | What | Status |
-|-------|------|--------|
-| 5 | Ownership — own/ref enforced (affine + scoped), `!Alloc` transitivity shipped | Complete |
-| 6 | Refinement types — compile-time predicates, literal verification | 6A syntax + 6B/C solver shipped |
-| 7 | Custom native backend — effect-aware, written in Lux, self-contained | VM self-hosted (Phase 12A); native backend design needed |
-| 8 | Gradient system — verification dashboard, continuous annotation→guarantee | Partially shipped (`--teach`) |
-| 9 | Type-directed synthesis — write the type, get the code | Research stage |
-| 10 | Full self-containment — delete every .rs file, `lux` compiles itself | Bootstrap ready |
+| Arc | What | Status |
+|-----|------|--------|
+| **Arc 2: Kill the Runtime** | Delete all remaining Rust | Design needed |
+| Phase F | LowIR + state machine transform (effect handlers → Loop/Switch/State/Call) | Pending |
+| Phase G | WASM emitter (LowIR → WAT → WASM) | Pending |
+| Phase H | WASM bootstrap (compiler self-compiles to WASM) | Pending |
+| Phase I | Delete Rust VM + Cargo.toml (`rm -rf src/`) | Pending |
+| **Arc 3: Compound Interest** | Compiler verifies itself (parallel to Arc 2) | Starting |
+| Step 1 | Run `lux --teach` on each compiler module, add suggested annotations | Next |
+| Step 2 | Refinement types on compiler internals (Opcode, StackDepth, FreshId) | Pending |
+| Step 3 | Effect purity on checker functions (`infer_expr → Pure`) | Pending |
+| Step 4 | Ownership on compiler data (`own` env, `ref` tokens) | Pending |
+| Step 5 | Self-verification score dashboard: % annotated → target 100% | Pending |
 
 ## Doc-to-Code Mapping
 
