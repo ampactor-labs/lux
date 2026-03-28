@@ -107,16 +107,289 @@ type HandlerTier
 // ─── Classify a handler arm ─────────────────────────────────
 // Walks the handler body to determine tier.
 // Mirrors src/compiler/effects.rs is_tail_resumptive / is_evidence_eligible.
+//
+// A handler arm is (op_name, params, body_sexpr).
+// Tail-resumptive: body is resume(pure_expr) with no state updates.
+// Linear: body resumes exactly once but isn't tail-resumptive.
 
-fn classify_handler(body) with Pure = match body {
-  // resume(pure_expr) with no state updates → tail-resumptive
-  // For now, conservative: everything is Linear
-  // TODO: implement proper body analysis
-  _ => Linear
+fn classify_handler(arm) with Pure = {
+  let (_, _, body_sexpr) = arm
+  let S(body, _, _) = body_sexpr
+  match body {
+    ResumeExpr(_, updates) =>
+      if len(updates) == 0 { TailResumptive }
+      else { Linear },
+    BlockExpr(stmts, final_sexpr) => {
+      let S(final_expr, _, _) = final_sexpr
+      match final_expr {
+        ResumeExpr(_, updates) =>
+          if len(updates) == 0 && len(stmts) == 0 { TailResumptive }
+          else { Linear },
+        _ => Linear
+      }
+    },
+    _ => Linear
+  }
 }
 
-// ─── Placeholder: AST → LowIR transform ────────────────────
-// This is where the state machine transform will live.
-// Phase F.2: implement lower_expr, lower_stmt, lower_handle.
+fn classify_all_arms(arms) with Pure = {
+  if len(arms) == 0 { TailResumptive }
+  else {
+    let tier = classify_handler(arms[0])
+    match tier {
+      TailResumptive => classify_all_arms(slice(arms, 1, len(arms))),
+      _ => Linear
+    }
+  }
+}
 
-fn lower_program(stmts) with Pure = stmts  // identity for now
+// ─── AST → LowIR Transform ─────────────────────────────────
+// Lowers the self-hosted AST to LowIR. The key transformation:
+// HandleExpr → either direct calls (tail-resumptive) or state machine.
+
+fn lower_expr(sexpr) with Pure = {
+  let S(expr, _, _) = sexpr
+  match expr {
+    // ── Literals ──
+    IntLit(s) => LConst(LInt(parse_int(s))),
+    FloatLit(s) => LConst(LFloat(parse_float(s))),
+    StringLit(s) => LConst(LString(s)),
+    BoolLit(b) => LConst(LBool(b)),
+    NoneExpr => LConst(LUnit),
+
+    // ── Variables ──
+    VarRef(name) => LCall(LConst(LString(name)), []),  // resolved by name at link time
+
+    // ── Operators ──
+    BinOp(op, left, right) => LBinOp(op, lower_expr(left), lower_expr(right)),
+    UnaryOp(op, operand) => LUnaryOp(op, lower_expr(operand)),
+
+    // ── Function call ──
+    Call(func, args) => LCall(lower_expr(func), lower_exprs(args)),
+
+    // ── Pipe: a |> f(b) desugars to f(a, b) ──
+    PipeExpr(left, right) => {
+      let lowered_left = lower_expr(left)
+      let S(right_expr, _, _) = right
+      match right_expr {
+        Call(func, args) => LCall(lower_expr(func), [lowered_left] ++ lower_exprs(args)),
+        _ => LCall(lower_expr(right), [lowered_left])
+      }
+    },
+
+    // ── Control flow ──
+    IfExpr(cond, then_e, else_e) =>
+      LIf(lower_expr(cond), [lower_expr(then_e)], [lower_expr(else_e)]),
+
+    MatchExpr(scrutinee, arms) =>
+      LMatch(lower_expr(scrutinee), lower_match_arms(arms)),
+
+    BlockExpr(stmts, final_e) =>
+      LBlock(lower_stmts(stmts) ++ [lower_expr(final_e)]),
+
+    // ── Collections ──
+    ListExpr(elems) => LMakeList(lower_exprs(elems)),
+    TupleExpr(elems) => LMakeTuple(lower_exprs(elems)),
+    Index(collection, idx) => LIndex(lower_expr(collection), lower_expr(idx)),
+    FieldAccess(obj, field) => LIndex(lower_expr(obj), LConst(LString(field))),
+
+    // ── Lambda ──
+    LambdaExpr(params, body) =>
+      LMakeClosure(LFn("lambda", len(params), params, [lower_expr(body)]), []),
+
+    // ── THE KEY TRANSFORM: Handle expressions ──
+    HandleExpr(body, arms, state_bindings) =>
+      lower_handle(body, arms, state_bindings),
+
+    // ── Resume: only valid inside handler body (handled by lower_handle) ──
+    ResumeExpr(value, _) => lower_expr(value),
+
+    _ => LConst(LUnit)
+  }
+}
+
+fn lower_exprs(sexprs) with Pure = {
+  if len(sexprs) == 0 { [] }
+  else { [lower_expr(sexprs[0])] ++ lower_exprs(slice(sexprs, 1, len(sexprs))) }
+}
+
+fn lower_match_arms(arms) with Pure = {
+  if len(arms) == 0 { [] }
+  else {
+    let (pat, body) = arms[0]
+    [(lower_pat(pat), lower_expr(body))] ++ lower_match_arms(slice(arms, 1, len(arms)))
+  }
+}
+
+fn lower_pat(pat) with Pure = match pat {
+  PVar(name) => LPVar(name),
+  PWild => LPWild,
+  PCon(name, sub) => LPCon(name, lower_pats(sub)),
+  PLit(e) => LPLit(LConst(LUnit)),  // TODO: extract literal value
+  PTuple(sub) => LPTuple(lower_pats(sub)),
+  _ => LPWild
+}
+
+fn lower_pats(pats) with Pure = {
+  if len(pats) == 0 { [] }
+  else { [lower_pat(pats[0])] ++ lower_pats(slice(pats, 1, len(pats))) }
+}
+
+// ─── Statement Lowering ─────────────────────────────────────
+
+fn lower_stmts(stmts) with Pure = {
+  if len(stmts) == 0 { [] }
+  else { [lower_stmt(stmts[0])] ++ lower_stmts(slice(stmts, 1, len(stmts))) }
+}
+
+fn lower_stmt(stmt) with Pure = match stmt {
+  LetStmt(name, value) => LStore(0, lower_expr(value)),  // slot resolved later
+  LetDestructure(names, value) => LBlock([lower_expr(value)]),  // TODO: bind names
+  LetPattern(pat, value) => LBlock([lower_expr(value)]),  // TODO: bind pattern
+  FnStmt(name, params, body, _) =>
+    LStore(0, LMakeClosure(LFn(name, len(params), params, [lower_expr(body)]), [])),
+  ExprStmt(expr) => lower_expr(expr),
+  _ => LConst(LUnit)
+}
+
+// ─── The Heart: Handle Expression Lowering ──────────────────
+// This is where effects become control flow.
+//
+// Tail-resumptive: handle { body } { op(x) => resume(f(x)) }
+//   → lower body, replacing Perform(op, args) with Call(f, args)
+//
+// Linear: handle { body } with s = init { op(x) => resume(g(x)) with s = h(s) }
+//   → Loop + Switch state machine
+
+fn lower_handle(body, arms, state_bindings) with Pure = {
+  let tier = classify_all_arms(arms)
+  match tier {
+    TailResumptive => lower_handle_tail_resumptive(body, arms),
+    _ => lower_handle_state_machine(body, arms, state_bindings)
+  }
+}
+
+// ─── Tail-Resumptive: Perform → Call ────────────────────────
+// The body performs op(args). The handler says resume(f(args)).
+// Result: just call f(args) inline. No state machine needed.
+//
+// We build a rewrite map: op_name → handler_fn, then walk the
+// body replacing Perform sites with direct calls.
+
+fn lower_handle_tail_resumptive(body, arms) with Pure = {
+  // Build op_name → (params, handler_body) map
+  let rewrite_map = build_rewrite_map(arms)
+  // Lower body with Perform rewriting
+  lower_with_rewrites(body, rewrite_map)
+}
+
+fn build_rewrite_map(arms) with Pure = {
+  if len(arms) == 0 { [] }
+  else {
+    let (op_name, params, handler_body) = arms[0]
+    // Extract the resume value expression from handler body
+    let resume_expr = extract_resume_value(handler_body)
+    [(op_name, params, resume_expr)] ++ build_rewrite_map(slice(arms, 1, len(arms)))
+  }
+}
+
+fn extract_resume_value(handler_body_sexpr) with Pure = {
+  let S(body, _, _) = handler_body_sexpr
+  match body {
+    ResumeExpr(value, _) => value,
+    BlockExpr(_, final_sexpr) => {
+      let S(final_expr, _, _) = final_sexpr
+      match final_expr {
+        ResumeExpr(value, _) => value,
+        _ => handler_body_sexpr
+      }
+    },
+    _ => handler_body_sexpr
+  }
+}
+
+// Walk the body, replacing effect calls with inlined handler bodies
+fn lower_with_rewrites(sexpr, rewrites) with Pure = {
+  let S(expr, line, col) = sexpr
+  match expr {
+    // A Call to an effect op becomes the handler's resume expression
+    Call(func_sexpr, args) => {
+      let S(func, _, _) = func_sexpr
+      match func {
+        VarRef(name) => {
+          let handler = find_rewrite(rewrites, name)
+          match handler {
+            // Found a rewrite: inline the handler body
+            // The handler params bind to the call args
+            (op, params, resume_value) => lower_expr(resume_value),
+            // Not an effect op: lower normally
+            _ => LCall(lower_with_rewrites(func_sexpr, rewrites),
+                       lower_with_rewrites_list(args, rewrites))
+          }
+        },
+        _ => LCall(lower_with_rewrites(func_sexpr, rewrites),
+                    lower_with_rewrites_list(args, rewrites))
+      }
+    },
+    // Recurse into sub-expressions
+    BinOp(op, l, r) => LBinOp(op, lower_with_rewrites(l, rewrites), lower_with_rewrites(r, rewrites)),
+    UnaryOp(op, e) => LUnaryOp(op, lower_with_rewrites(e, rewrites)),
+    IfExpr(c, t, e) => LIf(lower_with_rewrites(c, rewrites),
+                           [lower_with_rewrites(t, rewrites)],
+                           [lower_with_rewrites(e, rewrites)]),
+    BlockExpr(stmts, final_e) =>
+      LBlock(lower_stmts(stmts) ++ [lower_with_rewrites(final_e, rewrites)]),
+    _ => lower_expr(sexpr)
+  }
+}
+
+fn lower_with_rewrites_list(sexprs, rewrites) with Pure = {
+  if len(sexprs) == 0 { [] }
+  else {
+    [lower_with_rewrites(sexprs[0], rewrites)]
+      ++ lower_with_rewrites_list(slice(sexprs, 1, len(sexprs)), rewrites)
+  }
+}
+
+fn find_rewrite(rewrites, name) with Pure = {
+  if len(rewrites) == 0 { LNone }
+  else {
+    let (op_name, params, resume_value) = rewrites[0]
+    if op_name == name { rewrites[0] }
+    else { find_rewrite(slice(rewrites, 1, len(rewrites)), name) }
+  }
+}
+
+// ─── Linear: State Machine Transform ────────────────────────
+// handle { body } with s = init { op(x) => resume(f(x)) with s = g(s) }
+//
+// Becomes:
+//   let state = 0
+//   let result = Unit
+//   let s = init
+//   loop {
+//     switch state {
+//       0 => { /* body up to first perform */ state = 1; suspend }
+//       1 => { /* body after first perform, using resume value */ ... }
+//     }
+//   }
+//
+// This is the foundation. Full implementation needs:
+// - Numbering perform sites in the body (CPS-like analysis)
+// - Saving live locals at each suspend point
+// - Restoring them at each resume point
+//
+// For now: placeholder that lowers to LBlock with a comment marker.
+
+fn lower_handle_state_machine(body, arms, state_bindings) with Pure = {
+  // TODO: implement state machine transform
+  // For now, lower the body normally (effects won't work without VM)
+  LBlock([
+    LConst(LString("TODO:state_machine")),
+    lower_expr(body)
+  ])
+}
+
+// ─── Program Lowering ───────────────────────────────────────
+
+fn lower_program(stmts) with Pure = lower_stmts(stmts)
