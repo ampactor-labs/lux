@@ -375,6 +375,14 @@ fn emit_expr(e, params, locals, ctx) with Pure = match e {
     if string_in(locals, name, 0) { "    local.get $" ++ name ++ NL }
     else { if find_param_idx(params, name, 0) >= 0 { "    local.get $" ++ name ++ NL }
     else { if string_in(ctx_globals(ctx), name, 0) { "    global.get $" ++ name ++ NL }
+    else { if string_in(ctx_tags(ctx), name, 0) {
+      // Zero-field constructor in value position → alloc variant with just tag
+      let tag_id = find_tag_id(ctx_tags(ctx), name, 0)
+      "    i32.const 4" ++ NL ++ "    call $alloc" ++ NL
+      ++ "    local.tee $__vptr" ++ NL
+      ++ "    i32.const " ++ to_string(tag_id) ++ NL ++ "    i32.store" ++ NL
+      ++ "    local.get $__vptr" ++ NL
+    }
     else {
       // Function reference in value position → minimal closure [fn_idx, 0]
       // Every function value is a closure. i32.load always works.
@@ -389,7 +397,7 @@ fn emit_expr(e, params, locals, ctx) with Pure = match e {
         ++ "    local.get $__vptr" ++ NL
       }
       else { "    call $" ++ name ++ NL }
-    } } }
+    } } } }
   },
   LUpval(idx) => {
     // Load captured value from closure object: closure_ptr + 8 + idx*4

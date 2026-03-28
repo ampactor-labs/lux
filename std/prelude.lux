@@ -108,6 +108,6 @@ fn trim(s) = {
 fn parse_int(s) = {
   let cs = chars(s)
   fn digit(c) = char_code(c) - 48
-  fn parse(i, acc) = if i >= len(cs) { acc } else { parse(i + 1, acc * 10 + digit(cs[i])) }
-  if len(cs) > 0 && cs[0] == "-" { 0 - parse(1, 0) } else { parse(0, 0) }
+  fn go(i, acc) = if i >= len(cs) { acc } else { go(i + 1, acc * 10 + digit(cs[i])) }
+  if len(cs) > 0 && cs[0] == "-" { 0 - go(1, 0) } else { go(0, 0) }
 }

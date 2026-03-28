@@ -173,7 +173,7 @@ fn lower_expr(sexpr) = {
     StringLit(s) => LConst(LString(s)),
     BoolLit(b) => LConst(LBool(b)),
     NoneExpr => LConst(LUnit),
-    VarRef(name) => LGlobal(name),
+    VarRef(name) => if is_ctor(name) { LMakeVariant(name, []) } else { LGlobal(name) },
 
     BinOp(op, left, right) => {
       if op == "Eq" || op == "Neq" {
@@ -242,7 +242,7 @@ fn lower_expr(sexpr) = {
     Index(collection, idx) => LIndex(lower_expr(collection), lower_expr(idx)),
     FieldAccess(obj, field) => LIndex(lower_expr(obj), LConst(LString(field))),
 
-    LambdaExpr(params, body) => lower_lambda("lambda_" ++ to_string(fresh_id()), params, body),
+    LambdaExpr(params, body) => lower_lambda_inner("lambda_" ++ to_string(fresh_id()), params, body),
 
     HandleExpr(body, arms, state_bindings) =>
       lower_handle(body, arms, state_bindings),
@@ -301,13 +301,60 @@ fn lower_stmt(stmt) = match stmt {
     let lowered = lower_expr(value)
     LBlock([LLet("_dt", lowered)] ++ lower_destructure_bindings(names, 0))
   },
-  LetPattern(pat, value) => LLet("_lp", lower_expr(value)),
+  LetPattern(pat, value) => {
+    // let S(inner, l, c) = expr → let _lp = expr; let inner = _lp[1]; ...
+    let lowered = lower_expr(value)
+    let pat_str = to_string(pat)
+    if starts_with(pat_str, "PCon(") {
+      let names = extract_pvar_names_from_string(pat_str)
+      LBlock([LLet("_lp", lowered)] ++ lower_destructure_bindings_offset(names, 1, 0))
+    } else { if starts_with(pat_str, "PTuple(") {
+      let names = extract_pvar_names_from_string(pat_str)
+      LBlock([LLet("_lp", lowered)] ++ lower_destructure_bindings_offset(names, 0, 0))
+    } else { if starts_with(pat_str, "PVar(") {
+      let name = string_slice(pat_str, 6, len(pat_str) - 2)
+      LLet(name, lowered)
+    } else {
+      LLet("_lp", lowered)
+    } } }
+  },
   FnStmt(name, params, body, _) => {
     let param_names = extract_param_names(params)
-    LLet(name, lower_lambda(name, param_names, body))
+    // Top-level functions keep names (self-recursion uses call $name).
+    // Inner functions get unique names (called via call_indirect).
+    if is_global(name) { LLet(name, lower_lambda(name, param_names, body)) }
+    else { LLet(name, lower_lambda_inner(name, param_names, body)) }
   },
   ExprStmt(expr) => lower_expr(expr),
   _ => LConst(LUnit)
+}
+
+fn lower_pattern_bindings(pats, field_offset, idx) = {
+  if idx >= len(pats) { [] }
+  else {
+    let pat = pats[idx]
+    let rest = lower_pattern_bindings(pats, field_offset, idx + 1)
+    let s = to_string(pat)
+    // Use to_string to check variant — avoids Rust VM ADT matching crash
+    if starts_with(s, "PVar(") {
+      // to_string produces PVar("name") — strip PVar(" and ")
+      let name = string_slice(s, 6, len(s) - 2)
+      if name == "_" { rest }
+      else { [LLet(name, LIndex(LGlobal("_lp"), LConst(LInt(field_offset + idx))))] ++ rest }
+    } else { rest }
+  }
+}
+
+fn lower_destructure_bindings_offset(names, offset, idx) = {
+  if idx >= len(names) { [] }
+  else {
+    let name = names[idx]
+    if name == "_" { lower_destructure_bindings_offset(names, offset, idx + 1) }
+    else {
+      [LLet(name, LIndex(LGlobal("_lp"), LConst(LInt(offset + idx))))]
+      ++ lower_destructure_bindings_offset(names, offset, idx + 1)
+    }
+  }
 }
 
 fn lower_destructure_bindings(names, idx) = {
@@ -326,16 +373,33 @@ fn lower_destructure_bindings(names, idx) = {
 // Two-pass: collect free variables (Pure), then lower + rewrite captures.
 // No effect operations — captures are a local transform, not context.
 
-fn lower_lambda(name, params, body) = {
+fn lower_lambda_named(wasm_name, name, params, body) = {
   let all_free = collect_free_vars(body, params)
-  let free = filter_real_captures(all_free, name)
+  // Don't filter self-name for inner functions — let them capture themselves.
+  // Self-recursion through upval → call_indirect. No call $name needed.
+  let free = if wasm_name == name { filter_real_captures(all_free, name) }
+             else { filter_real_captures_no_self(all_free) }
   let lowered_body = lower_expr(body)
   if len(free) == 0 {
-    LMakeClosure(LFn(name, len(params), params, [lowered_body]), [])
+    LMakeClosure(LFn(wasm_name, len(params), params, [lowered_body]), [])
   } else {
     let rewritten = rewrite_captures(lowered_body, free)
     let capture_exprs = map_to_globals(free, 0)
-    LMakeClosure(LFn(name, len(params), params, [rewritten]), capture_exprs)
+    LMakeClosure(LFn(wasm_name, len(params), params, [rewritten]), capture_exprs)
+  }
+}
+
+fn lower_lambda(name, params, body) = lower_lambda_named(name, name, params, body)
+fn lower_lambda_inner(name, params, body) = lower_lambda_named(name ++ "_" ++ to_string(fresh_id()), name, params, body)
+
+fn filter_real_captures_no_self(names) = {
+  if len(names) == 0 { [] }
+  else {
+    let n = names[0]
+    let rest = filter_real_captures_no_self(slice(names, 1, len(names)))
+    if is_ctor(n) { rest }
+    else { if is_global(n) { rest }
+    else { [n] ++ rest } }
   }
 }
 
@@ -401,12 +465,43 @@ fn collect_free_stmts(stmts, bound) = {
 fn collect_free_stmt(stmt, bound) = match stmt {
   LetStmt(name, value) => (collect_free(value, bound), bound ++ [name]),
   LetDestructure(names, value) => (collect_free(value, bound), bound ++ names),
+  LetPattern(pat, value) => {
+    let pat_names = extract_pat_names_safe(pat)
+    (collect_free(value, bound), bound ++ pat_names)
+  },
   FnStmt(name, params, body, _) => {
     let fn_params = extract_param_names_pure(params)
     (collect_free(body, bound ++ [name] ++ fn_params), bound ++ [name])
   },
   ExprStmt(expr) => (collect_free(expr, bound), bound),
   _ => ([], bound)
+}
+
+fn extract_pat_names_safe(pat) = {
+  // Use to_string to avoid Rust VM ADT matching crash on Pat variants
+  let s = to_string(pat)
+  if starts_with(s, "PVar(") { [string_slice(s, 6, len(s) - 2)] }
+  else { if starts_with(s, "PCon(") { extract_pvar_names_from_string(s) }
+  else { if starts_with(s, "PTuple(") { extract_pvar_names_from_string(s) }
+  else { [] } } }
+}
+
+fn extract_pvar_names_from_string(s) = {
+  // Extract PVar names from stringified pattern: PCon("S", [PVar("inner"), PWild])
+  // Find all PVar(" occurrences, extract name between quotes
+  fn find_pvars(s, idx, acc) =
+    if idx + 6 >= len(s) { acc }
+    else {
+      if string_slice(s, idx, idx + 6) == "PVar(\"" {
+        let rest = string_slice(s, idx + 6, len(s))
+        let end = index_of(rest, "\"")
+        if end >= 0 {
+          let name = string_slice(s, idx + 6, idx + 6 + end)
+          find_pvars(s, idx + 6 + end, acc ++ [name])
+        } else { find_pvars(s, idx + 1, acc) }
+      } else { find_pvars(s, idx + 1, acc) }
+    }
+  find_pvars(s, 0, [])
 }
 
 fn collect_pat_names_lower(pat) = {

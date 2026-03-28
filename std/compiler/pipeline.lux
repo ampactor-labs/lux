@@ -197,7 +197,7 @@ fn compile_wasm(source) = {
   } {
     tokenize(src) => resume(lex(src)),
     parse_source(tokens) => resume(parse_program(tokens)),
-    infer(ast) => resume(check_program(ast)),
+    infer(ast) => resume(check_program_forward(ast)),
     generate(checked, ast) => {
       let (env, subst, _) = checked
       let type_map = build_type_map(env, subst)
