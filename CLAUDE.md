@@ -79,11 +79,11 @@ its own purity — using the same mechanisms it enforces on user code.
 | `!Alloc` transitivity | ✅ Working | Resolve-then-check, open-row rejection. Approach B (inferred): algebra resolves callee effects |
 | Refinement types | ✅ Working | `type Byte = Int where 0 <= self && self <= 255` — syntax, solver, compile-time verification of literals |
 | **LowIR** | ✅ **Working** | 26-variant ADT, AST→LowIR transform, handler elimination (no state machines for 100% of real handlers) |
-| **WASM emitter** | ✅ **Phase G+** | Strings, handler state, ADTs, match, the Ultimate Test on wasmtime |
+| **WASM emitter** | ✅ **Phase G+** | Strings, handlers, ADTs, match, closures, the Ultimate Test on wasmtime |
 
 **Achieved**: Everything above, plus: **Rust checker deleted** (Arc 1 complete), **self-hosted pipeline as default** (27/30 oracle parity, 0 mismatches), **did-you-mean suggestions** (Levenshtein in checker_suggest.lux), **exhaustive match analysis** (ADT variant coverage), **refinement solver** (solver.lux, compile-time predicate verification), **oracle parity test** (self-hosted vs Rust behavioral verification), **self-checking** (compiler parses/checks its own source — zero errors), **272 purity proofs** (Arc 3 Phase 2 complete), **Diagnostic effect** (inference engine externally pure).
 
-**Next**: Arc 2 closures (Crucibles 5-6: function references, real closures). Then Phase H (WASM bootstrap — compiler self-compiles). Lowering refactor: collapse 7 duplicate function pairs via `LowerCtx` effect. Arc 3 Phase 3 (ownership annotations) parallel.
+**Next**: Arc 2 prelude builtins in WASM (len, slice, char_code_at, push) → lexer self-compilation → Phase H (WASM bootstrap). Arc 3 Phase 3 (ownership annotations) parallel.
 
 ## READ THIS FIRST — What Lux IS
 
@@ -415,7 +415,7 @@ fn safe_v2(x: Float) -> Float with DSP - Network - Alloc { ... }  // subtraction
 | 22 | **Diagnostic effect** — `effect Diagnostic { report(source, kind, msg, line, col) -> () }`. All 11 println sites in checker replaced with effect operations. Handler at `check_program` boundary renders output. Inference engine (`infer_expr → check_stmt → check_program`) externally pure. 6 more functions gain `with Pure`. | e2bebb9 |
 | F | **LowIR** — 26-variant ADT between AST and WASM. Three-tier handler classification (TailResumptive/Linear/MultiShot). AST→LowIR transform: tail-resumptive → direct call, linear → direct call with state updates. Discovery: 100% of real handlers compile without state machines. `lux lower` CLI command. Pretty-printer. 541 lines, 29 Pure. | 3731c6a..f5aaf97 |
 | G | **WASM emitter** — LowIR → WAT (WebAssembly Text Format). WASI module emission: fd_write import, linear memory, _start entry point, print_int decimal conversion runtime. `lux wasm` CLI command. First Lux→WASM execution: `fib(10) = 55` on wasmtime. 313 lines, 30 Pure. | 113713f..b100617 |
-| G+ | **WASM Phase G+** — Strings, handler state, ADTs, pattern matching, the Ultimate Test. Pipeline alignment: type info flows checker→generate. Constructor knowledge flows: checker→lowering→LMakeVariant. Handler rewriting in all block statements (not just tail). Simultaneous state updates via temporaries. Value/void emission distinction. `fibonacci_via_effects()` with 2 state vars runs on wasmtime — zero-overhead effect compilation proven. Runtime split to `wasm_runtime.lux`. | 6a130fa |
+| G+ | **WASM Phase G+** — Strings, handler state, ADTs, match, the Ultimate Test. Pipeline alignment, constructor-aware lowering, simultaneous state updates, value/void emission. `fibonacci_via_effects()` with 2 state vars on wasmtime. Runtime split to `wasm_runtime.lux`. LowerCtx effect refactor: 7 duplicate pairs → 1. Closures: function table, call_indirect, capture detection (Pure scope walk), uniform `__closure` calling convention. `lux wasm lexer.lux` attempted — structure compiles, prelude builtins are the wall. | 6a130fa..01aa77d |
 
 ## Roadmap
 
@@ -432,7 +432,7 @@ fn safe_v2(x: Float) -> Float with DSP - Network - Alloc { ... }  // subtraction
 | **Arc 2: Kill the Runtime** | Delete all remaining Rust | **In progress** |
 | Phase F | LowIR + handler elimination (effects → direct calls) | ✅ Done (3731c6a..f5aaf97) |
 | Phase G | WASM emitter (LowIR → WAT → WASM), fib(10)=55 on wasmtime | ✅ Done (113713f..b100617) |
-| Phase G+ | WASM: strings, handler state, ADTs, match, Ultimate Test | ✅ Done (6a130fa) — closures next |
+| Phase G+ | WASM: strings, handlers, ADTs, match, closures, Ultimate Test | ✅ Done (6a130fa..01aa77d) — prelude builtins next |
 | Phase H | WASM bootstrap (compiler self-compiles to WASM) | Pending |
 | Phase I | Delete Rust VM + Cargo.toml (`rm -rf src/`) | Pending |
 | **Arc 3: Compound Interest** | Compiler verifies itself (parallel to Arc 2) | **Phase 2 complete** |
