@@ -173,7 +173,7 @@ fn compile_lowering(source) =
     generate(checked, ast) => {
       let (env, _, _) = checked
       let ctors = extract_constructors(env)
-      let lowered = lower_program_with_ctors(ast, ctors)
+      let lowered = lower_program_ctx(ast, ctors)
       println("── LowIR ──")
       println(print_lowered(lowered))
       resume(("skip", [], [], 0))
@@ -195,7 +195,7 @@ fn compile_wasm(source) =
       let (env, subst, _) = checked
       let type_map = build_type_map(env, subst)
       let ctors = extract_constructors(env)
-      let lowered = lower_program_with_ctors(ast, ctors)
+      let lowered = lower_program_ctx(ast, ctors)
       let wat = emit_module(lowered, type_map)
       println(wat)
       resume(("skip", [], [], 0))
