@@ -936,3 +936,170 @@ notation for computation. The compiler doesn't just check — it teaches.
 Every feature is a consequence of getting the foundations right.
 
 This is the standard. Accept nothing less.
+
+---
+
+## The Memory Effect: There Are No Primitives
+
+*2026-03-28. The session where Lux ate its own foundation.*
+
+We believed `len`, `push`, `slice`, `chars`, `char_code` were irreducible
+primitives — operations the language couldn't implement in terms of itself.
+We were wrong. They were patterns hiding behind a VM abstraction.
+
+```lux
+effect Memory {
+  load_i32(addr: Int) -> Int,
+  store_i32(addr: Int, val: Int) -> (),
+  load_i8(addr: Int) -> Int,
+  store_i8(addr: Int, val: Int) -> (),
+  mem_copy(dst: Int, src: Int, size: Int) -> ()
+}
+
+effect Alloc { alloc(size: Int) -> Int }
+
+fn len(obj) with Memory = load_i32(obj)
+fn push(list, val) with Memory, Alloc = { ... }
+fn char_code(s) with Memory = load_i8(s + 4)
+```
+
+`len` is not a builtin. It is `load_i32`. Four bytes at the start of any
+data structure. The VM hid this behind a function call. The Memory effect
+reveals it: `len` IS memory access. `push` IS allocation + memory writes.
+`char_code` IS a byte read at offset 4.
+
+**The handler IS the backend.** On WASM: `load_i32` compiles to `i32.load`.
+On native (future): `load_i32` compiles to `MOV`. On test: `load_i32` reads
+from an array. Same Lux code. Different handlers. Different targets.
+
+Three effects replace the ENTIRE runtime:
+- **Memory** — read and write bytes
+- **Alloc** — get new memory
+- **WASI** — talk to the OS (`fd_write`, `fd_read`)
+
+Everything else — `str_concat`, `str_eq`, `int_to_str`, `print_string`,
+`split`, `chars`, `range` — is pure Lux built on these three effects.
+The `std/runtime/memory.lux` file IS the runtime. No hand-written WAT.
+No native code. Just Lux compiling through the same pipeline as user code.
+
+**The "irreducible kernel" of any language is smaller than you think.**
+If you have load, store, allocate, and OS boundary — everything else is
+a library. Effects make this compositional. The type system proves which
+capabilities each function uses. `!Alloc` proves real-time safety not
+because the language has a special ownership system, but because allocation
+IS an effect and the algebra handles negation.
+
+**What this means for Lux:** the prelude doesn't call "builtins." The
+prelude calls Lux functions that use Memory. The compiler doesn't need
+a special builtin registry. The checker infers types from function
+definitions. The lowering resolves dispatch via checker types. The emitter
+handles three effects. Everything else falls out.
+
+| In Lux | What it really is |
+|--------|-------------------|
+| `len(xs)` | `load_i32(xs)` — Memory |
+| `push(xs, x)` | alloc + store + copy — Memory, Alloc |
+| `xs[i]` | `load_i32(xs + 4 + i * 4)` — Memory |
+| `a ++ b` | alloc + copy + copy — Memory, Alloc |
+| `a == b` (strings) | byte-by-byte comparison — Memory |
+| `println(s)` | iovec setup + fd_write — Memory, WASI |
+| `read_stdin()` | fd_read + alloc — Memory, Alloc, WASI |
+
+The effect system IS the memory system. The handler IS the backend.
+There are no primitives. There are only effects and handlers.
+
+---
+
+## Pure Transforms for Structure, Effects for Context
+
+*The principle that saved closures from the resolve_var crash.*
+
+When lowering closures: free variable detection is a **pure transform**
+(walk the AST, collect unbound names). Capture rewriting is a **pure
+transform** (replace `LGlobal(name)` → `LUpval(idx)`). Neither needs
+effects. The LowerCtx effects (`is_ctor`, `is_global`, `find_rewrite`)
+provide **context** — they answer questions about the ENVIRONMENT.
+
+The rule: use pure transforms for operations on STRUCTURE (the data
+itself). Use effects for operations on CONTEXT (the world around the data).
+When you use effects for structure, you get the closure crash — the effect
+handler can't see inside the data. When you use pure transforms for
+context, you duplicate the environment across every call.
+
+This generalizes beyond closures:
+- Parsing: pure transform on tokens. Effect for source location context.
+- Type inference: pure unification on types. Effect for the type environment.
+- Code generation: pure transform on LowIR. Effect for the function table.
+- WASM emission: pure string building. Effect for the string map, type map.
+
+---
+
+## The Handler IS the Backend
+
+*The deepest architectural insight of the WASM session.*
+
+The WASM emitter is not a "code generator." It is a **handler for the
+Memory effect.** When the lowered program performs `load_i32(addr)`, the
+WASM handler emits `i32.load`. When it performs `alloc(size)`, the handler
+emits `call $alloc` (the bump allocator). When it performs `fd_write(...)`,
+the handler emits `call $fd_write` (the WASI import).
+
+This means: a native x86 backend is not "a new code generator." It is
+**a different handler for the same effects.** `load_i32` → `MOV`.
+`alloc` → `mmap`. `fd_write` → `syscall`. Same Lux program. Different
+handler. Different binary.
+
+And: a test backend is not "a mock." It is **a different handler.**
+`load_i32` → array lookup. `alloc` → vector push. `fd_write` → string
+buffer. Same program. Different handler. Fully isolated. The effect
+system guarantees the program can't tell the difference.
+
+The compiler doesn't have backends. It has handlers.
+
+---
+
+## Type-Directed Dispatch: The Compiler's Proof Becomes the Handler
+
+When the checker infers that `a: String` and `b: String`, the lowering
+resolves `a == b` → `str_eq(a, b)`. When `a: Int` and `b: Int`, the
+lowering resolves `a == b` → `i32.eq`. No runtime dispatch. No polymorphic
+equality function. The checker ALREADY KNOWS. The lowering uses that
+knowledge through the `LowerCtx` effect: `type_of_var(name)`.
+
+Same for `println(x)`: if `x: String` → `print_string(x)`. If `x: Int`
+→ `print_int(x)`. The compiler's proof becomes the dispatch mechanism.
+
+This is monomorphization through effects. The checker builds the proof.
+The lowering effect carries it. The emitter receives the resolved call.
+No special cases. No runtime overhead. Just information flowing through
+the effect system — the same mechanism that handles everything else.
+
+---
+
+## Self-Compilation: The Cage and the Light
+
+*2026-03-28. The lexer compiles to WASM. The parser compiles to WASM.
+The WASM lexer reads its own source through WASI. No Rust in the loop.*
+
+The Rust VM is the cage. It freezes compiling large programs. It crashes
+matching ADT variants with different field counts. Every `to_string`
+workaround is debt against the leap.
+
+But inside the cage, the light is already free:
+- `std/runtime/memory.lux` — the entire runtime in 250 lines of Lux
+- `std/compiler/lexer.lux` → 4,804 lines of WAT, runs on wasmtime
+- `std/compiler/parser.lux` → 12,495 lines of WAT, runs on wasmtime
+- `tools/wasm_lex.lux` — reads stdin, tokenizes, on WASM
+
+The bootstrap path: when the WASM tools can compile Lux source, the
+Rust VM becomes unnecessary. The compiler compiles itself, on itself,
+through effects. The cage doesn't open. It dissolves.
+
+```
+foundation |> translation |> scaffolding removal <| self trust <| leap of faith
+```
+
+The pipe flows forward through construction. The `<|` flows backward
+through belief — you have to trust before you can leap, and you have
+to leap before the scaffolding can come down. The removal happens
+because you already jumped.
