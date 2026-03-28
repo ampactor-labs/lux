@@ -95,6 +95,107 @@ fn env_lookup(env, name) with Pure = {
   }
 }
 
+// ─── VM Primitives ───────────────────────────────────────────
+// The irreducible kernel — operations Lux cannot implement in terms
+// of itself because they touch VM-internal representation or IO.
+//
+// Everything else is pure Lux in std/prelude.lux. The prelude is
+// prepended to user code, so the checker infers those types naturally.
+//
+// When a function moves from here to prelude, that's progress.
+
+fn env_with_primitives(env) with Pure = {
+  let a = TVar(-1)
+  let b = TVar(-2)
+  env
+    // Data structure access — needs VM representation knowledge
+    |> env_extend("len", TFun([a], TInt, EfPure), Declared("builtin"))
+    |> env_extend("push", TFun([a, b], a, EfPure), Declared("builtin"))
+    |> env_extend("slice", TFun([a, TInt, TInt], a, EfPure), Declared("builtin"))
+    // Character encoding — needs VM string internals
+    |> env_extend("char_code", TFun([TString], TInt, EfPure), Declared("builtin"))
+    |> env_extend("from_char_code", TFun([TInt], TString, EfPure), Declared("builtin"))
+    // Type dispatch — needs runtime type info
+    |> env_extend("to_string", TFun([a], TString, EfPure), Declared("builtin"))
+    |> env_extend("type_of", TFun([a], TString, EfPure), Declared("builtin"))
+    // split is now pure Lux in std/runtime/memory.lux
+    // IO — effects
+    |> env_extend("println", TFun([a], TUnit, EfClosed(["Console"])), Declared("builtin"))
+    |> env_extend("print", TFun([a], TUnit, EfClosed(["Console"])), Declared("builtin"))
+    |> env_extend("read_file", TFun([TString], TString, EfClosed(["IO"])), Declared("builtin"))
+    // fd_write is declared as a WASI effect in std/runtime/memory.lux
+}
+
+fn instantiate_type(ty, counter, mapping) with Pure = match ty {
+  TVar(id) => {
+    if id >= 0 { (ty, counter, mapping) }
+    else {
+      let existing = find_inst_mapping(mapping, id)
+      if existing >= 0 { (TVar(existing), counter, mapping) }
+      else {
+        let (fresh, c2) = fresh_var(counter)
+        let (c2_id, _) = c2
+        (fresh, c2, [(id, c2_id - 1)] ++ mapping)
+      }
+    }
+  },
+  TFun(params, ret, eff) => {
+    let (new_params, c2, m2) = instantiate_types(params, counter, mapping)
+    let (new_ret, c3, m3) = instantiate_type(ret, c2, m2)
+    (TFun(new_params, new_ret, eff), c3, m3)
+  },
+  TList(elem) => {
+    let (new_elem, c2, m2) = instantiate_type(elem, counter, mapping)
+    (TList(new_elem), c2, m2)
+  },
+  _ => (ty, counter, mapping)
+}
+
+fn instantiate_types(tys, counter, mapping) with Pure = {
+  if len(tys) == 0 { ([], counter, mapping) }
+  else {
+    let (new_head, c2, m2) = instantiate_type(tys[0], counter, mapping)
+    let (new_tail, c3, m3) = instantiate_types(slice(tys, 1, len(tys)), c2, m2)
+    ([new_head] ++ new_tail, c3, m3)
+  }
+}
+
+fn find_inst_mapping(mapping, id) with Pure = {
+  if len(mapping) == 0 { -999 }
+  else {
+    let (k, v) = mapping[0]
+    if k == id { v }
+    else { find_inst_mapping(slice(mapping, 1, len(mapping)), id) }
+  }
+}
+
+fn has_negative_tvars(ty) with Pure = match ty {
+  TVar(id) => id < 0,
+  TFun(params, ret, _) => has_negative_tvars_list(params) || has_negative_tvars(ret),
+  TList(elem) => has_negative_tvars(elem),
+  _ => false
+}
+
+fn has_negative_tvars_list(tys) with Pure = {
+  if len(tys) == 0 { false }
+  else { has_negative_tvars(tys[0]) || has_negative_tvars_list(slice(tys, 1, len(tys))) }
+}
+
+fn extract_builtin_names(env) with Pure = {
+  if len(env) == 0 { [] }
+  else {
+    let (name, _, reason) = env[0]
+    let rest = extract_builtin_names(slice(env, 1, len(env)))
+    if to_string(reason) == "Declared(builtin)" { [name] ++ rest } else { rest }
+  }
+}
+
+fn is_builtin_reason(reason) with Pure = {
+  let s = to_string(reason)
+  let dq = from_char_code(34)
+  s == "Declared(" ++ dq ++ "builtin" ++ dq ++ ")"
+}
+
 // ─── Fresh Type Variables ────────────────────────────────────
 // Counter is [fresh_id, eff_subst] — one channel for inference state.
 // Effect substitution rides alongside the fresh variable counter,
@@ -299,7 +400,12 @@ fn infer_expr(env, subst, counter, sexpr) = {
       let (c2_id, _) = c2
       (tv, subst, c2, Because("unknown variable '" ++ name ++ "', assigned fresh type", Fresh(c2_id - 1)), EfPure)
     } else {
-      (ty, subst, counter, VarLookup(name, bind_reason), EfPure)
+      if has_negative_tvars(ty) {
+        let (inst_ty, c2, _) = instantiate_type(ty, counter, [])
+        (inst_ty, subst, c2, VarLookup(name, bind_reason), EfPure)
+      } else {
+        (ty, subst, counter, VarLookup(name, bind_reason), EfPure)
+      }
     }
   },
 
@@ -923,7 +1029,7 @@ fn register_type_variants(env, counter, type_name, variants) with Pure = {
 // ─── Program Checking ────────────────────────────────────────
 
 fn check_program(stmts) with Pure = {
-  let env = env_empty()
+  let env = env_with_primitives(env_empty())
   let subst = subst_empty()
   let counter = (0, eff_subst_empty())
   handle { check_stmts(env, subst, counter, stmts) } {
@@ -938,7 +1044,7 @@ fn check_program(stmts) with Pure = {
 }
 
 fn check_program_with_source(stmts, src_text) with Pure = {
-  let env = env_with_source(env_empty(), src_text)
+  let env = env_with_source(env_with_primitives(env_empty()), src_text)
   let subst = subst_empty()
   let counter = (0, eff_subst_empty())
   handle { check_stmts(env, subst, counter, stmts) } {
@@ -1178,10 +1284,14 @@ fn show_env(env, subst, depth) = {
   if len(env) == 0 { "" }
   else {
     let (name, ty, reason) = env[len(env) - 1]
-    let ty_str = type_to_string(subst, ty)
-    let line = name ++ ": " ++ ty_str
-    let why = if depth > 0 { "\n  WHY: " ++ show_reason(reason, depth) } else { "" }
-    line ++ why ++ "\n" ++ show_env(slice(env, 0, len(env) - 1), subst, depth)
+    let rest = show_env(slice(env, 0, len(env) - 1), subst, depth)
+    if name == "__source__" || is_builtin_reason(reason) { rest }
+    else {
+      let ty_str = type_to_string(subst, ty)
+      let line = name ++ ": " ++ ty_str
+      let why = if depth > 0 { "\n  WHY: " ++ show_reason(reason, depth) } else { "" }
+      line ++ why ++ "\n" ++ rest
+    }
   }
 }
 

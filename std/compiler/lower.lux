@@ -137,9 +137,30 @@ effect LowerCtx {
   is_ctor(name: String) -> Bool
   find_rewrite(name: String) -> List
   is_global(name: String) -> Bool
+  fresh_id() -> Int
+  type_of_var(name: String) -> String
 }
 // find_rewrite: [] = no rewrite, [op, params, pre, resume, updates] = rewrite
 // is_global: true for top-level names — excludes them from closure captures
+
+fn is_string_typed(sexpr) = {
+  let S(expr, _, _) = sexpr
+  match expr {
+    StringLit(_) => true,
+    VarRef(name) => type_of_var(name) == "String",
+    BinOp(op, _, _) => op == "Concat",
+    Index(coll, _) => is_string_typed(coll),
+    Call(func, _) => {
+      let S(f, _, _) = func
+      match f {
+        VarRef(name) => name == "from_char_code" || name == "slice" || name == "to_string"
+                        || name == "trim" || name == "replace" || name == "join",
+        _ => false
+      }
+    },
+    _ => false
+  }
+}
 
 // ─── The One lower_expr ─────────────────────────────────────
 // Performs LowerCtx effects. One function. No duplicates.
@@ -154,7 +175,20 @@ fn lower_expr(sexpr) = {
     NoneExpr => LConst(LUnit),
     VarRef(name) => LGlobal(name),
 
-    BinOp(op, left, right) => LBinOp(op, lower_expr(left), lower_expr(right)),
+    BinOp(op, left, right) => {
+      if op == "Eq" || op == "Neq" {
+        let l = lower_expr(left)
+        let r = lower_expr(right)
+        if is_string_typed(left) || is_string_typed(right) {
+          let eq_call = LCall(LGlobal("str_eq"), [l, r])
+          if op == "Neq" { LUnaryOp("Not", eq_call) } else { eq_call }
+        } else { LBinOp(op, l, r) }
+      } else { if op == "Concat" {
+        LCall(LGlobal("str_concat"), [lower_expr(left), lower_expr(right)])
+      } else {
+        LBinOp(op, lower_expr(left), lower_expr(right))
+      } }
+    },
     UnaryOp(op, operand) => LUnaryOp(op, lower_expr(operand)),
 
     // THE KEY: Call dispatches through LowerCtx
@@ -163,11 +197,25 @@ fn lower_expr(sexpr) = {
       match f {
         VarRef(name) => {
           if is_ctor(name) { LMakeVariant(name, lower_exprs(args)) }
-          else {
+          else { if (name == "println" || name == "print") && len(args) > 0 {
+            // Type-directed dispatch: the compiler knows the argument type
+            let arg = args[0]
+            let lowered_arg = lower_expr(arg)
+            let printer = if is_string_typed(arg) { "print_string" } else { "print_int" }
+            if name == "println" {
+              LBlock([LCall(LGlobal(printer), [lowered_arg]), LCall(LGlobal("print_newline"), [])])
+            } else {
+              LCall(LGlobal(printer), [lowered_arg])
+            }
+          } else { if name == "to_string" && len(args) > 0 {
+            let arg = args[0]
+            if is_string_typed(arg) { lower_expr(arg) }
+            else { LCall(LGlobal("int_to_str"), [lower_expr(arg)]) }
+          } else {
             let rw = find_rewrite(name)
             if len(rw) > 0 { apply_rewrite(rw) }
             else { LCall(lower_expr(func), lower_exprs(args)) }
-          }
+          } } }
         },
         _ => LCall(lower_expr(func), lower_exprs(args))
       }
@@ -194,7 +242,7 @@ fn lower_expr(sexpr) = {
     Index(collection, idx) => LIndex(lower_expr(collection), lower_expr(idx)),
     FieldAccess(obj, field) => LIndex(lower_expr(obj), LConst(LString(field))),
 
-    LambdaExpr(params, body) => lower_lambda("lambda", params, body),
+    LambdaExpr(params, body) => lower_lambda("lambda_" ++ to_string(fresh_id()), params, body),
 
     HandleExpr(body, arms, state_bindings) =>
       lower_handle(body, arms, state_bindings),
@@ -249,7 +297,10 @@ fn extract_param_names(params) with Pure = {
 
 fn lower_stmt(stmt) = match stmt {
   LetStmt(name, value) => LLet(name, lower_expr(value)),
-  LetDestructure(names, value) => LLet("_dt", lower_expr(value)),
+  LetDestructure(names, value) => {
+    let lowered = lower_expr(value)
+    LBlock([LLet("_dt", lowered)] ++ lower_destructure_bindings(names, 0))
+  },
   LetPattern(pat, value) => LLet("_lp", lower_expr(value)),
   FnStmt(name, params, body, _) => {
     let param_names = extract_param_names(params)
@@ -257,6 +308,18 @@ fn lower_stmt(stmt) = match stmt {
   },
   ExprStmt(expr) => lower_expr(expr),
   _ => LConst(LUnit)
+}
+
+fn lower_destructure_bindings(names, idx) with Pure = {
+  if idx >= len(names) { [] }
+  else {
+    let name = names[idx]
+    if name == "_" { lower_destructure_bindings(names, idx + 1) }
+    else {
+      [LLet(name, LIndex(LGlobal("_dt"), LConst(LInt(idx))))]
+      ++ lower_destructure_bindings(names, idx + 1)
+    }
+  }
 }
 
 // ─── Lambda / Closure Lowering ──────────────────────────────
@@ -339,12 +402,20 @@ fn collect_free_stmts(stmts, bound) with Pure = {
 
 fn collect_free_stmt(stmt, bound) with Pure = match stmt {
   LetStmt(name, value) => (collect_free(value, bound), bound ++ [name]),
+  LetDestructure(names, value) => (collect_free(value, bound), bound ++ names),
   FnStmt(name, params, body, _) => {
     let fn_params = extract_param_names_pure(params)
     (collect_free(body, bound ++ [name] ++ fn_params), bound ++ [name])
   },
   ExprStmt(expr) => (collect_free(expr, bound), bound),
   _ => ([], bound)
+}
+
+fn collect_pat_names_lower(pat) with Pure = {
+  let s = to_string(pat)
+  // Simple extraction: avoid ADT matching that crashes on field count mismatch
+  // LetPattern is rare in the lowering path — _lp works for most cases
+  []
 }
 
 fn extract_param_names_pure(params) with Pure = {
@@ -558,12 +629,24 @@ fn lower_state_assign_temps(updates, idx) with Pure = {
 // ─── Program Lowering ───────────────────────────────────────
 // Top-level handler: provides constructor set, no rewrites.
 
-fn lower_program_ctx(stmts, ctors) = {
+fn lower_program_ctx(stmts, ctors) = lower_program_typed(stmts, ctors, [])
+
+fn lower_program_typed(stmts, ctors, type_map) = {
   let globals = collect_top_names(stmts, 0)
-  handle { lower_stmts(stmts) } {
+  handle { lower_stmts(stmts) } with counter = 0 {
     is_ctor(name) => resume(ctor_in(ctors, name, 0)),
     find_rewrite(name) => resume([]),
-    is_global(name) => resume(name_in(globals, name, 0))
+    is_global(name) => resume(name_in(globals, name, 0)),
+    fresh_id() => resume(counter) with counter = counter + 1,
+    type_of_var(name) => resume(lookup_type_str(type_map, name, 0))
+  }
+}
+
+fn lookup_type_str(type_map, name, idx) with Pure = {
+  if idx >= len(type_map) { "" }
+  else {
+    let (k, v) = type_map[idx]
+    if k == name { v } else { lookup_type_str(type_map, name, idx + 1) }
   }
 }
 
@@ -584,18 +667,29 @@ fn collect_top_names(stmts, idx) with Pure = {
     let here = match stmts[idx] {
       FnStmt(name, _, _, _) => [name],
       LetStmt(name, _) => [name],
+      EffectDeclStmt(_, ops) => collect_effect_op_names(ops, 0),
       _ => []
     }
     here ++ collect_top_names(stmts, idx + 1)
   }
 }
 
+fn collect_effect_op_names(ops, idx) with Pure = {
+  if idx >= len(ops) { [] }
+  else {
+    let (op_name, _) = ops[idx]
+    [op_name] ++ collect_effect_op_names(ops, idx + 1)
+  }
+}
+
 // Legacy entry point (no constructor awareness, no rewrites)
 fn lower_program(stmts) = {
   let globals = collect_top_names(stmts, 0)
-  handle { lower_stmts(stmts) } {
+  handle { lower_stmts(stmts) } with counter = 0 {
     is_ctor(name) => resume(false),
     find_rewrite(name) => resume([]),
-    is_global(name) => resume(name_in(globals, name, 0))
+    is_global(name) => resume(name_in(globals, name, 0)),
+    fresh_id() => resume(counter) with counter = counter + 1,
+    type_of_var(name) => resume("")
   }
 }

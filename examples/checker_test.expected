@@ -34,10 +34,6 @@ r: Int
   â if/else branches
 
 --- full program with reasons ---
-__source__: ()
-  WHY: let x = 42
-fn double(n) = n * 2
-let y = double(x)
 x: Int
   WHY: let x = ..
   â integer literal
@@ -58,9 +54,6 @@ f: (Int) -> Int
   WHY: let f = ..
 
 --- lambda applied ---
-__source__: ()
-  WHY: let f = |x| x + 1
-let y = f(10)
 f: (Int) -> Int
   WHY: let f = ..
   â lambda
@@ -74,7 +67,6 @@ r: Int
   â match expression
 
 --- let destructure ---
-__source__: ()
 a: Int
 b: Int
 

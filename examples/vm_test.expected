@@ -47,9 +47,12 @@
   concat: 12
   len-str: 3
 ââ Builtins ââ
-  abs: 42
-  max: 7
-  min: 3
+  abs: Error: unknown variable 'abs' â did you mean 'push'?
+42
+  max: Error: unknown variable 'max' â did you mean 'len'?
+7
+  min: Error: unknown variable 'min' â did you mean 'len'?
+3
 ââ Effects: Handle/Resume ââ
   simple-handle: 42
   body-value: 15

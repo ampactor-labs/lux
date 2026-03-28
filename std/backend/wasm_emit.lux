@@ -16,36 +16,67 @@ let DQ = from_char_code(34)
 let BS = from_char_code(92)
 
 // ─── Context helpers ────────────────────────────────────────
-// ctx = (string_map, type_map, tag_map, fn_table)
+// ctx = (string_map, type_map, tag_map, fn_table, top_globals)
 fn ctx_strings(ctx) with Pure = ctx[0]
 fn ctx_types(ctx) with Pure = ctx[1]
 fn ctx_tags(ctx) with Pure = ctx[2]
 fn ctx_fns(ctx) with Pure = ctx[3]
+fn ctx_globals(ctx) with Pure = ctx[4]
 
 // ─── Module Structure ───────────────────────────────────────
 
 fn emit_module(defs, type_map) with Pure = {
   let fns = collect_fns(defs, 0)
   let top_stmts = collect_top_stmts(defs, 0)
+  let top_globals = collect_top_let_names(top_stmts, 0)
   let all_strings = collect_all_strings(defs, 0)
   let string_map = assign_offsets(all_strings, 0, 1024)
   let heap_start = string_heap_end(string_map, 0, 1024)
   let tag_map = collect_variant_tags(defs, 0)
   let fn_table = collect_fn_names(fns, 0)
   let max_arity = max_fn_arity(fns, 0)
-  let ctx = (string_map, type_map, tag_map, fn_table)
+  let ctx = (string_map, type_map, tag_map, fn_table, top_globals)
   "(module" ++ NL
     ++ emit_wasi_imports()
     ++ "  (memory (export " ++ DQ ++ "memory" ++ DQ ++ ") 1)" ++ NL
     ++ "  (global $heap_ptr (mut i32) (i32.const " ++ to_string(heap_start) ++ "))" ++ NL
+    ++ emit_global_decls(top_globals, 0)
     ++ emit_fn_type_sigs(max_arity, 0)
     ++ emit_string_segments(string_map, 0)
-    ++ emit_alloc() ++ emit_str_concat() ++ emit_int_to_str()
+    ++ emit_alloc()
     ++ emit_fn_list(fns, 0, ctx)
-    ++ emit_print_int() ++ emit_print_string()
     ++ emit_fn_table(fn_table)
     ++ emit_start(top_stmts, ctx)
     ++ ")" ++ NL
+}
+
+fn collect_top_let_names(stmts, idx) with Pure = {
+  if idx >= len(stmts) { [] }
+  else {
+    let rest = collect_top_let_names(stmts, idx + 1)
+    match stmts[idx] {
+      LLet(name, _) => [name] ++ rest,
+      LBlock(inner) => collect_top_let_names(inner, 0) ++ rest,
+      _ => rest
+    }
+  }
+}
+
+fn filter_out_globals(locals, globals, idx) with Pure = {
+  if idx >= len(locals) { [] }
+  else {
+    let name = locals[idx]
+    let rest = filter_out_globals(locals, globals, idx + 1)
+    if string_in(globals, name, 0) { rest } else { [name] ++ rest }
+  }
+}
+
+fn emit_global_decls(names, idx) with Pure = {
+  if idx >= len(names) { "" }
+  else {
+    "  (global $" ++ names[idx] ++ " (mut i32) (i32.const 0))" ++ NL
+    ++ emit_global_decls(names, idx + 1)
+  }
 }
 
 fn emit_wasi_imports() with Pure =
@@ -108,7 +139,7 @@ fn emit_string_segments(string_map, idx) with Pure = {
   if idx >= len(string_map) { "" }
   else {
     let (text, offset, slen) = string_map[idx]
-    "  (data (i32.const " ++ to_string(offset) ++ ") " ++ DQ ++ encode_i32_le(slen) ++ text ++ DQ ++ ")" ++ NL
+    "  (data (i32.const " ++ to_string(offset) ++ ") " ++ DQ ++ encode_i32_le(slen) ++ escape_wat_string(text, 0) ++ DQ ++ ")" ++ NL
       ++ emit_string_segments(string_map, idx + 1)
   }
 }
@@ -118,6 +149,22 @@ fn encode_i32_le(n) with Pure =
 
 fn hex_byte(b) with Pure = BS ++ hex_digit(b / 16) ++ hex_digit(b % 16)
 fn hex_digit(n) with Pure = if n < 10 { from_char_code(48 + n) } else { from_char_code(87 + n) }
+
+// Escape string for WAT data segments: control chars → \xx hex escapes
+fn escape_wat_string(s, idx) with Pure = {
+  let cs = chars(s)
+  escape_wat_chars(cs, 0)
+}
+
+fn escape_wat_chars(cs, idx) with Pure = {
+  if idx >= len(cs) { "" }
+  else {
+    let ch = cs[idx]
+    let code = char_code(ch)
+    let escaped = if code < 32 || code == 34 || code == 92 { hex_byte(code) } else { ch }
+    escaped ++ escape_wat_chars(cs, idx + 1)
+  }
+}
 
 // ─── Variant Tag Collection ─────────────────────────────────
 // Walk LowIR, find all LMakeVariant/LPCon names, assign sequential IDs.
@@ -327,12 +374,22 @@ fn emit_expr(e, params, locals, ctx) with Pure = match e {
   LGlobal(name) => {
     if string_in(locals, name, 0) { "    local.get $" ++ name ++ NL }
     else { if find_param_idx(params, name, 0) >= 0 { "    local.get $" ++ name ++ NL }
+    else { if string_in(ctx_globals(ctx), name, 0) { "    global.get $" ++ name ++ NL }
     else {
-      // Function reference in value position → table index
+      // Function reference in value position → minimal closure [fn_idx, 0]
+      // Every function value is a closure. i32.load always works.
       let fn_idx = find_fn_index(ctx_fns(ctx), name, 0)
-      if fn_idx >= 0 { "    i32.const " ++ to_string(fn_idx) ++ NL }
+      if fn_idx >= 0 {
+        "    i32.const 8" ++ NL ++ "    call $alloc" ++ NL
+        ++ "    local.tee $__vptr" ++ NL
+        ++ "    i32.const " ++ to_string(fn_idx) ++ NL ++ "    i32.store" ++ NL
+        ++ "    local.get $__vptr" ++ NL
+        ++ "    i32.const 4" ++ NL ++ "    i32.add" ++ NL
+        ++ "    i32.const 0" ++ NL ++ "    i32.store" ++ NL
+        ++ "    local.get $__vptr" ++ NL
+      }
       else { "    call $" ++ name ++ NL }
-    } }
+    } } }
   },
   LUpval(idx) => {
     // Load captured value from closure object: closure_ptr + 8 + idx*4
@@ -424,20 +481,15 @@ fn emit_stmts_void(stmts, idx, params, locals, ctx) with Pure = {
 }
 
 fn emit_stmt(stmt, params, locals, ctx) with Pure = match stmt {
-  LLet(name, value) => emit_expr(value, params, locals, ctx) ++ "    local.set $" ++ name ++ NL,
+  LLet(name, value) => {
+    let setter = if string_in(ctx_globals(ctx), name, 0) { "    global.set $" } else { "    local.set $" }
+    emit_expr(value, params, locals, ctx) ++ setter ++ name ++ NL
+  },
   LConst(_) => "",
   LMakeTuple(_) => "",
   LBlock(stmts) => emit_stmts_void(stmts, 0, params, locals, ctx),
-  LCall(func, args) => {
-    match func {
-      LGlobal(name) => {
-        if name == "println" { emit_println(args, params, locals, ctx) }
-        else { if name == "print" { emit_println(args, params, locals, ctx) }
-        else { emit_call_expr(func, args, params, locals, ctx) ++ "    drop" ++ NL } }
-      },
-      _ => emit_call_expr(func, args, params, locals, ctx) ++ "    drop" ++ NL
-    }
-  },
+  LCall(func, args) => emit_call_expr(func, args, params, locals, ctx) ++ "    drop" ++ NL,
+  LIf(_, _, _) => emit_expr(stmt, params, locals, ctx) ++ "    drop" ++ NL,
   _ => emit_expr(stmt, params, locals, ctx)
 }
 
@@ -451,29 +503,62 @@ fn emit_const(v, ctx) with Pure = match v {
   _ => "    i32.const 0" ++ NL
 }
 
+fn emit_builtin(name, args, params, locals, ctx) with Pure = {
+  // Memory effect → raw WASM instructions. The handler IS the backend.
+  if name == "load_i32" {
+    emit_args(args, 0, params, locals, ctx) ++ "    i32.load" ++ NL
+  } else { if name == "store_i32" {
+    emit_args(args, 0, params, locals, ctx) ++ "    i32.store" ++ NL ++ "    i32.const 0" ++ NL
+  } else { if name == "load_i8" {
+    emit_args(args, 0, params, locals, ctx) ++ "    i32.load8_u" ++ NL
+  } else { if name == "store_i8" {
+    emit_args(args, 0, params, locals, ctx) ++ "    i32.store8" ++ NL ++ "    i32.const 0" ++ NL
+  } else { if name == "mem_copy" {
+    emit_args(args, 0, params, locals, ctx) ++ "    memory.copy" ++ NL ++ "    i32.const 0" ++ NL
+  // Alloc effect → bump allocator (the one true WAT primitive)
+  } else { if name == "alloc" {
+    emit_args(args, 0, params, locals, ctx) ++ "    call $alloc" ++ NL
+  // Console effect → fd_write (WASI boundary)
+  } else { if name == "fd_write" {
+    emit_args(args, 0, params, locals, ctx) ++ "    call $fd_write" ++ NL
+  // to_string dispatches by type — int_to_str is compiled Lux from memory.lux
+  } else { if name == "to_string" {
+    emit_args(args, 0, params, locals, ctx) ++ "    call $int_to_str" ++ NL
+  } else { if name == "type_of" {
+    emit_args(args, 0, params, locals, ctx) ++ "    drop" ++ NL ++ "    i32.const 0" ++ NL
+  } else {
+    "" // Not a primitive — compiled Lux handles it
+  } } } } } } } } }
+}
+
 fn emit_call_expr(func, args, params, locals, ctx) with Pure = {
   match func {
     LGlobal(name) => {
-      if name == "to_string" {
-        emit_args(args, 0, params, locals, ctx) ++ "    call $int_to_str" ++ NL
-      } else {
+      let builtin = emit_builtin(name, args, params, locals, ctx)
+      if builtin != "" { builtin } else {
         if string_in(ctx_tags(ctx), name, 0) {
           emit_make_variant(name, args, params, locals, ctx)
         } else {
-          // Is callee a param/local (function ref)? → indirect call
+          // Is callee a param/local/global (function ref)? → indirect call
           let is_param = find_param_idx(params, name, 0) >= 0
           let is_local = string_in(locals, name, 0)
+          let is_global = string_in(ctx_globals(ctx), name, 0)
           if is_param || is_local {
-            // Indirect call: push closure_ptr (for __closure param), push args, load fn_idx, call_indirect
-            "    local.get $" ++ name ++ NL  // closure ptr as first arg
+            "    local.get $" ++ name ++ NL
             ++ emit_args(args, 0, params, locals, ctx)
-            ++ "    local.get $" ++ name ++ NL  // load fn_idx from closure[0]
+            ++ "    local.get $" ++ name ++ NL
+            ++ "    i32.load" ++ NL
+            ++ "    call_indirect (type $fn" ++ to_string(len(args)) ++ ")" ++ NL
+          } else { if is_global {
+            "    global.get $" ++ name ++ NL
+            ++ emit_args(args, 0, params, locals, ctx)
+            ++ "    global.get $" ++ name ++ NL
             ++ "    i32.load" ++ NL
             ++ "    call_indirect (type $fn" ++ to_string(len(args)) ++ ")" ++ NL
           } else {
             // Direct call: pass 0 as closure ptr
             "    i32.const 0" ++ NL ++ emit_args(args, 0, params, locals, ctx) ++ "    call $" ++ name ++ NL
-          }
+          } }
         }
       }
     },
@@ -663,7 +748,7 @@ fn is_string_expr(e) with Pure = match e {
 // ─── _start Function ────────────────────────────────────────
 
 fn emit_start(stmts, ctx) with Pure = {
-  let locals = collect_locals(stmts, 0)
+  let locals = filter_out_globals(collect_locals(stmts, 0), ctx_globals(ctx), 0)
   let with_temps = add_emitter_temps(locals, ctx)
   "  (func $_start (export " ++ DQ ++ "_start" ++ DQ ++ ")" ++ NL
     ++ emit_local_decls(with_temps, 0)
@@ -754,5 +839,7 @@ fn emit_binop3(op) with Pure = match op {
   "LtEq" => "    i32.le_s" ++ NL,
   "Gt" => "    i32.gt_s" ++ NL,
   "GtEq" => "    i32.ge_s" ++ NL,
+  "And" => "    i32.and" ++ NL,
+  "Or" => "    i32.or" ++ NL,
   _ => "    ;; unknown op: " ++ op ++ NL
 }

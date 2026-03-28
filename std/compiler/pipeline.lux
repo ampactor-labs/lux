@@ -171,9 +171,10 @@ fn compile_lowering(source) =
     parse_source(tokens) => resume(parse_program(tokens)),
     infer(ast) => resume(check_program(ast)),
     generate(checked, ast) => {
-      let (env, _, _) = checked
+      let (env, subst, _) = checked
+      let type_map = build_type_map(env, subst)
       let ctors = extract_constructors(env)
-      let lowered = lower_program_ctx(ast, ctors)
+      let lowered = lower_program_typed(ast, ctors, type_map)
       println("── LowIR ──")
       println(print_lowered(lowered))
       resume(("skip", [], [], 0))
@@ -184,9 +185,16 @@ fn compile_lowering(source) =
 // Parse, type-check, lower to LowIR, emit WAT.
 // Type info flows from infer → generate through the pipeline.
 
-fn compile_wasm(source) =
+fn compile_wasm(source) = {
+  // Devour the prelude: prepend Memory effect runtime + stdlib.
+  // The runtime defines len, push, slice, etc. using Memory + Alloc effects.
+  // The prelude defines map, filter, fold, etc. using those primitives.
+  // Everything compiles through the same pipeline. No hand-written WAT for data ops.
+  let runtime = read_file("std/runtime/memory.lux")
+  let prelude = read_file("std/prelude.lux")
+  let full_source = runtime ++ "\n" ++ prelude ++ "\n" ++ source
   handle {
-    compile_pipeline(source)
+    compile_pipeline(full_source)
   } {
     tokenize(src) => resume(lex(src)),
     parse_source(tokens) => resume(parse_program(tokens)),
@@ -195,12 +203,13 @@ fn compile_wasm(source) =
       let (env, subst, _) = checked
       let type_map = build_type_map(env, subst)
       let ctors = extract_constructors(env)
-      let lowered = lower_program_ctx(ast, ctors)
+      let lowered = lower_program_typed(ast, ctors, type_map)
       let wat = emit_module(lowered, type_map)
       println(wat)
       resume(("skip", [], [], 0))
     }
   }
+}
 
 // ─── Handler: Tracing ────────────────────────────────────────
 // Capture all intermediate representations.
@@ -354,12 +363,15 @@ fn repl_tracing(source) =
 fn show_env_compact(env, subst) = {
   if len(env) == 0 { "" }
   else {
-    let (name, ty, _) = env[len(env) - 1]
-    let ty_str = type_to_string(subst, ty)
-    let line = "  " ++ name ++ ": " ++ ty_str
+    let (name, ty, reason) = env[len(env) - 1]
     let rest = show_env_compact(slice(env, 0, len(env) - 1), subst)
-    if len(rest) > 0 { line ++ "\n" ++ rest }
-    else { line }
+    if name == "__source__" || is_builtin_reason(reason) { rest }
+    else {
+      let ty_str = type_to_string(subst, ty)
+      let line = "  " ++ name ++ ": " ++ ty_str
+      if len(rest) > 0 { line ++ "\n" ++ rest }
+      else { line }
+    }
   }
 }
 
@@ -368,11 +380,14 @@ fn show_env_why(env, subst, depth) = {
   if len(env) == 0 { "" }
   else {
     let (name, ty, reason) = env[len(env) - 1]
-    let ty_str = type_to_string(subst, ty)
-    let line = "  " ++ name ++ ": " ++ ty_str ++ "\n    WHY: " ++ show_reason(reason, depth)
     let rest = show_env_why(slice(env, 0, len(env) - 1), subst, depth)
-    if len(rest) > 0 { line ++ "\n" ++ rest }
-    else { line }
+    if name == "__source__" || is_builtin_reason(reason) { rest }
+    else {
+      let ty_str = type_to_string(subst, ty)
+      let line = "  " ++ name ++ ": " ++ ty_str ++ "\n    WHY: " ++ show_reason(reason, depth)
+      if len(rest) > 0 { line ++ "\n" ++ rest }
+      else { line }
+    }
   }
 }
 

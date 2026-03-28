@@ -1,0 +1,231 @@
+// Memory Effect — Lux's bridge to the machine
+//
+// The handler IS the backend. Same Lux code, different handlers, different targets.
+// WASM handler: load_i32 → i32.load. Native handler: load_i32 → MOV.
+//
+// !Alloc proves real-time safety. !Memory proves sandboxing.
+//
+// Data layouts (WASM target):
+//   String: [len:i32][bytes...]
+//   List:   [count:i32][elem0:i32][elem1:i32]...
+//   Tuple:  [field0:i32][field1:i32]...
+//   Variant: [tag:i32][field0:i32][field1:i32]...
+
+effect WASI {
+  fd_write(fd: Int, iovs: Int, iovs_len: Int, nwritten: Int) -> Int
+}
+
+effect Memory {
+  load_i32(addr: Int) -> Int,
+  store_i32(addr: Int, val: Int) -> (),
+  load_i8(addr: Int) -> Int,
+  store_i8(addr: Int, val: Int) -> (),
+  mem_copy(dst: Int, src: Int, size: Int) -> ()
+}
+
+effect Alloc {
+  alloc(size: Int) -> Int
+}
+
+// ─── The Primitives ─────────────────────────────────────────
+// These ARE len, push, slice, etc. Not wrappers. Not scaffolding.
+// When compiled to WASM, load_i32 becomes i32.load. That's it.
+
+fn len(obj) with Memory = load_i32(obj)
+
+fn push(list, val) with Memory, Alloc = {
+  let old_len = load_i32(list)
+  let new_list = alloc(4 + (old_len + 1) * 4)
+  store_i32(new_list, old_len + 1)
+  // Copy old elements if list is non-null
+  if old_len > 0 { mem_copy(new_list + 4, list + 4, old_len * 4) } else { () }
+  store_i32(new_list + 4 + old_len * 4, val)
+  new_list
+}
+
+fn slice(list, start, end) with Memory, Alloc = {
+  let new_len = end - start
+  if new_len <= 0 {
+    let empty = alloc(4)
+    store_i32(empty, 0)
+    empty
+  } else {
+    let new_list = alloc(4 + new_len * 4)
+    store_i32(new_list, new_len)
+    mem_copy(new_list + 4, list + 4 + start * 4, new_len * 4)
+    new_list
+  }
+}
+
+fn char_code(s) with Memory = load_i8(s + 4)
+
+fn from_char_code(code) with Memory, Alloc = {
+  let ptr = alloc(5)
+  store_i32(ptr, 1)
+  store_i8(ptr + 4, code)
+  ptr
+}
+
+fn str_concat(a, b) with Memory, Alloc = {
+  let len_a = load_i32(a)
+  let len_b = load_i32(b)
+  let total = len_a + len_b
+  let ptr = alloc(4 + total)
+  store_i32(ptr, total)
+  mem_copy(ptr + 4, a + 4, len_a)
+  mem_copy(ptr + 4 + len_a, b + 4, len_b)
+  ptr
+}
+
+fn str_eq_loop(a, b, slen, i) with Memory =
+  if i >= slen { 1 }
+  else {
+    if load_i8(a + 4 + i) != load_i8(b + 4 + i) { 0 }
+    else { str_eq_loop(a, b, slen, i + 1) }
+  }
+
+fn str_eq(a, b) with Memory = {
+  let len_a = load_i32(a)
+  let len_b = load_i32(b)
+  if len_a != len_b { 0 }
+  else { str_eq_loop(a, b, len_a, 0) }
+}
+
+// No val_eq needed — the lowering resolves == to str_eq or i32.eq
+// based on types from the checker. The compiler already knows.
+
+fn write_digits(n, ptr) with Memory =
+  if n == 0 { ptr }
+  else {
+    store_i8(ptr, 48 + n % 10)
+    write_digits(n / 10, ptr + 1)
+  }
+
+fn rev_copy(src_end, dst, count, i) with Memory =
+  if i >= count { 0 }
+  else {
+    store_i8(dst + i, load_i8(src_end - 1 - i))
+    rev_copy(src_end, dst, count, i + 1)
+  }
+
+fn int_to_str(n) with Memory, Alloc = {
+  let is_neg = n < 0
+  let abs_n = if is_neg { 0 - n } else { n }
+  let end_ptr = if abs_n == 0 {
+    store_i8(300, 48)
+    301
+  } else { write_digits(abs_n, 300) }
+  let digit_len = end_ptr - 300
+  let total_len = if is_neg { digit_len + 1 } else { digit_len }
+  let result = alloc(4 + total_len)
+  store_i32(result, total_len)
+  let start = if is_neg { store_i8(result + 4, 45); 1 } else { 0 }
+  rev_copy(end_ptr, result + 4 + start, digit_len, 0)
+  result
+}
+
+fn print_string(s) with Memory = {
+  let slen = load_i32(s)
+  // iov: [ptr, len] at scratch addr 0
+  store_i32(0, s + 4)
+  store_i32(4, slen)
+  // fd_write(stdout=1, iov=0, iovs_len=1, nwritten=8)
+  fd_write(1, 0, 1, 8)
+}
+
+fn print_int(n) with Memory, Alloc = {
+  let s = int_to_str(n)
+  print_string(s)
+}
+
+fn fill_range(list, start, n, i) with Memory =
+  if i >= n { 0 }
+  else { store_i32(list + 4 + i * 4, start + i); fill_range(list, start, n, i + 1) }
+
+fn range(start, end) with Memory, Alloc = {
+  let n = end - start
+  if n <= 0 {
+    let empty = alloc(4)
+    store_i32(empty, 0)
+    empty
+  } else {
+    let list = alloc(4 + n * 4)
+    store_i32(list, n)
+    fill_range(list, start, n, 0)
+    list
+  }
+}
+
+fn str_slice(s, start, end) with Memory, Alloc = {
+  let new_len = end - start
+  if new_len <= 0 {
+    let empty = alloc(4)
+    store_i32(empty, 0)
+    empty
+  } else {
+    let result = alloc(4 + new_len)
+    store_i32(result, new_len)
+    mem_copy(result + 4, s + 4 + start, new_len)
+    result
+  }
+}
+
+// split: break string at separator occurrences
+fn split_find(s, sep, slen, seplen, i) with Memory, Alloc =
+  if i + seplen > slen { 0 - 1 }
+  else {
+    if str_eq(str_slice(s, i, i + seplen), sep) == 1 { i }
+    else { split_find(s, sep, slen, seplen, i + 1) }
+  }
+
+fn split(s, sep) with Memory, Alloc = {
+  let slen = len(s)
+  let seplen = len(sep)
+  let idx = split_find(s, sep, slen, seplen, 0)
+  if idx < 0 {
+    let list = alloc(8)
+    store_i32(list, 1)
+    store_i32(list + 4, s)
+    list
+  } else {
+    let before = str_slice(s, 0, idx)
+    let after = str_slice(s, idx + seplen, slen)
+    let rest = split(after, sep)
+    let rest_len = len(rest)
+    let result = alloc(4 + (rest_len + 1) * 4)
+    store_i32(result, rest_len + 1)
+    store_i32(result + 4, before)
+    if rest_len > 0 { mem_copy(result + 8, rest + 4, rest_len * 4) } else { 0 }
+    result
+  }
+}
+
+fn build_chars(s, list, slen, i) with Memory, Alloc =
+  if i >= slen { 0 }
+  else {
+    let ch = alloc(5)
+    store_i32(ch, 1)
+    store_i8(ch + 4, load_i8(s + 4 + i))
+    store_i32(list + 4 + i * 4, ch)
+    build_chars(s, list, slen, i + 1)
+  }
+
+fn chars(s) with Memory, Alloc = {
+  let slen = len(s)
+  let list = alloc(4 + slen * 4)
+  store_i32(list, slen)
+  build_chars(s, list, slen, 0)
+  list
+}
+
+fn println(x) with Memory, Alloc = {
+  print_int(x)
+  print_newline()
+}
+
+fn print_newline() with Memory = {
+  store_i8(200, 10)
+  store_i32(0, 200)
+  store_i32(4, 1)
+  fd_write(1, 0, 1, 8)
+}

@@ -29,6 +29,7 @@ fn id(x) = x
 fn min(a, b) = if a <= b { a } else { b }
 fn max(a, b) = if a <= b { b } else { a }
 fn clamp(x, lo, hi) = min(max(x, lo), hi)
+fn abs(x) = if x < 0 { 0 - x } else { x }
 
 // --- List: sort (merge sort) ---
 fn merge(xs, ys) =
@@ -71,8 +72,42 @@ fn not(x) = if x { false } else { true }
 // --- Chunking ---
 fn chunk(n, xs) = if len(xs) == 0 { [] } else { [take(n, xs)] ++ chunk(n, drop(n, xs)) }
 
-// --- String convenience (wrapping Rust builtins) ---
+// --- String operations (pure Lux) ---
+fn join(xs, sep) = if len(xs) == 0 { "" } else { fold(slice(xs, 1, len(xs)), xs[0], |acc, x| acc ++ sep ++ x) }
 fn words(s) = split(s, " ")
 fn unwords(ws) = join(ws, " ")
 fn lines(s) = split(s, "\n")
 fn unlines(ls) = join(ls, "\n")
+fn starts_with(s, prefix) = len(s) >= len(prefix) && slice(s, 0, len(prefix)) == prefix
+fn ends_with(s, suffix) = len(s) >= len(suffix) && slice(s, len(s) - len(suffix), len(s)) == suffix
+fn contains(s, sub) = index_of(s, sub) >= 0
+fn index_of(s, sub) = {
+  let slen = len(s)
+  let sublen = len(sub)
+  fn search(i) =
+    if i + sublen > slen { 0 - 1 }
+    else { if slice(s, i, i + sublen) == sub { i } else { search(i + 1) } }
+  search(0)
+}
+fn replace(s, old, new) = {
+  let idx = index_of(s, old)
+  if idx < 0 { s }
+  else { slice(s, 0, idx) ++ new ++ replace(slice(s, idx + len(old), len(s)), old, new) }
+}
+fn trim(s) = {
+  let cs = chars(s)
+  fn is_ws(c) = c == " " || c == "\t" || char_code(c) == 10 || char_code(c) == 13
+  fn trim_left(i) = if i >= len(cs) { i } else { if is_ws(cs[i]) { trim_left(i + 1) } else { i } }
+  fn trim_right(i) = if i <= 0 { 0 } else { if is_ws(cs[i - 1]) { trim_right(i - 1) } else { i } }
+  let start = trim_left(0)
+  let end = trim_right(len(cs))
+  if start >= end { "" } else { slice(s, start, end) }
+}
+
+// --- Parsing (pure Lux) ---
+fn parse_int(s) = {
+  let cs = chars(s)
+  fn digit(c) = char_code(c) - 48
+  fn parse(i, acc) = if i >= len(cs) { acc } else { parse(i + 1, acc * 10 + digit(cs[i])) }
+  if len(cs) > 0 && cs[0] == "-" { 0 - parse(1, 0) } else { parse(0, 0) }
+}

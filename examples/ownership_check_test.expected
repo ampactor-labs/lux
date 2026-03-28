@@ -1,7 +1,7 @@
 === Phase 15: Ownership Checking ===
 
 --- own used once (OK) ---
-consume: (?0) -> ?3 with ..
+consume: (?4) -> ?4
   WHY: fn consume declaration
 
 --- own used twice (error) ---
@@ -12,7 +12,7 @@ ownership error: 'data' is own in 'double_use' but used more than once
    | ^
   first use: line 2
   hint: clone before second use, or change to ref
-double_use: (?0) -> ?6 with ..
+double_use: (?8) -> ?8
   WHY: fn double_use declaration
 
 --- ref returned (error) ---
@@ -26,7 +26,7 @@ leak: (?0) -> ?0
   WHY: fn leak declaration
 
 --- ref used, not returned (OK) ---
-measure: (?0) -> ?3 with ..
+measure: (?0) -> Int
   WHY: fn measure declaration
 
 --- inferred (default ref, no error) ---
