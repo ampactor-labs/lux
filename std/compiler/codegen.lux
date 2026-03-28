@@ -9,7 +9,6 @@
 
 import compiler/lexer
 import compiler/parser
-import compiler/checker
 
 // ─── Opcodes ─────────────────────────────────────────────────
 // Numeric constants matching the Rust VM's OpCode enum.
@@ -1178,19 +1177,6 @@ fn pad_num(n, width) = {
 // Codegen only needs the AST types from parser. The checker dependency
 // is severed so the codegen can compile to WASM without pulling in
 // the entire type inference engine.
-
-fn compile(source) = {
-  let stmts = parse(source)
-  let (_env, _subst, _counter) = check_program(stmts)
-  compile_program(stmts)
-}
-
-fn compile_checked(source) = {
-  let stmts = parse(source)
-  let check_result = check_program(stmts)
-  let chunk = compile_program(stmts)
-  (chunk, check_result)
-}
 
 fn compile_and_show(source) = {
   let stmts = parse(source)

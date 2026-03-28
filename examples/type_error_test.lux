@@ -6,6 +6,7 @@
 // Test 3: compile_checked() returns both chunk and check result
 
 import compiler/codegen
+import compiler/pipeline
 import compiler/checker
 
 // Test 1: compile() now runs checker before codegen

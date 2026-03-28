@@ -1,7 +1,7 @@
 === Test 1: checked compile ===
 3
 === Test 2: compile_checked ===
-bindings: 13
+bindings: 14
 === Test 3: effects through checker ===
 Hello Lux
 === Phase 17: checker wired ===

@@ -120,6 +120,8 @@ fn env_with_primitives(env) = {
     |> env_extend("to_string", TFun([a], TString, EfPure), Declared("builtin"))
     |> env_extend("type_of", TFun([a], TString, EfPure), Declared("builtin"))
     // split is now pure Lux in std/runtime/memory.lux
+    // Numeric parsing
+    |> env_extend("parse_float", TFun([TString], TFloat, EfPure), Declared("builtin"))
     // IO — effects
     |> env_extend("println", TFun([a], TUnit, EfClosed(["Console"])), Declared("builtin"))
     |> env_extend("print", TFun([a], TUnit, EfClosed(["Console"])), Declared("builtin"))
