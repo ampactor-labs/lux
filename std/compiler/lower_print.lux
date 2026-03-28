@@ -13,7 +13,8 @@ fn pv(v) with Pure = match v {
 fn pe_atom(e) with Pure = match e {
   LConst(v) => pv(v),
   LLocal(s) => "$" ++ to_string(s),
-  LStore(s, v) => "$" ++ to_string(s) ++ " = " ++ pe(v),
+  LGlobal(n) => n,
+  LLet(n, v) => "let " ++ n ++ " = " ++ pe(v),
   _ => ""
 }
 

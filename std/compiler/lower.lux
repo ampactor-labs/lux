@@ -49,7 +49,9 @@ type LowExpr
   // ── Scalars ──
   = LConst(LowValue)
   | LLocal(Int)                            // read local slot
-  | LStore(Int, LowExpr)                   // write local slot, returns value
+  | LGlobal(String)                        // read named global/function
+  | LStore(Int, LowExpr)                   // write local slot (numbered), returns value
+  | LLet(String, LowExpr)                  // named binding: let name = expr
   | LUpval(Int)                            // read captured upvalue
   // ── Arithmetic / logic ──
   | LBinOp(String, LowExpr, LowExpr)      // op: +, -, *, /, %, ==, !=, <, <=, >, >=, ++
@@ -195,7 +197,7 @@ fn lower_expr(sexpr) with Pure = {
     NoneExpr => LConst(LUnit),
 
     // ── Variables ──
-    VarRef(name) => LCall(LConst(LString(name)), []),  // resolved by name at link time
+    VarRef(name) => LGlobal(name),
 
     // ── Operators ──
     BinOp(op, left, right) => LBinOp(op, lower_expr(left), lower_expr(right)),
@@ -280,11 +282,11 @@ fn lower_stmts(stmts) with Pure = {
 }
 
 fn lower_stmt(stmt) with Pure = match stmt {
-  LetStmt(name, value) => LStore(0, lower_expr(value)),  // slot resolved later
-  LetDestructure(names, value) => LBlock([lower_expr(value)]),  // TODO: bind names
-  LetPattern(pat, value) => LBlock([lower_expr(value)]),  // TODO: bind pattern
+  LetStmt(name, value) => LLet(name, lower_expr(value)),
+  LetDestructure(names, value) => LLet("_dt", lower_expr(value)),
+  LetPattern(pat, value) => LLet("_lp", lower_expr(value)),
   FnStmt(name, params, body, _) =>
-    LStore(0, LMakeClosure(LFn(name, len(params), params, [lower_expr(body)]), [])),
+    LLet(name, LMakeClosure(LFn(name, len(params), params, [lower_expr(body)]), [])),
   ExprStmt(expr) => lower_expr(expr),
   _ => LConst(LUnit)
 }
