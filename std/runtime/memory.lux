@@ -12,7 +12,8 @@
 //   Variant: [tag:i32][field0:i32][field1:i32]...
 
 effect WASI {
-  fd_write(fd: Int, iovs: Int, iovs_len: Int, nwritten: Int) -> Int
+  fd_write(fd: Int, iovs: Int, iovs_len: Int, nwritten: Int) -> Int,
+  fd_read(fd: Int, iovs: Int, iovs_len: Int, nread: Int) -> Int
 }
 
 effect Memory {
@@ -228,4 +229,19 @@ fn print_newline() with Memory = {
   store_i32(0, 200)
   store_i32(4, 1)
   fd_write(1, 0, 1, 8)
+}
+
+// ─── WASI I/O ───────────────────────────────────────────────
+// Lux reads its own source through WASI. No Rust in the loop.
+
+fn read_stdin() with Memory, Alloc = {
+  let buf = alloc(262144)
+  store_i32(100, buf)
+  store_i32(104, 262144)
+  fd_read(0, 100, 1, 108)
+  let nread = load_i32(108)
+  let str = alloc(4 + nread)
+  store_i32(str, nread)
+  mem_copy(str + 4, buf, nread)
+  str
 }

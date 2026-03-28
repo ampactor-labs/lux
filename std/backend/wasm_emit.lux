@@ -38,7 +38,7 @@ fn emit_module(defs, type_map) with Pure = {
   let ctx = (string_map, type_map, tag_map, fn_table, top_globals)
   "(module" ++ NL
     ++ emit_wasi_imports()
-    ++ "  (memory (export " ++ DQ ++ "memory" ++ DQ ++ ") 1)" ++ NL
+    ++ "  (memory (export " ++ DQ ++ "memory" ++ DQ ++ ") 64)" ++ NL
     ++ "  (global $heap_ptr (mut i32) (i32.const " ++ to_string(heap_start) ++ "))" ++ NL
     ++ emit_global_decls(top_globals, 0)
     ++ emit_fn_type_sigs(max_arity, 0)
@@ -82,6 +82,8 @@ fn emit_global_decls(names, idx) with Pure = {
 fn emit_wasi_imports() with Pure =
   "  (import " ++ DQ ++ "wasi_snapshot_preview1" ++ DQ ++ " " ++ DQ ++ "fd_write" ++ DQ
     ++ " (func $fd_write (param i32 i32 i32 i32) (result i32)))" ++ NL
+  ++ "  (import " ++ DQ ++ "wasi_snapshot_preview1" ++ DQ ++ " " ++ DQ ++ "fd_read" ++ DQ
+    ++ " (func $fd_read (param i32 i32 i32 i32) (result i32)))" ++ NL
 
 // ─── String Collection + Map ────────────────────────────────
 
@@ -528,6 +530,8 @@ fn emit_builtin(name, args, params, locals, ctx) with Pure = {
   // Console effect → fd_write (WASI boundary)
   } else { if name == "fd_write" {
     emit_args(args, 0, params, locals, ctx) ++ "    call $fd_write" ++ NL
+  } else { if name == "fd_read" {
+    emit_args(args, 0, params, locals, ctx) ++ "    call $fd_read" ++ NL
   // to_string dispatches by type — int_to_str is compiled Lux from memory.lux
   } else { if name == "to_string" {
     emit_args(args, 0, params, locals, ctx) ++ "    call $int_to_str" ++ NL
@@ -535,7 +539,7 @@ fn emit_builtin(name, args, params, locals, ctx) with Pure = {
     emit_args(args, 0, params, locals, ctx) ++ "    drop" ++ NL ++ "    i32.const 0" ++ NL
   } else {
     "" // Not a primitive — compiled Lux handles it
-  } } } } } } } } }
+  } } } } } } } } } }
 }
 
 fn emit_call_expr(func, args, params, locals, ctx) with Pure = {

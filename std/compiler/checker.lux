@@ -1110,20 +1110,21 @@ fn check_stmts_forward(env, subst, counter, stmts) = {
 fn prescan_fn_names(env, counter, stmts) = {
   if len(stmts) == 0 { (env, counter) }
   else {
-    let stmt = stmts[0]
     let rest = slice(stmts, 1, len(stmts))
-    match stmt {
-      FnStmt(name, params, _, _) => {
-        let (found_name, _, _) = env_lookup(env, name)
-        if found_name != "not_found" { prescan_fn_names(env, counter, rest) }
-        else {
-          let (tv, c2) = fresh_var(counter)
-          let new_env = env_extend(env, name, tv, Inferred("forward declaration"))
-          prescan_fn_names(new_env, c2, rest)
-        }
-      },
-      _ => prescan_fn_names(env, counter, rest)
-    }
+    let s = to_string(stmts[0])
+    // Detect FnStmt via string prefix — the ONLY safe way on the Rust VM.
+    // When Lux runs on Lux, this becomes a proper match. Until then: this IS the wall.
+    if starts_with(s, "FnStmt(") {
+      // FnStmt("name", ...) — name is the first field, access via index
+      let name = stmts[0][0]
+      let (found_name, _, _) = env_lookup(env, name)
+      if found_name != "not_found" { prescan_fn_names(env, counter, rest) }
+      else {
+        let (tv, c2) = fresh_var(counter)
+        let new_env = env_extend(env, name, tv, Inferred("forward declaration"))
+        prescan_fn_names(new_env, c2, rest)
+      }
+    } else { prescan_fn_names(env, counter, rest) }
   }
 }
 

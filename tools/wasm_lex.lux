@@ -1,0 +1,13 @@
+// WASM Lexer Tool — Lux reads its own source, no Rust
+//
+// Usage: cat file.lux | wasmtime tools/wasm_lex.wat
+//
+// Reads source from stdin, tokenizes, prints token count.
+// The first tool in the WASM bootstrap chain:
+//   wasm_lex → wasm_parse → wasm_codegen → self-hosting
+
+import compiler/lexer
+
+let source = read_stdin()
+let tokens = lex(source)
+println(len(tokens))
