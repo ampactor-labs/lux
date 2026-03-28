@@ -22,6 +22,7 @@ import compiler/gradient
 import compiler/codegen
 import compiler/lower
 import compiler/lower_print
+import backend/wasm_emit
 
 // ─── The Compiler Effect ─────────────────────────────────────
 
@@ -171,6 +172,27 @@ fn compile_lowering(source) =
       let lowered = lower_program(ast)
       println("── LowIR ──")
       println(print_lowered(lowered))
+      resume(result)
+    },
+    generate(checked, ast) => {
+      resume(("skip", [], [], 0))
+    }
+  }
+
+// ─── Handler: WASM ──────────────────────────────────────────
+// Parse, type-check, lower to LowIR, emit WAT.
+
+fn compile_wasm(source) =
+  handle {
+    compile_pipeline(source)
+  } {
+    tokenize(src) => resume(lex(src)),
+    parse_source(tokens) => resume(parse_program(tokens)),
+    infer(ast) => {
+      let result = check_program(ast)
+      let lowered = lower_program(ast)
+      let wat = emit_module(lowered)
+      println(wat)
       resume(result)
     },
     generate(checked, ast) => {

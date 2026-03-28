@@ -281,12 +281,20 @@ fn lower_stmts(stmts) with Pure = {
   else { [lower_stmt(stmts[0])] ++ lower_stmts(slice(stmts, 1, len(stmts))) }
 }
 
+fn extract_param_names(params) with Pure = {
+  if len(params) == 0 { [] }
+  else {
+    let (name, _) = params[0]
+    [name] ++ extract_param_names(slice(params, 1, len(params)))
+  }
+}
+
 fn lower_stmt(stmt) with Pure = match stmt {
   LetStmt(name, value) => LLet(name, lower_expr(value)),
   LetDestructure(names, value) => LLet("_dt", lower_expr(value)),
   LetPattern(pat, value) => LLet("_lp", lower_expr(value)),
   FnStmt(name, params, body, _) =>
-    LLet(name, LMakeClosure(LFn(name, len(params), params, [lower_expr(body)]), [])),
+    LLet(name, LMakeClosure(LFn(name, len(params), extract_param_names(params), [lower_expr(body)]), [])),
   ExprStmt(expr) => lower_expr(expr),
   _ => LConst(LUnit)
 }

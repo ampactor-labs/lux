@@ -72,6 +72,10 @@ fn main() {
             // `lux lower <file>` — show LowIR output
             run_pipeline_mode(path, "lower");
         }
+        ["wasm", path] => {
+            // `lux wasm <file>` — emit WAT (WebAssembly Text Format)
+            run_pipeline_mode(path, "wasm");
+        }
         [path] => {
             // Single argument — run file
             let source = read_file(path);
@@ -187,6 +191,7 @@ fn run_pipeline_mode(file_path: &str, mode: &str) {
         "illuminate" => "compile_illuminate",
         "check" => "compile_checking",
         "lower" => "compile_lowering",
+        "wasm" => "compile_wasm",
         _ => "compile_standard",
     };
 

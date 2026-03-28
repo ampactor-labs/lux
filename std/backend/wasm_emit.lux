@@ -1,0 +1,165 @@
+// WASM Text Format (WAT) Emitter — LowIR → WAT
+//
+// Emits WAT (WebAssembly Text Format) from LowIR. WAT is just strings:
+//   (func $name (param i32) (param i32) (result i32)
+//     local.get 0
+//     local.get 1
+//     i32.add)
+//
+// Phase G of Arc 2. Start with pure integer functions,
+// expand to closures + memory as needed.
+
+import compiler/lower
+
+let NL = from_char_code(10)
+
+// ─── Module Structure ───────────────────────────────────────
+
+fn emit_module(defs) with Pure =
+  "(module" ++ NL
+    ++ emit_runtime_imports()
+    ++ emit_defs(defs, 0)
+    ++ ")" ++ NL
+
+fn emit_runtime_imports() with Pure =
+  '  (import "runtime" "print_int" (func $print_int (param i32)))' ++ NL
+  ++ '  (import "runtime" "print_str" (func $print_str (param i32)))' ++ NL
+
+// ─── Definition Emission ────────────────────────────────────
+
+fn emit_defs(defs, idx) with Pure = {
+  if idx >= len(defs) { "" }
+  else { emit_def(defs[idx]) ++ emit_defs(defs, idx + 1) }
+}
+
+fn emit_def(d) with Pure = match d {
+  LLet(name, value) => emit_let_def(name, value),
+  _ => ""
+}
+
+fn emit_let_def(name, value) with Pure = match value {
+  LMakeClosure(fn_def, _) => emit_fn(fn_def),
+  _ => "  ;; global: " ++ name ++ NL
+}
+
+// ─── Function Emission ──────────────────────────────────────
+
+fn emit_fn(fn_def) with Pure = {
+  let LFn(name, arity, params, body) = fn_def
+  "  (func $" ++ name
+    ++ emit_params(params, 0)
+    ++ " (result i32)" ++ NL
+    ++ emit_body(body, params)
+    ++ "  )" ++ NL
+    ++ emit_export(name)
+}
+
+let DQ = from_char_code(34)
+
+fn emit_export(name) with Pure =
+  "  (export " ++ DQ ++ name ++ DQ ++ " (func $" ++ name ++ "))" ++ NL
+
+fn emit_params(params, idx) with Pure = {
+  if idx >= len(params) { "" }
+  else { " (param $" ++ params[idx] ++ " i32)" ++ emit_params(params, idx + 1) }
+}
+
+// ─── Body Emission ──────────────────────────────────────────
+// WAT is stack-based: expressions push values, operators pop and push.
+
+fn emit_body(stmts, params) with Pure = {
+  if len(stmts) == 0 { "    i32.const 0" ++ NL }
+  else { emit_body_stmts(stmts, params, 0) }
+}
+
+fn emit_body_stmts(stmts, params, idx) with Pure = {
+  if idx >= len(stmts) { "" }
+  else { emit_expr_wat(stmts[idx], params) ++ emit_body_stmts(stmts, params, idx + 1) }
+}
+
+// ─── Expression Emission ────────────────────────────────────
+
+fn emit_expr_wat(e, params) with Pure = match e {
+  LConst(v) => emit_const(v),
+  LGlobal(name) => emit_var(name, params),
+  _ => emit_compound(e, params)
+}
+
+fn emit_const(v) with Pure = match v {
+  LInt(n) => "    i32.const " ++ to_string(n) ++ NL,
+  LBool(b) => "    i32.const " ++ if b { "1" } else { "0" } ++ NL,
+  _ => "    i32.const 0 ;; TODO" ++ NL
+}
+
+fn emit_var(name, params) with Pure = {
+  let idx = find_param_idx(params, name, 0)
+  if idx >= 0 { "    local.get $" ++ name ++ NL }
+  else { "    call $" ++ name ++ NL }
+}
+
+fn find_param_idx(params, name, idx) with Pure = {
+  if idx >= len(params) { 0 - 1 }
+  else { if params[idx] == name { idx }
+  else { find_param_idx(params, name, idx + 1) }}
+}
+
+fn emit_compound(e, params) with Pure = match e {
+  LBinOp(op, l, r) => {
+    emit_expr_wat(l, params)
+      ++ emit_expr_wat(r, params)
+      ++ emit_binop(op)
+  },
+  LUnaryOp(op, inner) => emit_unary(op, inner, params),
+  LCall(func, args) => emit_call(func, args, params),
+  _ => emit_control(e, params)
+}
+
+fn emit_control(e, params) with Pure = match e {
+  LIf(cond, then_b, else_b) => {
+    emit_expr_wat(cond, params)
+    ++ "    (if (result i32)" ++ NL
+    ++ "      (then" ++ NL ++ emit_body(then_b, params) ++ "      )" ++ NL
+    ++ "      (else" ++ NL ++ emit_body(else_b, params) ++ "      )" ++ NL
+    ++ "    )" ++ NL
+  },
+  LBlock(stmts) => emit_body_stmts(stmts, params, 0),
+  _ => "    i32.const 0 ;; unhandled" ++ NL
+}
+
+fn emit_binop(op) with Pure = match op {
+  "Add" => "    i32.add" ++ NL,
+  "Sub" => "    i32.sub" ++ NL,
+  "Mul" => "    i32.mul" ++ NL,
+  "Div" => "    i32.div_s" ++ NL,
+  "Mod" => "    i32.rem_s" ++ NL,
+  _ => emit_compare(op)
+}
+
+fn emit_compare(op) with Pure = match op {
+  "Eq" => "    i32.eq" ++ NL,
+  "Neq" => "    i32.ne" ++ NL,
+  "Lt" => "    i32.lt_s" ++ NL,
+  "LtEq" => "    i32.le_s" ++ NL,
+  "Gt" => "    i32.gt_s" ++ NL,
+  "GtEq" => "    i32.ge_s" ++ NL,
+  _ => "    ;; unknown op: " ++ op ++ NL
+}
+
+fn emit_unary(op, inner, params) with Pure = match op {
+  "Neg" => "    i32.const 0" ++ NL ++ emit_expr_wat(inner, params) ++ "    i32.sub" ++ NL,
+  "Not" => emit_expr_wat(inner, params) ++ "    i32.eqz" ++ NL,
+  _ => emit_expr_wat(inner, params)
+}
+
+fn emit_call(func, args, params) with Pure = {
+  let arg_code = emit_args(args, params, 0)
+  match func {
+    LGlobal(name) => arg_code ++ "    call $" ++ name ++ NL,
+    _ => arg_code ++ "    ;; indirect call TODO" ++ NL
+  }
+}
+
+fn emit_args(args, params, idx) with Pure = {
+  if idx >= len(args) { "" }
+  else { emit_expr_wat(args[idx], params) ++ emit_args(args, params, idx + 1) }
+}
