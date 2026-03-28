@@ -16,9 +16,11 @@ let DQ = from_char_code(34)
 let BS = from_char_code(92)
 
 // ─── Context helpers ────────────────────────────────────────
+// ctx = (string_map, type_map, tag_map, fn_table)
 fn ctx_strings(ctx) with Pure = ctx[0]
 fn ctx_types(ctx) with Pure = ctx[1]
 fn ctx_tags(ctx) with Pure = ctx[2]
+fn ctx_fns(ctx) with Pure = ctx[3]
 
 // ─── Module Structure ───────────────────────────────────────
 
@@ -29,15 +31,19 @@ fn emit_module(defs, type_map) with Pure = {
   let string_map = assign_offsets(all_strings, 0, 1024)
   let heap_start = string_heap_end(string_map, 0, 1024)
   let tag_map = collect_variant_tags(defs, 0)
-  let ctx = (string_map, type_map, tag_map)
+  let fn_table = collect_fn_names(fns, 0)
+  let max_arity = max_fn_arity(fns, 0)
+  let ctx = (string_map, type_map, tag_map, fn_table)
   "(module" ++ NL
     ++ emit_wasi_imports()
     ++ "  (memory (export " ++ DQ ++ "memory" ++ DQ ++ ") 1)" ++ NL
     ++ "  (global $heap_ptr (mut i32) (i32.const " ++ to_string(heap_start) ++ "))" ++ NL
+    ++ emit_fn_type_sigs(max_arity, 0)
     ++ emit_string_segments(string_map, 0)
     ++ emit_alloc() ++ emit_str_concat() ++ emit_int_to_str()
     ++ emit_fn_list(fns, 0, ctx)
     ++ emit_print_int() ++ emit_print_string()
+    ++ emit_fn_table(fn_table)
     ++ emit_start(top_stmts, ctx)
     ++ ")" ++ NL
 }
@@ -170,6 +176,49 @@ fn find_tag_id(tag_map, name, idx) with Pure = {
   else { if tag_map[idx] == name { idx } else { find_tag_id(tag_map, name, idx + 1) } }
 }
 
+// ─── Function Table ──────────────────────────────────────────
+
+fn collect_fn_names(fns, idx) with Pure = {
+  if idx >= len(fns) { [] }
+  else { let LFn(name, _, _, _) = fns[idx]; [name] ++ collect_fn_names(fns, idx + 1) }
+}
+
+fn max_fn_arity(fns, idx) with Pure = {
+  if idx >= len(fns) { 0 }
+  else { let LFn(_, arity, _, _) = fns[idx]; let rest = max_fn_arity(fns, idx + 1); if arity > rest { arity } else { rest } }
+}
+
+fn find_fn_index(fn_table, name, idx) with Pure = {
+  if idx >= len(fn_table) { 0 - 1 }
+  else { if fn_table[idx] == name { idx } else { find_fn_index(fn_table, name, idx + 1) } }
+}
+
+// Type sigs include $__closure (first param) + N actual params
+fn emit_fn_type_sigs(max_arity, n) with Pure = {
+  if n > max_arity { "" }
+  else {
+    "  (type $fn" ++ to_string(n) ++ " (func (param i32)" ++ emit_n_i32_params(n, 0) ++ " (result i32)))" ++ NL
+      ++ emit_fn_type_sigs(max_arity, n + 1)
+  }
+}
+
+fn emit_n_i32_params(n, idx) with Pure = {
+  if idx >= n { "" } else { " (param i32)" ++ emit_n_i32_params(n, idx + 1) }
+}
+
+fn emit_fn_table(fn_table) with Pure = {
+  if len(fn_table) == 0 { "" }
+  else {
+    "  (table " ++ to_string(len(fn_table)) ++ " funcref)" ++ NL
+    ++ "  (elem (i32.const 0)" ++ emit_fn_table_elems(fn_table, 0) ++ ")" ++ NL
+  }
+}
+
+fn emit_fn_table_elems(fn_table, idx) with Pure = {
+  if idx >= len(fn_table) { "" }
+  else { " $" ++ fn_table[idx] ++ emit_fn_table_elems(fn_table, idx + 1) }
+}
+
 // ─── Utility ────────────────────────────────────────────────
 
 fn string_union(a, b) with Pure = {
@@ -194,10 +243,36 @@ fn collect_fns(defs, idx) with Pure = {
   else {
     let rest = collect_fns(defs, idx + 1)
     match defs[idx] {
-      LLet(name, value) => match value { LMakeClosure(fn_def, _) => [fn_def] ++ rest, _ => rest },
+      LLet(name, value) => match value {
+        LMakeClosure(fn_def, captures) => {
+          // Collect this fn + any nested closures in its body
+          let LFn(_, _, _, body) = fn_def
+          let inner = collect_inner_closures(body, 0)
+          [fn_def] ++ inner ++ rest
+        },
+        _ => collect_inner_closures_expr(defs[idx]) ++ rest
+      },
       _ => rest
     }
   }
+}
+
+fn collect_inner_closures(stmts, idx) with Pure = {
+  if idx >= len(stmts) { [] }
+  else { collect_inner_closures_expr(stmts[idx]) ++ collect_inner_closures(stmts, idx + 1) }
+}
+
+fn collect_inner_closures_expr(e) with Pure = match e {
+  LMakeClosure(fn_def, _) => {
+    let LFn(_, _, _, body) = fn_def
+    [fn_def] ++ collect_inner_closures(body, 0)
+  },
+  LLet(_, value) => collect_inner_closures_expr(value),
+  LBlock(stmts) => collect_inner_closures(stmts, 0),
+  LIf(_, t, e) => collect_inner_closures(t, 0) ++ collect_inner_closures(e, 0),
+  LBinOp(_, l, r) => collect_inner_closures_expr(l) ++ collect_inner_closures_expr(r),
+  LCall(f, args) => collect_inner_closures_expr(f) ++ collect_inner_closures(args, 0),
+  _ => []
 }
 
 fn collect_top_stmts(defs, idx) with Pure = {
@@ -218,12 +293,13 @@ fn emit_fn_list(fns, idx, ctx) with Pure = {
   else { emit_fn(fns[idx], ctx) ++ emit_fn_list(fns, idx + 1, ctx) }
 }
 
+// Uniform calling convention: ALL table functions get $__closure as first param.
+// Direct calls pass i32.const 0. Closures pass the closure pointer.
 fn emit_fn(fn_def, ctx) with Pure = {
   let LFn(name, arity, params, body) = fn_def
   let fn_locals = collect_locals(body, 0)
-  // Add temp locals if needed by emitter patterns
   let with_temps = add_emitter_temps(fn_locals, ctx)
-  "  (func $" ++ name ++ emit_params(params, 0) ++ " (result i32)" ++ NL
+  "  (func $" ++ name ++ " (param $__closure i32)" ++ emit_params(params, 0) ++ " (result i32)" ++ NL
     ++ emit_local_decls(with_temps, 0)
     ++ emit_fn_body(body, params, with_temps, ctx)
     ++ "  )" ++ NL
@@ -251,7 +327,19 @@ fn emit_expr(e, params, locals, ctx) with Pure = match e {
   LGlobal(name) => {
     if string_in(locals, name, 0) { "    local.get $" ++ name ++ NL }
     else { if find_param_idx(params, name, 0) >= 0 { "    local.get $" ++ name ++ NL }
-    else { "    call $" ++ name ++ NL } }
+    else {
+      // Function reference in value position → table index
+      let fn_idx = find_fn_index(ctx_fns(ctx), name, 0)
+      if fn_idx >= 0 { "    i32.const " ++ to_string(fn_idx) ++ NL }
+      else { "    call $" ++ name ++ NL }
+    } }
+  },
+  LUpval(idx) => {
+    // Load captured value from closure object: closure_ptr + 8 + idx*4
+    "    local.get $__closure" ++ NL
+    ++ "    i32.const " ++ to_string(8 + idx * 4) ++ NL
+    ++ "    i32.add" ++ NL
+    ++ "    i32.load" ++ NL
   },
   LLet(name, value) => emit_expr(value, params, locals, ctx) ++ "    local.set $" ++ name ++ NL,
   LBlock(stmts) => emit_stmts_value(stmts, 0, params, locals, ctx),
@@ -285,6 +373,33 @@ fn emit_expr(e, params, locals, ctx) with Pure = match e {
     ++ "    i32.add" ++ NL
     ++ "    i32.const 4" ++ NL ++ "    i32.add" ++ NL
     ++ "    i32.load" ++ NL
+  },
+  LMakeClosure(fn_def, captures) => {
+    let LFn(fname, _, _, _) = fn_def
+    let fn_idx = find_fn_index(ctx_fns(ctx), fname, 0)
+    if len(captures) == 0 {
+      // No captures: just the function table index
+      "    i32.const " ++ to_string(fn_idx) ++ NL
+    } else {
+      // Closure object: [fn_idx:i32][upval_count:i32][upvals...]
+      let n_caps = len(captures)
+      let total_size = (2 + n_caps) * 4
+      "    i32.const " ++ to_string(total_size) ++ NL
+      ++ "    call $alloc" ++ NL
+      ++ "    local.set $__vptr" ++ NL
+      // Store fn table index
+      ++ "    local.get $__vptr" ++ NL
+      ++ "    i32.const " ++ to_string(fn_idx) ++ NL
+      ++ "    i32.store" ++ NL
+      // Store upval count
+      ++ "    local.get $__vptr" ++ NL
+      ++ "    i32.const 4" ++ NL ++ "    i32.add" ++ NL
+      ++ "    i32.const " ++ to_string(n_caps) ++ NL
+      ++ "    i32.store" ++ NL
+      // Store captured values
+      ++ emit_closure_captures(captures, 0, params, locals, ctx)
+      ++ "    local.get $__vptr" ++ NL
+    }
   },
   _ => "    i32.const 0 ;; unhandled" ++ NL
 }
@@ -342,15 +457,40 @@ fn emit_call_expr(func, args, params, locals, ctx) with Pure = {
       if name == "to_string" {
         emit_args(args, 0, params, locals, ctx) ++ "    call $int_to_str" ++ NL
       } else {
-        // Check if this is a variant constructor
         if string_in(ctx_tags(ctx), name, 0) {
           emit_make_variant(name, args, params, locals, ctx)
         } else {
-          emit_args(args, 0, params, locals, ctx) ++ "    call $" ++ name ++ NL
+          // Is callee a param/local (function ref)? → indirect call
+          let is_param = find_param_idx(params, name, 0) >= 0
+          let is_local = string_in(locals, name, 0)
+          if is_param || is_local {
+            // Indirect call: push closure_ptr (for __closure param), push args, load fn_idx, call_indirect
+            "    local.get $" ++ name ++ NL  // closure ptr as first arg
+            ++ emit_args(args, 0, params, locals, ctx)
+            ++ "    local.get $" ++ name ++ NL  // load fn_idx from closure[0]
+            ++ "    i32.load" ++ NL
+            ++ "    call_indirect (type $fn" ++ to_string(len(args)) ++ ")" ++ NL
+          } else {
+            // Direct call: pass 0 as closure ptr
+            "    i32.const 0" ++ NL ++ emit_args(args, 0, params, locals, ctx) ++ "    call $" ++ name ++ NL
+          }
         }
       }
     },
     _ => emit_args(args, 0, params, locals, ctx) ++ "    ;; indirect call TODO" ++ NL
+  }
+}
+
+fn emit_closure_captures(captures, idx, params, locals, ctx) with Pure = {
+  if idx >= len(captures) { "" }
+  else {
+    let offset = (2 + idx) * 4
+    "    local.get $__vptr" ++ NL
+    ++ "    i32.const " ++ to_string(offset) ++ NL
+    ++ "    i32.add" ++ NL
+    ++ emit_expr(captures[idx], params, locals, ctx)
+    ++ "    i32.store" ++ NL
+    ++ emit_closure_captures(captures, idx + 1, params, locals, ctx)
   }
 }
 

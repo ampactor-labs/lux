@@ -136,8 +136,10 @@ fn classify_all_arms(arms) with Pure = {
 effect LowerCtx {
   is_ctor(name: String) -> Bool
   find_rewrite(name: String) -> List
+  is_global(name: String) -> Bool
 }
-// find_rewrite returns [] for no rewrite, or [op, params, pre_stmts, resume_val, updates] for rewrite.
+// find_rewrite: [] = no rewrite, [op, params, pre, resume, updates] = rewrite
+// is_global: true for top-level names — excludes them from closure captures
 
 // ─── The One lower_expr ─────────────────────────────────────
 // Performs LowerCtx effects. One function. No duplicates.
@@ -192,8 +194,7 @@ fn lower_expr(sexpr) = {
     Index(collection, idx) => LIndex(lower_expr(collection), lower_expr(idx)),
     FieldAccess(obj, field) => LIndex(lower_expr(obj), LConst(LString(field))),
 
-    LambdaExpr(params, body) =>
-      LMakeClosure(LFn("lambda", len(params), params, [lower_expr(body)]), []),
+    LambdaExpr(params, body) => lower_lambda("lambda", params, body),
 
     HandleExpr(body, arms, state_bindings) =>
       lower_handle(body, arms, state_bindings),
@@ -250,10 +251,151 @@ fn lower_stmt(stmt) = match stmt {
   LetStmt(name, value) => LLet(name, lower_expr(value)),
   LetDestructure(names, value) => LLet("_dt", lower_expr(value)),
   LetPattern(pat, value) => LLet("_lp", lower_expr(value)),
-  FnStmt(name, params, body, _) =>
-    LLet(name, LMakeClosure(LFn(name, len(params), extract_param_names(params), [lower_expr(body)]), [])),
+  FnStmt(name, params, body, _) => {
+    let param_names = extract_param_names(params)
+    LLet(name, lower_lambda(name, param_names, body))
+  },
   ExprStmt(expr) => lower_expr(expr),
   _ => LConst(LUnit)
+}
+
+// ─── Lambda / Closure Lowering ──────────────────────────────
+// Two-pass: collect free variables (Pure), then lower + rewrite captures.
+// No effect operations — captures are a local transform, not context.
+
+fn lower_lambda(name, params, body) = {
+  let all_free = collect_free_vars(body, params)
+  // Filter out globals: constructors and known effect ops aren't captures.
+  // Also filter out the function's own name (self-reference, not capture).
+  let free = filter_real_captures(all_free, name)
+  let lowered_body = lower_expr(body)
+  if len(free) == 0 {
+    LMakeClosure(LFn(name, len(params), params, [lowered_body]), [])
+  } else {
+    let rewritten = rewrite_captures(lowered_body, free)
+    let capture_exprs = map_to_globals(free, 0)
+    LMakeClosure(LFn(name, len(params), params, [rewritten]), capture_exprs)
+  }
+}
+
+// Filter: keep only names that are actual captures from enclosing scope.
+// Exclude: self-name, constructors, globals (via LowerCtx effects).
+fn filter_real_captures(names, self_name) = {
+  if len(names) == 0 { [] }
+  else {
+    let n = names[0]
+    let rest = filter_real_captures(slice(names, 1, len(names)), self_name)
+    if n == self_name { rest }
+    else { if is_ctor(n) { rest }
+    else { if is_global(n) { rest }
+    else { [n] ++ rest } } }
+  }
+}
+
+// Collect free variables: VarRefs in body not in params or locally defined.
+// `bound` accumulates: params + let-bound names + inner fn params.
+fn collect_free_vars(sexpr, params) with Pure = {
+  collect_free(sexpr, params)
+}
+
+fn collect_free(sexpr, bound) with Pure = {
+  let S(expr, _, _) = sexpr
+  match expr {
+    VarRef(name) => if string_in(bound, name, 0) { [] } else { [name] },
+    BinOp(_, l, r) => string_union(collect_free(l, bound), collect_free(r, bound)),
+    UnaryOp(_, e) => collect_free(e, bound),
+    Call(func, args) => string_union(collect_free(func, bound), collect_free_list(args, bound)),
+    IfExpr(c, t, e) => string_union(collect_free(c, bound),
+      string_union(collect_free(t, bound), collect_free(e, bound))),
+    BlockExpr(stmts, final_e) => {
+      let (refs, new_bound) = collect_free_stmts(stmts, bound)
+      string_union(refs, collect_free(final_e, new_bound))
+    },
+    PipeExpr(l, r) => string_union(collect_free(l, bound), collect_free(r, bound)),
+    Index(c, i) => string_union(collect_free(c, bound), collect_free(i, bound)),
+    LambdaExpr(params, body) => {
+      // Inner lambda: its params are bound inside, but free vars propagate up
+      collect_free(body, bound ++ params)
+    },
+    _ => []
+  }
+}
+
+fn collect_free_list(sexprs, bound) with Pure = {
+  if len(sexprs) == 0 { [] }
+  else { string_union(collect_free(sexprs[0], bound), collect_free_list(slice(sexprs, 1, len(sexprs)), bound)) }
+}
+
+// Stmts: each let/fn binding extends the bound set for subsequent stmts
+fn collect_free_stmts(stmts, bound) with Pure = {
+  if len(stmts) == 0 { ([], bound) }
+  else {
+    let stmt = stmts[0]
+    let (here, new_bound) = collect_free_stmt(stmt, bound)
+    let (rest, final_bound) = collect_free_stmts(slice(stmts, 1, len(stmts)), new_bound)
+    (string_union(here, rest), final_bound)
+  }
+}
+
+fn collect_free_stmt(stmt, bound) with Pure = match stmt {
+  LetStmt(name, value) => (collect_free(value, bound), bound ++ [name]),
+  FnStmt(name, params, body, _) => {
+    let fn_params = extract_param_names_pure(params)
+    (collect_free(body, bound ++ [name] ++ fn_params), bound ++ [name])
+  },
+  ExprStmt(expr) => (collect_free(expr, bound), bound),
+  _ => ([], bound)
+}
+
+fn extract_param_names_pure(params) with Pure = {
+  if len(params) == 0 { [] }
+  else {
+    let (name, _) = params[0]
+    [name] ++ extract_param_names_pure(slice(params, 1, len(params)))
+  }
+}
+
+fn filter_out(names, exclude, idx) with Pure = {
+  if idx >= len(names) { [] }
+  else {
+    let name = names[idx]
+    let rest = filter_out(names, exclude, idx + 1)
+    if string_in(exclude, name, 0) { rest } else { [name] ++ rest }
+  }
+}
+
+// Rewrite captures: walk LowIR, replace LGlobal(captured) → LUpval(idx)
+fn rewrite_captures(e, free) with Pure = match e {
+  LGlobal(name) => {
+    let idx = find_in_list(free, name, 0)
+    if idx >= 0 { LUpval(idx) } else { LGlobal(name) }
+  },
+  LBinOp(op, l, r) => LBinOp(op, rewrite_captures(l, free), rewrite_captures(r, free)),
+  LUnaryOp(op, inner) => LUnaryOp(op, rewrite_captures(inner, free)),
+  LCall(func, args) => LCall(rewrite_captures(func, free), rewrite_captures_list(args, free)),
+  LIf(c, t, e) => LIf(rewrite_captures(c, free),
+    rewrite_captures_list(t, free), rewrite_captures_list(e, free)),
+  LBlock(stmts) => LBlock(rewrite_captures_list(stmts, free)),
+  LLet(name, value) => LLet(name, rewrite_captures(value, free)),
+  LMakeTuple(elems) => LMakeTuple(rewrite_captures_list(elems, free)),
+  LMakeList(elems) => LMakeList(rewrite_captures_list(elems, free)),
+  LIndex(c, i) => LIndex(rewrite_captures(c, free), rewrite_captures(i, free)),
+  _ => e
+}
+
+fn rewrite_captures_list(exprs, free) with Pure = {
+  if len(exprs) == 0 { [] }
+  else { [rewrite_captures(exprs[0], free)] ++ rewrite_captures_list(slice(exprs, 1, len(exprs)), free) }
+}
+
+fn map_to_globals(names, idx) with Pure = {
+  if idx >= len(names) { [] }
+  else { [LGlobal(names[idx])] ++ map_to_globals(names, idx + 1) }
+}
+
+fn find_in_list(list, name, idx) with Pure = {
+  if idx >= len(list) { 0 - 1 }
+  else { if list[idx] == name { idx } else { find_in_list(list, name, idx + 1) } }
 }
 
 // ─── Handle Expression Lowering ─────────────────────────────
@@ -416,20 +558,44 @@ fn lower_state_assign_temps(updates, idx) with Pure = {
 // ─── Program Lowering ───────────────────────────────────────
 // Top-level handler: provides constructor set, no rewrites.
 
-fn lower_program_ctx(stmts, ctors) =
+fn lower_program_ctx(stmts, ctors) = {
+  let globals = collect_top_names(stmts, 0)
   handle { lower_stmts(stmts) } {
     is_ctor(name) => resume(ctor_in(ctors, name, 0)),
-    find_rewrite(name) => resume([])
+    find_rewrite(name) => resume([]),
+    is_global(name) => resume(name_in(globals, name, 0))
   }
+}
 
 fn ctor_in(ctors, name, idx) with Pure = {
   if idx >= len(ctors) { false }
   else { if ctors[idx] == name { true } else { ctor_in(ctors, name, idx + 1) } }
 }
 
+fn name_in(names, name, idx) with Pure = {
+  if idx >= len(names) { false }
+  else { if names[idx] == name { true } else { name_in(names, name, idx + 1) } }
+}
+
+// Collect top-level names: fn and let bindings
+fn collect_top_names(stmts, idx) with Pure = {
+  if idx >= len(stmts) { [] }
+  else {
+    let here = match stmts[idx] {
+      FnStmt(name, _, _, _) => [name],
+      LetStmt(name, _) => [name],
+      _ => []
+    }
+    here ++ collect_top_names(stmts, idx + 1)
+  }
+}
+
 // Legacy entry point (no constructor awareness, no rewrites)
-fn lower_program(stmts) =
+fn lower_program(stmts) = {
+  let globals = collect_top_names(stmts, 0)
   handle { lower_stmts(stmts) } {
     is_ctor(name) => resume(false),
-    find_rewrite(name) => resume([])
+    find_rewrite(name) => resume([]),
+    is_global(name) => resume(name_in(globals, name, 0))
   }
+}
