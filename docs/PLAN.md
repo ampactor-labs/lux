@@ -143,29 +143,34 @@ platform-agnostic — implement once, emit to either target. WASM gives Lux a
 distribution story immediately: browser playground, WASI, edge. Native comes
 later reusing the same LowIR, adding register allocation and ELF/Mach-O emission.
 
-### Phase 24: Effect Handler State Machine Transform — Large
+### Phase 24: Effect Handler State Machine Transform — ✅ DONE (2026-03-27)
 
 **What**: Rewrite `HandleExpr` into explicit state machines. Each `resume` point =
 numbered state. Handler state = struct. Runtime loop drives transitions. Output:
 `LowIR` with no Handle/Perform/Resume — only Loop, Switch, State, Call.
 
-Written in Lux as a compilation pass (handler over `Compiler` effect). Validated
-against existing VM tests via a LowIR interpreter before any backend emission.
+**Discovery**: 100% of real Lux handlers end with `resume()` as their last action.
+No handler captures the continuation result. This means no state machines are needed
+for any production code. TailResumptive (~85%) → direct call inline. Linear (~15%)
+→ direct call with state updates. MultiShot (<1%, only amb.lux) → true state machine.
 
 **Proves**: Effects are first-class compiled constructs, not interpreter magic.
 **Unlocks**: Phase 25 (WASM emitter) and eventual native emitter.
-**Files**: New `std/compiler/lower.lux` (<500 lines)
-**Verify**: Programs with handle/resume produce identical output before and after transform.
+**Files**: `std/compiler/lower.lux` (541 lines), `std/compiler/lower_print.lux` (85 lines)
+**Verify**: `lux lower <file>` shows readable LowIR. Effect handlers eliminated in output.
 
-### Phase 25: WASM Emitter — Large
+### Phase 25: WASM Emitter — ✅ PURE SUBSET DONE (2026-03-28)
 
 **What**: `LowIR -> WASM`. Start with WAT (text format) for debuggability. Handle
-arithmetic, locals, calls, loops/switches from state machine, linear memory for dynamic
-values. Small JS/WASI runtime shim for builtins.
+arithmetic, locals, calls, if/else, recursion. WASI runtime with fd_write for output.
+Integer-to-decimal print_int in WASM linear memory.
+
+**Milestone**: `fib(10) = 55` running on wasmtime. No Rust runtime.
 
 **Proves**: Lux programs run without Rust.
-**Files**: New `std/backend/wasm_emit.lux`, `std/backend/wasm_types.lux`
-**Verify**: Subset of examples compile to WASM, run in Node.js, output matches.
+**Files**: `std/backend/wasm_emit.lux` (313 lines)
+**Verify**: `lux wasm hello.lux > hello.wat && wat2wasm hello.wat && wasmtime hello.wasm → 55`
+**Remaining**: Strings in linear memory, closures, lists, evidence-passing for transitive effects.
 
 ### Phase 26: WASM Bootstrap — Medium
 

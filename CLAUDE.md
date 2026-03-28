@@ -56,8 +56,8 @@ its own purity — using the same mechanisms it enforces on user code.
 | Self-hosted VM | ✅ Working | 930-line bytecode interpreter in Lux, all 46 opcodes, 45 builtins, effects, recursion |
 | **Effect handlers (self-hosted)** | ✅ **VERIFIED** | handle/resume, nested handlers, handler-local state, string effects — 10 golden-file tests |
 | **Inference pipeline** | ✅ **ACHIEVED** | `tokenize→parse→infer→generate` as 4-op Compiler effect |
-| Pipeline handlers | ✅ Working | 6 handlers: standard, teaching, explaining (Why), documenting, checking, tracing |
-| CLI subcommands | ✅ Working | `lux run/why/doc/check/test/repl` |
+| Pipeline handlers | ✅ Working | 8 handlers: standard, teaching, explaining (Why), documenting, checking, tracing, lowering, wasm |
+| CLI subcommands | ✅ Working | `lux run/why/doc/check/test/repl/lower/wasm` |
 | Gradient engine | ✅ Working | Detects purity, suggests ONE annotation per compile |
 | ML framework | ✅ Working | Autodiff via Compute effect, XOR trains to convergence |
 | DSP library | ✅ Working | std/dsp/ with effect-algebraic proofs, uses abs() |
@@ -220,6 +220,8 @@ isolation
 - `lux --quiet <file.lux>` — run without teaching output
 - `lux repl` — start self-hosted effect-pipeline REPL
 - `lux check <file.lux>` — type-check only
+- `lux lower <file.lux>` — show LowIR (effects → control flow)
+- `lux wasm <file.lux>` — emit WAT (WebAssembly Text Format)
 - `lux test <file.lux>` — run tests
 - `cargo check` — type check the compiler
 - `cargo clippy` — lint (zero warnings policy)
@@ -282,6 +284,9 @@ Standard library: `std/prelude.lux`, `std/test.lux`, `std/types.lux`, `std/vm.lu
 | `std/compiler/codegen.lux` | Self-hosted bytecode emitter + disassembler |
 | `std/compiler/pipeline.lux` | Compiler effect + pipeline + handlers (meta-unification) |
 | `std/compiler/gradient.lux` | Gradient engine — annotation suggestions |
+| `std/compiler/lower.lux` | LowIR ADT + AST→LowIR transform (effect handler elimination) |
+| `std/compiler/lower_print.lux` | LowIR pretty-printer for `lux lower` output |
+| `std/backend/wasm_emit.lux` | WAT emitter — LowIR → WebAssembly Text Format (WASI) |
 | `std/vm.lux` | Self-hosted bytecode VM (930 lines, all 46 opcodes, 45 builtins) |
 | `std/prelude.lux` | Self-hosted stdlib (45+ functions: map, filter, fold, sort, etc.) |
 | `std/test.lux` | Native test framework (assert_eq, run_tests) |
@@ -404,6 +409,8 @@ fn safe_v2(x: Float) -> Float with DSP - Network - Alloc { ... }  // subtraction
 | 20B | Tuple match patterns — `PTuple(List)` Pat variant. `(name, _) => name` in match arms. Zero parse errors across all 10 compiler modules. | 03244d0 |
 | 21 | **Arc 3 Phase 2: Effect purity** — 272 functions across 9 modules annotated `with Pure`. Gradient engine fixed to see its own annotations (AST passthrough). checker_effects.lux first module at 100%. All modules annotated: lexer, parser, codegen (all-pure), checker (51/58), solver, suggest, ownership, gradient (all-pure). | 15be0d0..4718c09 |
 | 22 | **Diagnostic effect** — `effect Diagnostic { report(source, kind, msg, line, col) -> () }`. All 11 println sites in checker replaced with effect operations. Handler at `check_program` boundary renders output. Inference engine (`infer_expr → check_stmt → check_program`) externally pure. 6 more functions gain `with Pure`. | e2bebb9 |
+| F | **LowIR** — 26-variant ADT between AST and WASM. Three-tier handler classification (TailResumptive/Linear/MultiShot). AST→LowIR transform: tail-resumptive → direct call, linear → direct call with state updates. Discovery: 100% of real handlers compile without state machines. `lux lower` CLI command. Pretty-printer. 541 lines, 29 Pure. | 3731c6a..f5aaf97 |
+| G | **WASM emitter** — LowIR → WAT (WebAssembly Text Format). WASI module emission: fd_write import, linear memory, _start entry point, print_int decimal conversion runtime. `lux wasm` CLI command. First Lux→WASM execution: `fib(10) = 55` on wasmtime. 313 lines, 30 Pure. | 113713f..b100617 |
 
 ## Roadmap
 
@@ -417,9 +424,10 @@ fn safe_v2(x: Float) -> Float with DSP - Network - Alloc { ... }  // subtraction
 
 | Arc | What | Status |
 |-----|------|--------|
-| **Arc 2: Kill the Runtime** | Delete all remaining Rust | Design needed |
-| Phase F | LowIR + state machine transform (effect handlers → Loop/Switch/State/Call) | Pending |
-| Phase G | WASM emitter (LowIR → WAT → WASM) | Pending |
+| **Arc 2: Kill the Runtime** | Delete all remaining Rust | **In progress** |
+| Phase F | LowIR + handler elimination (effects → direct calls) | ✅ Done (3731c6a..f5aaf97) |
+| Phase G | WASM emitter (LowIR → WAT → WASM), fib(10)=55 on wasmtime | ✅ Pure subset done (113713f..b100617) |
+| Phase G+ | WASM: strings, closures, lists, evidence-passing | Pending |
 | Phase H | WASM bootstrap (compiler self-compiles to WASM) | Pending |
 | Phase I | Delete Rust VM + Cargo.toml (`rm -rf src/`) | Pending |
 | **Arc 3: Compound Interest** | Compiler verifies itself (parallel to Arc 2) | **Phase 2 complete** |
@@ -444,4 +452,6 @@ fn safe_v2(x: Float) -> Float with DSP - Network - Alloc { ... }  // subtraction
 | `std/ml/*.lux`, `std/dsp/*.lux` | `docs/specs/lux-ml-design.md` | ML/DSP framework changes |
 | `src/checker/` (ownership tracking) | `docs/specs/ownership-design.md`, CLAUDE.md (Roadmap) | Affine/scoped enforcement, `!Alloc` transitivity |
 | `examples/ownership*.lux` | `docs/specs/ownership-design.md`, CLAUDE.md (Phase History) | Ownership patterns, error specs |
+| `std/compiler/lower*.lux` | CLAUDE.md (Key Files, Phase History), docs/PLAN.md | LowIR types, transform, printer |
+| `std/backend/wasm_emit.lux` | CLAUDE.md (Key Files, Phase History), docs/PLAN.md | WAT emission, WASI runtime |
 | `Cargo.toml` | CLAUDE.md (Build) | Dependencies, features |

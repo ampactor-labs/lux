@@ -10,9 +10,11 @@
 //   compile_explaining: infer + dump Why Engine reasoning
 //   compile_documenting: infer + extract typed signatures
 //   compile_checking:   infer only, no codegen
+//   compile_lowering:   infer + lower to LowIR + print
+//   compile_wasm:       infer + lower to LowIR + emit WAT
 //   compile_tracing:    capture all intermediate representations
 //
-// This proves: compiler = teacher = docs = debugger = same pipeline.
+// This proves: compiler = teacher = docs = debugger = backend = same pipeline.
 
 import compiler/lexer
 import compiler/parser

@@ -324,10 +324,10 @@ The Rust codebase becomes historical.
 | 4. Effect algebra | ✅ DONE |
 | 5. Ownership | Complete — `own`/`ref` enforced, `!Alloc` transitivity shipped (Approach B: inferred) |
 | 6. Refinement types | 6A syntax + 6B/C solver shipped — literals verified at compile time |
-| 7. Native backend | **VM self-hosted** (`std/vm.lux`, 930 lines, 38 tests pass); native backend design needed |
-| 8. Gradient system | Partially shipped (`--teach`) |
+| 7. Native backend | **WASM emitter shipped** — `lux wasm` emits WAT, `fib(10)=55` on wasmtime. LowIR eliminates effect handlers. VM also self-hosted. |
+| 8. Gradient system | Shipped (`--teach` + gradient engine). 272 purity proofs via compound interest loop. |
 | 9. Type-directed synthesis | Research stage |
-| 10. Full self-containment | Bootstrap ready |
+| 10. Full self-containment | **In progress** — WASM pure subset working, strings/closures/evidence-passing remaining |
 
 ---
 
