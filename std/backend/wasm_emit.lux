@@ -493,13 +493,41 @@ fn emit_stmts_void(stmts, idx, params, locals, ctx) with Pure = {
 fn emit_stmt(stmt, params, locals, ctx) with Pure = match stmt {
   LLet(name, value) => {
     let setter = if string_in(ctx_globals(ctx), name, 0) { "    global.set $" } else { "    local.set $" }
-    emit_expr(value, params, locals, ctx) ++ setter ++ name ++ NL
+    let getter = if string_in(ctx_globals(ctx), name, 0) { "    global.get $" } else { "    local.get $" }
+    let base = emit_expr(value, params, locals, ctx) ++ setter ++ name ++ NL
+    // Patch self-referential closures: after storing the closure ptr,
+    // write it back into the capture slot that holds self
+    let patch = match value {
+      LMakeClosure(fn_def, captures) => {
+        let self_idx = find_self_capture(captures, name, 0)
+        if self_idx >= 0 {
+          let offset = (2 + self_idx) * 4
+          getter ++ name ++ NL
+          ++ "    i32.const " ++ to_string(offset) ++ NL
+          ++ "    i32.add" ++ NL
+          ++ getter ++ name ++ NL
+          ++ "    i32.store" ++ NL
+        } else { "" }
+      },
+      _ => ""
+    }
+    base ++ patch
   },
   LConst(_) => "",
   LMakeTuple(_) => "",
   LBlock(stmts) => emit_stmts_void(stmts, 0, params, locals, ctx),
   // Everything else produces a value — drop it in void context
   _ => emit_expr(stmt, params, locals, ctx) ++ "    drop" ++ NL
+}
+
+fn find_self_capture(captures, name, idx) with Pure = {
+  if idx >= len(captures) { 0 - 1 }
+  else {
+    match captures[idx] {
+      LGlobal(n) => if n == name { idx } else { find_self_capture(captures, name, idx + 1) },
+      _ => find_self_capture(captures, name, idx + 1)
+    }
+  }
 }
 
 fn emit_const(v, ctx) with Pure = match v {
