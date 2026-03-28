@@ -20,6 +20,8 @@ import compiler/checker
 import compiler/checker_effects
 import compiler/gradient
 import compiler/codegen
+import compiler/lower
+import compiler/lower_print
 
 // ─── The Compiler Effect ─────────────────────────────────────
 
@@ -150,6 +152,28 @@ fn compile_checking(source) =
     },
     generate(checked, ast) => {
       // Check mode: skip codegen entirely
+      resume(("skip", [], [], 0))
+    }
+  }
+
+// ─── Handler: LowIR ─────────────────────────────────────────
+// Parse, type-check, then lower to LowIR and print.
+
+fn compile_lowering(source) =
+  handle {
+    compile_pipeline(source)
+  } {
+    tokenize(src) => resume(lex(src)),
+    parse_source(tokens) => resume(parse_program(tokens)),
+    infer(ast) => {
+      let result = check_program(ast)
+      // Lower AST to LowIR
+      let lowered = lower_program(ast)
+      println("── LowIR ──")
+      println(print_lowered(lowered))
+      resume(result)
+    },
+    generate(checked, ast) => {
       resume(("skip", [], [], 0))
     }
   }

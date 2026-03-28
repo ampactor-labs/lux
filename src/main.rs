@@ -68,6 +68,10 @@ fn main() {
             // `lux illuminate <file>` — the gradient as refraction
             run_pipeline_mode(path, "illuminate");
         }
+        ["lower", path] => {
+            // `lux lower <file>` — show LowIR output
+            run_pipeline_mode(path, "lower");
+        }
         [path] => {
             // Single argument — run file
             let source = read_file(path);
@@ -182,6 +186,7 @@ fn run_pipeline_mode(file_path: &str, mode: &str) {
         "doc" => "compile_documenting",
         "illuminate" => "compile_illuminate",
         "check" => "compile_checking",
+        "lower" => "compile_lowering",
         _ => "compile_standard",
     };
 

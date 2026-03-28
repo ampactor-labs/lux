@@ -1,0 +1,30 @@
+import compiler/lower
+
+let NL = from_char_code(10)
+
+fn print_value(v) with Pure = match v {
+  LInt(n) => to_string(n),
+  LBool(b) => if b { "true" } else { "false" },
+  LUnit => "()",
+  _ => "?"
+}
+
+fn print_expr(e) with Pure = match e {
+  LConst(v) => print_value(v),
+  LLocal(slot) => "$" ++ to_string(slot),
+  LBinOp(op, l, r) => "(" ++ print_expr(l) ++ " " ++ op ++ " " ++ print_expr(r) ++ ")",
+  _ => "?"
+}
+
+fn map_print(exprs) with Pure = {
+  if len(exprs) == 0 { [] }
+  else { [print_expr(exprs[0])] ++ map_print(slice(exprs, 1, len(exprs))) }
+}
+
+fn join_strs(strs, sep) with Pure = {
+  if len(strs) == 0 { "" }
+  else { if len(strs) == 1 { strs[0] }
+  else { strs[0] ++ sep ++ join_strs(slice(strs, 1, len(strs)), sep) }}
+}
+
+fn print_lowered(stmts) with Pure = join_strs(map_print(stmts), NL)

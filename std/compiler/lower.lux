@@ -354,8 +354,8 @@ fn lower_with_rewrites(sexpr, rewrites) with Pure = {
       let S(func, _, _) = func_sexpr
       match func {
         VarRef(name) => {
-          let handler = find_rewrite(rewrites, name)
-          match handler {
+          let rewrite = find_rewrite(rewrites, name)
+          match rewrite {
             // Found a rewrite: inline the handler body
             // The handler params bind to the call args
             (op, params, resume_value) => lower_expr(resume_value),
@@ -468,8 +468,8 @@ fn lower_with_linear_rewrites(sexpr, rewrites, state_bindings) with Pure = {
       let S(func, _, _) = func_sexpr
       match func {
         VarRef(name) => {
-          let handler = find_linear_rewrite(rewrites, name)
-          match handler {
+          let rewrite = find_linear_rewrite(rewrites, name)
+          match rewrite {
             (op, params, pre_stmts, resume_value, updates) => {
               // Build: { pre_stmts; state_updates; resume_value }
               let lowered_pre = lower_stmts(pre_stmts)
