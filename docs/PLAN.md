@@ -159,18 +159,20 @@ for any production code. TailResumptive (~85%) → direct call inline. Linear (~
 **Files**: `std/compiler/lower.lux` (541 lines), `std/compiler/lower_print.lux` (85 lines)
 **Verify**: `lux lower <file>` shows readable LowIR. Effect handlers eliminated in output.
 
-### Phase 25: WASM Emitter — ✅ PURE SUBSET DONE (2026-03-28)
+### Phase 25: WASM Emitter — ✅ DONE (2026-03-28)
 
-**What**: `LowIR -> WASM`. Start with WAT (text format) for debuggability. Handle
-arithmetic, locals, calls, if/else, recursion. WASI runtime with fd_write for output.
-Integer-to-decimal print_int in WASM linear memory.
+**What**: `LowIR -> WASM`. WAT output, WASI runtime, wasmtime execution.
 
-**Milestone**: `fib(10) = 55` running on wasmtime. No Rust runtime.
+**Phase G** (2026-03-27): Pure integer subset. `fib(10) = 55` on wasmtime. 313 lines.
+**Phase G+** (2026-03-28): Strings, handler state, ADTs, pattern matching, the Ultimate Test.
+Pipeline alignment (type info checker→generate). Constructor-aware lowering (LMakeVariant).
+Handler rewriting in all block statements. Simultaneous state updates. Value/void emission.
+`fibonacci_via_effects()` with 2 state variables → zero-overhead WASM. Runtime split.
 
-**Proves**: Lux programs run without Rust.
-**Files**: `std/backend/wasm_emit.lux` (313 lines)
-**Verify**: `lux wasm hello.lux > hello.wat && wat2wasm hello.wat && wasmtime hello.wasm → 55`
-**Remaining**: Strings in linear memory, closures, lists, evidence-passing for transitive effects.
+**Proves**: Algebraic effects with handler state compile to zero-overhead WebAssembly.
+**Files**: `std/backend/wasm_emit.lux`, `std/backend/wasm_runtime.lux`
+**Remaining**: Closures (function references, captures), lists, then Phase H.
+**Architecture note**: Lowering has 7 duplicate function pairs — should collapse via `LowerCtx` effect.
 
 ### Phase 26: WASM Bootstrap — Medium
 

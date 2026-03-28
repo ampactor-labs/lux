@@ -327,7 +327,7 @@ The Rust codebase becomes historical.
 | 7. Native backend | **WASM emitter shipped** — `lux wasm` emits WAT, `fib(10)=55` on wasmtime. LowIR eliminates effect handlers. VM also self-hosted. |
 | 8. Gradient system | Shipped (`--teach` + gradient engine). 272 purity proofs via compound interest loop. |
 | 9. Type-directed synthesis | Research stage |
-| 10. Full self-containment | **In progress** — WASM pure subset working, strings/closures/evidence-passing remaining |
+| 10. Full self-containment | **In progress** — WASM strings/handlers/ADTs/match working, closures remaining |
 
 ---
 
