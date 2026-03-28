@@ -78,10 +78,12 @@ its own purity — using the same mechanisms it enforces on user code.
 | **Tuple match patterns** | ✅ **Working** | `(name, _) => name` — PTuple(List) Pat variant |
 | `!Alloc` transitivity | ✅ Working | Resolve-then-check, open-row rejection. Approach B (inferred): algebra resolves callee effects |
 | Refinement types | ✅ Working | `type Byte = Int where 0 <= self && self <= 255` — syntax, solver, compile-time verification of literals |
+| **LowIR** | ✅ **Working** | 26-variant ADT, AST→LowIR transform, handler elimination (no state machines for 100% of real handlers) |
+| **WASM emitter** | ✅ **Pure subset** | `lux wasm` emits WAT, WASI module with fd_write, `fib(10)=55` on wasmtime |
 
 **Achieved**: Everything above, plus: **Rust checker deleted** (Arc 1 complete), **self-hosted pipeline as default** (27/30 oracle parity, 0 mismatches), **did-you-mean suggestions** (Levenshtein in checker_suggest.lux), **exhaustive match analysis** (ADT variant coverage), **refinement solver** (solver.lux, compile-time predicate verification), **oracle parity test** (self-hosted vs Rust behavioral verification), **self-checking** (compiler parses/checks its own source — zero errors), **272 purity proofs** (Arc 3 Phase 2 complete), **Diagnostic effect** (inference engine externally pure).
 
-**Next**: Arc 2 (kill the Rust runtime: LowIR → WASM → self-containment). Arc 3 Phase 2 complete; Phase 3 (ownership annotations) and Phase 4 (dashboard) remain.
+**Next**: Arc 2 Phase G+ (WASM: strings, closures, lists, evidence-passing). Then Phase H (WASM bootstrap — compiler self-compiles). Arc 3 Phase 3 (ownership annotations) parallel.
 
 ## READ THIS FIRST — What Lux IS
 
@@ -243,6 +245,7 @@ Frontend: `main.rs` (CLI), `lib.rs` (prelude loader)
 **Self-hosted compiler (Lux-in-Lux, self-compiling — BOOTSTRAP ACHIEVED):**
 ```
 source → [lexer.lux] → [parser.lux] → [checker.lux] → [codegen.lux] → bytecode → [vm.lux] → execute
+                                                      ↘ [lower.lux] → LowIR → [wasm_emit.lux] → WAT → WASM
 ```
 All five components working. **The compiler compiles AND executes its own output**
 through the entirely self-hosted pipeline. 38 tests pass including recursive

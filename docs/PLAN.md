@@ -263,12 +263,10 @@ Build: `lux build std/compiler/`. Test: `lux test examples/`. No Rust anywhere.
 - Discovery: Rust VM nested constructor patterns only check outer tag — workaround: unwrap-then-match
 - 8 ownership golden tests (own-once, own-twice, ref-escape, ref-ok, inferred, own+!Alloc, unused-hint, branch-escape)
 
-## Next Session: Phase 16
+## Completed: Phase 16 — Refinement Solver (2026-03-25)
 
-**Phase 16** (refinement solver port):
-- Port `solver.rs` (190 lines) to `std/compiler/solver.lux`
-- Hook into checker FnStmt and LetStmt for type aliases with predicates
-- Port 9 refinement unit tests + 2 error tests to golden files
+Ported `solver.rs` to `std/compiler/solver.lux`. Hooked into checker.
+Golden file tests pass.
 
 ## Completed: Phase 17 — Wire Checker into compile() (2026-03-25)
 
