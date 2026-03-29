@@ -162,6 +162,25 @@ fn is_string_typed(sexpr) = {
   }
 }
 
+fn is_int_typed(sexpr) = {
+  let S(expr, _, _) = sexpr
+  match expr {
+    IntLit(_) => true,
+    VarRef(name) => type_of_var(name) == "Int",
+    BinOp(op, _, _) => op == "Add" || op == "Sub" || op == "Mul" || op == "Div" || op == "Mod",
+    UnaryOp(op, _) => op == "Neg",
+    Call(func, _) => {
+      let S(f, _, _) = func
+      match f {
+        VarRef(name) => name == "len" || name == "char_code" || name == "parse_int"
+          || name == "load_i32" || name == "load_i8" || name == "alloc",
+        _ => false
+      }
+    },
+    _ => false
+  }
+}
+
 // ─── The One lower_expr ─────────────────────────────────────
 // Performs LowerCtx effects. One function. No duplicates.
 
@@ -182,7 +201,13 @@ fn lower_expr(sexpr) = {
         if is_string_typed(left) || is_string_typed(right) {
           let eq_call = LCall(LGlobal("str_eq"), [l, r])
           if op == "Neq" { LUnaryOp("Not", eq_call) } else { eq_call }
-        } else { LBinOp(op, l, r) }
+        } else { if is_int_typed(left) && is_int_typed(right) {
+          LBinOp(op, l, r)
+        } else {
+          // Unknown types — use polymorphic val_eq (safe fallback)
+          let eq_call = LCall(LGlobal("val_eq"), [l, r])
+          if op == "Neq" { LUnaryOp("Not", eq_call) } else { eq_call }
+        } }
       } else { if op == "Concat" {
         LCall(LGlobal("str_concat"), [lower_expr(left), lower_expr(right)])
       } else {

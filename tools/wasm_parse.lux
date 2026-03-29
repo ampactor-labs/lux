@@ -1,0 +1,13 @@
+// WASM Parser Tool — Lux parses its own source, no Rust
+//
+// Usage: cat file.lux | wasmtime tools/wasm_parse.wat
+//
+// Reads source from stdin, tokenizes, parses, prints AST node count.
+
+import compiler/lexer
+import compiler/parser
+
+let source = read_stdin()
+let tokens = lex(source)
+let ast = parse_program(tokens)
+println(len(ast))

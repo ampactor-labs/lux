@@ -38,7 +38,7 @@ fn emit_module(defs, type_map) with Pure = {
   let ctx = (string_map, type_map, tag_map, fn_table, top_globals)
   "(module" ++ NL
     ++ emit_wasi_imports()
-    ++ "  (memory (export " ++ DQ ++ "memory" ++ DQ ++ ") 64)" ++ NL
+    ++ "  (memory (export " ++ DQ ++ "memory" ++ DQ ++ ") 1024)" ++ NL
     ++ "  (global $heap_ptr (mut i32) (i32.const " ++ to_string(heap_start) ++ "))" ++ NL
     ++ emit_global_decls(top_globals, 0)
     ++ emit_fn_type_sigs(max_arity, 0)

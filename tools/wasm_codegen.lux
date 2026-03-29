@@ -1,0 +1,15 @@
+// WASM Codegen Tool — Lux compiles its own source, no Rust
+//
+// Usage: cat file.lux | wasmtime tools/wasm_codegen.wat
+//
+// Reads source from stdin, tokenizes, parses, emits bytecode, prints chunk size.
+
+import compiler/lexer
+import compiler/parser
+import compiler/codegen
+
+let source = read_stdin()
+let tokens = lex(source)
+let ast = parse_program(tokens)
+let chunk = compile_program(ast)
+println(len(chunk))
