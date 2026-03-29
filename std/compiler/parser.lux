@@ -21,6 +21,7 @@ type Expr
   | Index(Expr, Expr)
   | FieldAccess(Expr, String)
   | PipeExpr(Expr, Expr)
+  | FanOutExpr(Expr, Expr)
   | IfExpr(Expr, Expr, Expr)
   | MatchExpr(Expr, List)
   | LambdaExpr(List, Expr)
@@ -106,7 +107,7 @@ fn op_prec(t) =
   else { if t == "And" { 2 }
   else { if t == "EqEq" || t == "BangEq" { 3 }
   else { if t == "Lt" || t == "Gt" || t == "LtEq" || t == "GtEq" { 4 }
-  else { if t == "PlusPlus" || t == "PipeGt" { 5 }
+  else { if t == "PlusPlus" || t == "PipeGt" || t == "FanOut" { 5 }
   else { if t == "Plus" || t == "Minus" { 6 }
   else { if t == "Star" || t == "Slash" || t == "Percent" { 7 }
   else { 0 } } } } } } }
@@ -119,7 +120,8 @@ fn to_arith_op(t) =
   else { if t == "Percent" { "Mod" }
   else { if t == "PlusPlus" { "Concat" }
   else { if t == "PipeGt" { "Pipe" }
-  else { "" } } } } } } }
+  else { if t == "FanOut" { "FanOut" }
+  else { "" } } } } } } } }
 
 fn to_cmp_op(t) =
   if t == "EqEq" { "Eq" }
@@ -540,7 +542,8 @@ fn binop_loop(tokens, left, pos, min_p) = {
     let op = to_op(t);
     let (right, p2) = parse_binop(tokens, p + 1, pr + 1);
     let node = if op == "Pipe" { sp(PipeExpr(left, right), tokens, p) }
-               else { sp(BinOp(op, left, right), tokens, p) };
+               else { if op == "FanOut" { sp(FanOutExpr(left, right), tokens, p) }
+               else { sp(BinOp(op, left, right), tokens, p) } };
     binop_loop(tokens, node, p2, min_p)
   }
   else { (left, p) }

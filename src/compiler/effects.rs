@@ -82,7 +82,7 @@ fn contains_effect_call(expr: &Expr, effect_ops: &HashMap<String, String>) -> bo
             contains_effect_call(left, effect_ops) || contains_effect_call(right, effect_ops)
         }
         Expr::UnaryOp { operand, .. } => contains_effect_call(operand, effect_ops),
-        Expr::Pipe { left, right, .. } => {
+        Expr::Pipe { left, right, .. } | Expr::FanOut { left, right, .. } => {
             contains_effect_call(left, effect_ops) || contains_effect_call(right, effect_ops)
         }
         Expr::Return { value, .. } => contains_effect_call(value, effect_ops),
@@ -247,7 +247,7 @@ impl Compiler {
                 }
                 _ => false,
             }),
-            Expr::Pipe { left, right, .. } => {
+            Expr::Pipe { left, right, .. } | Expr::FanOut { left, right, .. } => {
                 self.expr_references_enclosing(left, handler_locals)
                     || self.expr_references_enclosing(right, handler_locals)
             }

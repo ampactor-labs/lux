@@ -34,6 +34,24 @@ impl Parser {
                 continue;
             }
 
+            // Fan-out operator <| — same precedence as pipe
+            if self.at_exact(&TokenKind::FanOut) && Prec::Pipe > min_prec {
+                self.advance();
+                let right = self.parse_pratt(Prec::Pipe)?;
+                let span = Span::new(
+                    left.span().start,
+                    right.span().end,
+                    left.span().line,
+                    left.span().column,
+                );
+                left = Expr::FanOut {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                    span,
+                };
+                continue;
+            }
+
             let Some(prec) = infix_precedence(self.peek()) else {
                 break;
             };

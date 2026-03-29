@@ -200,6 +200,9 @@ impl<'src> Lexer<'src> {
                 if self.peek() == Some(b'=') {
                     self.advance();
                     TokenKind::LtEq
+                } else if self.peek() == Some(b'|') {
+                    self.advance();
+                    TokenKind::FanOut
                 } else {
                     TokenKind::Lt
                 }

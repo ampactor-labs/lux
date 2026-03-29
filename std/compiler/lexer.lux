@@ -62,7 +62,7 @@ fn two_char_op(ch, ch2) = {
     ("=", "=", "EqEq"), ("!", "=", "BangEq"),
     ("<", "=", "LtEq"), (">", "=", "GtEq"),
     ("-", ">", "Arrow"), ("=", ">", "FatArrow"),
-    ("+", "+", "PlusPlus"), ("|", ">", "PipeGt"),
+    ("+", "+", "PlusPlus"), ("|", ">", "PipeGt"), ("<", "|", "FanOut"),
     ("&", "&", "And"), ("|", "|", "Or")
   ];
   fn find_op(ops, ch, ch2, i) =

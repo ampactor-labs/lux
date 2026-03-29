@@ -119,6 +119,7 @@ pub enum TokenKind {
     Bang,
     Pipe,
     PipeGt,   // |>
+    FanOut,   // <|
     Arrow,    // ->
     FatArrow, // =>
     DotDot,   // ..

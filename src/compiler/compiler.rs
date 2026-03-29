@@ -882,6 +882,29 @@ impl Compiler {
                 }
             }
 
+            Expr::FanOut { left, right, span } => {
+                let line = Self::current_line(span);
+                // a <| (f, g, h) compiles to (f(a), g(a), h(a))
+                // For now: desugar single function case a <| f → f(a)
+                if let Expr::Tuple(elements, _) = right.as_ref() {
+                    // Fan-out: apply left to each function, collect into tuple
+                    for func in elements {
+                        self.compile_expr(func)?;
+                        self.compile_expr(left)?;
+                        self.emit_op(OpCode::Call, line);
+                        self.emit_u8(1, line);
+                    }
+                    self.emit_op(OpCode::MakeTuple, line);
+                    self.emit_u8(elements.len() as u8, line);
+                } else {
+                    // Single function: a <| f → f(a)
+                    self.compile_expr(right)?;
+                    self.compile_expr(left)?;
+                    self.emit_op(OpCode::Call, line);
+                    self.emit_u8(1, line);
+                }
+            }
+
             Expr::Return { value, span } => {
                 let line = Self::current_line(span);
                 self.compile_expr(value)?;

@@ -269,6 +269,13 @@ pub enum Expr {
         span: Span,
     },
 
+    /// Fan-out `expr <| (f, g, h)`
+    FanOut {
+        left: Box<Expr>,
+        right: Box<Expr>,
+        span: Span,
+    },
+
     /// String interpolation `"Hello, {name}!"`
     StringInterp { parts: Vec<StringPart>, span: Span },
 
@@ -367,6 +374,7 @@ impl Expr {
             | Expr::Match { span, .. }
             | Expr::Let { span, .. }
             | Expr::Pipe { span, .. }
+            | Expr::FanOut { span, .. }
             | Expr::StringInterp { span, .. }
             | Expr::Handle { span, .. }
             | Expr::Resume { span, .. }
