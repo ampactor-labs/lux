@@ -15,9 +15,10 @@ import backend/wasm_collect
 
 let NL = from_char_code(10)
 
+
 // ─── Closure Capture Helper ─────────────────────────────────
 
-fn find_self_capture(captures, name, idx) with Pure = {
+fn find_self_capture(captures, name, idx)= {
   if idx >= len(captures) { 0 - 1 }
   else {
     match captures[idx] {
@@ -27,7 +28,7 @@ fn find_self_capture(captures, name, idx) with Pure = {
   }
 }
 
-fn emit_closure_captures(captures, idx, params, locals, ctx) with Pure = {
+fn emit_closure_captures(captures, idx, params, locals, ctx)= {
   if idx >= len(captures) { "" }
   else {
     let offset = (2 + idx) * 4
@@ -44,7 +45,7 @@ fn emit_closure_captures(captures, idx, params, locals, ctx) with Pure = {
 // Tuple/list construction: evaluate each element, call make_tuple runtime.
 // The runtime function handles allocation — no $__vptr clobbering.
 
-fn emit_make_tuple(elems, params, locals, ctx) with Pure = {
+fn emit_make_tuple(elems, params, locals, ctx)= {
   let n = len(elems)
   // Allocate tuple, then set each element. No shared temp locals.
   "    i32.const 0" ++ NL  // closure
@@ -54,7 +55,7 @@ fn emit_make_tuple(elems, params, locals, ctx) with Pure = {
   ++ emit_tuple_sets(elems, 0, params, locals, ctx)
 }
 
-fn emit_tuple_sets(elems, idx, params, locals, ctx) with Pure = {
+fn emit_tuple_sets(elems, idx, params, locals, ctx)= {
   if idx >= len(elems) { "" }
   else {
     // Stack has tuple_ptr. Save to __match, build args, call tuple_set.
@@ -69,7 +70,7 @@ fn emit_tuple_sets(elems, idx, params, locals, ctx) with Pure = {
   }
 }
 
-fn emit_tuple_elems(elems, idx, params, locals, ctx) with Pure = {
+fn emit_tuple_elems(elems, idx, params, locals, ctx)= {
   if idx >= len(elems) { "" }
   else {
     let offset = (1 + idx) * 4
@@ -86,7 +87,7 @@ fn emit_tuple_elems(elems, idx, params, locals, ctx) with Pure = {
 // LMakeVariant("Circle", [r]) → alloc [tag_id:i32][r:i32], return ptr
 // Uses $__vptr temp local (safe even if field expressions allocate).
 
-fn emit_make_variant(tag, fields, params, locals, ctx) with Pure = {
+fn emit_make_variant(tag, fields, params, locals, ctx)= {
   let tag_id = find_tag_id(ctx_tags(ctx), tag, 0)
   let n_fields = len(fields)
   let total_size = (1 + n_fields) * 4
@@ -103,7 +104,7 @@ fn emit_make_variant(tag, fields, params, locals, ctx) with Pure = {
   ++ "    local.get $__vptr" ++ NL
 }
 
-fn emit_variant_fields(fields, idx, params, locals, ctx) with Pure = {
+fn emit_variant_fields(fields, idx, params, locals, ctx)= {
   if idx >= len(fields) { "" }
   else {
     let field_offset = (1 + idx) * 4
@@ -120,7 +121,7 @@ fn emit_variant_fields(fields, idx, params, locals, ctx) with Pure = {
 // LMatch(scrutinee, [(LPCon("Circle", [LPVar("r")]), body), ...])
 // → evaluate scrutinee to local, chain if/else on tag.
 
-fn emit_match(scrutinee, arms, params, locals, ctx) with Pure = {
+fn emit_match(scrutinee, arms, params, locals, ctx)= {
   // Evaluate scrutinee — leave ptr on stack
   // We need to reference it multiple times, so store in a temp local
   emit_expr(scrutinee, params, locals, ctx)
@@ -128,7 +129,7 @@ fn emit_match(scrutinee, arms, params, locals, ctx) with Pure = {
   ++ emit_match_arms(arms, 0, params, locals, ctx)
 }
 
-fn emit_match_arms(arms, idx, params, locals, ctx) with Pure = {
+fn emit_match_arms(arms, idx, params, locals, ctx)= {
   if idx >= len(arms) { "    i32.const 0 ;; match fallthrough" ++ NL }
   else {
     let (pat, body) = arms[idx]
@@ -162,7 +163,7 @@ fn emit_match_arms(arms, idx, params, locals, ctx) with Pure = {
   }
 }
 
-fn emit_bind_fields(sub_pats, idx, params, locals, ctx) with Pure = {
+fn emit_bind_fields(sub_pats, idx, params, locals, ctx)= {
   if idx >= len(sub_pats) { "" }
   else {
     let field_offset = (1 + idx) * 4
@@ -183,7 +184,7 @@ fn emit_bind_fields(sub_pats, idx, params, locals, ctx) with Pure = {
 
 // ─── println Dispatch ───────────────────────────────────────
 
-fn emit_println(args, params, locals, ctx) with Pure = {
+fn emit_println(args, params, locals, ctx)= {
   if len(args) == 0 { "" }
   else {
     let arg = args[0]
@@ -207,7 +208,7 @@ fn emit_println(args, params, locals, ctx) with Pure = {
   }
 }
 
-fn is_string_expr(e) with Pure = match e {
+fn is_string_expr(e)= match e {
   LConst(v) => match v { LString(_) => true, _ => false },
   LBinOp(op, _, _) => op == "Concat",
   _ => false

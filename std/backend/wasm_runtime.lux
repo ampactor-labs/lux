@@ -8,6 +8,7 @@
 
 let NL = from_char_code(10)
 
+
 fn emit_alloc() =
   "  (func $alloc (param $size i32) (result i32)" ++ NL
   ++ "    (local $ptr i32)" ++ NL

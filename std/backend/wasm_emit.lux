@@ -14,16 +14,17 @@ import backend/wasm_collect
 import backend/wasm_construct
 
 let NL = from_char_code(10)
+
 let DQ = from_char_code(34)
 let BS = from_char_code(92)
 
 // ─── Context helpers ────────────────────────────────────────
 // ctx = (string_map, type_map, tag_map, fn_table, top_globals)
-fn ctx_strings(ctx) with Pure = ctx[0]
-fn ctx_types(ctx) with Pure = ctx[1]
-fn ctx_tags(ctx) with Pure = ctx[2]
-fn ctx_fns(ctx) with Pure = ctx[3]
-fn ctx_globals(ctx) with Pure = ctx[4]
+fn ctx_strings(ctx)= ctx[0]
+fn ctx_types(ctx)= ctx[1]
+fn ctx_tags(ctx)= ctx[2]
+fn ctx_fns(ctx)= ctx[3]
+fn ctx_globals(ctx)= ctx[4]
 
 // ─── Module Structure ───────────────────────────────────────
 
@@ -54,7 +55,7 @@ fn emit_module(defs, type_map) = {
     ++ footer
 }
 
-fn emit_global_decls(names, idx) with Pure = {
+fn emit_global_decls(names, idx)= {
   if idx >= len(names) { "" }
   else {
     "  (global $" ++ names[idx] ++ " (mut i32) (i32.const 0))" ++ NL
@@ -62,7 +63,7 @@ fn emit_global_decls(names, idx) with Pure = {
   }
 }
 
-fn emit_wasi_imports() with Pure =
+fn emit_wasi_imports()=
   "  (import " ++ DQ ++ "wasi_snapshot_preview1" ++ DQ ++ " " ++ DQ ++ "fd_write" ++ DQ
     ++ " (func $fd_write (param i32 i32 i32 i32) (result i32)))" ++ NL
   ++ "  (import " ++ DQ ++ "wasi_snapshot_preview1" ++ DQ ++ " " ++ DQ ++ "fd_read" ++ DQ
@@ -70,14 +71,14 @@ fn emit_wasi_imports() with Pure =
 
 // ─── Function Emission ──────────────────────────────────────
 
-fn emit_fn_list(fns, idx, ctx) with Pure = {
+fn emit_fn_list(fns, idx, ctx)= {
   if idx >= len(fns) { "" }
   else { emit_fn(fns[idx], ctx) ++ emit_fn_list(fns, idx + 1, ctx) }
 }
 
 // Uniform calling convention: ALL table functions get $__closure as first param.
 // Direct calls pass i32.const 0. Closures pass the closure pointer.
-fn emit_fn(fn_def, ctx) with Pure = {
+fn emit_fn(fn_def, ctx)= {
   let LFn(name, arity, params, body) = fn_def
   let fn_locals = collect_locals(body, 0)
   let with_temps = add_emitter_temps(fn_locals, ctx)
@@ -87,12 +88,12 @@ fn emit_fn(fn_def, ctx) with Pure = {
     ++ "  )" ++ NL
 }
 
-fn emit_params(params, idx) with Pure = {
+fn emit_params(params, idx)= {
   if idx >= len(params) { "" }
   else { " (param $" ++ params[idx] ++ " i32)" ++ emit_params(params, idx + 1) }
 }
 
-fn emit_fn_body(stmts, params, locals, ctx) with Pure = {
+fn emit_fn_body(stmts, params, locals, ctx)= {
   if len(stmts) == 0 { "    i32.const 0" ++ NL }
   else { emit_stmts_value(stmts, 0, params, locals, ctx) }
 }
@@ -100,7 +101,7 @@ fn emit_fn_body(stmts, params, locals, ctx) with Pure = {
 // ─── Expression Emission (unified) ──────────────────────────
 // Used by both function bodies (params from fn def) and _start (params = []).
 
-fn emit_expr(e, params, locals, ctx) with Pure = match e {
+fn emit_expr(e, params, locals, ctx)= match e {
   LConst(v) => emit_const(v, ctx),
   LMakeTuple(elems) => {
     if len(elems) == 0 { "    i32.const 0" ++ NL }
@@ -215,7 +216,7 @@ fn emit_expr(e, params, locals, ctx) with Pure = match e {
 }
 
 // Value context: last stmt produces a value (stays on stack). Non-last are void.
-fn emit_stmts_value(stmts, idx, params, locals, ctx) with Pure = {
+fn emit_stmts_value(stmts, idx, params, locals, ctx)= {
   if idx >= len(stmts) { "" }
   else {
     if idx == len(stmts) - 1 {
@@ -228,12 +229,12 @@ fn emit_stmts_value(stmts, idx, params, locals, ctx) with Pure = {
 }
 
 // Void context: all stmts are void (values dropped). Used by _start.
-fn emit_stmts_void(stmts, idx, params, locals, ctx) with Pure = {
+fn emit_stmts_void(stmts, idx, params, locals, ctx)= {
   if idx >= len(stmts) { "" }
   else { emit_stmt(stmts[idx], params, locals, ctx) ++ emit_stmts_void(stmts, idx + 1, params, locals, ctx) }
 }
 
-fn emit_stmt(stmt, params, locals, ctx) with Pure = match stmt {
+fn emit_stmt(stmt, params, locals, ctx)= match stmt {
   LLet(name, value) => {
     let setter = if string_in(ctx_globals(ctx), name, 0) { "    global.set $" } else { "    local.set $" }
     let getter = if string_in(ctx_globals(ctx), name, 0) { "    global.get $" } else { "    local.get $" }
@@ -263,7 +264,7 @@ fn emit_stmt(stmt, params, locals, ctx) with Pure = match stmt {
   _ => emit_expr(stmt, params, locals, ctx) ++ "    drop" ++ NL
 }
 
-fn emit_const(v, ctx) with Pure = match v {
+fn emit_const(v, ctx)= match v {
   LInt(n) => "    i32.const " ++ to_string(n) ++ NL,
   LBool(b) => "    i32.const " ++ if b { "1" } else { "0" } ++ NL,
   LString(s) => {
@@ -273,7 +274,7 @@ fn emit_const(v, ctx) with Pure = match v {
   _ => "    i32.const 0" ++ NL
 }
 
-fn emit_builtin(name, args, params, locals, ctx) with Pure = {
+fn emit_builtin(name, args, params, locals, ctx)= {
   // Memory effect → raw WASM instructions. The handler IS the backend.
   if name == "load_i32" {
     emit_args(args, 0, params, locals, ctx) ++ "    i32.load" ++ NL
@@ -303,7 +304,7 @@ fn emit_builtin(name, args, params, locals, ctx) with Pure = {
   } } } } } } } } } }
 }
 
-fn emit_call_expr(func, args, params, locals, ctx) with Pure = {
+fn emit_call_expr(func, args, params, locals, ctx)= {
   match func {
     LGlobal(name) => {
       let builtin = emit_builtin(name, args, params, locals, ctx)
@@ -345,14 +346,14 @@ fn emit_call_expr(func, args, params, locals, ctx) with Pure = {
   }
 }
 
-fn emit_args(args, idx, params, locals, ctx) with Pure = {
+fn emit_args(args, idx, params, locals, ctx)= {
   if idx >= len(args) { "" }
   else { emit_expr(args[idx], params, locals, ctx) ++ emit_args(args, idx + 1, params, locals, ctx) }
 }
 
 // ─── _start Function ────────────────────────────────────────
 
-fn emit_start(stmts, ctx) with Pure = {
+fn emit_start(stmts, ctx)= {
   let locals = filter_out_globals(collect_locals(stmts, 0), ctx_globals(ctx), 0)
   let with_temps = add_emitter_temps(locals, ctx)
   "  (func $_start (export " ++ DQ ++ "_start" ++ DQ ++ ")" ++ NL
@@ -363,12 +364,12 @@ fn emit_start(stmts, ctx) with Pure = {
 
 // ─── Local Collection ───────────────────────────────────────
 
-fn collect_locals(stmts, idx) with Pure = {
+fn collect_locals(stmts, idx)= {
   if idx >= len(stmts) { [] }
   else { string_union(collect_locals_expr(stmts[idx]), collect_locals(stmts, idx + 1)) }
 }
 
-fn collect_locals_expr(e) with Pure = match e {
+fn collect_locals_expr(e)= match e {
   LLet(name, value) => string_union([name], collect_locals_expr(value)),
   LBlock(stmts) => collect_locals(stmts, 0),
   LIf(_, t, e) => string_union(collect_locals_list(t, 0), collect_locals_list(e, 0)),
@@ -377,12 +378,12 @@ fn collect_locals_expr(e) with Pure = match e {
   _ => []
 }
 
-fn collect_locals_list(exprs, idx) with Pure = {
+fn collect_locals_list(exprs, idx)= {
   if idx >= len(exprs) { [] }
   else { string_union(collect_locals_expr(exprs[idx]), collect_locals_list(exprs, idx + 1)) }
 }
 
-fn collect_locals_arms(arms, idx) with Pure = {
+fn collect_locals_arms(arms, idx)= {
   if idx >= len(arms) { [] }
   else {
     let (pat, body) = arms[idx]
@@ -391,19 +392,19 @@ fn collect_locals_arms(arms, idx) with Pure = {
   }
 }
 
-fn collect_locals_pat(pat) with Pure = match pat {
+fn collect_locals_pat(pat)= match pat {
   LPVar(name) => [name],
   LPCon(_, sub) => collect_locals_pats(sub, 0),
   LPTuple(sub) => collect_locals_pats(sub, 0),
   _ => []
 }
 
-fn collect_locals_pats(pats, idx) with Pure = {
+fn collect_locals_pats(pats, idx)= {
   if idx >= len(pats) { [] }
   else { string_union(collect_locals_pat(pats[idx]), collect_locals_pats(pats, idx + 1)) }
 }
 
-fn emit_local_decls(locals, idx) with Pure = {
+fn emit_local_decls(locals, idx)= {
   if idx >= len(locals) { "" }
   else { "    (local $" ++ locals[idx] ++ " i32)" ++ NL ++ emit_local_decls(locals, idx + 1) }
 }
@@ -411,20 +412,20 @@ fn emit_local_decls(locals, idx) with Pure = {
 // Add emitter temp locals based on what patterns are present.
 // __match: needed when LMatch exists in the expression tree
 // __vptr: needed when variant constructors exist (tag_map non-empty)
-fn add_emitter_temps(locals, ctx) with Pure = {
+fn add_emitter_temps(locals, ctx)= {
   // __vptr: temp for heap allocation (variants, tuples). Always available, zero cost.
   // __match: added by collect_locals_expr when LMatch is seen.
   string_union(locals, ["__vptr", "__match"])
 }
 
-fn find_param_idx(params, name, idx) with Pure = {
+fn find_param_idx(params, name, idx)= {
   if idx >= len(params) { 0 - 1 }
   else { if params[idx] == name { idx } else { find_param_idx(params, name, idx + 1) } }
 }
 
 // ─── Binary Operators ───────────────────────────────────────
 
-fn emit_binop(op) with Pure = match op {
+fn emit_binop(op)= match op {
   "Add" => "    i32.add" ++ NL,
   "Sub" => "    i32.sub" ++ NL,
   "Mul" => "    i32.mul" ++ NL,
@@ -432,7 +433,7 @@ fn emit_binop(op) with Pure = match op {
   _ => emit_binop2(op)
 }
 
-fn emit_binop2(op) with Pure = match op {
+fn emit_binop2(op)= match op {
   "Mod" => "    i32.rem_s" ++ NL,
   "Eq" => "    i32.eq" ++ NL,
   "Neq" => "    i32.ne" ++ NL,
@@ -440,7 +441,7 @@ fn emit_binop2(op) with Pure = match op {
   _ => emit_binop3(op)
 }
 
-fn emit_binop3(op) with Pure = match op {
+fn emit_binop3(op)= match op {
   "LtEq" => "    i32.le_s" ++ NL,
   "Gt" => "    i32.gt_s" ++ NL,
   "GtEq" => "    i32.ge_s" ++ NL,
