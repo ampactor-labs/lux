@@ -1,0 +1,224 @@
+// LowIR Closure and Lambda Lowering — lower_closure.lux
+//
+// Two-pass closure compilation:
+//   1. collect_free_vars (Pure) — find variables captured from outer scope
+//   2. lower_lambda + rewrite_captures — lower body, replace LGlobal→LUpval
+//
+// No effect operations in the free-variable collection pass — captures
+// are a local transform. The LowerCtx effect (is_ctor, is_global) is
+// consumed in the filter step.
+//
+// Also contains string set utilities (string_union, filter_out, find_in_list)
+// used by both closure lowering and the program lowering handlers.
+
+import compiler/lower_ir
+
+// ─── Lambda / Closure Lowering ──────────────────────────────
+
+fn lower_lambda_named(wasm_name, name, params, body) = {
+  enter_fn(name)
+  let all_free = collect_free_vars(body, params)
+  // Don't filter self-name for inner functions — let them capture themselves.
+  // Self-recursion through upval → call_indirect. No call $name needed.
+  let free = if wasm_name == name { filter_real_captures(all_free, name) }
+             else { filter_real_captures_no_self(all_free) }
+  let lowered_body = lower_expr(body)
+  if len(free) == 0 {
+    LMakeClosure(LFn(wasm_name, len(params), params, [lowered_body]), [])
+  } else {
+    let rewritten = rewrite_captures(lowered_body, free)
+    let capture_exprs = map_to_globals(free, 0)
+    LMakeClosure(LFn(wasm_name, len(params), params, [rewritten]), capture_exprs)
+  }
+}
+
+fn lower_lambda(name, params, body) = lower_lambda_named(name, name, params, body)
+fn lower_lambda_inner(name, params, body) = lower_lambda_named(name ++ "_" ++ to_string(fresh_id()), name, params, body)
+
+fn filter_real_captures_no_self(names) = {
+  if len(names) == 0 { [] }
+  else {
+    let n = names[0]
+    let rest = filter_real_captures_no_self(slice(names, 1, len(names)))
+    if is_ctor(n) { rest }
+    else { if is_global(n) { rest }
+    else { [n] ++ rest } }
+  }
+}
+
+// Filter: keep only names that are actual captures from enclosing scope.
+// Exclude: self-name, constructors, globals (via LowerCtx effects).
+fn filter_real_captures(names, self_name) = {
+  if len(names) == 0 { [] }
+  else {
+    let n = names[0]
+    let rest = filter_real_captures(slice(names, 1, len(names)), self_name)
+    if n == self_name { rest }
+    else { if is_ctor(n) { rest }
+    else { if is_global(n) { rest }
+    else { [n] ++ rest } } }
+  }
+}
+
+// Collect free variables: VarRefs in body not in params or locally defined.
+// `bound` accumulates: params + let-bound names + inner fn params.
+fn collect_free_vars(sexpr, params) = {
+  collect_free(sexpr, params)
+}
+
+fn collect_free(sexpr, bound) = {
+  let S(expr, _, _) = sexpr
+  match expr {
+    VarRef(name) => if string_in(bound, name, 0) { [] } else { [name] },
+    BinOp(_, l, r) => string_union(collect_free(l, bound), collect_free(r, bound)),
+    UnaryOp(_, e) => collect_free(e, bound),
+    Call(func, args) => string_union(collect_free(func, bound), collect_free_list(args, bound)),
+    IfExpr(c, t, e) => string_union(collect_free(c, bound),
+      string_union(collect_free(t, bound), collect_free(e, bound))),
+    BlockExpr(stmts, final_e) => {
+      let (refs, new_bound) = collect_free_stmts(stmts, bound)
+      string_union(refs, collect_free(final_e, new_bound))
+    },
+    PipeExpr(l, r) => string_union(collect_free(l, bound), collect_free(r, bound)),
+    Index(c, i) => string_union(collect_free(c, bound), collect_free(i, bound)),
+    LambdaExpr(params, body) => {
+      // Inner lambda: its params are bound inside, but free vars propagate up
+      collect_free(body, bound ++ params)
+    },
+    _ => []
+  }
+}
+
+fn collect_free_list(sexprs, bound) = {
+  if len(sexprs) == 0 { [] }
+  else { string_union(collect_free(sexprs[0], bound), collect_free_list(slice(sexprs, 1, len(sexprs)), bound)) }
+}
+
+// Stmts: each let/fn binding extends the bound set for subsequent stmts
+fn collect_free_stmts(stmts, bound) = {
+  if len(stmts) == 0 { ([], bound) }
+  else {
+    let stmt = stmts[0]
+    let (here, new_bound) = collect_free_stmt(stmt, bound)
+    let (rest, final_bound) = collect_free_stmts(slice(stmts, 1, len(stmts)), new_bound)
+    (string_union(here, rest), final_bound)
+  }
+}
+
+fn collect_free_stmt(stmt, bound) = match stmt {
+  LetStmt(name, value) => (collect_free(value, bound), bound ++ [name]),
+  LetDestructure(names, value) => (collect_free(value, bound), bound ++ names),
+  LetPattern(pat, value) => {
+    let pat_names = extract_pat_names_safe(pat)
+    (collect_free(value, bound), bound ++ pat_names)
+  },
+  FnStmt(name, params, body, _) => {
+    let fn_params = extract_param_names_pure(params)
+    (collect_free(body, bound ++ [name] ++ fn_params), bound ++ [name])
+  },
+  ExprStmt(expr) => (collect_free(expr, bound), bound),
+  _ => ([], bound)
+}
+
+fn extract_pat_names_safe(pat) = {
+  // Use to_string to avoid Rust VM ADT matching crash on Pat variants
+  let s = to_string(pat)
+  if starts_with(s, "PVar(") { [string_slice(s, 6, len(s) - 2)] }
+  else { if starts_with(s, "PCon(") { extract_pvar_names_from_string(s) }
+  else { if starts_with(s, "PTuple(") { extract_pvar_names_from_string(s) }
+  else { [] } } }
+}
+
+fn extract_pvar_names_from_string(s) = {
+  // Extract PVar names from stringified pattern: PCon("S", [PVar("inner"), PWild])
+  // Find all PVar(" occurrences, extract name between quotes
+  fn find_pvars(s, idx, acc) =
+    if idx + 6 >= len(s) { acc }
+    else {
+      if string_slice(s, idx, idx + 6) == "PVar(\"" {
+        let rest = string_slice(s, idx + 6, len(s))
+        let end = index_of(rest, "\"")
+        if end >= 0 {
+          let name = string_slice(s, idx + 6, idx + 6 + end)
+          find_pvars(s, idx + 6 + end, acc ++ [name])
+        } else { find_pvars(s, idx + 1, acc) }
+      } else { find_pvars(s, idx + 1, acc) }
+    }
+  find_pvars(s, 0, [])
+}
+
+fn collect_pat_names_lower(pat) = {
+  let s = to_string(pat)
+  // Simple extraction: avoid ADT matching that crashes on field count mismatch
+  // LetPattern is rare in the lowering path — _lp works for most cases
+  []
+}
+
+fn extract_param_names_pure(params) = {
+  if len(params) == 0 { [] }
+  else {
+    let (name, _) = params[0]
+    [name] ++ extract_param_names_pure(slice(params, 1, len(params)))
+  }
+}
+
+fn filter_out(names, exclude, idx) = {
+  if idx >= len(names) { [] }
+  else {
+    let name = names[idx]
+    let rest = filter_out(names, exclude, idx + 1)
+    if string_in(exclude, name, 0) { rest } else { [name] ++ rest }
+  }
+}
+
+// Rewrite captures: walk LowIR, replace LGlobal(captured) → LUpval(idx)
+fn rewrite_captures(e, free) = match e {
+  LGlobal(name) => {
+    let idx = find_in_list(free, name, 0)
+    if idx >= 0 { LUpval(idx) } else { LGlobal(name) }
+  },
+  LBinOp(op, l, r) => LBinOp(op, rewrite_captures(l, free), rewrite_captures(r, free)),
+  LUnaryOp(op, inner) => LUnaryOp(op, rewrite_captures(inner, free)),
+  LCall(func, args) => LCall(rewrite_captures(func, free), rewrite_captures_list(args, free)),
+  LIf(c, t, e) => LIf(rewrite_captures(c, free),
+    rewrite_captures_list(t, free), rewrite_captures_list(e, free)),
+  LBlock(stmts) => LBlock(rewrite_captures_list(stmts, free)),
+  LLet(name, value) => LLet(name, rewrite_captures(value, free)),
+  LMakeTuple(elems) => LMakeTuple(rewrite_captures_list(elems, free)),
+  LMakeList(elems) => LMakeList(rewrite_captures_list(elems, free)),
+  LIndex(c, i) => LIndex(rewrite_captures(c, free), rewrite_captures(i, free)),
+  _ => e
+}
+
+fn rewrite_captures_list(exprs, free) = {
+  if len(exprs) == 0 { [] }
+  else { [rewrite_captures(exprs[0], free)] ++ rewrite_captures_list(slice(exprs, 1, len(exprs)), free) }
+}
+
+fn map_to_globals(names, idx) = {
+  if idx >= len(names) { [] }
+  else { [LGlobal(names[idx])] ++ map_to_globals(names, idx + 1) }
+}
+
+fn find_in_list(list, name, idx) = {
+  if idx >= len(list) { 0 - 1 }
+  else { if list[idx] == name { idx } else { find_in_list(list, name, idx + 1) } }
+}
+
+// ─── String Set Utilities ────────────────────────────────────
+// Used by closure lowering (collect_free) and program lowering handlers.
+
+fn string_union(a, b) = {
+  if len(b) == 0 { a }
+  else {
+    let head = b[0]
+    let rest = slice(b, 1, len(b))
+    if string_in(a, head, 0) { string_union(a, rest) }
+    else { string_union(a ++ [head], rest) }
+  }
+}
+
+fn string_in(list, s, idx) = {
+  if idx >= len(list) { false }
+  else { if list[idx] == s { true } else { string_in(list, s, idx + 1) } }
+}

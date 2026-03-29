@@ -1,0 +1,258 @@
+// Lux Type Representations and Environment — checker_types.lux
+//
+// Core type data structures for the self-hosted checker:
+//   - effect Diagnostic (all checker output flows through here)
+//   - type Ty (the type representation)
+//   - type Reason (why-engine reasoning chains)
+//   - TypeEnv helpers (env_empty, env_extend, env_lookup, ...)
+//   - Substitution (subst_empty, subst_get, apply, apply_reason, ...)
+//   - Instantiation (instantiate_type, instantiate_types)
+//   - Builtin helpers (env_with_primitives, is_builtin_reason, ...)
+//
+// Extracted from checker.lux so that checker_display and checker_why
+// can import types without creating circular dependencies.
+
+import compiler/checker_effects
+
+// ─── Diagnostic Effect ──────────────────────────────────────
+// All checker output flows through this single effect.
+// Handlers decide presentation: println, collect, silence, IDE protocol.
+
+effect Diagnostic {
+  report(source: String, kind: String, msg: String, line: Int, col: Int) -> ()
+}
+
+// ─── Type Representation ─────────────────────────────────────
+
+type Ty
+  = TInt
+  | TFloat
+  | TString
+  | TBool
+  | TUnit
+  | TList(Ty)
+  | TTuple(List)
+  | TFun(List, Ty, EffRow)
+  | TVar(Int)
+  | TName(String, List)
+
+// ─── Reason ADT ──────────────────────────────────────────────
+// Every type inference produces a Reason explaining HOW and WHY.
+// Reasons form a tree: each node has a human summary and links
+// to the reasoning steps that support it.
+//
+// This is the soul of the Why Engine. The Reason is not an
+// afterthought bolted onto types — it's a first-class output
+// of the inference process, as fundamental as the type itself.
+
+type Reason
+  = Literal(String)                    // "42 is Int (integer literal)"
+  | VarLookup(String, Reason)          // "x is Int (bound in scope)"
+  | Declared(String)                   // "x: Int (user annotation)"
+  | OpConstraint(String, Reason, Reason)  // "* requires both args Int"
+  | Unified(Reason, Reason)            // "unified LHS with RHS"
+  | FnReturn(String, Reason)           // "return type of fn add"
+  | FnParam(String, Int, Reason)       // "parameter 0 of fn add"
+  | Applied(Reason, List)              // "result of applying f to args"
+  | CondBranch(Reason, Reason)         // "if branches must agree"
+  | ListElement(Reason)                // "element type of list literal"
+  | PipeFlow(Reason, Reason)           // "piped value → function"
+  | Inferred(String)                   // "inferred by context"
+  | Because(String, Reason)            // "X because Y"
+  | Fresh(Int)                         // "fresh type variable ?0"
+
+// ─── Type Environment ────────────────────────────────────────
+// Stores (name, type, reason) triples. Source text rides as a sentinel entry.
+
+fn env_empty() = []
+fn env_extend(env, name, ty, reason) = [(name, ty, reason)] ++ env
+fn env_with_source(env, source) = [("__source__", TUnit, Declared(source))] ++ env
+fn env_source(env) = {
+  if len(env) == 0 { "" }
+  else {
+    let (name, _, reason) = env[0];
+    if name == "__source__" { match reason { Declared(s) => s, _ => "" } }
+    else { env_source(slice(env, 1, len(env))) }
+  }
+}
+fn env_lookup(env, name) = {
+  if len(env) == 0 {
+    ("not_found", TUnit, Inferred("unknown"))
+  } else {
+    let (k, v, r) = env[0]
+    if k == name { (k, v, r) }
+    else { env_lookup(slice(env, 1, len(env)), name) }
+  }
+}
+
+// ─── VM Primitives ───────────────────────────────────────────
+// The irreducible kernel — operations Lux cannot implement in terms
+// of itself because they touch VM-internal representation or IO.
+//
+// Everything else is pure Lux in std/prelude.lux. The prelude is
+// prepended to user code, so the checker infers those types naturally.
+//
+// When a function moves from here to prelude, that's progress.
+
+fn env_with_primitives(env) = {
+  let a = TVar(-1)
+  let b = TVar(-2)
+  env
+    // Data structure access — needs VM representation knowledge
+    |> env_extend("len", TFun([a], TInt, EfPure), Declared("builtin"))
+    |> env_extend("push", TFun([a, b], a, EfPure), Declared("builtin"))
+    |> env_extend("slice", TFun([a, TInt, TInt], a, EfPure), Declared("builtin"))
+    |> env_extend("string_slice", TFun([TString, TInt, TInt], TString, EfPure), Declared("builtin"))
+    // Character encoding — needs VM string internals
+    |> env_extend("char_code", TFun([TString], TInt, EfPure), Declared("builtin"))
+    |> env_extend("from_char_code", TFun([TInt], TString, EfPure), Declared("builtin"))
+    // Type dispatch — needs runtime type info
+    |> env_extend("to_string", TFun([a], TString, EfPure), Declared("builtin"))
+    |> env_extend("type_of", TFun([a], TString, EfPure), Declared("builtin"))
+    // split is now pure Lux in std/runtime/memory.lux
+    // Numeric parsing
+    |> env_extend("parse_float", TFun([TString], TFloat, EfPure), Declared("builtin"))
+    // IO — effects
+    |> env_extend("println", TFun([a], TUnit, EfClosed(["Console"])), Declared("builtin"))
+    |> env_extend("print", TFun([a], TUnit, EfClosed(["Console"])), Declared("builtin"))
+    |> env_extend("read_file", TFun([TString], TString, EfClosed(["IO"])), Declared("builtin"))
+    // fd_write is declared as a WASI effect in std/runtime/memory.lux
+}
+
+fn instantiate_type(ty, counter, mapping) = match ty {
+  TVar(id) => {
+    if id >= 0 { (ty, counter, mapping) }
+    else {
+      let existing = find_inst_mapping(mapping, id)
+      if existing >= 0 { (TVar(existing), counter, mapping) }
+      else {
+        let (fresh, c2) = fresh_var(counter)
+        let (c2_id, _) = c2
+        (fresh, c2, [(id, c2_id - 1)] ++ mapping)
+      }
+    }
+  },
+  TFun(params, ret, eff) => {
+    let (new_params, c2, m2) = instantiate_types(params, counter, mapping)
+    let (new_ret, c3, m3) = instantiate_type(ret, c2, m2)
+    (TFun(new_params, new_ret, eff), c3, m3)
+  },
+  TList(elem) => {
+    let (new_elem, c2, m2) = instantiate_type(elem, counter, mapping)
+    (TList(new_elem), c2, m2)
+  },
+  _ => (ty, counter, mapping)
+}
+
+fn instantiate_types(tys, counter, mapping) = {
+  if len(tys) == 0 { ([], counter, mapping) }
+  else {
+    let (new_head, c2, m2) = instantiate_type(tys[0], counter, mapping)
+    let (new_tail, c3, m3) = instantiate_types(slice(tys, 1, len(tys)), c2, m2)
+    ([new_head] ++ new_tail, c3, m3)
+  }
+}
+
+fn find_inst_mapping(mapping, id) = {
+  if len(mapping) == 0 { -999 }
+  else {
+    let (k, v) = mapping[0]
+    if k == id { v }
+    else { find_inst_mapping(slice(mapping, 1, len(mapping)), id) }
+  }
+}
+
+fn has_negative_tvars(ty) = match ty {
+  TVar(id) => id < 0,
+  TFun(params, ret, _) => has_negative_tvars_list(params) || has_negative_tvars(ret),
+  TList(elem) => has_negative_tvars(elem),
+  _ => false
+}
+
+fn has_negative_tvars_list(tys) = {
+  if len(tys) == 0 { false }
+  else { has_negative_tvars(tys[0]) || has_negative_tvars_list(slice(tys, 1, len(tys))) }
+}
+
+fn extract_builtin_names(env) = {
+  if len(env) == 0 { [] }
+  else {
+    let (name, _, reason) = env[0]
+    let rest = extract_builtin_names(slice(env, 1, len(env)))
+    if to_string(reason) == "Declared(builtin)" { [name] ++ rest } else { rest }
+  }
+}
+
+fn is_builtin_reason(reason) = {
+  let s = to_string(reason)
+  let dq = from_char_code(34)
+  s == "Declared(" ++ dq ++ "builtin" ++ dq ++ ")"
+}
+
+// ─── Substitution ────────────────────────────────────────────
+// A substitution maps type variable IDs to (type, reason) pairs.
+// When we unify and bind a variable, we record WHY.
+//
+// Also lives here because apply/apply_reason are used by checker_display
+// (for type_to_string) and checker_why — both of which would otherwise
+// need a circular import back into checker.lux.
+
+fn subst_empty() = []
+
+fn subst_set(subst, var_id, ty, reason) = [(var_id, ty, reason)] ++ subst
+
+fn subst_get(subst, var_id) = {
+  if len(subst) == 0 { (TVar(var_id), Fresh(var_id)) }
+  else {
+    let (k, v, r) = subst[0]
+    if k == var_id { (v, r) }
+    else { subst_get(slice(subst, 1, len(subst)), var_id) }
+  }
+}
+
+// Apply substitution to a type, chasing type variable chains.
+fn apply(subst, ty) = match ty {
+  TInt => TInt,
+  TFloat => TFloat,
+  TString => TString,
+  TBool => TBool,
+  TUnit => TUnit,
+  TVar(id) => {
+    let (resolved, _) = subst_get(subst, id)
+    match resolved {
+      TVar(id2) => if id == id2 { TVar(id) } else { apply(subst, TVar(id2)) },
+      _ => apply(subst, resolved)
+    }
+  },
+  TList(elem) => TList(apply(subst, elem)),
+  TFun(params, ret, effs) => TFun(map(|p| apply(subst, p), params), apply(subst, ret), effs),
+  TTuple(elems) => TTuple(map(|e| apply(subst, e), elems)),
+  TName(name, args) => TName(name, map(|a| apply(subst, a), args))
+}
+
+// Get the reason WHY a type variable was bound to its current value
+fn apply_reason(subst, ty) = match ty {
+  TVar(id) => {
+    let (resolved, reason) = subst_get(subst, id)
+    match resolved {
+      TVar(id2) => if id == id2 { Fresh(id) } else { apply_reason(subst, TVar(id2)) },
+      _ => reason
+    }
+  },
+  _ => Inferred("concrete type")
+}
+
+// ─── Fresh Type Variables ────────────────────────────────────
+// Counter is [fresh_id, eff_subst] — one channel for inference state.
+// Effect substitution rides alongside the fresh variable counter,
+// threaded through every inference function for free.
+
+fn fresh_var(counter) = {
+  let (n, esubst) = counter
+  (TVar(n), (n + 1, esubst))
+}
+
+fn fresh_eff_var(counter) = {
+  let (n, esubst) = counter
+  (EfOpen([], n), (n + 1, esubst))
+}

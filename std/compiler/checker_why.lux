@@ -1,0 +1,135 @@
+// Lux Why Engine + Teaching Compiler — checker_why.lux
+//
+// The flagship "explain yourself" API and the gradient teaching engine.
+//
+//   check_and_explain(source, name, depth)
+//     → "x: Int\n  WHY: Add requires numeric arguments\n    ← ..."
+//
+//   check_and_show(source, depth)
+//     → full env dump with reasons at given depth
+//
+//   check_and_teach(source, name)
+//     → type + one annotation suggestion (the next step on the gradient)
+//
+// This module depends on check_program / check_program_with_source from
+// checker.lux (passed in by callers), and on checker_types / checker_display
+// for the data types and rendering.
+//
+// The gradient: what you wrote → what the compiler inferred →
+// what annotation would lock it in → what that unlocks.
+
+import compiler/checker_types
+import compiler/checker_display
+import compiler/checker_effects
+
+// ─── Why Query ───────────────────────────────────────────────
+// The flagship API: check code, then ask WHY for any binding.
+//
+// Usage:
+//   let result = check_and_explain("let x = 1 + 2", "x", 2)
+//   => "x: Int
+//       WHY: Add requires numeric arguments
+//         ← left:  integer literal
+//         ← right: integer literal"
+
+fn check_and_explain(source, name, depth) = {
+  let stmts = parse(source)
+  let (env, subst, _) = check_program_with_source(stmts, source)
+  let (found, ty, reason) = env_lookup(env, name)
+  if found == "not_found" {
+    name ++ ": not found"
+  } else {
+    let ty_str = type_to_string(subst, ty)
+    name ++ ": " ++ ty_str ++ "\n  WHY: " ++ show_reason(reason, depth)
+  }
+}
+
+// Check program and show all bindings with reasons
+fn check_and_show(source, depth) = {
+  let stmts = parse(source)
+  let (env, subst, _) = check_program_with_source(stmts, source)
+  show_env(env, subst, depth)
+}
+
+fn show_env(env, subst, depth) = {
+  if len(env) == 0 { "" }
+  else {
+    let (name, ty, reason) = env[len(env) - 1]
+    let rest = show_env(slice(env, 0, len(env) - 1), subst, depth)
+    if name == "__source__" || is_builtin_reason(reason) { rest }
+    else {
+      let ty_str = type_to_string(subst, ty)
+      let line = name ++ ": " ++ ty_str
+      let why = if depth > 0 { "\n  WHY: " ++ show_reason(reason, depth) } else { "" }
+      line ++ why ++ "\n" ++ rest
+    }
+  }
+}
+
+// ─── Gradient Engine ─────────────────────────────────────────
+// The compiler shows you the next step on the gradient.
+// Not nagging — illuminating. One suggestion per function.
+//
+// The gradient: what you wrote → what the compiler inferred →
+// what annotation would lock it in → what that unlocks.
+
+fn check_and_teach(source, name) = {
+  let stmts = parse(source)
+  let (env, subst, _) = check_program(stmts)
+  let (found, ty, reason) = env_lookup(env, name)
+  if found == "not_found" { name ++ ": not found" }
+  else {
+    let ty_str = type_to_string(subst, ty)
+    let already_annotated = fn_has_annotations(stmts, name)
+    let suggestion = if already_annotated { "" } else { suggest_annotation(subst, name, ty) }
+    name ++ ": " ++ ty_str ++ suggestion
+  }
+}
+
+fn fn_has_annotations(stmts, name) = {
+  if len(stmts) == 0 { false }
+  else {
+    match stmts[0] {
+      FnStmt(n, _, _, effs) => if n == name { len(effs) > 0 } else { fn_has_annotations(slice(stmts, 1, len(stmts)), name) },
+      _ => fn_has_annotations(slice(stmts, 1, len(stmts)), name)
+    }
+  }
+}
+
+fn suggest_annotation(subst, name, ty) = match apply(subst, ty) {
+  TFun(params, ret, effs) => {
+    let suggestion = match effs {
+      EfPure => suggest_pure(name),
+      EfClosed(es) => suggest_from_closed(name, es),
+      EfOpen(_, _) => ""
+    }
+    suggestion
+  },
+  _ => ""
+}
+
+fn suggest_pure(name) =
+  "\n  -> " ++ name ++ " is Pure"
+  ++ "\n     add 'with Pure' to unlock:"
+  ++ "\n       memoization  (same input = same output, guaranteed)"
+  ++ "\n       parallelism  (no side effects to race)"
+  ++ "\n       compile-time (if inputs are known, evaluate at build)"
+
+fn suggest_from_closed(name, effects) = {
+  // Check which compilation gates are available
+  let has_alloc = list_contains(effects, "Alloc")
+  let has_io = list_contains(effects, "IO")
+  let has_network = list_contains(effects, "Network")
+  // Suggest the most impactful negation that's already true
+  if not(has_alloc) && not(has_io) && not(has_network) {
+    // Only domain effects — suggest !Alloc for real-time
+    "\n  -> " ++ name ++ " does not allocate"
+    ++ "\n     add 'with !Alloc' to prove:"
+    ++ "\n       real-time safe  (zero heap allocation in entire call chain)"
+    ++ "\n       embeddable      (runs on microcontrollers, GPU, bare metal)"
+  } else { if not(has_network) {
+    "\n  -> " ++ name ++ " does not access network"
+    ++ "\n     add 'with !Network' to prove:"
+    ++ "\n       sandboxed  (capability restriction as types)"
+  } else { "" }}
+}

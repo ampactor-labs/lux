@@ -1,0 +1,150 @@
+// LowIR Type Declarations — lower_ir.lux
+//
+// The ADT definitions for LowIR: the representation where effects
+// become control flow, between AST and WASM.
+//
+// No handler stack, no continuation replay. Just:
+//   LowConst/LowExpr/LowPat/LowFn/LowDef — the core IR nodes
+//   HandlerTier — classification for handler elimination
+//
+// These types are shared by lower.lux (transform), lower_closure.lux
+// (closures), lower_print.lux (printer), and wasm_emit.lux (backend).
+
+// ─── The Lowering Context Effect ────────────────────────────
+// Shared by lower.lux and lower_closure.lux. Handlers in lower.lux.
+
+effect LowerCtx {
+  is_ctor(name: String) -> Bool
+  find_rewrite(name: String) -> List
+  is_global(name: String) -> Bool
+  fresh_id() -> Int
+  type_of_var(name: String) -> String
+  enter_fn(fn_name: String) -> ()
+}
+
+// ─── Value Representation ───────────────────────────────────
+
+type LowValue
+  = LInt(Int)
+  | LFloat(Float)
+  | LString(String)
+  | LBool(Bool)
+  | LUnit
+  | LNone
+
+// ─── Patterns ───────────────────────────────────────────────
+
+type LowPat
+  = LPVar(String)
+  | LPWild
+  | LPCon(String, List)
+  | LPLit(LowValue)
+  | LPTuple(List)
+
+// ─── Core IR ────────────────────────────────────────────────
+
+type LowExpr
+  = LConst(LowValue)
+  | LLocal(Int)
+  | LGlobal(String)
+  | LStore(Int, LowExpr)
+  | LLet(String, LowExpr)
+  | LUpval(Int)
+  | LBinOp(String, LowExpr, LowExpr)
+  | LUnaryOp(String, LowExpr)
+  | LCall(LowExpr, List)
+  | LTailCall(LowExpr, List)
+  | LReturn(LowExpr)
+  | LMakeClosure(LowFn, List)
+  | LIf(LowExpr, List, List)
+  | LBlock(List)
+  | LMakeList(List)
+  | LMakeTuple(List)
+  | LMakeVariant(String, List)
+  | LIndex(LowExpr, LowExpr)
+  | LMatch(LowExpr, List)
+  | LLoop(List)
+  | LBreak(LowExpr)
+  | LSwitch(LowExpr, List)
+  | LSuspend(Int, LowExpr, List)
+  | LStateGet(Int)
+  | LStateSet(Int, LowExpr)
+
+type LowFn
+  = LFn(String, Int, List, List)
+
+type LowDef
+  = LFnDef(LowFn)
+  | LTypeDef(String, List)
+
+type StateMachine
+  = SM(Int, List, List)
+
+// ─── Handler Classification ─────────────────────────────────
+// Three tiers drive handler elimination in lower.lux:
+//   TailResumptive — direct call (no state, no pre-stmts)
+//   Linear         — direct call with state updates (or pre-stmts)
+//   MultiShot      — requires state machine (resume not at tail)
+//
+// Discovery: 100% of real handlers in the Lux stdlib are
+// TailResumptive or Linear — no state machines needed.
+
+type HandlerTier
+  = TailResumptive
+  | Linear
+  | MultiShot
+
+fn classify_handler(arm) = {
+  let (_, _, body_sexpr) = arm
+  if ends_with_resume(body_sexpr) {
+    let has_state = has_state_updates(body_sexpr)
+    let has_side_effects = has_pre_resume_stmts(body_sexpr)
+    if has_state || has_side_effects { Linear }
+    else { TailResumptive }
+  } else { MultiShot }
+}
+
+fn ends_with_resume(sexpr) = {
+  let S(expr, _, _) = sexpr
+  match expr {
+    ResumeExpr(_, _) => true,
+    BlockExpr(_, final_sexpr) => ends_with_resume(final_sexpr),
+    IfExpr(_, then_e, else_e) => ends_with_resume(then_e) && ends_with_resume(else_e),
+    _ => false
+  }
+}
+
+fn has_state_updates(sexpr) = {
+  let S(expr, _, _) = sexpr
+  match expr {
+    ResumeExpr(_, updates) => len(updates) > 0,
+    BlockExpr(_, final_sexpr) => has_state_updates(final_sexpr),
+    IfExpr(_, then_e, else_e) => has_state_updates(then_e) || has_state_updates(else_e),
+    _ => false
+  }
+}
+
+fn has_pre_resume_stmts(sexpr) = {
+  let S(expr, _, _) = sexpr
+  match expr {
+    ResumeExpr(_, _) => false,
+    BlockExpr(stmts, _) => len(stmts) > 0,
+    IfExpr(_, _, _) => true,
+    _ => true
+  }
+}
+
+fn classify_all_arms(arms) = {
+  if len(arms) == 0 { TailResumptive }
+  else {
+    let tier = classify_handler(arms[0])
+    match tier {
+      TailResumptive => classify_all_arms(slice(arms, 1, len(arms))),
+      MultiShot => MultiShot,
+      _ => {
+        let rest_tier = classify_all_arms(slice(arms, 1, len(arms)))
+        match rest_tier { MultiShot => MultiShot, _ => Linear }
+      }
+    }
+  }
+}

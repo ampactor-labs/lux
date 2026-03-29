@@ -1,0 +1,157 @@
+// Lux Checker Display — checker_display.lux
+//
+// Rendering functions that turn checker internals into human-readable text:
+//   - format_diagnostic: Elm-quality error output with source line + caret
+//   - repeat_char: helper for padding/underlining
+//   - show_reason / show_reason_list: render Why-Engine Reason trees
+//   - type_to_string: pretty-print Ty values with substitution applied
+//
+// Extracted from checker.lux. Imports checker_types for Ty, Reason, apply.
+
+import compiler/checker_types
+import compiler/checker_effects
+
+// ─── Diagnostic Formatting ──────────────────────────────────
+// Elm-quality error rendering: source line + caret underline.
+
+fn format_diagnostic(source, kind, msg, line, col) = {
+  let header = kind ++ ": " ++ msg
+  if line <= 0 || source == "" { header }
+  else {
+    let src_lines = split(source, "\n")
+    if line > len(src_lines) { header }
+    else {
+      let src_line = src_lines[line - 1]
+      let pad = repeat_char(" ", col - 1)
+      let ln = to_string(line)
+      header ++ "\n  --> line " ++ ln ++ ":" ++ to_string(col)
+             ++ "\n   |\n" ++ ln ++ "  | " ++ src_line
+             ++ "\n   | " ++ pad ++ "^"
+    }
+  }
+}
+
+fn repeat_char(ch, n) = if n <= 0 { "" } else { ch ++ repeat_char(ch, n - 1) }
+
+// ─── Reason Display ──────────────────────────────────────────
+// Render a reasoning chain at a given depth.
+// depth 0: just the conclusion
+// depth 1: conclusion + immediate cause
+// depth 2+: full chain with indentation
+
+fn show_reason(reason, depth) = match reason {
+  Literal(what) => what,
+
+  VarLookup(name, bind_reason) => {
+    let base = "variable '" ++ name ++ "' from scope"
+    if depth <= 0 { base }
+    else { base ++ "\n  ← " ++ show_reason(bind_reason, depth - 1) }
+  },
+
+  Declared(what) => what,
+
+  OpConstraint(what, left, right) => {
+    if depth <= 0 { what }
+    else {
+      what ++ "\n  ← left:  " ++ show_reason(left, depth - 1)
+           ++ "\n  ← right: " ++ show_reason(right, depth - 1)
+    }
+  },
+
+  Unified(r1, r2) => {
+    if depth <= 0 { "unified" }
+    else { "unified\n  ← " ++ show_reason(r1, depth - 1)
+                ++ "\n  ← " ++ show_reason(r2, depth - 1) }
+  },
+
+  FnReturn(name, body_reason) => {
+    let base = "return type of fn " ++ name
+    if depth <= 0 { base }
+    else { base ++ "\n  ← " ++ show_reason(body_reason, depth - 1) }
+  },
+
+  FnParam(fn_name, idx, source) => {
+    let base = "parameter of fn " ++ fn_name
+    if depth <= 0 { base }
+    else { base ++ "\n  ← " ++ show_reason(source, depth - 1) }
+  },
+
+  Applied(fn_reason, arg_reasons) => {
+    let base = "function application"
+    if depth <= 0 { base }
+    else {
+      let args_str = show_reason_list(arg_reasons, depth - 1)
+      base ++ "\n  ← fn: " ++ show_reason(fn_reason, depth - 1)
+           ++ "\n  ← args: " ++ args_str
+    }
+  },
+
+  CondBranch(then_r, else_r) => {
+    let base = "if/else branches"
+    if depth <= 0 { base }
+    else { base ++ "\n  ← then: " ++ show_reason(then_r, depth - 1)
+                ++ "\n  ← else: " ++ show_reason(else_r, depth - 1) }
+  },
+
+  ListElement(elem_r) => {
+    let base = "list element type"
+    if depth <= 0 { base }
+    else { base ++ "\n  ← " ++ show_reason(elem_r, depth - 1) }
+  },
+
+  PipeFlow(input_r, output_r) => {
+    let base = "pipe flow"
+    if depth <= 0 { base }
+    else { base ++ "\n  ← input: " ++ show_reason(input_r, depth - 1)
+                ++ "\n  ← |> "   ++ show_reason(output_r, depth - 1) }
+  },
+
+  Because(what, inner) => {
+    if depth <= 0 { what }
+    else { what ++ "\n  ← " ++ show_reason(inner, depth - 1) }
+  },
+
+  Inferred(what) => what,
+
+  Fresh(id) => "fresh type variable ?" ++ to_string(id),
+
+  _ => "unknown reason"
+}
+
+fn show_reason_list(reasons, depth) = {
+  if len(reasons) == 0 { "(none)" }
+  else { if len(reasons) == 1 { show_reason(reasons[0], depth) }
+  else { show_reason(reasons[0], depth) ++ ", " ++ show_reason_list(slice(reasons, 1, len(reasons)), depth) }}
+}
+
+// ─── Type Display ────────────────────────────────────────────
+
+fn type_to_string(subst, ty) = match apply(subst, ty) {
+  TInt => "Int",
+  TFloat => "Float",
+  TString => "String",
+  TBool => "Bool",
+  TUnit => "()",
+  TVar(id) => "?" ++ to_string(id),
+  TList(elem) => "List<" ++ type_to_string(subst, elem) ++ ">",
+  TFun(params, ret, effs) => {
+    let param_strs = map(|p| type_to_string(subst, p), params)
+    let eff_str = match effs {
+      EfPure => "",
+      EfClosed(es) => " with " ++ join(es, ", "),
+      EfOpen(es, _) => if len(es) == 0 { " with .." } else { " with " ++ join(es, ", ") ++ ", .." }
+    }
+    "(" ++ join(param_strs, ", ") ++ ") -> " ++ type_to_string(subst, ret) ++ eff_str
+  },
+  TTuple(elems) => {
+    let elem_strs = map(|e| type_to_string(subst, e), elems)
+    "(" ++ join(elem_strs, ", ") ++ ")"
+  },
+  TName(name, args) => {
+    if len(args) == 0 { name }
+    else {
+      let arg_strs = map(|a| type_to_string(subst, a), args)
+      name ++ "<" ++ join(arg_strs, ", ") ++ ">"
+    }
+  }
+}
