@@ -13,18 +13,20 @@ import compiler/lower_closure
 // LowerCtx effect is in lower_ir.lux (shared by lower.lux and lower_closure.lux)
 // is_global: true for top-level names — excludes them from closure captures
 
+// Type detection — the checker already inferred these types.
+// type_of_var queries the env where param + return types now live.
+// No hardcoded function name lists. The light flows through.
+
 fn is_string_typed(sexpr) = {
   let S(expr, _, _) = sexpr
   match expr {
     StringLit(_) => true,
     VarRef(name) => type_of_var(name) == "String",
     BinOp(op, _, _) => op == "Concat",
-    Index(coll, _) => is_string_typed(coll),
     Call(func, _) => {
       let S(f, _, _) = func
       match f {
-        VarRef(name) => name == "from_char_code" || name == "slice" || name == "to_string"
-                        || name == "trim" || name == "replace" || name == "join",
+        VarRef(name) => type_of_var(name ++ "__return") == "String",
         _ => false
       }
     },
@@ -42,8 +44,7 @@ fn is_int_typed(sexpr) = {
     Call(func, _) => {
       let S(f, _, _) = func
       match f {
-        VarRef(name) => name == "len" || name == "char_code" || name == "parse_int"
-          || name == "load_i32" || name == "load_i8" || name == "alloc",
+        VarRef(name) => type_of_var(name ++ "__return") == "Int",
         _ => false
       }
     },

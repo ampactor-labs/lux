@@ -187,6 +187,10 @@ fn is_builtin_reason(reason) = {
   let s = to_string(reason)
   let dq = from_char_code(34)
   s == "Declared(" ++ dq ++ "builtin" ++ dq ++ ")"
+  || starts_with(s, "Declared(" ++ dq ++ "param of ")
+  || starts_with(s, "Declared(" ++ dq ++ "return type of ")
+  || starts_with(s, "Declared(" ++ dq ++ "local of ")
+  || starts_with(s, "Declared(" ++ dq ++ "fn context")
 }
 
 // ─── Substitution ────────────────────────────────────────────

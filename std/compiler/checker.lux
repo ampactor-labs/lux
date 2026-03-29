@@ -426,8 +426,14 @@ fn check_block_stmts(env, subst, counter, stmts) = {
 fn check_stmt(env, subst, counter, stmt) = match stmt {
   LetStmt(name, value) => {
     let (ty, s1, c1, reason, eff) = infer_expr(env, subst, counter, value)
-    let new_env = env_extend(env, name, apply(s1, ty), Because("let " ++ name ++ " = ..", reason))
-    (new_env, s1, c1, eff)
+    let resolved = apply(s1, ty)
+    let new_env = env_extend(env, name, resolved, Because("let " ++ name ++ " = ..", reason))
+    // The inference flows: let-binding types visible to the lowering.
+    let fn_ctx = find_fn_ctx(env)
+    let env_typed = if len(fn_ctx) > 0 {
+      env_extend(new_env, fn_ctx ++ "__" ++ name, resolved, Declared("local of " ++ fn_ctx))
+    } else { new_env }
+    (env_typed, s1, c1, eff)
   },
 
   FnStmt(name, params, body, declared_effects) => {
@@ -436,7 +442,8 @@ fn check_stmt(env, subst, counter, stmt) = match stmt {
     let fn_env = bind_params_with_reasons(env, names, param_types, name)
     let (ret_tv, c2) = fresh_var(c1)
     let fn_type = TFun(param_types, ret_tv, EfPure)
-    let rec_env = env_extend(fn_env, name, fn_type, Declared("recursive binding"))
+    let ctx_env = env_extend(fn_env, "__fn_ctx:" ++ name, TUnit, Declared("fn context"))
+    let rec_env = env_extend(ctx_env, name, fn_type, Declared("recursive binding"))
     let (body_ty, s1, c3, body_reason, body_effs) = infer_expr(rec_env, subst, c2, body)
     let (_, s2, _, c4) = unify(s1, c3, ret_tv, body_ty, FnReturn(name, body_reason))
     // Phase 14: resolve effect variables before constraint checking.
@@ -447,10 +454,13 @@ fn check_stmt(env, subst, counter, stmt) = match stmt {
     // Phase 15: ownership enforcement — own/ref checking
     let own_violations = check_ownership(params, body)
     let _ = report_ownership_violations(source, name, own_violations)
-    let final_type = TFun(map(|p| apply(s2, p), param_types), apply(s2, body_ty), checked_effs)
+    let resolved_params = map(|p| apply(s2, p), param_types)
+    let resolved_ret = apply(s2, body_ty)
+    let final_type = TFun(resolved_params, resolved_ret, checked_effs)
     let fn_reason = Because("fn " ++ name ++ " declaration", FnReturn(name, body_reason))
-    let new_env = env_extend(env, name, final_type, fn_reason)
-    (new_env, s2, c4, EfPure)
+    let env_typed = env_extend(env, name, final_type, fn_reason)
+      |> add_fn_type_info(name, names, resolved_params, resolved_ret)
+    (env_typed, s2, c4, EfPure)
   },
 
   ExprStmt(expr) => {
@@ -512,6 +522,32 @@ fn check_stmt(env, subst, counter, stmt) = match stmt {
   },
 
   _ => (env, subst, counter, EfPure)
+}
+
+// The inference flows: param + return types in the env, prefixed by fn name.
+// The lowering reads these via type_of_var. No heuristics. No guessing.
+// The light passes through.
+fn find_fn_ctx(env) = {
+  if len(env) == 0 { "" }
+  else {
+    let (name, _, _) = env[0]
+    if starts_with(name, "__fn_ctx:") { string_slice(name, 9, len(name)) }
+    else { find_fn_ctx(slice(env, 1, len(env))) }
+  }
+}
+
+fn add_fn_type_info(env, fn_name, param_names, param_types, ret_type) = {
+  let env2 = add_param_type_entries(env, fn_name, param_names, param_types, 0)
+  env_extend(env2, fn_name ++ "__return", ret_type, Declared("return type of " ++ fn_name))
+}
+
+fn add_param_type_entries(env, fn_name, names, types, idx) = {
+  if idx >= len(names) || idx >= len(types) { env }
+  else {
+    let prefixed = fn_name ++ "__" ++ names[idx]
+    let env2 = env_extend(env, prefixed, types[idx], Declared("param of " ++ fn_name))
+    add_param_type_entries(env2, fn_name, names, types, idx + 1)
+  }
 }
 
 fn fresh_params(counter, params) = {
