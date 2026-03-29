@@ -260,6 +260,20 @@ fn print_newline() with Memory = {
   fd_write(1, 0, 1, 8)
 }
 
+// ─── Tuple Construction ─────────────────────────────────────
+// Allocate-then-fill. No $__vptr. No scratch memory. Just Lux.
+
+fn make_tuple(count) with Memory, Alloc = {
+  let t = alloc(4 + count * 4)
+  store_i32(t, count)
+  t
+}
+
+fn tuple_set(t, idx, val) with Memory = {
+  store_i32(t + 4 + idx * 4, val)
+  t
+}
+
 // ─── WASI I/O ───────────────────────────────────────────────
 // Lux reads its own source through WASI. No Rust in the loop.
 
