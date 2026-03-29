@@ -25,7 +25,7 @@ fn ctx_globals(ctx) with Pure = ctx[4]
 
 // ─── Module Structure ───────────────────────────────────────
 
-fn emit_module(defs, type_map) with Pure = {
+fn emit_module(defs, type_map) = {
   let fns = collect_fns(defs, 0)
   let top_stmts = collect_top_stmts(defs, 0)
   let top_globals = collect_top_let_names(top_stmts, 0)
@@ -36,7 +36,7 @@ fn emit_module(defs, type_map) with Pure = {
   let fn_table = collect_fn_names(fns, 0)
   let max_arity = max_fn_arity(fns, 0)
   let ctx = (string_map, type_map, tag_map, fn_table, top_globals)
-  "(module" ++ NL
+  let header = "(module" ++ NL
     ++ emit_wasi_imports()
     ++ "  (memory (export " ++ DQ ++ "memory" ++ DQ ++ ") 1024)" ++ NL
     ++ "  (global $heap_ptr (mut i32) (i32.const " ++ to_string(heap_start) ++ "))" ++ NL
@@ -44,10 +44,12 @@ fn emit_module(defs, type_map) with Pure = {
     ++ emit_fn_type_sigs(max_arity, 0)
     ++ emit_string_segments(string_map, 0)
     ++ emit_alloc()
-    ++ emit_fn_list(fns, 0, ctx)
-    ++ emit_fn_table(fn_table)
+  let footer = emit_fn_table(fn_table)
     ++ emit_start(top_stmts, ctx)
     ++ ")" ++ NL
+  header
+    ++ emit_fn_list(fns, 0, ctx)
+    ++ footer
 }
 
 fn collect_top_let_names(stmts, idx) with Pure = {

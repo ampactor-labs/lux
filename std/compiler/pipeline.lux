@@ -493,25 +493,10 @@ fn build_type_map_with_params(env, subst, ast) =
 // Produces prefixed entries: check__expected → String, is_digit__ch → String
 fn build_param_type_map(env, subst) = []
 
-fn build_param_types_from_ast(ast, env, subst) = {
-  if len(ast) == 0 { [] }
-  else {
-    let s = to_string(ast[0])
-    let rest = build_param_types_from_ast(slice(ast, 1, len(ast)), env, subst)
-    if starts_with(s, "FnStmt(") {
-      let fn_name = ast[0][0]
-      let params = ast[0][1]
-      let (_, fn_type, _) = env_lookup(env, fn_name)
-      let resolved = apply(subst, fn_type)
-      let param_names = extract_param_name_strings(params, 0)
-      let param_type_tags = match resolved {
-        TFun(ptypes, _, _) => extract_type_tags(ptypes, subst, 0),
-        _ => []
-      }
-      zip_name_type(fn_name, param_names, param_type_tags, 0) ++ rest
-    } else { rest }
-  }
-}
+// Disabled: AST walking is too expensive on the Rust VM.
+// val_eq handles polymorphic dispatch as fallback.
+// When Lux runs on Lux, proper typed AST replaces this.
+fn build_param_types_from_ast(ast, env, subst) = []
 
 fn extract_param_name_strings(params, idx) = {
   if idx >= len(params) { [] }
