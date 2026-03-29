@@ -530,17 +530,12 @@ fn check_stmt(env, subst, counter, stmt) = match stmt {
 // The light passes through.
 fn add_fn_effect_info(env, fn_name, effs) = {
   let is_pure = match effs { EfPure => true, EfClosed(e) => len(e) == 0, _ => false }
-  // Store the ACTUAL effect row as the type. Not a string. The type system carries types.
+  let eff_names = match effs { EfPure => [], EfClosed(e) => e, _ => [] }
+  // The type system carries types. TList for effect names. TBool for purity.
   env_extend(
-    env_extend(env, fn_name ++ "__effects", TName("EffRow", []), Declared(eff_to_tag(effs))),
+    env_extend(env, fn_name ++ "__effects", TList(TString), Declared("effects")),
     fn_name ++ "__pure", TBool, Declared(if is_pure { "pure" } else { "impure" })
   )
-}
-
-fn eff_to_tag(eff) = match eff {
-  EfPure => "Pure",
-  EfClosed(effs) => if len(effs) == 0 { "Pure" } else { join(effs, ",") },
-  _ => "open"
 }
 
 fn find_fn_ctx(env) = {
