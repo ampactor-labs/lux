@@ -405,20 +405,67 @@ fn show_env_why(env, subst, depth) = {
 }
 
 // Doc: "fn name: signature"
-fn show_env_doc(env, subst) = {
-  if len(env) == 0 { "" }
+fn show_env_doc(env, subst) = show_env_doc_iter(env, subst, len(env) - 1)
+
+fn show_env_doc_iter(env, subst, idx) = {
+  if idx < 0 { "" }
   else {
-    let (name, ty, _) = env[len(env) - 1]
-    let ty_str = type_to_string(subst, ty)
-    let prefix = match apply(subst, ty) {
-      TFun(_, _) => "fn ",
-      _ => "let "
+    let (name, ty, reason) = env[idx]
+    let rest = show_env_doc_iter(env, subst, idx - 1)
+    // Skip internal entries
+    if name == "__source__" || is_builtin_reason(reason) || starts_with(name, "__fn_ctx:") {
+      rest
+    } else {
+      let resolved = apply(subst, ty)
+      let doc = match resolved {
+        TFun(params, ret, eff) => {
+          // Function: show params with types from the env
+          let param_docs = show_param_docs(env, subst, name, params, 0)
+          let ret_str = type_to_string(subst, ret)
+          let eff_str = show_effect_doc(eff)
+          "fn " ++ name ++ "(" ++ param_docs ++ ") -> " ++ ret_str ++ eff_str
+        },
+        _ => "let " ++ name ++ ": " ++ type_to_string(subst, resolved)
+      }
+      if len(rest) > 0 { doc ++ "\n" ++ rest } else { doc }
     }
-    let line = prefix ++ name ++ ": " ++ ty_str
-    let rest = show_env_doc(slice(env, 0, len(env) - 1), subst)
-    if len(rest) > 0 { line ++ "\n" ++ rest }
-    else { line }
   }
+}
+
+fn show_param_docs(env, subst, fn_name, param_types, idx) = {
+  if idx >= len(param_types) { "" }
+  else {
+    // Look up param name from prefixed env entries
+    let param_name = find_param_name(env, fn_name, idx)
+    let ty_str = type_to_string(subst, param_types[idx])
+    let entry = param_name ++ ": " ++ ty_str
+    if idx + 1 >= len(param_types) { entry }
+    else { entry ++ ", " ++ show_param_docs(env, subst, fn_name, param_types, idx + 1) }
+  }
+}
+
+fn find_param_name(env, fn_name, idx) = {
+  // The env has fn_name__paramname entries. Find the idx-th one.
+  find_param_at(env, fn_name ++ "__", idx, 0, 0)
+}
+
+fn find_param_at(env, prefix, target_idx, current_idx, pos) = {
+  if pos >= len(env) { "arg" ++ to_string(target_idx) }
+  else {
+    let (name, _, reason) = env[pos]
+    let s = to_string(reason)
+    let dq = from_char_code(34)
+    if starts_with(name, prefix) && starts_with(s, "Declared(" ++ dq ++ "param of ") {
+      if current_idx == target_idx { string_slice(name, len(prefix), len(name)) }
+      else { find_param_at(env, prefix, target_idx, current_idx + 1, pos + 1) }
+    } else { find_param_at(env, prefix, target_idx, current_idx, pos + 1) }
+  }
+}
+
+fn show_effect_doc(eff) = match eff {
+  EfPure => " with Pure",
+  EfClosed(effects) => if len(effects) == 0 { " with Pure" } else { " with " ++ join(effects, ", ") },
+  _ => ""
 }
 
 // ─── Gradient Engine ─────────────────────────────────────────
