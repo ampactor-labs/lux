@@ -10,10 +10,10 @@
 
 import compiler/lexer
 import compiler/parser
-import compiler/checker_types
-import compiler/checker_effects
-import compiler/checker_suggest
-import compiler/checker_display
+import compiler/ty
+import compiler/eff
+import compiler/suggest
+import compiler/display
 import compiler/infer
 
 // ─── Unification ────────────────────────────────────────────

@@ -1,15 +1,13 @@
-// Lux Checker Display — checker_display.lux
+// Lux Display — display.lux
 //
-// Rendering functions that turn checker internals into human-readable text:
+// Rendering functions that turn type system internals into human-readable text:
 //   - format_diagnostic: Elm-quality error output with source line + caret
 //   - repeat_char: helper for padding/underlining
 //   - show_reason / show_reason_list: render Why-Engine Reason trees
 //   - type_to_string: pretty-print Ty values with substitution applied
-//
-// Extracted from checker.lux. Imports checker_types for Ty, Reason, apply.
 
-import compiler/checker_types
-import compiler/checker_effects
+import compiler/ty
+import compiler/eff
 
 // ─── Diagnostic Formatting ──────────────────────────────────
 // Elm-quality error rendering: source line + caret underline.

@@ -1,6 +1,6 @@
-// Lux Type Representations and Environment — checker_types.lux
+// Lux Type System — ty.lux
 //
-// Core type data structures for the self-hosted checker:
+// Core type data structures:
 //   - effect Diagnostic (all checker output flows through here)
 //   - type Ty (the type representation)
 //   - type Reason (why-engine reasoning chains)
@@ -8,11 +8,8 @@
 //   - Substitution (subst_empty, subst_get, apply, apply_reason, ...)
 //   - Instantiation (instantiate_type, instantiate_types)
 //   - Builtin helpers (env_with_primitives, is_builtin_reason, ...)
-//
-// Extracted from checker.lux so that checker_display and checker_why
-// can import types without creating circular dependencies.
 
-import compiler/checker_effects
+import compiler/eff
 
 // ─── Diagnostic Effect ──────────────────────────────────────
 // All checker output flows through this single effect.
@@ -195,9 +192,8 @@ fn is_builtin_reason(reason) = {
 // A substitution maps type variable IDs to (type, reason) pairs.
 // When we unify and bind a variable, we record WHY.
 //
-// Also lives here because apply/apply_reason are used by checker_display
-// (for type_to_string) and checker_why — both of which would otherwise
-// need a circular import back into checker.lux.
+// Also lives here because apply/apply_reason are used by display.lux
+// (for type_to_string) and why.lux — avoids circular imports.
 
 fn subst_empty() = []
 

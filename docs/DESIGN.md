@@ -151,6 +151,93 @@ handle computation() with count = 0, log = [] {
 
 ---
 
+## The Data Flow Operators
+
+Two operators. One data flow. Both read left to right.
+
+### `|>` — Convergence (Pipe)
+
+Data flows IN. Many values converge through a chain of transforms into one
+result. Each step receives the output of the previous step as its first
+argument.
+
+```lux
+source |> lex |> parse_program |> check_program
+// equivalent to: check_program(parse_program(lex(source)))
+```
+
+`a |> f(b)` IS `f(a, b)`. The pipe is application. Not a separate mechanism
+— a syntactic rewriting into Call. The type of a pipe is the return type of
+the call it desugars to. Five lines in the type rules.
+
+The pipe IS a signal chain:
+```lux
+input |> highpass(80.0) |> compress(4.0) |> limit(-0.1)
+```
+
+The pipe IS a computation graph:
+```lux
+audio |> mfcc(40, 160) |> conv1d(40, 32) |> relu |> dense(12) |> softmax
+```
+
+The pipe IS the compiler pipeline:
+```lux
+fn check(source) = source |> lex |> parse_program |> check_program
+```
+
+One operator. Every domain. Because it's just application.
+
+### `<|` — Divergence (Fan-out)
+
+Data flows OUT. One value diverges into multiple parallel computations.
+Each function in the fan-out receives the same input independently.
+
+```lux
+signal <| (analyze_spectrum, measure_rms, detect_peaks)
+// = (analyze_spectrum(signal), measure_rms(signal), detect_peaks(signal))
+```
+
+If `signal: T` and the right side is `(T -> A, T -> B, T -> C)`, the result
+is `(A, B, C)`. One input, parallel outputs.
+
+The compiler knows the functions are independent. If they're all `Pure`, it
+can parallelize. If they're all `!Alloc`, real-time safety holds across the
+fan-out. The effect algebra composes through divergence the same way it
+composes through convergence.
+
+### The Hourglass
+
+Together, `|>` and `<|` form the hourglass — the same shape as
+`handle { body } → handler → resume(result)`:
+
+```lux
+audio
+  |> preprocess                                      // converge
+  |> normalize                                       // converge
+  <| (fft, envelope, pitch_detect)                   // DIVERGE — fan-out
+  |> merge_features                                  // converge
+  |> classify                                        // converge
+```
+
+Converge, diverge, converge. Data flows left to right the entire time.
+`|>` funnels. `<|` radiates. Effects propagate through both — the type
+system sees the full picture.
+
+This is the same shape as effects: the `handle` block converges computation
+to the handler (pinch point), and `resume(result)` radiates the result back
+out. The hourglass is not a metaphor — it's the structural pattern that
+every Lux program follows.
+
+### Type Rules
+
+Both operators desugar to function application:
+- `a |> f(b)` → `f(a, b)` — Call with prepended argument
+- `a <| (f, g, h)` → `(f(a), g(a), h(a))` — Tuple of applications
+
+The type rules are pure. No special mechanism. Application IS the mechanism.
+
+---
+
 ## The Annotation Gradient
 
 Lux doesn't have discrete levels. Every annotation you add changes what

@@ -18,9 +18,9 @@
 
 import compiler/lexer
 import compiler/parser
-import compiler/checker
-import compiler/checker_effects
-// import compiler/infer  -- loaded when it replaces checker.lux
+import compiler/check
+import compiler/eff
+import compiler/infer
 import compiler/gradient
 import compiler/codegen
 import compiler/lower

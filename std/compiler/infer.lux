@@ -8,8 +8,8 @@
 
 import compiler/lexer
 import compiler/parser
-import compiler/checker_types
-import compiler/checker_effects
+import compiler/ty
+import compiler/eff
 
 // ─── The Inference Effect ───────────────────────────────────
 // One effect. All type state. The handler IS the algorithm.
@@ -96,6 +96,14 @@ fn infer(sexpr) with Infer, Diagnostic = {
       let S(right_expr, rl, rc) = right
       match right_expr {
         Call(func, args) => infer(S(Call(func, [left] ++ args), rl, rc)),
+        _ => infer(S(Call(right, [left]), rl, rc))
+      }
+    },
+
+    FanOutExpr(left, right) => {
+      let S(right_expr, rl, rc) = right
+      match right_expr {
+        TupleExpr(fns) => TTuple(fan_out(fns, left, rl, rc)),
         _ => infer(S(Call(right, [left]), rl, rc))
       }
     },
@@ -199,6 +207,14 @@ fn infer_unify_list(elems, expected) with Infer, Diagnostic = {
     unify(infer(elems[0]), expected)
     infer_unify_list(slice(elems, 1, len(elems)), expected)
   } else { () }
+}
+
+fn fan_out(fns, input, rl, rc) with Infer, Diagnostic = {
+  if len(fns) == 0 { [] }
+  else {
+    let result = infer(S(Call(fns[0], [input]), rl, rc))
+    [result] ++ fan_out(slice(fns, 1, len(fns)), input, rl, rc)
+  }
 }
 
 fn bind_names(names, types) with Infer = {

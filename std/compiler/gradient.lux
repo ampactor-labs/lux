@@ -16,8 +16,8 @@
 
 import compiler/lexer
 import compiler/parser
-import compiler/checker
-import compiler/checker_effects
+import compiler/check
+import compiler/eff
 
 // ─── Dimensions ──────────────────────────────────────────────
 // Which axis of the gradient this suggestion occupies.
