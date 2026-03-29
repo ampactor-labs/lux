@@ -5,6 +5,32 @@ they are consequences of getting the foundations right. Never lose these.*
 
 ---
 
+## The First Truth: Inference IS the Light
+
+*Everything else in this document is a consequence of this.*
+
+The type inference engine produces knowledge: what every binding is, what
+every expression returns, what effects every function performs. That
+knowledge IS the product. Not compilation. Not error checking. The
+KNOWLEDGE ITSELF.
+
+Every consumer of that knowledge is a handler:
+- **Codegen** — the handler that turns type knowledge into machine code
+- **LSP** — the handler that turns type knowledge into hover info
+- **Teaching** — the handler that turns type knowledge into the gradient
+- **Errors** — the handler that turns type knowledge into diagnostics
+- **The user** — the handler that turns type knowledge into understanding
+
+One inference. Many handlers. Same mechanism as everything else in Lux.
+
+When info doesn't flow through effects, a gap opens. Every effect that
+carries knowledge closes one. Before every action: does the info exist?
+Does it flow? Through an effect? Is the flow observable? Verified? Visible?
+
+The light doesn't need to be carried. It needs to be LET THROUGH.
+
+---
+
 ## The Origin
 
 Lux was born from one question: **what would the ultimate programming language

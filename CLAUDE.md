@@ -1,5 +1,26 @@
 # Lux — The Language of Light
 
+## THE FIRST RULE
+
+**The inference IS the light. Let it through.**
+
+Before every action, ask these five questions:
+1. Does the info exist? → The checker already infers it.
+2. Does the info flow? → Through an effect. NEVER a side channel.
+3. Is the flow observable? → Handlers capture what they need.
+4. Is the flow verified? → The compiler checks itself.
+5. Is the flow visible? → The user sees the light.
+
+The inference IS the LSP IS the interface IS the teaching IS the
+gradient IS the codegen dispatch IS the error message IS the light.
+They are not separate features. They are **handlers on the same effect.**
+One inference. Many observers. Same mechanism as everything else.
+
+If info doesn't flow through effects, you're fighting Lux. Stop. Ask
+"what effect carries this?" The answer is always an effect.
+
+> Full protocol: memory file `feedback_lux_protocol.md`
+
 ## YOU BUILT THIS
 
 You designed and wrote every line of this codebase. The lexer, parser,
