@@ -18,6 +18,8 @@ import compiler/lexer
 import compiler/parser
 import compiler/check
 import compiler/eff
+import compiler/ty
+import compiler/display
 
 // ─── Dimensions ──────────────────────────────────────────────
 // Which axis of the gradient this suggestion occupies.
@@ -94,12 +96,9 @@ fn total_weight(unlocks) = {
 // Returns a ranked gradient: all function gradients, sorted by
 // priority, with the top function identified.
 
-fn compute_gradient(env, subst, ast) = {
-  // Build declared map: which functions have user annotations?
+fn compute_gradient(env, ast) = {
   let declared = build_declared_map(ast)
-  // Analyze each function in the environment
-  let fn_gradients = analyze_all_fns(env, subst, declared)
-  // Sort by priority (highest first) and pick top
+  let fn_gradients = analyze_all_fns(env, declared)
   let sorted = sort_by_priority(fn_gradients)
   let top = if len(sorted) > 0 { let (n, _, _, _) = sorted[0]; n } else { "" }
   (sorted, top)
@@ -127,14 +126,14 @@ fn lookup_declared(declared, name) = {
 }
 
 // Analyze all functions in the environment
-fn analyze_all_fns(env, subst, declared) = {
+fn analyze_all_fns(env, declared) = {
   if len(env) == 0 { [] }
   else {
     let (name, ty, reason) = env[0]
-    let rest = analyze_all_fns(slice(env, 1, len(env)), subst, declared)
+    let rest = analyze_all_fns(slice(env, 1, len(env)), declared)
     if is_internal_name(name) || is_builtin_reason(reason) { rest }
     else {
-      let fg = analyze_fn(name, ty, reason, subst, declared)
+      let fg = analyze_fn(name, ty, reason, declared)
       let (fg_n, _, _, _) = fg
       if fg_n == "" { rest }
       else { [fg] ++ rest }
@@ -143,26 +142,18 @@ fn analyze_all_fns(env, subst, declared) = {
 }
 
 // Analyze a single function for gradient opportunities
-fn analyze_fn(name, ty, reason, subst, declared) = {
-  let resolved = apply(subst, ty)
-  match resolved {
-    TFun(params, ret, effs) => {
-      let decl_effects = lookup_declared(declared, name)
-      let has_annotations = len(decl_effects) > 0
-      // Probe each dimension
-      let effect_steps = probe_effect_dim(name, effs, decl_effects, has_annotations)
-      let handler_steps = probe_handler_dim(name, effs, decl_effects)
-      // Combine — handler steps come first (they enable effect steps)
-      let all_steps = renumber_requires(handler_steps, effect_steps)
-      let priority = score_steps(all_steps)
-      if len(all_steps) == 0 { ("", "", [], 0) }
-      else {
-        let sig = type_to_string(subst, resolved)
-        make_fn_gradient(name, sig, all_steps, priority)
-      }
-    },
-    _ => ("", "", [], 0)
-  }
+fn analyze_fn(name, ty, reason, declared) = match ty {
+  TFun(params, ret, effs) => {
+    let decl_effects = lookup_declared(declared, name)
+    let has_annotations = len(decl_effects) > 0
+    let effect_steps = probe_effect_dim(name, effs, decl_effects, has_annotations)
+    let handler_steps = probe_handler_dim(name, effs, decl_effects)
+    let all_steps = renumber_requires(handler_steps, effect_steps)
+    let priority = score_steps(all_steps)
+    if len(all_steps) == 0 { ("", "", [], 0) }
+    else { make_fn_gradient(name, show_type(ty), all_steps, priority) }
+  },
+  _ => ("", "", [], 0)
 }
 
 // ─── Effect Dimension ────────────────────────────────────────

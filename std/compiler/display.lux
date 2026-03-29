@@ -1,16 +1,58 @@
 // Lux Display — display.lux
 //
-// Rendering functions that turn type system internals into human-readable text:
-//   - format_diagnostic: Elm-quality error output with source line + caret
-//   - repeat_char: helper for padding/underlining
-//   - show_reason / show_reason_list: render Why-Engine Reason trees
-//   - type_to_string: pretty-print Ty values with substitution applied
+// Rendering: types, environments, diagnostics, reasons → human-readable text.
+//
+// show_type(ty): the resolved-env interface. Types are grounded.
+// type_to_string(subst, ty): the raw interface. Used by check.lux (frozen).
 
 import compiler/ty
 import compiler/eff
 
+// ─── Type Display ────────────────────────────────────────────
+
+// Resolved types. No substitution needed.
+fn show_type(ty) = type_to_string([], ty)
+
+// Raw interface — applies substitution first. Used by check.lux (frozen).
+fn type_to_string(subst, ty) = match apply(subst, ty) {
+  TInt => "Int",
+  TFloat => "Float",
+  TString => "String",
+  TBool => "Bool",
+  TUnit => "()",
+  TVar(id) => "?" ++ to_string(id),
+  TList(elem) => "List<" ++ type_to_string(subst, elem) ++ ">",
+  TFun(params, ret, effs) => {
+    let param_strs = map(|p| type_to_string(subst, p), params)
+    let eff_str = show_eff(effs)
+    "(" ++ join(param_strs, ", ") ++ ") -> " ++ type_to_string(subst, ret) ++ eff_str
+  },
+  TTuple(elems) => {
+    let elem_strs = map(|e| type_to_string(subst, e), elems)
+    "(" ++ join(elem_strs, ", ") ++ ")"
+  },
+  TName(name, args) => {
+    if len(args) == 0 { name }
+    else {
+      let arg_strs = map(|a| type_to_string(subst, a), args)
+      name ++ "<" ++ join(arg_strs, ", ") ++ ">"
+    }
+  }
+}
+
+fn show_eff(eff) = match eff {
+  EfPure => "",
+  EfClosed(es) => if len(es) == 0 { "" } else { " with " ++ join(es, ", ") },
+  EfOpen(es, _) => if len(es) == 0 { " with .." } else { " with " ++ join(es, ", ") ++ ", .." }
+}
+
+fn show_eff_doc(eff) = match eff {
+  EfPure => " with Pure",
+  EfClosed(es) => if len(es) == 0 { " with Pure" } else { " with " ++ join(es, ", ") },
+  _ => ""
+}
+
 // ─── Diagnostic Formatting ──────────────────────────────────
-// Elm-quality error rendering: source line + caret underline.
 
 fn format_diagnostic(source, kind, msg, line, col) = {
   let header = kind ++ ": " ++ msg
@@ -32,87 +74,64 @@ fn format_diagnostic(source, kind, msg, line, col) = {
 fn repeat_char(ch, n) = if n <= 0 { "" } else { ch ++ repeat_char(ch, n - 1) }
 
 // ─── Reason Display ──────────────────────────────────────────
-// Render a reasoning chain at a given depth.
-// depth 0: just the conclusion
-// depth 1: conclusion + immediate cause
-// depth 2+: full chain with indentation
 
 fn show_reason(reason, depth) = match reason {
   Literal(what) => what,
-
   VarLookup(name, bind_reason) => {
     let base = "variable '" ++ name ++ "' from scope"
     if depth <= 0 { base }
-    else { base ++ "\n  ← " ++ show_reason(bind_reason, depth - 1) }
+    else { base ++ "\n  <- " ++ show_reason(bind_reason, depth - 1) }
   },
-
   Declared(what) => what,
-
   OpConstraint(what, left, right) => {
     if depth <= 0 { what }
-    else {
-      what ++ "\n  ← left:  " ++ show_reason(left, depth - 1)
-           ++ "\n  ← right: " ++ show_reason(right, depth - 1)
-    }
+    else { what ++ "\n  <- left:  " ++ show_reason(left, depth - 1)
+               ++ "\n  <- right: " ++ show_reason(right, depth - 1) }
   },
-
   Unified(r1, r2) => {
     if depth <= 0 { "unified" }
-    else { "unified\n  ← " ++ show_reason(r1, depth - 1)
-                ++ "\n  ← " ++ show_reason(r2, depth - 1) }
+    else { "unified\n  <- " ++ show_reason(r1, depth - 1)
+                ++ "\n  <- " ++ show_reason(r2, depth - 1) }
   },
-
   FnReturn(name, body_reason) => {
     let base = "return type of fn " ++ name
     if depth <= 0 { base }
-    else { base ++ "\n  ← " ++ show_reason(body_reason, depth - 1) }
+    else { base ++ "\n  <- " ++ show_reason(body_reason, depth - 1) }
   },
-
   FnParam(fn_name, idx, source) => {
     let base = "parameter of fn " ++ fn_name
     if depth <= 0 { base }
-    else { base ++ "\n  ← " ++ show_reason(source, depth - 1) }
+    else { base ++ "\n  <- " ++ show_reason(source, depth - 1) }
   },
-
   Applied(fn_reason, arg_reasons) => {
     let base = "function application"
     if depth <= 0 { base }
-    else {
-      let args_str = show_reason_list(arg_reasons, depth - 1)
-      base ++ "\n  ← fn: " ++ show_reason(fn_reason, depth - 1)
-           ++ "\n  ← args: " ++ args_str
-    }
+    else { base ++ "\n  <- fn: " ++ show_reason(fn_reason, depth - 1)
+               ++ "\n  <- args: " ++ show_reason_list(arg_reasons, depth - 1) }
   },
-
   CondBranch(then_r, else_r) => {
     let base = "if/else branches"
     if depth <= 0 { base }
-    else { base ++ "\n  ← then: " ++ show_reason(then_r, depth - 1)
-                ++ "\n  ← else: " ++ show_reason(else_r, depth - 1) }
+    else { base ++ "\n  <- then: " ++ show_reason(then_r, depth - 1)
+                ++ "\n  <- else: " ++ show_reason(else_r, depth - 1) }
   },
-
   ListElement(elem_r) => {
     let base = "list element type"
     if depth <= 0 { base }
-    else { base ++ "\n  ← " ++ show_reason(elem_r, depth - 1) }
+    else { base ++ "\n  <- " ++ show_reason(elem_r, depth - 1) }
   },
-
   PipeFlow(input_r, output_r) => {
     let base = "pipe flow"
     if depth <= 0 { base }
-    else { base ++ "\n  ← input: " ++ show_reason(input_r, depth - 1)
-                ++ "\n  ← |> "   ++ show_reason(output_r, depth - 1) }
+    else { base ++ "\n  <- input: " ++ show_reason(input_r, depth - 1)
+                ++ "\n  <- |> "   ++ show_reason(output_r, depth - 1) }
   },
-
   Because(what, inner) => {
     if depth <= 0 { what }
-    else { what ++ "\n  ← " ++ show_reason(inner, depth - 1) }
+    else { what ++ "\n  <- " ++ show_reason(inner, depth - 1) }
   },
-
   Inferred(what) => what,
-
   Fresh(id) => "fresh type variable ?" ++ to_string(id),
-
   _ => "unknown reason"
 }
 
@@ -122,34 +141,52 @@ fn show_reason_list(reasons, depth) = {
   else { show_reason(reasons[0], depth) ++ ", " ++ show_reason_list(slice(reasons, 1, len(reasons)), depth) }}
 }
 
-// ─── Type Display ────────────────────────────────────────────
+// ─── Environment Display ────────────────────────────────────
+// Env is fully resolved. show_type for each binding.
 
-fn type_to_string(subst, ty) = match apply(subst, ty) {
-  TInt => "Int",
-  TFloat => "Float",
-  TString => "String",
-  TBool => "Bool",
-  TUnit => "()",
-  TVar(id) => "?" ++ to_string(id),
-  TList(elem) => "List<" ++ type_to_string(subst, elem) ++ ">",
-  TFun(params, ret, effs) => {
-    let param_strs = map(|p| type_to_string(subst, p), params)
-    let eff_str = match effs {
-      EfPure => "",
-      EfClosed(es) => " with " ++ join(es, ", "),
-      EfOpen(es, _) => if len(es) == 0 { " with .." } else { " with " ++ join(es, ", ") ++ ", .." }
-    }
-    "(" ++ join(param_strs, ", ") ++ ") -> " ++ type_to_string(subst, ret) ++ eff_str
-  },
-  TTuple(elems) => {
-    let elem_strs = map(|e| type_to_string(subst, e), elems)
-    "(" ++ join(elem_strs, ", ") ++ ")"
-  },
-  TName(name, args) => {
-    if len(args) == 0 { name }
+fn show_env_compact(env) = {
+  if len(env) == 0 { "" }
+  else {
+    let (name, ty, reason) = env[len(env) - 1]
+    let rest = show_env_compact(slice(env, 0, len(env) - 1))
+    if is_internal_name(name) || is_builtin_reason(reason) { rest }
     else {
-      let arg_strs = map(|a| type_to_string(subst, a), args)
-      name ++ "<" ++ join(arg_strs, ", ") ++ ">"
+      let line = "  " ++ name ++ ": " ++ show_type(ty)
+      if len(rest) > 0 { line ++ "\n" ++ rest } else { line }
+    }
+  }
+}
+
+fn show_env_why(env, depth) = {
+  if len(env) == 0 { "" }
+  else {
+    let (name, ty, reason) = env[len(env) - 1]
+    let rest = show_env_why(slice(env, 0, len(env) - 1), depth)
+    if is_internal_name(name) || is_builtin_reason(reason) { rest }
+    else {
+      let line = "  " ++ name ++ ": " ++ show_type(ty) ++ "\n    WHY: " ++ show_reason(reason, depth)
+      if len(rest) > 0 { line ++ "\n" ++ rest } else { line }
+    }
+  }
+}
+
+fn show_env_doc(env) = show_env_doc_iter(env, len(env) - 1)
+
+fn show_env_doc_iter(env, idx) = {
+  if idx < 0 { "" }
+  else {
+    let (name, ty, reason) = env[idx]
+    let rest = show_env_doc_iter(env, idx - 1)
+    if is_internal_name(name) || is_builtin_reason(reason) || starts_with(name, "__fn_ctx:") { rest }
+    else {
+      let doc = match ty {
+        TFun(params, ret, eff) => {
+          let param_strs = map(show_type, params)
+          "fn " ++ name ++ "(" ++ join(param_strs, ", ") ++ ") -> " ++ show_type(ret) ++ show_eff_doc(eff)
+        },
+        _ => "let " ++ name ++ ": " ++ show_type(ty)
+      }
+      if len(rest) > 0 { doc ++ "\n" ++ rest } else { doc }
     }
   }
 }

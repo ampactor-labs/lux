@@ -1,217 +1,237 @@
-// Lux Compiler Pipeline — the unified effect graph
+// Lux Compiler Pipeline — pipes, not handlers
 //
-// The meta-unification: every compiler tool is a handler on
-// the same pipeline. The pipeline performs four effects:
-//   tokenize → parse → infer → generate
+// Each command is a pipe from frozen truth to output.
+// |> converges. <| diverges. No Compiler effect. No handler
+// orchestration. Just functions connected by |>.
 //
-// Handlers decide what to DO with each stage:
-//   compile_standard:  just compile and execute
-//   compile_teaching:  infer + show ONE gradient suggestion
-//   compile_explaining: infer + dump Why Engine reasoning
-//   compile_documenting: infer + extract typed signatures
-//   compile_checking:   infer only, no codegen
-//   compile_lowering:   infer + lower to LowIR + print
-//   compile_wasm:       infer + lower to LowIR + emit WAT
-//   compile_tracing:    capture all intermediate representations
-//
-// This proves: compiler = teacher = docs = debugger = backend = same pipeline.
+// check_program returns a fully-resolved env. Types are grounded.
+// No dangling variables. Every function below reads that truth.
 
 import compiler/lexer
 import compiler/parser
 import compiler/check
 import compiler/eff
 import compiler/infer
+import compiler/ty
+import compiler/display
+import compiler/suggest
+import compiler/own
+import compiler/solver
+import compiler/why
 import compiler/gradient
 import compiler/codegen
 import compiler/lower
 import compiler/lower_print
 import backend/wasm_emit
 
-// ─── The Compiler Effect ─────────────────────────────────────
+// ─── Validate ───────────────────────────────────────────────
+// Fan-out from (ast, env). Independent analyses on the same truth.
 
-effect Compiler {
-  tokenize(source: String) -> List
-  parse_source(tokens: List) -> List
-  infer(ast: List) -> Tuple
-  generate(checked: Tuple, ast: List) -> Tuple
+fn validate(ast, env) = {
+  validate_ownership_fns(ast)
+  validate_exhaustive_matches(ast, env)
+  validate_refinements(ast)
 }
 
-// ─── The Pipeline ────────────────────────────────────────────
-// Universal shape. Performs effects, doesn't implement them.
-// TODO: Make this a |> chain once effect ops work through piped helpers.
-
-fn compile_pipeline(source) = {
-  let tokens = tokenize(source)
-  let ast = parse_source(tokens)
-  let type_info = infer(ast)
-  generate(type_info, ast)
-}
-
-// ─── Handler: Standard ───────────────────────────────────────
-// Default. Infer types silently, then compile.
-
-fn compile_standard(source) =
-  handle {
-    compile_pipeline(source)
-  } {
-    tokenize(src) => resume(lex(src)),
-    parse_source(tokens) => resume(parse_program(tokens)),
-    infer(ast) => resume(check_program(ast)),
-    generate(checked, ast) => resume(compile_program(ast))
+fn validate_ownership_fns(ast) = {
+  if len(ast) == 0 { () }
+  else {
+    let s = to_string(ast[0])
+    if starts_with(s, "FnStmt(") {
+      let name = ast[0][0]
+      let params = ast[0][1]
+      let body = ast[0][2]
+      let violations = check_ownership(params, body)
+      report_ownership(name, violations)
+    } else { () }
+    validate_ownership_fns(slice(ast, 1, len(ast)))
   }
-
-// Convenience wrappers (moved from codegen — they need the checker)
-fn compile(source) = {
-  let stmts = parse(source)
-  let (_env, _subst, _counter) = check_program(stmts)
-  compile_program(stmts)
 }
+
+fn report_ownership(fn_name, violations) = {
+  if len(violations) == 0 { () }
+  else {
+    match violations[0] {
+      ConsumedTwice(name, first, second) =>
+        println("ownership error: '" ++ name ++ "' is own in '" ++ fn_name ++ "' but used more than once"),
+      RefEscaped(name, line) =>
+        println("ownership error: '" ++ name ++ "' is ref in '" ++ fn_name ++ "' but escapes via return"),
+      OwnNeverConsumed(name) =>
+        println("  -> own '" ++ name ++ "' in '" ++ fn_name ++ "' is never used (will be dropped)"),
+      _ => ()
+    }
+    report_ownership(fn_name, slice(violations, 1, len(violations)))
+  }
+}
+
+fn validate_exhaustive_matches(ast, env) = {
+  if len(ast) == 0 { () }
+  else {
+    walk_for_matches(ast[0], env)
+    validate_exhaustive_matches(slice(ast, 1, len(ast)), env)
+  }
+}
+
+fn walk_for_matches(sexpr, env) = {
+  let s = to_string(sexpr)
+  if starts_with(s, "FnStmt(") {
+    walk_for_matches(sexpr[2], env)
+  } else { () }
+}
+
+fn validate_refinements(ast) = validate_refinements_loop(ast, [])
+
+fn validate_refinements_loop(ast, aliases) = {
+  if len(ast) == 0 { () }
+  else {
+    let s = to_string(ast[0])
+    let new_aliases = if starts_with(s, "TypeAliasStmt(") {
+      let name = ast[0][0]
+      let base = ast[0][1]
+      let pred = ast[0][2]
+      aliases ++ [(name, base, pred)]
+    } else { aliases }
+    let _ = if starts_with(s, "LetStmt(") && len(new_aliases) > 0 {
+      let name = ast[0][0]
+      let value = ast[0][1]
+      check_let_against_aliases(name, value, new_aliases)
+    } else { () }
+    validate_refinements_loop(slice(ast, 1, len(ast)), new_aliases)
+  }
+}
+
+fn check_let_against_aliases(name, value, aliases) = {
+  if len(aliases) == 0 { () }
+  else {
+    let (alias_name, base_type, predicate) = aliases[0]
+    let result = check_refinement(predicate, value)
+    let _ = match result {
+      Disproven(reason) =>
+        println("[refinement] " ++ alias_name ++ " violation: " ++ name ++ " -- " ++ reason),
+      Proven =>
+        println("[refinement] " ++ alias_name ++ " satisfied: " ++ name),
+      _ => ()
+    }
+    check_let_against_aliases(name, value, slice(aliases, 1, len(aliases)))
+  }
+}
+
+// ─── The Pipes ──────────────────────────────────────────────
+// Each mode: parse |> check |> validate |> output.
+
+fn compile_standard(source) = {
+  let ast = source |> lex |> parse_program
+  let env = check_program(ast)
+  validate(ast, env)
+  compile_program(ast)
+}
+
+fn compile(source) = compile_standard(source)
 
 fn compile_checked(source) = {
-  let stmts = parse(source)
-  let check_result = check_program(stmts)
-  let chunk = compile_program(stmts)
-  (chunk, check_result)
+  let ast = source |> lex |> parse_program
+  let env = check_program(ast)
+  validate(ast, env)
+  (compile_program(ast), env)
 }
 
-// ─── Handler: Teaching ───────────────────────────────────────
-// Infer types, show what the compiler learned, suggest ONE
-// annotation that would unlock the most power.
+fn compile_teaching(source) = {
+  let ast = source |> lex |> parse_program
+  let env = check_program(ast)
+  validate(ast, env)
+  println("[teach] types inferred:")
+  println(show_env_compact(env))
+  let suggestion = gradient_suggestion(env, ast)
+  if len(suggestion) > 0 { println("[teach] " ++ suggestion) } else { () }
+  compile_program(ast)
+}
 
-fn compile_teaching(source) =
-  handle {
-    compile_pipeline(source)
-  } with log = [] {
-    tokenize(src) => {
-      let tokens = lex(src)
-      resume(tokens) with log = push(log, ("tokenize", len(tokens)))
-    },
-    parse_source(tokens) => {
-      let ast = parse_program(tokens)
-      resume(ast) with log = push(log, ("parse", len(ast)))
-    },
-    infer(ast) => {
-      let result = check_program(ast)
-      let (env, subst, _) = result
-      // Show what the compiler knows
-      println("[teach] types inferred:")
-      println(show_env_compact(env, subst))
-      // Show gradient suggestion
-      let suggestion = gradient_suggestion(env, subst, ast)
-      if len(suggestion) > 0 {
-        println("[teach] 💡 " ++ suggestion)
-      }
-      resume(result) with log = push(log, ("infer", len(env)))
-    },
-    generate(checked, ast) => {
-      let chunk = compile_program(ast)
-      resume(chunk) with log = push(log, ("codegen", 1))
-    }
-  }
+fn compile_explaining(source) = {
+  let ast = source |> lex |> parse_program
+  let env = check_program(ast)
+  validate(ast, env)
+  println("── Why Engine ──")
+  println(show_env_why(env, 2))
+  compile_program(ast)
+}
 
-// ─── Handler: Why Engine ─────────────────────────────────────
-// Infer types, dump full reasoning chain for every binding.
-// The compiler makes its reasoning transparent.
+fn compile_documenting(source) = {
+  let ast = source |> lex |> parse_program
+  let env = check_program(ast)
+  validate(ast, env)
+  println("── Documentation ──")
+  println(show_env_doc(env))
+  compile_program(ast)
+}
 
-fn compile_explaining(source) =
-  handle {
-    compile_pipeline(source)
-  } {
-    tokenize(src) => resume(lex(src)),
-    parse_source(tokens) => resume(parse_program(tokens)),
-    infer(ast) => {
-      let result = check_program(ast)
-      let (env, subst, _) = result
-      println("── Why Engine ──")
-      println(show_env_why(env, subst, 2))
-      resume(result)
-    },
-    generate(checked, ast) => resume(compile_program(ast))
-  }
+fn compile_checking(source) = {
+  let ast = source |> lex |> parse_program
+  let env = check_program(ast)
+  validate(ast, env)
+  println("✓ type check passed")
+  println(show_env_compact(env))
+  ("skip", [], [], 0)
+}
 
-// ─── Handler: Documentation ─────────────────────────────────
-// Infer types, extract typed signatures. No codegen.
-// The type environment IS the documentation.
+fn compile_lowering(source) = {
+  let ast = source |> lex |> parse_program
+  let env = check_program(ast)
+  validate(ast, env)
+  let type_map = build_type_map(env)
+  let ctors = extract_constructors(env)
+  let lowered = lower_program_typed(ast, ctors, type_map)
+  println("── LowIR ──")
+  println(print_lowered(lowered))
+  ("skip", [], [], 0)
+}
 
-fn compile_documenting(source) =
-  handle {
-    compile_pipeline(source)
-  } {
-    tokenize(src) => resume(lex(src)),
-    parse_source(tokens) => resume(parse_program(tokens)),
-    infer(ast) => {
-      let result = check_program(ast)
-      let (env, subst, _) = result
-      println("── Documentation ──")
-      println(show_env_doc(env, subst))
-      resume(result)
-    },
-    generate(checked, ast) => {
-      // Doc mode: still compile (may want to run examples)
-      resume(compile_program(ast))
-    }
-  }
+fn compile_tracing(source) = {
+  let tokens = lex(source)
+  println("[trace] tokens: " ++ to_string(tokens))
+  let ast = parse_program(tokens)
+  println("[trace] ast: " ++ to_string(ast))
+  let env = check_program(ast)
+  validate(ast, env)
+  println("[trace] types: " ++ show_env_compact(env))
+  let chunk = compile_program(ast)
+  println("[trace] chunk: " ++ to_string(chunk))
+  chunk
+}
 
-// ─── Handler: Check Only ────────────────────────────────────
-// Infer types, report, STOP. No codegen, no execution.
+fn compile_illuminate(source) = {
+  let ast = source |> lex |> parse_program
+  let env = check_program(ast)
+  validate(ast, env)
+  let g = compute_gradient(env, ast)
+  let rendered = render_gradient(g)
+  if len(rendered) > 0 { println(rendered) } else { () }
+  compile_program(ast)
+}
 
-fn compile_checking(source) =
-  handle {
-    compile_pipeline(source)
-  } {
-    tokenize(src) => resume(lex(src)),
-    parse_source(tokens) => resume(parse_program(tokens)),
-    infer(ast) => {
-      let result = check_program(ast)
-      let (env, subst, _) = result
-      println("✓ type check passed")
-      println(show_env_compact(env, subst))
-      resume(result)
-    },
-    generate(checked, ast) => {
-      // Check mode: skip codegen entirely
-      resume(("skip", [], [], 0))
-    }
-  }
+// ─── WASM Pipes ─────────────────────────────────────────────
 
-// ─── Handler: LowIR ─────────────────────────────────────────
-// Parse, type-check, then lower to LowIR and print.
-// Backend work in generate — where it belongs.
-
-fn compile_lowering(source) =
-  handle {
-    compile_pipeline(source)
-  } {
-    tokenize(src) => resume(lex(src)),
-    parse_source(tokens) => resume(parse_program(tokens)),
-    infer(ast) => resume(check_program(ast)),
-    generate(checked, ast) => {
-      let (env, subst, _) = checked
-      let type_map = build_type_map(env, subst)
-      let ctors = extract_constructors(env)
-      let lowered = lower_program_typed(ast, ctors, type_map)
-      println("── LowIR ──")
-      println(print_lowered(lowered))
-      resume(("skip", [], [], 0))
-    }
-  }
-
-// ─── Handler: WASM ──────────────────────────────────────────
-// Parse, type-check, lower to LowIR, emit WAT.
-// Type info flows from infer → generate through the pipeline.
-
-// Fast WASM: skip checker entirely. No type info. val_eq handles dispatch.
-// Used for compiling the compiler itself — the checker can't handle 3000 lines.
 fn compile_wasm_fast(source) = {
   let runtime = read_file("std/runtime/memory.lux")
   let prelude = read_file("std/prelude.lux")
   let imports = resolve_imports(source, [])
   let full_source = runtime ++ "\n" ++ prelude ++ "\n" ++ imports ++ "\n" ++ strip_imports(source)
-  let tokens = lex(full_source)
-  let ast = parse_program(tokens)
+  let ast = full_source |> lex |> parse_program
   let ctors = collect_ctors_from_ast(ast, 0)
   let lowered = lower_program_ctx(ast, ctors)
   emit_module(lowered, [])
+}
+
+fn compile_wasm(source) = {
+  let runtime = read_file("std/runtime/memory.lux")
+  let prelude = read_file("std/prelude.lux")
+  let imports = resolve_imports(source, [])
+  let full_source = runtime ++ "\n" ++ prelude ++ "\n" ++ imports ++ "\n" ++ strip_imports(source)
+  let ast = full_source |> lex |> parse_program
+  let env = check_program(ast)
+  let type_map = build_type_map(env)
+  let ctors = extract_constructors(env)
+  let lowered = lower_program_typed(ast, ctors, type_map)
+  emit_module(lowered, type_map)
 }
 
 fn collect_ctors_from_ast(stmts, idx) = {
@@ -234,301 +254,56 @@ fn collect_variant_names(variants, idx) = {
   }
 }
 
-fn compile_wasm(source) = {
-  // Resolve imports, prepend runtime + prelude.
-  // Import IS reading a file. The handler IS the resolution strategy.
-  let runtime = read_file("std/runtime/memory.lux")
-  let prelude = read_file("std/prelude.lux")
-  let imports = resolve_imports(source, [])
-  let full_source = runtime ++ "\n" ++ prelude ++ "\n" ++ imports ++ "\n" ++ strip_imports(source)
-  handle {
-    compile_pipeline(full_source)
-  } {
-    tokenize(src) => resume(lex(src)),
-    parse_source(tokens) => resume(parse_program(tokens)),
-    infer(ast) => resume(check_program_forward(ast)),
-    generate(checked, ast) => {
-      let (env, subst, _) = checked
-      let type_map = build_type_map_with_params(env, subst, ast)
-      let ctors = extract_constructors(env)
-      let lowered = lower_program_typed(ast, ctors, type_map)
-      emit_module(lowered, build_type_map(env, subst))
-      resume(("skip", [], [], 0))
-    }
-  }
+// ─── REPL Pipes ─────────────────────────────────────────────
+
+fn repl_standard(source) = {
+  let ast = source |> lex |> parse_program
+  let env = check_program(ast)
+  validate(ast, env)
+  compile_repl(ast)
 }
 
-// ─── Handler: Tracing ────────────────────────────────────────
-// Capture all intermediate representations.
+fn repl_teaching(source) = {
+  let ast = source |> lex |> parse_program
+  let env = check_program(ast)
+  validate(ast, env)
+  println("[teach] types: " ++ show_env_compact(env))
+  let suggestion = gradient_suggestion(env, ast)
+  if len(suggestion) > 0 { println("[teach] " ++ suggestion) } else { () }
+  compile_repl(ast)
+}
 
-fn compile_tracing(source) =
-  handle {
-    compile_pipeline(source)
-  } with stages = [] {
-    tokenize(src) => {
-      let tokens = lex(src)
-      println("[trace] tokens: " ++ to_string(tokens))
-      resume(tokens) with stages = push(stages, ("tokens", tokens))
-    },
-    parse_source(tokens) => {
-      let ast = parse_program(tokens)
-      println("[trace] ast: " ++ to_string(ast))
-      resume(ast) with stages = push(stages, ("ast", ast))
-    },
-    infer(ast) => {
-      let result = check_program(ast)
-      let (env, subst, _) = result
-      println("[trace] types: " ++ show_env_compact(env, subst))
-      resume(result) with stages = push(stages, ("types", env))
-    },
-    generate(checked, ast) => {
-      let chunk = compile_program(ast)
-      println("[trace] chunk: " ++ to_string(chunk))
-      resume(chunk) with stages = push(stages, ("chunk", chunk))
-    }
-  }
+fn repl_explaining(source) = {
+  let ast = source |> lex |> parse_program
+  let env = check_program(ast)
+  validate(ast, env)
+  println(show_env_why(env, 2))
+  compile_repl(ast)
+}
 
-// ─── Handler: Illuminate ─────────────────────────────────────
-// The gradient as effect. Computes the multi-dimensional gradient
-// and shows the path: where you are, what you could do, what it unlocks.
-
-fn compile_illuminate(source) =
-  handle {
-    compile_pipeline(source)
-  } {
-    tokenize(src) => resume(lex(src)),
-    parse_source(tokens) => resume(parse_program(tokens)),
-    infer(ast) => {
-      let result = check_program(ast)
-      let (env, subst, _) = result
-      let gradient = compute_gradient(env, subst, ast)
-      let rendered = render_gradient(gradient)
-      if len(rendered) > 0 {
-        println(rendered)
-      }
-      resume(result)
-    },
-    generate(checked, ast) => resume(compile_program(ast))
-  }
-
-// ─── REPL Variants ───────────────────────────────────────────
-
-fn repl_compile_pipeline(source) = {
-  let tokens = tokenize(source)
-  let ast = parse_source(tokens)
-  let type_info = infer(ast)
-  let chunk = generate(type_info, ast)
+fn repl_tracing(source) = {
+  let tokens = lex(source)
+  println("[trace] " ++ to_string(tokens))
+  let ast = parse_program(tokens)
+  println("[trace] " ++ to_string(ast))
+  let env = check_program(ast)
+  validate(ast, env)
+  println("[trace] types: " ++ show_env_why(env, 3))
+  let chunk = compile_repl(ast)
+  println("[trace] " ++ to_string(chunk))
   chunk
 }
 
-fn repl_standard(source) =
-  handle {
-    repl_compile_pipeline(source)
-  } {
-    tokenize(src) => resume(lex(src)),
-    parse_source(tokens) => resume(parse_program(tokens)),
-    infer(ast) => resume(check_program(ast)),
-    generate(checked, ast) => resume(compile_repl(ast))
-  }
+// ─── Gradient ───────────────────────────────────────────────
 
-fn repl_teaching(source) =
-  handle {
-    repl_compile_pipeline(source)
-  } with log = [] {
-    tokenize(src) => {
-      let tokens = lex(src)
-      println("[teach] " ++ to_string(len(tokens)) ++ " tokens")
-      resume(tokens) with log = push(log, ("tokenize", len(tokens)))
-    },
-    parse_source(tokens) => {
-      let ast = parse_program(tokens)
-      println("[teach] " ++ to_string(len(ast)) ++ " AST nodes")
-      resume(ast) with log = push(log, ("parse", len(ast)))
-    },
-    infer(ast) => {
-      let result = check_program(ast)
-      let (env, subst, _) = result
-      println("[teach] types: " ++ show_env_compact(env, subst))
-      let suggestion = gradient_suggestion(env, subst, ast)
-      if len(suggestion) > 0 {
-        println("[teach] 💡 " ++ suggestion)
-      }
-      resume(result) with log = push(log, ("infer", len(env)))
-    },
-    generate(checked, ast) => {
-      let chunk = compile_repl(ast)
-      println("[teach] compiled")
-      resume(chunk) with log = push(log, ("codegen", 1))
-    }
-  }
-
-fn repl_explaining(source) =
-  handle {
-    repl_compile_pipeline(source)
-  } {
-    tokenize(src) => resume(lex(src)),
-    parse_source(tokens) => resume(parse_program(tokens)),
-    infer(ast) => {
-      let result = check_program(ast)
-      let (env, subst, _) = result
-      println(show_env_why(env, subst, 2))
-      resume(result)
-    },
-    generate(checked, ast) => resume(compile_repl(ast))
-  }
-
-fn repl_tracing(source) =
-  handle {
-    repl_compile_pipeline(source)
-  } with stages = [] {
-    tokenize(src) => {
-      let tokens = lex(src)
-      println("[trace] " ++ to_string(tokens))
-      resume(tokens) with stages = push(stages, ("tokens", tokens))
-    },
-    parse_source(tokens) => {
-      let ast = parse_program(tokens)
-      println("[trace] " ++ to_string(ast))
-      resume(ast) with stages = push(stages, ("ast", ast))
-    },
-    infer(ast) => {
-      let result = check_program(ast)
-      let (env, subst, _) = result
-      println("[trace] types: " ++ show_env_why(env, subst, 3))
-      resume(result) with stages = push(stages, ("types", env))
-    },
-    generate(checked, ast) => {
-      let chunk = compile_repl(ast)
-      println("[trace] " ++ to_string(chunk))
-      resume(chunk) with stages = push(stages, ("chunk", chunk))
-    }
-  }
-
-// ─── Display Helpers ─────────────────────────────────────────
-
-// Compact: "x: Int, f: (Int) -> Int"
-fn show_env_compact(env, subst) = {
-  if len(env) == 0 { "" }
-  else {
-    let (name, ty, reason) = env[len(env) - 1]
-    let rest = show_env_compact(slice(env, 0, len(env) - 1), subst)
-    if is_internal_name(name) || is_builtin_reason(reason) { rest }
-    else {
-      let ty_str = type_to_string(subst, ty)
-      let line = "  " ++ name ++ ": " ++ ty_str
-      if len(rest) > 0 { line ++ "\n" ++ rest }
-      else { line }
-    }
-  }
-}
-
-// Why: "x: Int  WHY: integer literal"
-fn show_env_why(env, subst, depth) = {
-  if len(env) == 0 { "" }
-  else {
-    let (name, ty, reason) = env[len(env) - 1]
-    let rest = show_env_why(slice(env, 0, len(env) - 1), subst, depth)
-    if is_internal_name(name) || is_builtin_reason(reason) { rest }
-    else {
-      let ty_str = type_to_string(subst, ty)
-      let line = "  " ++ name ++ ": " ++ ty_str ++ "\n    WHY: " ++ show_reason(reason, depth)
-      if len(rest) > 0 { line ++ "\n" ++ rest }
-      else { line }
-    }
-  }
-}
-
-// Doc: "fn name: signature"
-fn show_env_doc(env, subst) = show_env_doc_iter(env, subst, len(env) - 1)
-
-fn show_env_doc_iter(env, subst, idx) = {
-  if idx < 0 { "" }
-  else {
-    let (name, ty, reason) = env[idx]
-    let rest = show_env_doc_iter(env, subst, idx - 1)
-    // Skip internal entries
-    if is_internal_name(name) || is_builtin_reason(reason) || starts_with(name, "__fn_ctx:") {
-      rest
-    } else {
-      let resolved = apply(subst, ty)
-      let doc = match resolved {
-        TFun(params, ret, eff) => {
-          // Function: show params with types from the env
-          let param_docs = show_param_docs(env, subst, name, params, 0)
-          let ret_str = type_to_string(subst, ret)
-          let eff_str = show_effect_doc(eff)
-          "fn " ++ name ++ "(" ++ param_docs ++ ") -> " ++ ret_str ++ eff_str
-        },
-        _ => "let " ++ name ++ ": " ++ type_to_string(subst, resolved)
-      }
-      if len(rest) > 0 { doc ++ "\n" ++ rest } else { doc }
-    }
-  }
-}
-
-fn show_param_docs(env, subst, fn_name, param_types, idx) = {
-  if idx >= len(param_types) { "" }
-  else {
-    // Look up param name from prefixed env entries
-    let param_name = find_param_name(env, fn_name, idx)
-    let ty_str = type_to_string(subst, param_types[idx])
-    let entry = param_name ++ ": " ++ ty_str
-    if idx + 1 >= len(param_types) { entry }
-    else { entry ++ ", " ++ show_param_docs(env, subst, fn_name, param_types, idx + 1) }
-  }
-}
-
-fn find_param_name(env, fn_name, idx) = {
-  // The env has fn_name__paramname entries. Find the idx-th one.
-  find_param_at(env, fn_name ++ "__", idx, 0, 0)
-}
-
-fn find_param_at(env, prefix, target_idx, current_idx, pos) = {
-  if pos >= len(env) { "arg" ++ to_string(target_idx) }
-  else {
-    let (name, _, reason) = env[pos]
-    let s = to_string(reason)
-    let dq = from_char_code(34)
-    if starts_with(name, prefix) && starts_with(s, "Declared(" ++ dq ++ "param of ") {
-      if current_idx == target_idx { string_slice(name, len(prefix), len(name)) }
-      else { find_param_at(env, prefix, target_idx, current_idx + 1, pos + 1) }
-    } else { find_param_at(env, prefix, target_idx, current_idx, pos + 1) }
-  }
-}
-
-fn show_effect_doc(eff) = match eff {
-  EfPure => " with Pure",
-  EfClosed(effects) => if len(effects) == 0 { " with Pure" } else { " with " ++ join(effects, ", ") },
-  _ => ""
-}
-
-fn lookup_fn_property(env, fn_name, prop) = {
-  let key = fn_name ++ "__" ++ prop
-  let (found, _, reason) = env_lookup(env, key)
-  if found == "not_found" { "" }
-  else {
-    let s = to_string(reason)
-    let dq = from_char_code(34)
-    // Extract value from Declared("value")
-    let prefix = "Declared(" ++ dq
-    if starts_with(s, prefix) { string_slice(s, len(prefix), len(s) - 2) }
-    else { "" }
-  }
-}
-
-// ─── Gradient Engine ─────────────────────────────────────────
-// Moved to std/compiler/gradient.lux — the gradient as first-class module.
-// compile_teaching still calls a compatibility wrapper here.
-
-fn gradient_suggestion(env, subst, ast) = {
-  let g = compute_gradient(env, subst, ast)
+fn gradient_suggestion(env, ast) = {
+  let g = compute_gradient(env, ast)
   let (fgs, _) = g
   if len(fgs) > 0 { render_fn_gradient(fgs[0]) }
   else { "" }
 }
 
 // ─── Import Resolution ──────────────────────────────────────
-// Import IS reading a file. Recursive. Transitive deps resolved.
 
 fn resolve_imports(source, seen) = {
   let import_lines = find_imports(split(source, "\n"), 0)
@@ -575,80 +350,38 @@ fn filter_non_imports(lines, idx) = {
   }
 }
 
-// ─── Type Map for Backend ───────────────────────────────────
-// Lightweight extraction from checker env: [(name, type_tag)].
-// The emitter uses this to know string vs int vs function.
+// ─── Type Map (bridge to Phase 2) ──────────────────────────
+// Types are resolved. No subst needed.
 
-fn build_type_map(env, subst) = build_type_map_iter(env, subst, 0)
+fn build_type_map(env) = build_type_map_iter(env, 0)
 
-fn build_type_map_with_params(env, subst, ast) =
-  build_type_map_iter(env, subst, 0) ++ build_param_types_from_ast(ast, env, subst)
-
-// Extract function parameter types by walking the AST and looking up types in env.
-// Produces prefixed entries: check__expected → String, is_digit__ch → String
-fn build_param_type_map(env, subst) = []
-
-// Disabled: AST walking is too expensive on the Rust VM.
-// val_eq handles polymorphic dispatch as fallback.
-// When Lux runs on Lux, proper typed AST replaces this.
-fn build_param_types_from_ast(ast, env, subst) = []
-
-fn extract_param_name_strings(params, idx) = {
-  if idx >= len(params) { [] }
-  else {
-    let (name, _) = params[idx]
-    [name] ++ extract_param_name_strings(params, idx + 1)
-  }
-}
-
-fn extract_type_tags(types, subst, idx) = {
-  if idx >= len(types) { [] }
-  else { [type_tag(subst, types[idx])] ++ extract_type_tags(types, subst, idx + 1) }
-}
-
-fn zip_name_type(fn_name, names, types, idx) = {
-  if idx >= len(names) || idx >= len(types) { [] }
-  else {
-    [(fn_name ++ "__" ++ names[idx], types[idx])]
-    ++ zip_name_type(fn_name, names, types, idx + 1)
-  }
-}
-
-fn build_type_map_iter(env, subst, idx) = {
+fn build_type_map_iter(env, idx) = {
   if idx >= len(env) { [] }
   else {
     let (name, ty, _) = env[idx]
-    let tag = type_tag(subst, ty)
-    [(name, tag)] ++ build_type_map_iter(env, subst, idx + 1)
+    [(name, type_tag(ty))] ++ build_type_map_iter(env, idx + 1)
   }
 }
 
-fn type_tag(subst, ty) = match apply(subst, ty) {
+fn type_tag(ty) = match ty {
   TInt => "Int",
   TFloat => "Float",
   TString => "String",
   TBool => "Bool",
   TUnit => "Unit",
   TList(_) => "List",
-  TFun(_, ret, _) => "Fn:" ++ type_tag(subst, ret),
+  TFun(_, ret, _) => "Fn:" ++ type_tag(ret),
   _ => "Unknown"
 }
 
-// Extract constructor names from checker env.
-// Constructors have TName type (not TFun, TInt, etc.) and reason "Declared".
 fn extract_constructors(env) = extract_ctors_iter(env, 0)
 
 fn extract_ctors_iter(env, idx) = {
   if idx >= len(env) { [] }
   else {
-    let (name, ty, reason) = env[idx]
-    let is_ctor = match ty {
-      TName(_, _) => true,
-      _ => false
-    }
+    let (name, ty, _) = env[idx]
+    let is_ctor = match ty { TName(_, _) => true, _ => false }
     let rest = extract_ctors_iter(env, idx + 1)
-    if is_ctor { [name] ++ rest }
-    else { rest }
+    if is_ctor { [name] ++ rest } else { rest }
   }
 }
-

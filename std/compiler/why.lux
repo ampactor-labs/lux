@@ -1,84 +1,51 @@
 // Lux Why Engine — why.lux
 //
-// The flagship "explain yourself" API and the gradient teaching engine.
+// Explain any binding. The compiler shows its reasoning.
 //
-//   check_and_explain(source, name, depth)
+//   explain(env, "x", 2)
 //     → "x: Int\n  WHY: Add requires numeric arguments\n    ← ..."
 //
-//   check_and_show(source, depth)
-//     → full env dump with reasons at given depth
-//
-//   check_and_teach(source, name)
-//     → type + one annotation suggestion (the next step on the gradient)
-//
-// The gradient: what you wrote → what the compiler inferred →
-// what annotation would lock it in → what that unlocks.
+// Pure display functions on a fully-resolved env.
+// The pipeline calls check, then passes env here.
 
 import compiler/ty
 import compiler/display
 import compiler/eff
 
-// ─── Why Query ───────────────────────────────────────────────
-// The flagship API: check code, then ask WHY for any binding.
-//
-// Usage:
-//   let result = check_and_explain("let x = 1 + 2", "x", 2)
-//   => "x: Int
-//       WHY: Add requires numeric arguments
-//         ← left:  integer literal
-//         ← right: integer literal"
+// ─── Explain a Single Binding ───────────────────────────────
 
-fn check_and_explain(source, name, depth) = {
-  let stmts = parse(source)
-  let (env, subst, _) = check_program_with_source(stmts, source)
+fn explain(env, name, depth) = {
   let (found, ty, reason) = env_lookup(env, name)
-  if found == "not_found" {
-    name ++ ": not found"
-  } else {
-    let ty_str = type_to_string(subst, ty)
-    name ++ ": " ++ ty_str ++ "\n  WHY: " ++ show_reason(reason, depth)
-  }
+  if found == "not_found" { name ++ ": not found" }
+  else { name ++ ": " ++ show_type(ty) ++ "\n  WHY: " ++ show_reason(reason, depth) }
 }
 
-// Check program and show all bindings with reasons
-fn check_and_show(source, depth) = {
-  let stmts = parse(source)
-  let (env, subst, _) = check_program_with_source(stmts, source)
-  show_env(env, subst, depth)
-}
+// ─── Show All Bindings with Reasons ─────────────────────────
 
-fn show_env(env, subst, depth) = {
+fn explain_all(env, depth) = {
   if len(env) == 0 { "" }
   else {
     let (name, ty, reason) = env[len(env) - 1]
-    let rest = show_env(slice(env, 0, len(env) - 1), subst, depth)
+    let rest = explain_all(slice(env, 0, len(env) - 1), depth)
     if is_internal_name(name) || is_builtin_reason(reason) { rest }
     else {
-      let ty_str = type_to_string(subst, ty)
-      let line = name ++ ": " ++ ty_str
+      let line = name ++ ": " ++ show_type(ty)
       let why = if depth > 0 { "\n  WHY: " ++ show_reason(reason, depth) } else { "" }
-      line ++ why ++ "\n" ++ rest
+      let entry = line ++ why
+      if len(rest) > 0 { entry ++ "\n" ++ rest } else { entry }
     }
   }
 }
 
-// ─── Gradient Engine ─────────────────────────────────────────
-// The compiler shows you the next step on the gradient.
-// Not nagging — illuminating. One suggestion per function.
-//
-// The gradient: what you wrote → what the compiler inferred →
-// what annotation would lock it in → what that unlocks.
+// ─── Teach: Type + Gradient Suggestion ──────────────────────
 
-fn check_and_teach(source, name) = {
-  let stmts = parse(source)
-  let (env, subst, _) = check_program(stmts)
+fn teach(env, name, ast) = {
   let (found, ty, reason) = env_lookup(env, name)
   if found == "not_found" { name ++ ": not found" }
   else {
-    let ty_str = type_to_string(subst, ty)
-    let already_annotated = fn_has_annotations(stmts, name)
-    let suggestion = if already_annotated { "" } else { suggest_annotation(subst, name, ty) }
-    name ++ ": " ++ ty_str ++ suggestion
+    let already = fn_has_annotations(ast, name)
+    let suggestion = if already { "" } else { suggest_annotation(name, ty) }
+    name ++ ": " ++ show_type(ty) ++ suggestion
   }
 }
 
@@ -86,20 +53,18 @@ fn fn_has_annotations(stmts, name) = {
   if len(stmts) == 0 { false }
   else {
     match stmts[0] {
-      FnStmt(n, _, _, effs) => if n == name { len(effs) > 0 } else { fn_has_annotations(slice(stmts, 1, len(stmts)), name) },
+      FnStmt(n, _, _, effs) => if n == name { len(effs) > 0 }
+        else { fn_has_annotations(slice(stmts, 1, len(stmts)), name) },
       _ => fn_has_annotations(slice(stmts, 1, len(stmts)), name)
     }
   }
 }
 
-fn suggest_annotation(subst, name, ty) = match apply(subst, ty) {
-  TFun(params, ret, effs) => {
-    let suggestion = match effs {
-      EfPure => suggest_pure(name),
-      EfClosed(es) => suggest_from_closed(name, es),
-      EfOpen(_, _) => ""
-    }
-    suggestion
+fn suggest_annotation(name, ty) = match ty {
+  TFun(params, ret, effs) => match effs {
+    EfPure => suggest_pure(name),
+    EfClosed(es) => suggest_from_closed(name, es),
+    _ => ""
   },
   _ => ""
 }
@@ -107,25 +72,17 @@ fn suggest_annotation(subst, name, ty) = match apply(subst, ty) {
 fn suggest_pure(name) =
   "\n  -> " ++ name ++ " is Pure"
   ++ "\n     add 'with Pure' to unlock:"
-  ++ "\n       memoization  (same input = same output, guaranteed)"
-  ++ "\n       parallelism  (no side effects to race)"
-  ++ "\n       compile-time (if inputs are known, evaluate at build)"
+  ++ "\n       memoization, parallelism, compile-time eval"
 
 fn suggest_from_closed(name, effects) = {
-  // Check which compilation gates are available
   let has_alloc = list_contains(effects, "Alloc")
   let has_io = list_contains(effects, "IO")
   let has_network = list_contains(effects, "Network")
-  // Suggest the most impactful negation that's already true
-  if not(has_alloc) && not(has_io) && not(has_network) {
-    // Only domain effects — suggest !Alloc for real-time
+  if !has_alloc && !has_io && !has_network {
     "\n  -> " ++ name ++ " does not allocate"
-    ++ "\n     add 'with !Alloc' to prove:"
-    ++ "\n       real-time safe  (zero heap allocation in entire call chain)"
-    ++ "\n       embeddable      (runs on microcontrollers, GPU, bare metal)"
-  } else { if not(has_network) {
+    ++ "\n     add 'with !Alloc' to prove: real-time safe, embeddable"
+  } else { if !has_network {
     "\n  -> " ++ name ++ " does not access network"
-    ++ "\n     add 'with !Network' to prove:"
-    ++ "\n       sandboxed  (capability restriction as types)"
+    ++ "\n     add 'with !Network' to prove: sandboxed"
   } else { "" }}
 }
