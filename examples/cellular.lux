@@ -1,0 +1,183 @@
+// ─── Cellular Automata ──────────────────────────────────────
+//
+// Rule 110. Game of Life in 1D.
+// Each generation is a function from state to state.
+//
+//   state |> rule    = one step
+//   rule <> rule     = two steps composed
+//   state <| (r110, r30, r90) = same state, three different physics
+//
+// Conway proved Rule 110 is Turing-complete.
+// If Lux can express it, Lux can express everything.
+
+// ═══════════════════════════════════════════════════════════════
+// Elementary cellular automata
+// ═══════════════════════════════════════════════════════════════
+
+// A rule maps 3-bit neighborhoods to 0/1
+// Rule N: the bits of N determine the output for each of 8 neighborhoods
+fn make_rule(n) = |left, center, right| {
+  let index = left * 4 + center * 2 + right
+  // Bit `index` of `n`
+  (n / pow2(index)) % 2
+}
+
+// Power of 2 (needed for bit extraction)
+fn pow2(n) = if n <= 0 { 1 } else { 2 * pow2(n - 1) }
+
+// Apply a rule to an entire row
+fn step(rule, row) = {
+  let n = len(row)
+  fn cell(i) = {
+    let l = if i > 0 { row[i - 1] } else { 0 }
+    let c = row[i]
+    let r = if i < n - 1 { row[i + 1] } else { 0 }
+    rule(l, c, r)
+  }
+  map(cell, range(0, n))
+}
+
+// Render a row as ASCII
+fn render(row) = join(map(|c| if c == 1 { "█" } else { " " }, row), "")
+
+// ═══════════════════════════════════════════════════════════════
+// Play!
+// ═══════════════════════════════════════════════════════════════
+
+println("═══ Cellular Automata ═══")
+println("")
+
+// Start with a single cell in the middle of 61 cells
+let width = 61
+let initial = map(|i| if i == width / 2 { 1 } else { 0 }, range(0, width))
+
+// ─── Rule 110 (Turing-complete!) ────────────────────────────
+
+println("── Rule 110 ──")
+
+let r110 = make_rule(110)
+
+fn run_automaton(rule, state, generations) = {
+  if generations <= 0 { () }
+  else {
+    println(render(state))
+    run_automaton(rule, step(rule, state), generations - 1)
+  }
+}
+
+run_automaton(r110, initial, 30)
+
+// ─── Rule 30 (Wolfram's favorite chaos generator) ───────────
+
+println("")
+println("── Rule 30 (chaos) ──")
+
+let r30 = make_rule(30)
+run_automaton(r30, initial, 30)
+
+// ─── Rule 90 (Sierpinski triangle!) ─────────────────────────
+
+println("")
+println("── Rule 90 (Sierpinski) ──")
+
+let r90 = make_rule(90)
+run_automaton(r90, initial, 30)
+
+
+// ═══════════════════════════════════════════════════════════════
+// Fan-out: same initial state, three different physics
+// ═══════════════════════════════════════════════════════════════
+
+println("")
+println("── <| Three Universes from One Seed ──")
+
+// Advance 15 steps
+fn advance(rule, state, n) = {
+  if n <= 0 { state }
+  else { advance(rule, step(rule, state), n - 1) }
+}
+
+let (state_110, state_30, state_90) = initial <| (
+  |s| advance(r110, s, 15),
+  |s| advance(r30, s, 15),
+  |s| advance(r90, s, 15)
+)
+
+println("After 15 steps from the same seed:")
+println("  110: " ++ render(state_110))
+println("   30: " ++ render(state_30))
+println("   90: " ++ render(state_90))
+
+
+// ═══════════════════════════════════════════════════════════════
+// Composition: compose RULES themselves
+// ═══════════════════════════════════════════════════════════════
+
+println("")
+println("── <> Composed Rules ──")
+
+// step IS a function from state to state. Compose them!
+let step_110 = |state| step(r110, state)
+let step_30  = |state| step(r30, state)
+
+// Apply rule 110, then rule 30 — alternating physics!
+let hybrid_step = step_110 <> step_30
+
+// Run the hybrid
+println("Hybrid (alternating 110 then 30):")
+fn run_hybrid(stepper, state, n) = {
+  if n <= 0 { () }
+  else {
+    println(render(state))
+    run_hybrid(stepper, stepper(state), n - 1)
+  }
+}
+
+run_hybrid(hybrid_step, initial, 20)
+
+
+// ═══════════════════════════════════════════════════════════════
+// Analysis: measure entropy <| (density, edges, symmetry)
+// ═══════════════════════════════════════════════════════════════
+
+println("")
+println("── <| Entropy Analysis ──")
+
+fn density(row) = {
+  let alive = len(filter(|c| c == 1, row))
+  alive * 100 / len(row)
+}
+
+fn edges(row) = {
+  let pairs = zip(row, tail(row))
+  len(filter(|p| p[0] != p[1], pairs))
+}
+
+fn symmetry(row) = {
+  let n = len(row)
+  let half = n / 2
+  let left = take(half, row)
+  let right = reverse(drop(n - half, row))
+  let matches = len(filter(|p| p[0] == p[1], zip(left, right)))
+  matches * 100 / half
+}
+
+// Analyze each rule's state after 20 steps
+let s110 = advance(r110, initial, 20)
+let s30 = advance(r30, initial, 20)
+let s90 = advance(r90, initial, 20)
+
+fn analyze(name, state) = {
+  let (d, e, s) = state <| (density, edges, symmetry)
+  println("  " ++ name ++ ": density=" ++ to_string(d) ++ "% edges=" ++ to_string(e) ++ " symmetry=" ++ to_string(s) ++ "%")
+}
+
+analyze("Rule 110", s110)
+analyze("Rule  30", s30)
+analyze("Rule  90", s90)
+
+println("")
+println("Rule 110: Turing-complete. Complex. Alive.")
+println("Rule 30:  Chaotic. Unpredictable. Beautiful.")
+println("Rule 90:  Symmetric. Fractal. Perfect.")
+println("Same seed. Same operators. Three different realities.")

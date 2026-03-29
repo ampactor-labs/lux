@@ -1,0 +1,185 @@
+// ─── The Rosetta Stone ──────────────────────────────────────
+//
+// The same algorithm, expressed in seven paradigms.
+// All in Lux, using only |> <| <> and effects.
+//
+// The algorithm: given a list of numbers, find the sum of
+// the squares of all odd numbers greater than 3.
+//
+// Watch how each paradigm is really the same three operators
+// wearing different clothes.
+
+let data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+
+println("═══ The Rosetta Stone ═══")
+println("  data = " ++ to_string(data))
+println("  goal: sum of squares of odd numbers > 3")
+println("")
+
+// ═══════════════════════════════════════════════════════════════
+// 1. IMPERATIVE (effect as mutable variable)
+// ═══════════════════════════════════════════════════════════════
+
+effect Mut {
+  get_val() -> Int
+  set_val(v: Int) -> ()
+}
+
+let result_imperative = handle {
+  for_each(|x| {
+    if x > 3 && x % 2 != 0 {
+      let current = get_val()
+      set_val(current + x * x)
+    } else { () }
+  }, data)
+  get_val()
+} with state = 0 {
+  get_val() => resume(state),
+  set_val(v) => resume(()) with state = v
+}
+println("1. Imperative (State effect):    " ++ to_string(result_imperative))
+
+
+// ═══════════════════════════════════════════════════════════════
+// 2. FUNCTIONAL (pipe chain)
+// ═══════════════════════════════════════════════════════════════
+
+let result_functional = data
+  |> filter(|x| x > 3)
+  |> filter(|x| x % 2 != 0)
+  |> map(|x| x * x)
+  |> sum
+
+println("2. Functional (|> pipe):         " ++ to_string(result_functional))
+
+
+// ═══════════════════════════════════════════════════════════════
+// 3. COMPOSED (build then apply)
+// ═══════════════════════════════════════════════════════════════
+
+let keep_big = |xs| filter(|x| x > 3, xs)
+let keep_odd = |xs| filter(|x| x % 2 != 0, xs)
+let square_all = |xs| map(|x| x * x, xs)
+
+let pipeline = keep_big <> keep_odd <> square_all <> sum
+let result_composed = data |> pipeline
+
+println("3. Composed (<> then |>):        " ++ to_string(result_composed))
+
+
+// ═══════════════════════════════════════════════════════════════
+// 4. FOLD (single-pass reduction)
+// ═══════════════════════════════════════════════════════════════
+
+let result_fold = fold(data, 0, |acc, x|
+  if x > 3 && x % 2 != 0 { acc + x * x } else { acc })
+
+println("4. Fold (single pass):           " ++ to_string(result_fold))
+
+
+// ═══════════════════════════════════════════════════════════════
+// 5. GENERATOR (effect as lazy stream)
+// ═══════════════════════════════════════════════════════════════
+
+effect Yield {
+  yield_val(v: Int) -> ()
+  harvest() -> List
+}
+
+fn generate_candidates(data_list) = {
+  for_each(|x| {
+    if x > 3 && x % 2 != 0 {
+      yield_val(x * x)
+    } else { () }
+  }, data_list)
+  harvest()
+}
+
+let result_generator = handle generate_candidates(data) with acc = [] {
+  yield_val(v) => resume(()) with acc = push(acc, v),
+  harvest() => resume(acc)
+}
+let result_gen = sum(result_generator)
+
+println("5. Generator (Yield effect):     " ++ to_string(result_gen))
+
+
+// ═══════════════════════════════════════════════════════════════
+// 6. MAP-REDUCE (parallel style)
+// ═══════════════════════════════════════════════════════════════
+
+// Split the data, process in "parallel" (fan-out), combine
+let mid = len(data) / 2
+
+let (left_sum, right_sum) = data <| (
+  |xs| take(mid, xs) |> filter(|x| x > 3) |> filter(|x| x % 2 != 0) |> map(|x| x * x) |> sum,
+  |xs| drop(mid, xs) |> filter(|x| x > 3) |> filter(|x| x % 2 != 0) |> map(|x| x * x) |> sum
+)
+
+let result_mapreduce = left_sum + right_sum
+println("6. MapReduce (<| fan-out):       " ++ to_string(result_mapreduce))
+
+
+// ═══════════════════════════════════════════════════════════════
+// 7. DECLARATIVE (effect as query)
+// ═══════════════════════════════════════════════════════════════
+
+effect Query {
+  select(predicate: String) -> List
+  aggregate(op: String, values: List) -> Int
+}
+
+let result_declarative = handle {
+  let candidates = select("odd > 3")
+  let squared = map(|x| x * x, candidates)
+  aggregate("sum", squared)
+} {
+  select(pred) => {
+    // The handler interprets the "query"
+    let results = filter(|x| x > 3 && x % 2 != 0, data)
+    resume(results)
+  },
+  aggregate(op, values) => {
+    let result = sum(values)
+    resume(result)
+  }
+}
+
+println("7. Declarative (Query effect):   " ++ to_string(result_declarative))
+
+
+// ═══════════════════════════════════════════════════════════════
+// Verification
+// ═══════════════════════════════════════════════════════════════
+
+println("")
+
+let all_match = result_imperative == result_functional
+  && result_functional == result_composed
+  && result_composed == result_fold
+  && result_fold == result_gen
+  && result_gen == result_mapreduce
+  && result_mapreduce == result_declarative
+
+println("All seven agree? " ++ to_string(all_match))
+
+// What's the actual answer?
+// odd numbers > 3: 5, 7, 9, 11
+// squares: 25, 49, 81, 121
+// sum: 276
+println("Answer: " ++ to_string(result_functional))
+
+println("")
+println("─── The Lesson ───")
+println("")
+println("Seven paradigms. Same answer. Same language.")
+println("")
+println("Imperative:   effects ARE mutable state")
+println("Functional:   |> IS the pipeline")
+println("Compositional:<> IS deferred computation")
+println("Reductive:    fold IS the universal consumer")
+println("Generative:   effects ARE lazy streams")
+println("Parallel:     <| IS fan-out")
+println("Declarative:  effects ARE query interpreters")
+println("")
+println("The paradigm is not the language. The paradigm is the HANDLER.")

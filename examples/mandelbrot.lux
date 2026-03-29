@@ -1,0 +1,118 @@
+// ─── The Mandelbrot Set ─────────────────────────────────────
+//
+// Because if your language can render a fractal in the terminal,
+// it can do anything.
+//
+// The three operators appear everywhere here:
+//   <> composes the iteration function
+//   |> pipes coordinates through the math
+//   <| fans the computation across pixels
+
+// ═══════════════════════════════════════════════════════════════
+// Complex number arithmetic (as pairs)
+// ═══════════════════════════════════════════════════════════════
+
+fn complex(r, i) = (r, i)
+fn c_real(z) = z[0]
+fn c_imag(z) = z[1]
+
+fn c_add(a, b) = complex(c_real(a) + c_real(b), c_imag(a) + c_imag(b))
+fn c_mul(a, b) = complex(
+  c_real(a) * c_real(b) - c_imag(a) * c_imag(b),
+  c_real(a) * c_imag(b) + c_imag(a) * c_real(b)
+)
+
+fn c_abs_sq(z) = c_real(z) * c_real(z) + c_imag(z) * c_imag(z)
+
+// ═══════════════════════════════════════════════════════════════
+// Mandelbrot iteration: z <- z² + c
+// ═══════════════════════════════════════════════════════════════
+
+// One step of the iteration
+fn mandelbrot_step(c) = |z| c_add(c_mul(z, z), c)
+
+// Iterate until escape or max iterations
+fn iterate(c, max_iter) = {
+  fn go(z, i) = {
+    if i >= max_iter { max_iter }
+    else { if c_abs_sq(z) > 4.0 { i }
+    else { go(mandelbrot_step(c)(z), i + 1) }}
+  }
+  go(complex(0.0, 0.0), 0)
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Rendering
+// ═══════════════════════════════════════════════════════════════
+
+// Map iteration count to a character
+fn shade(iters, max_iter) = {
+  if iters >= max_iter { " " }
+  else {
+    let chars = " .:-=+*#%@"
+    let idx = (iters * len(chars)) / max_iter
+    let clamped = min(idx, len(chars) - 1)
+    slice(chars, clamped, clamped + 1)
+  }
+}
+
+// Render a row
+fn render_row(y_coord, x_min, x_max, cols, max_iter) = {
+  let dx = (x_max - x_min) / cols
+  fn build_row(col, acc) = {
+    if col >= cols { acc }
+    else {
+      let x_coord = x_min + col * dx
+      let c = complex(x_coord, y_coord)
+      let iters = iterate(c, max_iter)
+      let ch = shade(iters, max_iter)
+      build_row(col + 1, acc ++ ch)
+    }
+  }
+  build_row(0, "")
+}
+
+// Render the full fractal
+fn render_mandelbrot(x_min, x_max, y_min, y_max, cols, rows, max_iter) = {
+  let dy = (y_max - y_min) / rows
+  fn render_rows(row) = {
+    if row >= rows { () }
+    else {
+      let y_coord = y_min + row * dy
+      let line = render_row(y_coord, x_min, x_max, cols, max_iter)
+      println(line)
+      render_rows(row + 1)
+    }
+  }
+  render_rows(0)
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Multi-view with <| — render the SAME fractal at different zooms
+// ═══════════════════════════════════════════════════════════════
+
+println("═══ The Mandelbrot Set in Lux ═══")
+println("")
+
+// The classic view
+println("── Full Set ──")
+render_mandelbrot(0.0 - 2.0, 1.0, 0.0 - 1.0, 1.0, 72, 24, 30)
+
+println("")
+println("── Zoom: Seahorse Valley ──")
+render_mandelbrot(0.0 - 0.77, 0.0 - 0.73, 0.0 - 0.11, 0.0 - 0.07, 72, 24, 60)
+
+println("")
+println("── Zoom: Mini Mandelbrot ──")
+render_mandelbrot(0.0 - 1.79, 0.0 - 1.73, 0.0 - 0.04, 0.02, 72, 24, 80)
+
+// ═══════════════════════════════════════════════════════════════
+// The Point
+// ═══════════════════════════════════════════════════════════════
+
+println("")
+println("Complex arithmetic: pure functions.")
+println("Iteration: function composition.")
+println("Rendering: pipe through shade.")
+println("Multiple views: fan out from the same math.")
+println("The fractal IS the algebra. The algebra IS three operators.")

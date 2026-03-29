@@ -1,0 +1,118 @@
+// ─── PLAY ───────────────────────────────────────────────────
+// No plan. No perfection. Just seeing what falls out.
+
+// What if I compose my own prelude operations?
+let double = |x| x * 2
+let square = |x| x * x
+let stringify = to_string
+
+// Build a pipeline. Nothing runs.
+let describe_number = double <> square <> stringify
+
+// Now run it.
+println("describe 3: " ++ describe_number(3))
+// double(3)=6, square(6)=36, stringify(36)="36"
+
+// What if I fan out to my OWN composed pipelines?
+let small = [1, 2, 3, 4, 5]
+
+let (doubled, squares, as_strings) = small <| (
+  |xs| map(double, xs),
+  |xs| map(square, xs),
+  |xs| map(stringify, xs)
+)
+
+println("doubled:  " ++ to_string(doubled))
+println("squares:  " ++ to_string(squares))
+println("strings:  " ++ to_string(as_strings))
+
+// ─── The Hourglass Breathes ─────────────────────────────────
+
+// Converge, diverge, converge. One line.
+let data = [10, 20, 30, 40, 50]
+
+let (total, biggest, smallest) = data
+  |> filter(|x| x > 15)
+  <| (
+    |xs| fold(xs, 0, |a, x| a + x),
+    |xs| fold(xs, 0, |a, x| if x > a { x } else { a }),
+    |xs| fold(xs, 999, |a, x| if x < a { x } else { a })
+  )
+
+println("filtered > 15: sum=" ++ to_string(total) ++ " max=" ++ to_string(biggest) ++ " min=" ++ to_string(smallest))
+
+// ─── Effects Playing with Effects ───────────────────────────
+
+// The prelude's map IS a handler on Iterate.
+// What if I use Iterate directly?
+
+effect Counter { tick() -> Int }
+
+let ticks = handle {
+  map(|x| { let n = tick(); x * n }, [10, 20, 30])
+} with count = 1 {
+  tick() => { let c = count; resume(c) with count = count + 1 }
+}
+
+println("ticked: " ++ to_string(ticks))
+// Each element gets multiplied by an increasing counter:
+// 10*1=10, 20*2=40, 30*3=90
+
+// ─── Composition IS the Architecture ────────────────────────
+
+// The compiler's own shape:
+//   source |> parse_source |> check_and_validate
+//
+// What if user programs had the same shape?
+
+fn step1(x) = x + 1
+fn step2(x) = x * 3
+fn step3(x) = x - 2
+
+// Build it dynamically
+let steps = [step1, step2, step3]
+let pipeline = build_pipeline(steps)
+
+println("pipeline(5): " ++ to_string(pipeline(5)))
+// (5+1)=6, *3=18, -2=16
+
+// Now what if the steps come from user input?
+// Or from a config file? Or from a handler?
+// The pipeline is DATA. First-class. Composable.
+
+// ─── The Effect Prelude Composes Too ────────────────────────
+
+// map is a handler. filter is a handler. What if we chain them
+// and they're STILL handlers?
+
+let words_data = ["hello", "world", "lux", "is", "a", "language", "of", "light"]
+
+// Fan out: multiple analyses on the same data
+let (long_words, total_chars, word_count) = words_data <| (
+  |ws| filter(|w| len(w) > 3, ws),
+  |ws| fold(ws, 0, |acc, w| acc + len(w)),
+  |ws| len(ws)
+)
+
+println("long words: " ++ to_string(long_words))
+println("total chars: " ++ to_string(total_chars))
+println("word count: " ++ to_string(word_count))
+
+// ─── What Falls Out ─────────────────────────────────────────
+
+// I just noticed: <| with a single function is just application.
+// 42 <| to_string = to_string(42) = "42"
+// That means <| generalizes function application.
+// And |> also generalizes application.
+// And <> generalizes lambda creation.
+//
+// Three operators. Three generalizations of the lambda calculus:
+//   |> = apply (eager, left to right)
+//   <| = apply-many (broadcast)
+//   <> = abstract (build a function)
+//
+// The lambda calculus has two operations: abstraction and application.
+// Lux has three: abstraction (<>), application (|>), and broadcast (<|).
+// The third one is what makes parallelism expressible.
+
+println("--- play complete ---")

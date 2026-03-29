@@ -1,0 +1,119 @@
+// ─── Tiny ECS ───────────────────────────────────────────────
+//
+// An Entity-Component-System in 80 lines of Lux.
+// Entities are IDs. Components are lists. Systems are functions.
+//
+//   System = Component -> Component (a function!)
+//   Pipeline = sys1 <> sys2 <> sys3  (compose systems!)
+//   Query = world <| (sys_physics, sys_render, sys_ai)  (fan out!)
+//
+// ECS IS the three-operator algebra.
+
+// ─── World ──────────────────────────────────────────────────
+
+// An entity is (id, x, y, vx, vy, hp, tag)
+fn entity(id, x, y, vx, vy, hp, tag) = [id, x, y, vx, vy, hp, tag]
+fn e_id(e)  = e[0]
+fn e_x(e)   = e[1]
+fn e_y(e)   = e[2]
+fn e_vx(e)  = e[3]
+fn e_vy(e)  = e[4]
+fn e_hp(e)  = e[5]
+fn e_tag(e) = e[6]
+
+let world = [
+  entity(0,  10,  20,  1,  2, 100, "player"),
+  entity(1,  50,  30, -1,  0,  50, "enemy"),
+  entity(2,   0,   0,  3,  3,  80, "ally"),
+  entity(3, 100, 100,  0, -2,  30, "enemy"),
+  entity(4,  25,  75,  2,  1,  60, "ally")
+]
+
+// ─── Systems (functions on entity lists) ────────────────────
+
+// Physics: move everything
+fn sys_physics(entities) = map(|e|
+  entity(e_id(e), e_x(e) + e_vx(e), e_y(e) + e_vy(e),
+         e_vx(e), e_vy(e), e_hp(e), e_tag(e)),
+  entities)
+
+// Gravity: everything drifts down
+fn sys_gravity(entities) = map(|e|
+  entity(e_id(e), e_x(e), e_y(e),
+         e_vx(e), e_vy(e) + 1, e_hp(e), e_tag(e)),
+  entities)
+
+// Damage: enemies lose HP over time (poison!)
+fn sys_poison(entities) = map(|e|
+  if e_tag(e) == "enemy" {
+    entity(e_id(e), e_x(e), e_y(e), e_vx(e), e_vy(e), e_hp(e) - 5, e_tag(e))
+  } else { e },
+  entities)
+
+// Heal: allies regenerate
+fn sys_regen(entities) = map(|e|
+  if e_tag(e) == "ally" {
+    entity(e_id(e), e_x(e), e_y(e), e_vx(e), e_vy(e), min(100, e_hp(e) + 3), e_tag(e))
+  } else { e },
+  entities)
+
+// Reaper: remove the dead
+fn sys_reaper(entities) = filter(|e| e_hp(e) > 0, entities)
+
+// ─── COMPOSE systems into a game loop ───────────────────────
+
+let game_tick = sys_gravity <> sys_physics <> sys_poison <> sys_regen <> sys_reaper
+
+// ─── Run the game ───────────────────────────────────────────
+
+fn show_world(label, entities) = {
+  println("── " ++ label ++ " (" ++ to_string(len(entities)) ++ " alive) ──")
+  for_each(|e|
+    println("  " ++ e_tag(e) ++ "#" ++ to_string(e_id(e))
+      ++ " pos=(" ++ to_string(e_x(e)) ++ "," ++ to_string(e_y(e)) ++ ")"
+      ++ " vel=(" ++ to_string(e_vx(e)) ++ "," ++ to_string(e_vy(e)) ++ ")"
+      ++ " hp=" ++ to_string(e_hp(e))),
+    entities)
+}
+
+println("═══ Tiny ECS: Systems Are Composition ═══")
+println("")
+
+show_world("tick 0", world)
+
+let t1 = world |> game_tick
+show_world("tick 1", t1)
+
+let t2 = t1 |> game_tick
+show_world("tick 2", t2)
+
+let t3 = t2 |> game_tick
+show_world("tick 3", t3)
+
+// Run 10 ticks at once — <> lets us BUILD the loop
+let ten_ticks = game_tick <> game_tick <> game_tick <> game_tick <> game_tick
+  <> game_tick <> game_tick <> game_tick <> game_tick <> game_tick
+
+let t10 = world |> ten_ticks
+show_world("tick 10", t10)
+
+// ─── QUERY the world with <| ────────────────────────────────
+
+println("")
+println("── Queries (fan-out analysis) ──")
+
+let (alive_count, total_hp, positions, enemies_left) = t3 <| (
+  |es| len(es),
+  |es| sum(map(e_hp, es)),
+  |es| map(|e| "(" ++ to_string(e_x(e)) ++ "," ++ to_string(e_y(e)) ++ ")", es),
+  |es| len(filter(|e| e_tag(e) == "enemy", es))
+)
+
+println("  alive:   " ++ to_string(alive_count))
+println("  total hp: " ++ to_string(total_hp))
+println("  positions: " ++ to_string(positions))
+println("  enemies:  " ++ to_string(enemies_left))
+
+println("")
+println("Systems compose with <>. Queries fan out with <|.")
+println("The game loop IS a composed function. The ECS IS the algebra.")

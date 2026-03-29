@@ -1,0 +1,60 @@
+// ─── Middleware as Composition ───────────────────────────────
+//
+// Express.js has app.use(). Lux has <>.
+// Each middleware is a function. <> chains them.
+// The stack is a value. Pass it around. Swap it. Test it.
+
+// A "request" is just data
+fn make_request(path, body) = (path, body, [])
+
+// Middleware: functions that transform requests
+fn add_header(name, value) = |req| {
+  let (path, body, headers) = req
+  (path, body, headers ++ [(name, value)])
+}
+
+fn log_request(req) = {
+  let (path, _, _) = req
+  println("[log] " ++ path)
+  req
+}
+
+fn validate_body(req) = {
+  let (path, body, headers) = req
+  if len(body) == 0 {
+    println("[validate] empty body!")
+  } else {
+    println("[validate] body ok (" ++ to_string(len(body)) ++ " chars)")
+  }
+  req
+}
+
+// Build the middleware stack with <>
+let middleware = add_header("Content-Type", "application/json")
+  <> add_header("X-Request-Id", "abc123")
+  <> log_request
+  <> validate_body
+
+// Process a request through the stack
+let req = make_request("/api/data", "hello world")
+let processed = req |> middleware
+
+println("headers: " ++ to_string(processed[2]))
+
+// ─── Different stacks for different routes ──────────────────
+
+let public_stack = log_request <> validate_body
+let authed_stack = add_header("Authorization", "Bearer token")
+  <> log_request
+  <> validate_body
+
+println("--- public route ---")
+make_request("/public", "data") |> public_stack
+
+println("--- authed route ---")
+make_request("/admin", "secret") |> authed_stack
+
+// ─── The point ──────────────────────────────────────────────
+// Middleware IS composition. The stack IS a value.
+// Testing: just call the composed function with test data.
+// No framework. No app.use(). Just <>.

@@ -1,0 +1,29 @@
+// ─── breathe ────────────────────────────────────────────────
+//
+// the simplest possible program that uses all three operators.
+
+fn double(x) = x * 2
+fn square(x) = x * x
+fn show(x) = println(to_string(x))
+
+// breathe in
+let result = 3 |> double |> square
+show(result)
+
+// breathe out
+let (a, b) = 5 <| (double, square)
+show(a)
+show(b)
+
+// hold
+let transform = double <> square
+show(transform(4))
+
+// the full breath
+[1, 2, 3, 4, 5]
+  |> map(double <> square)
+  <| (
+    |xs| fold(xs, 0, |a, x| a + x),
+    |xs| len(xs)
+  )
+  |> |(total, count)| println("sum=" ++ to_string(total) ++ " count=" ++ to_string(count))

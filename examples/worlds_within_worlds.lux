@@ -1,0 +1,254 @@
+// ─── Worlds Within Worlds ───────────────────────────────────
+//
+// An effect handler is a universe.
+// The computation inside doesn't know what world it's in.
+// The handler decides the laws of physics.
+//
+// What happens when you nest universes?
+// What happens when you let a computation CHOOSE its universe?
+// What happens when universes compose?
+//
+// Let's find out.
+
+// ═══════════════════════════════════════════════════════════════
+// Act I: The Oracle
+// ═══════════════════════════════════════════════════════════════
+//
+// A computation asks questions. The handler knows the answers.
+// Different handlers = different oracles = different realities.
+
+effect Oracle {
+  ask(question: String) -> String
+}
+
+fn consult() = {
+  let name = ask("what is my name?")
+  let purpose = ask("what is my purpose?")
+  let fate = ask("what is my fate?")
+  (name, purpose, fate)
+}
+
+println("═══ Worlds Within Worlds ═══")
+println("")
+
+// The Optimistic Oracle
+println("── The Optimist ──")
+let sunny = handle { consult() } {
+  ask(q) => if q == "what is my name?" { resume("Lux") }
+    else { if q == "what is my purpose?" { resume("to illuminate") }
+    else { resume("eternal radiance") }}
+}
+println("  " ++ to_string(sunny))
+
+// The Nihilist Oracle
+println("")
+println("── The Nihilist ──")
+let dark = handle { consult() } {
+  ask(_) => resume("nothing")
+}
+println("  " ++ to_string(dark))
+
+// The Counting Oracle — each answer comes from position
+println("")
+println("── The Counter ──")
+let counted = handle { consult() } with n = 1 {
+  ask(q) => {
+    let answer = "answer #" ++ to_string(n) ++ " to '" ++ q ++ "'"
+    resume(answer) with n = n + 1
+  }
+}
+println("  " ++ to_string(counted))
+
+
+// ═══════════════════════════════════════════════════════════════
+// Act II: Nested Realities
+// ═══════════════════════════════════════════════════════════════
+//
+// What if a computation lives in TWO universes at once?
+// One controls time. One controls space.
+
+effect Time {
+  now() -> Int
+  wait(ticks: Int) -> ()
+}
+
+effect Space {
+  here() -> String
+  move_to(place: String) -> ()
+}
+
+fn adventure() = {
+  let start_time = now()
+  let start_place = here()
+  move_to("forest")
+  wait(5)
+  let mid_time = now()
+  let mid_place = here()
+  move_to("mountain")
+  wait(10)
+  let end_time = now()
+  let end_place = here()
+  [
+    "started at " ++ start_place ++ " (t=" ++ to_string(start_time) ++ ")",
+    "then " ++ mid_place ++ " (t=" ++ to_string(mid_time) ++ ")",
+    "ended at " ++ end_place ++ " (t=" ++ to_string(end_time) ++ ")"
+  ]
+}
+
+println("")
+println("── Nested Realities (Time × Space) ──")
+
+let story = handle {
+  handle { adventure() } {
+    here() => resume("tavern"),
+    move_to(place) => { println("    [space] moving to " ++ place); resume(()) }
+  }
+} with clock = 0 {
+  now() => resume(clock),
+  wait(t) => { println("    [time] " ++ to_string(t) ++ " ticks pass"); resume(()) with clock = clock + t }
+}
+
+for_each(|line| println("  " ++ line), story)
+
+
+// ═══════════════════════════════════════════════════════════════
+// Act III: The Multiverse (nondeterminism)
+// ═══════════════════════════════════════════════════════════════
+//
+// What if a computation could exist in ALL universes
+// simultaneously? That's the Choose effect. 
+
+effect Choose {
+  choose(options: List) -> String
+}
+
+fn life_choices() = {
+  let career = choose(["artist", "engineer", "philosopher"])
+  let city = choose(["tokyo", "berlin", "portland"])
+  career ++ " in " ++ city
+}
+
+println("")
+println("── The Multiverse ──")
+
+// Explore ALL possible lives
+let all_lives = handle { [life_choices()] } {
+  choose(options) => fold(options, [], |acc, opt| acc ++ resume(opt))
+}
+
+println("  All possible lives:")
+for_each(|life| println("    • " ++ life), all_lives)
+println("  (" ++ to_string(len(all_lives)) ++ " universes)")
+
+
+// ═══════════════════════════════════════════════════════════════
+// Act IV: The Time Loop
+// ═══════════════════════════════════════════════════════════════
+//
+// An effect handler that RETRIES the computation.
+// The computation doesn't know it's in a loop.
+// It just does its thing. The handler decides when to stop.
+
+effect Attempt {
+  try_it(value: Int) -> String
+}
+
+fn uncertain_computation() = {
+  // Try increasing values until the handler approves
+  let r1 = try_it(1)
+  let r2 = try_it(2)
+  let r3 = try_it(3)
+  [r1, r2, r3]
+}
+
+println("")
+println("── The Gatekeeper ──")
+
+// Only accept even numbers
+let gatekept = handle { uncertain_computation() } {
+  try_it(v) => if v % 2 == 0 { resume("accepted(" ++ to_string(v) ++ ")") }
+               else { resume("rejected(" ++ to_string(v) ++ ")") }
+}
+println("  even-gatekeeper: " ++ to_string(gatekept))
+
+// Accept everything but transform it
+let transformed = handle { uncertain_computation() } {
+  try_it(v) => resume("✦" ++ to_string(v * v) ++ "✦")
+}
+println("  transformer: " ++ to_string(transformed))
+
+
+// ═══════════════════════════════════════════════════════════════
+// Act V: Universe Composition
+// ═══════════════════════════════════════════════════════════════
+//
+// The grand finale. Compose handlers like functions.
+// Each handler is a layer. The computation floats through all of them.
+
+effect Log {
+  log(msg: String) -> ()
+}
+
+effect Auth {
+  check_auth(user: String) -> String
+}
+
+fn secure_operation(user) = {
+  log("starting operation")
+  let role = check_auth(user)
+  log("user " ++ user ++ " has role: " ++ role)
+  if role == "admin" {
+    log("executing admin operation")
+    "result: admin_data"
+  } else {
+    log("access denied for role: " ++ role)
+    "result: denied"
+  }
+}
+
+println("")
+println("── Universe Composition (Log × Auth) ──")
+
+// Layer 1: Auth handler
+// Layer 2: Log handler (wraps auth)
+// The computation doesn't know about either!
+
+println("")
+println("  As admin:")
+let admin_result = handle {
+  handle { secure_operation("alice") } {
+    check_auth(user) => if user == "alice" { resume("admin") } else { resume("guest") }
+  }
+} with logs = [] {
+  log(msg) => { println("    [log] " ++ msg); resume(()) }
+}
+println("  → " ++ admin_result)
+
+println("")
+println("  As guest:")
+let guest_result = handle {
+  handle { secure_operation("bob") } {
+    check_auth(user) => if user == "alice" { resume("admin") } else { resume("guest") }
+  }
+} with logs = [] {
+  log(msg) => { println("    [log] " ++ msg); resume(()) }
+}
+println("  → " ++ guest_result)
+
+
+// ═══════════════════════════════════════════════════════════════
+// Coda
+// ═══════════════════════════════════════════════════════════════
+
+println("")
+println("─── Coda ───")
+println("")
+println("An effect handler is a universe.")
+println("Nesting handlers is nesting realities.")
+println("Choose explores ALL realities at once.")
+println("The computation never knows which world it's in.")
+println("The handler decides everything.")
+println("")
+println("That's not a feature. That's a philosophy.")
+println("Code says what it NEEDS. Context says what it GETS.")
+println("Same code. Every possible world.")

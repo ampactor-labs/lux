@@ -1,0 +1,264 @@
+// ─── The Diamond ────────────────────────────────────────────
+//
+//              |>
+//             / \
+//            /   \
+//           <|   <|
+//          / \ / \
+//         f   g   h
+//          \ / \ /
+//           <>  <>
+//            \ /
+//             |>
+//
+// The diamond is the shape that emerges when you compose
+// all three operators in patterns that aren't linear.
+//
+// |>  is a line     ─ sequential
+// <|  is a fork     ─ parallel
+// <>  is a point    ─ latent
+//
+// Together they make DIAMONDS: converge, diverge, converge.
+// Not pipelines. Not trees. Diamonds.
+//
+// This file constructs increasingly complex diamonds.
+
+// ═══════════════════════════════════════════════════════════════
+// Diamond 1: The Simplest
+// ═══════════════════════════════════════════════════════════════
+//
+//     data ──|>──> process ──<|──> (analysis1, analysis2)
+//                                      |           |
+//                                      └─── |> ────┘
+//                                            combine
+
+println("═══ The Diamond ═══")
+println("")
+
+let data = [4, 7, 2, 9, 1, 8, 3, 6, 5]
+
+println("── Diamond 1: Process → Analyze → Combine ──")
+
+let (hi, lo) = data
+  |> sort
+  <| (
+    |xs| take(3, reverse(xs)),
+    |xs| take(3, xs)
+  )
+
+let spread = (hi, lo)
+  |> |(h, l)| "top3=" ++ to_string(h) ++ " bottom3=" ++ to_string(l)
+
+println("  " ++ spread)
+
+
+// ═══════════════════════════════════════════════════════════════
+// Diamond 2: The Double Diamond
+// ═══════════════════════════════════════════════════════════════
+//
+//   raw ──|>──> clean ──<|──> (stats, pattern)
+//                               |        |
+//                            ───|>───  ──|>──
+//                               |        |
+//                            ──<|──> ──<|──>
+//                           (a,b)    (c,d)
+
+println("")
+println("── Diamond 2: Double Diamond ──")
+
+let raw = [10, 0, 25, 3, 50, 0, 75, 8, 100, 0, 42, 0, 33]
+
+// First diamond: clean then analyze two ways
+let cleaned = raw |> filter(|x| x > 0) |> sort
+
+let (stat_branch, pattern_branch) = cleaned <| (
+  // Stats path: fan out to multiple aggregations
+  |xs| xs <| (
+    sum,
+    |xs2| len(xs2),
+    |xs2| xs2[len(xs2) / 2]  // median-ish
+  ),
+  // Pattern path: fan out to multiple pattern detections
+  |xs| xs <| (
+    |xs2| all(|x| x < 100, xs2),  // bounded?
+    |xs2| {                          // ascending?
+      let pairs = zip(xs2, tail(xs2))
+      all(|p| p[0] <= p[1], pairs)
+    }
+  )
+)
+
+let (total, cnt, median) = stat_branch
+let (bounded, ascending) = pattern_branch
+
+println("  stats:   sum=" ++ to_string(total) ++ " count=" ++ to_string(cnt) ++ " median≈" ++ to_string(median))
+println("  pattern: bounded=" ++ to_string(bounded) ++ " ascending=" ++ to_string(ascending))
+
+
+// ═══════════════════════════════════════════════════════════════
+// Diamond 3: The Effect Diamond
+// ═══════════════════════════════════════════════════════════════
+//
+// Diamonds get WILD when effects are involved.
+// The handler is PART OF the diamond shape.
+//
+//   data ──|>──> effectful_process ──<|──> (view1, view2)
+//                     ↕                        |
+//                  handler                     |>
+//                  (state)                   combine
+
+println("")
+println("── Diamond 3: Effect Diamond ──")
+
+effect Trace {
+  trace(label: String, value: Int) -> ()
+}
+
+fn traced_process(xs) = {
+  let sorted = sort(xs)
+  trace("sorted_len", len(sorted))
+
+  let big = filter(|x| x > 5, sorted)
+  trace("big_count", len(big))
+
+  let total = sum(big)
+  trace("big_sum", total)
+
+  big
+}
+
+let traced_result = handle {
+  let processed = traced_process([3, 8, 1, 9, 2, 7, 4, 6])
+
+  // Diamond: fan out on the processed result
+  let (process_sum, process_count, desc) = processed <| (
+    sum,
+    |xs| len(xs),
+    |xs| to_string(xs)
+  )
+
+  "processed " ++ to_string(process_count) ++ " items, sum=" ++ to_string(process_sum) ++ " → " ++ desc
+} with traces = [] {
+  trace(label, value) => {
+    println("    [trace] " ++ label ++ " = " ++ to_string(value))
+    resume(()) with traces = push(traces, (label, value))
+  }
+}
+
+println("  result: " ++ traced_result)
+
+
+// ═══════════════════════════════════════════════════════════════
+// Diamond 4: The Recursive Diamond
+// ═══════════════════════════════════════════════════════════════
+//
+// A diamond where each branch can itself be a diamond.
+// Fractal data flow.
+
+println("")
+println("── Diamond 4: Recursive Diamonds ──")
+
+// Split a list in half, process each half, merge
+fn diamond_sort(xs) = {
+  if len(xs) <= 1 { xs }
+  else {
+    let mid = len(xs) / 2
+
+    // The diamond: split <| (left, right) |> merge
+    let (left, right) = xs <| (
+      |a| diamond_sort(take(mid, a)),
+      |a| diamond_sort(drop(mid, a))
+    )
+
+    merge(left, right)
+  }
+}
+
+let chaos = [38, 27, 43, 3, 9, 82, 10, 1, 57, 36]
+let order = diamond_sort(chaos)
+println("  chaos: " ++ to_string(chaos))
+println("  order: " ++ to_string(order))
+
+// Also works for any merge-able thing!
+fn diamond_reduce(f, xs) = {
+  if len(xs) == 1 { xs[0] }
+  else { if len(xs) == 2 { f(xs[0], xs[1]) }
+  else {
+    let mid = len(xs) / 2
+    let (left, right) = xs <| (
+      |a| diamond_reduce(f, take(mid, a)),
+      |a| diamond_reduce(f, drop(mid, a))
+    )
+    f(left, right)
+  }}
+}
+
+let tree_sum = diamond_reduce(|a, b| a + b, [1, 2, 3, 4, 5, 6, 7, 8])
+println("  tree sum [1..8]: " ++ to_string(tree_sum))
+
+let tree_max = diamond_reduce(max, [42, 17, 88, 3, 91, 25, 60, 7])
+println("  tree max: " ++ to_string(tree_max))
+
+
+// ═══════════════════════════════════════════════════════════════
+// Diamond 5: MapReduce
+// ═══════════════════════════════════════════════════════════════
+//
+// MapReduce IS a diamond:
+//   data ──<|──> (mapper1, mapper2, ...) ──|>──> merge ──|>──> reduce
+//
+// Google's entire infrastructure is a diamond.
+
+println("")
+println("── Diamond 5: MapReduce ──")
+
+// Word count via MapReduce
+let documents = [
+  "the cat sat on the mat",
+  "the dog sat on the log",
+  "the cat and the dog"
+]
+
+// Map phase: each document becomes word counts
+let mapped = map(|doc| {
+  let ws = words(doc)
+  map(|w| (w, 1), ws)
+}, documents)
+
+// Flatten all the pairs
+let all_pairs = flatten(mapped)
+
+// Reduce phase: group by key and sum
+let all_words = unique(map(|p| p[0], all_pairs))
+let counts = map(|w|
+  (w, len(filter(|p| p[0] == w, all_pairs))),
+  all_words)
+
+let sorted_counts = reverse(sort(map(|c| (c[1], c[0]), counts)))
+
+println("  Word frequencies:")
+for_each(|entry|
+  println("    " ++ to_string(entry[0]) ++ "× " ++ entry[1]),
+  sorted_counts)
+
+
+// ═══════════════════════════════════════════════════════════════
+// The Shape
+// ═══════════════════════════════════════════════════════════════
+
+println("")
+println("─── The Shape ───")
+println("")
+println("Not a pipeline: a DIAMOND.")
+println("Converge. Diverge. Converge.")
+println("")
+println("Merge sort is a diamond.")
+println("MapReduce is a diamond.")
+println("Neural networks are diamonds.")
+println("Compilers are diamonds.")
+println("The internet is a diamond.")
+println("")
+println("|>  makes lines.")
+println("<|  makes forks.")
+println("<>  makes points.")
+println("Together: DIAMONDS.")
