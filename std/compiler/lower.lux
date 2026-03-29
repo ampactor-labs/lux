@@ -120,6 +120,14 @@ fn lower_expr(sexpr, env) = {
       }
     },
 
+    FanOutExpr(left, right) => {
+      let S(right_expr, rl, rc) = right
+      match right_expr {
+        TupleExpr(fns) => LMakeTuple(fan_out_lower(fns, left, env)),
+        _ => lower_expr(S(Call(right, [left]), rl, rc), env)
+      }
+    },
+
     IfExpr(cond, then_e, else_e) =>
       LIf(lower_expr(cond, env), [lower_expr(then_e, env)], [lower_expr(else_e, env)]),
     MatchExpr(scrutinee, arms) =>
@@ -145,6 +153,14 @@ fn lower_expr(sexpr, env) = {
       lower_expr(iter, env),
 
     _ => LConst(LUnit)
+  }
+}
+
+fn fan_out_lower(fns, input, env) = {
+  if len(fns) == 0 { [] }
+  else {
+    [LCall(lower_expr(fns[0], env), [lower_expr(input, env)])]
+    ++ fan_out_lower(slice(fns, 1, len(fns)), input, env)
   }
 }
 
@@ -404,8 +420,6 @@ fn lower_state_assign_temps(updates, idx) = {
 
 // ─── Program Lowering ───────────────────────────────────────
 // env replaces type_map. type_of reads it directly.
-
-fn lower_program_ctx(stmts, ctors) = lower_program_typed(stmts, ctors, [])
 
 fn lower_program_typed(stmts, ctors, env) = {
   let globals = collect_top_names(stmts, 0)

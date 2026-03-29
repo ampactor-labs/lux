@@ -1,7 +1,7 @@
 // Ownership Checking — Phase 15 Golden Tests
 // Tests own/ref enforcement through the self-hosted checker.
 
-import compiler/checker
+import compiler/check
 
 println("=== Phase 15: Ownership Checking ===")
 println("")

@@ -7,7 +7,7 @@
 
 import compiler/codegen
 import compiler/pipeline
-import compiler/checker
+import compiler/check
 
 // Test 1: compile() now runs checker before codegen
 let source1 = 'fn add(a, b) = a + b

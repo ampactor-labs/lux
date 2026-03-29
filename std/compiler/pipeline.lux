@@ -207,18 +207,8 @@ fn compile_illuminate(source) = {
   compile_program(ast)
 }
 
-// ─── WASM Pipes ─────────────────────────────────────────────
-
-fn compile_wasm_fast(source) = {
-  let runtime = read_file("std/runtime/memory.lux")
-  let prelude = read_file("std/prelude.lux")
-  let imports = resolve_imports(source, [])
-  let full_source = runtime ++ "\n" ++ prelude ++ "\n" ++ imports ++ "\n" ++ strip_imports(source)
-  let ast = full_source |> lex |> parse_program
-  let ctors = collect_ctors_from_ast(ast, 0)
-  let lowered = lower_program_ctx(ast, ctors)
-  emit_module(lowered, [])
-}
+// ─── WASM Pipe ──────────────────────────────────────────────
+// The checker is not optional. No wasm-fast.
 
 fn compile_wasm(source) = {
   let runtime = read_file("std/runtime/memory.lux")
@@ -229,27 +219,7 @@ fn compile_wasm(source) = {
   let env = check_program(ast)
   let ctors = extract_constructors(env)
   let lowered = lower_program_typed(ast, ctors, env)
-  emit_module(lowered, build_type_map(env))
-}
-
-fn collect_ctors_from_ast(stmts, idx) = {
-  if idx >= len(stmts) { [] }
-  else {
-    let s = to_string(stmts[idx])
-    let rest = collect_ctors_from_ast(stmts, idx + 1)
-    if starts_with(s, "TypeStmt(") {
-      let variants = stmts[idx][1]
-      collect_variant_names(variants, 0) ++ rest
-    } else { rest }
-  }
-}
-
-fn collect_variant_names(variants, idx) = {
-  if idx >= len(variants) { [] }
-  else {
-    let (name, _) = variants[idx]
-    [name] ++ collect_variant_names(variants, idx + 1)
-  }
+  emit_module(lowered, [])
 }
 
 // ─── REPL Pipes ─────────────────────────────────────────────
@@ -346,30 +316,6 @@ fn filter_non_imports(lines, idx) = {
     if len(line) >= 7 && string_slice(line, 0, 7) == "import " { rest }
     else { [line] ++ rest }
   }
-}
-
-// ─── Type Map (bridge to Phase 2) ──────────────────────────
-// Types are resolved. No subst needed.
-
-fn build_type_map(env) = build_type_map_iter(env, 0)
-
-fn build_type_map_iter(env, idx) = {
-  if idx >= len(env) { [] }
-  else {
-    let (name, ty, _) = env[idx]
-    [(name, type_tag(ty))] ++ build_type_map_iter(env, idx + 1)
-  }
-}
-
-fn type_tag(ty) = match ty {
-  TInt => "Int",
-  TFloat => "Float",
-  TString => "String",
-  TBool => "Bool",
-  TUnit => "Unit",
-  TList(_) => "List",
-  TFun(_, ret, _) => "Fn:" ++ type_tag(ret),
-  _ => "Unknown"
 }
 
 fn extract_constructors(env) = extract_ctors_iter(env, 0)

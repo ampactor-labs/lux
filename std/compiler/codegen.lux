@@ -424,6 +424,23 @@ fn compile_expr(ctx, sexpr) = {
     }
   },
 
+  FanOutExpr(left, right) => {
+    // a <| (f, g, h) => (f(a), g(a), h(a))
+    let S(raw_right, _, _) = right;
+    match raw_right {
+      TupleExpr(fns) => {
+        let ctx2 = compile_fan_out(ctx, fns, left)
+        emit_u16(emit_op(ctx2, OP_MAKE_TUPLE), len(fns))
+      },
+      _ => {
+        // a <| f => f(a)
+        let ctx2 = compile_expr(ctx, right)
+        let ctx3 = compile_expr(ctx2, left)
+        emit_u8(emit_op(ctx3, OP_CALL), 1)
+      }
+    }
+  },
+
   Index(obj, idx) => {
     let ctx2 = compile_expr(ctx, obj)
     let ctx3 = compile_expr(ctx2, idx)
@@ -481,6 +498,16 @@ fn compile_args(ctx, args) = {
   else {
     let ctx2 = compile_expr(ctx, args[0])
     compile_args(ctx2, slice(args, 1, len(args)))
+  }
+}
+
+fn compile_fan_out(ctx, fns, input) = {
+  if len(fns) == 0 { ctx }
+  else {
+    let ctx2 = compile_expr(ctx, fns[0])
+    let ctx3 = compile_expr(ctx2, input)
+    let ctx4 = emit_u8(emit_op(ctx3, OP_CALL), 1)
+    compile_fan_out(ctx4, slice(fns, 1, len(fns)), input)
   }
 }
 

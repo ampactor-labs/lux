@@ -1,6 +1,6 @@
 // Test: refinement type solver — compile-time predicate verification
 
-import compiler/checker
+import compiler/check
 import compiler/parser
 import compiler/lexer
 import compiler/codegen

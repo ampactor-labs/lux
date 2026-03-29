@@ -6,7 +6,7 @@
 // !Alloc callee from a !Alloc context provably works.
 
 import compiler/parser
-import compiler/checker
+import compiler/check
 
 println("=== Phase 14: Effect Unification ===")
 println("")

@@ -4,7 +4,7 @@
 // it explains WHY, at any depth you ask.
 
 import compiler/parser
-import compiler/checker
+import compiler/check
 
 println("=== Why Engine ===")
 

@@ -4,7 +4,7 @@
 // where you are, what you could do, what it unlocks.
 
 import compiler/parser
-import compiler/checker
+import compiler/check
 import compiler/gradient
 
 println("=== The Gradient ===")

@@ -1,7 +1,7 @@
 // WASM Text Format (WAT) Emitter — LowIR → WAT
 //
 // Emits WAT from LowIR. Targets WASI for standalone execution.
-// Context tuple ctx = (string_map, type_map, tag_map) threads through all emission.
+// Context tuple ctx = (string_map, tag_map, fn_table, top_globals) threads through all emission.
 //
 // Memory: [0-1023] scratch, [1024-N] string data [len:i32][bytes...], [N+...] heap.
 // Values: everything is i32. Strings/variants/tuples are heap pointers.
@@ -19,12 +19,11 @@ let DQ = from_char_code(34)
 let BS = from_char_code(92)
 
 // ─── Context helpers ────────────────────────────────────────
-// ctx = (string_map, type_map, tag_map, fn_table, top_globals)
+// ctx = (string_map, tag_map, fn_table, top_globals)
 fn ctx_strings(ctx)= ctx[0]
-fn ctx_types(ctx)= ctx[1]
-fn ctx_tags(ctx)= ctx[2]
-fn ctx_fns(ctx)= ctx[3]
-fn ctx_globals(ctx)= ctx[4]
+fn ctx_tags(ctx)= ctx[1]
+fn ctx_fns(ctx)= ctx[2]
+fn ctx_globals(ctx)= ctx[3]
 
 // ─── Module Structure ───────────────────────────────────────
 
@@ -38,7 +37,7 @@ fn emit_module(defs, type_map) = {
   let tag_map = collect_variant_tags(defs, 0)
   let fn_table = collect_fn_names(fns, 0)
   let max_arity = max_fn_arity(fns, 0)
-  let ctx = (string_map, type_map, tag_map, fn_table, top_globals)
+  let ctx = (string_map, tag_map, fn_table, top_globals)
   let header = "(module" ++ NL
     ++ emit_wasi_imports()
     ++ "  (memory (export " ++ DQ ++ "memory" ++ DQ ++ ") 1024)" ++ NL
@@ -303,21 +302,15 @@ fn emit_builtin(name, args, params, locals, ctx)= {
     emit_args(args, 0, params, locals, ctx) ++ "    call $fd_write" ++ NL
   } else { if name == "fd_read" {
     emit_args(args, 0, params, locals, ctx) ++ "    call $fd_read" ++ NL
-  // to_string dispatches by type — int_to_str is compiled Lux from memory.lux
-  } else { if name == "to_string" {
+  // to_string dispatches by type — lowering resolved this, int_to_str is the default
+  } else { if name == "to_string" || name == "int_to_str" {
     emit_args(args, 0, params, locals, ctx) ++ "    call $int_to_str" ++ NL
-  // LowerCtx effect operations — no-ops when compiled to WASM
-  } else { if name == "enter_fn" || name == "is_ctor" || name == "is_global"
-    || name == "find_rewrite" || name == "fresh_id" || name == "type_of_var" {
-    emit_args(args, 0, params, locals, ctx) ++ "    drop" ++ NL ++ "    i32.const 0" ++ NL
-  // VM builtins that have Lux equivalents in memory.lux
-  } else { if name == "string_slice" {
+  // str_slice: compiled Lux in memory.lux
+  } else { if name == "str_slice" || name == "string_slice" {
     emit_args(args, 0, params, locals, ctx) ++ "    call $str_slice" ++ NL
-  } else { if name == "type_of" {
-    emit_args(args, 0, params, locals, ctx) ++ "    drop" ++ NL ++ "    i32.const 0" ++ NL
   } else {
     "" // Not a primitive — compiled Lux handles it
-  } } } } } } } } } } } }
+  } } } } } } } } } }
 }
 
 fn emit_call_expr(func, args, params, locals, ctx)= {

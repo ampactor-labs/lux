@@ -9,7 +9,7 @@
 //       codegen.lux was checked by checker.lux (which uses these fresh IDs)
 //       All three are verified by the same mechanism: refinement types
 
-import compiler/checker
+import compiler/check
 import compiler/parser
 import compiler/lexer
 

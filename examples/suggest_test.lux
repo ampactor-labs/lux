@@ -2,7 +2,7 @@
 // Tests error quality in the self-hosted checker
 
 import compiler/parser
-import compiler/checker
+import compiler/check
 
 let nl = from_char_code(10)
 let lb = from_char_code(123)
