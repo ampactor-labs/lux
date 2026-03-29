@@ -216,16 +216,15 @@ impl Parser {
 
     pub(crate) fn parse_param(&mut self) -> Result<Param, LuxError> {
         // Check for ownership annotations: `own x: T` or `ref x: T`
-        let ownership = match self.peek() {
-            TokenKind::Own if self.peek_next_is_ident() => {
-                self.advance(); // consume `own`
-                crate::ast::Ownership::Own
-            }
-            TokenKind::Ref if self.peek_next_is_ident() => {
-                self.advance(); // consume `ref`
-                crate::ast::Ownership::Ref
-            }
-            _ => crate::ast::Ownership::Inferred,
+        // own/ref are context-sensitive identifiers, not keywords.
+        let ownership = if matches!(self.peek(), TokenKind::Ident(s) if s == "own") && self.peek_next_is_ident() {
+            self.advance(); // consume `own`
+            crate::ast::Ownership::Own
+        } else if matches!(self.peek(), TokenKind::Ident(s) if s == "ref") && self.peek_next_is_ident() {
+            self.advance(); // consume `ref`
+            crate::ast::Ownership::Ref
+        } else {
+            crate::ast::Ownership::Inferred
         };
 
         // Support `_` as wildcard, `(a, b)` as destructuring

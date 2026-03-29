@@ -81,9 +81,7 @@ pub enum TokenKind {
     With,
     Resume,
     Pub,
-    Own,
-    Ref,
-    Gc,
+    // Own, Ref, Gc — removed; context-sensitive in parser
     Use,
     Mod,
     Trait,

@@ -483,9 +483,8 @@ impl<'src> Lexer<'src> {
             // Continuation value in handler bodies. This allows multi-shot:
             // `resume(true) ++ resume(false)` goes through call_value.
             "pub" => TokenKind::Pub,
-            "own" => TokenKind::Own,
-            "ref" => TokenKind::Ref,
-            "gc" => TokenKind::Gc,
+            // own, ref, gc: context-sensitive in parse_param(), not keywords.
+            // This lets the self-hosted compiler use 'own' as an identifier.
             "use" => TokenKind::Use,
             "mod" => TokenKind::Mod,
             "trait" => TokenKind::Trait,
