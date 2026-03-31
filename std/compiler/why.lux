@@ -8,6 +8,9 @@
 // Pure display functions on a fully-resolved env.
 // The pipeline calls check, then passes env here.
 
+import compiler/lexer
+import compiler/parser
+import compiler/check
 import compiler/ty
 import compiler/display
 import compiler/eff
@@ -85,4 +88,23 @@ fn suggest_from_closed(name, effects) = {
     "\n  -> " ++ name ++ " does not access network"
     ++ "\n     add 'with !Network' to prove: sandboxed"
   } else { "" }}
+}
+
+// ─── Convenience Wrappers ──────────────────────────────────
+// Source in, explanation out. Compose parse |> check |> explain.
+
+fn check_and_explain(source, name, depth) = {
+  let env = check(source)
+  explain(env, name, depth)
+}
+
+fn check_and_show(source, depth) = {
+  let env = check(source)
+  explain_all(env, depth)
+}
+
+fn check_and_teach(source, name) = {
+  let ast = source |> lex |> parse_program
+  let env = ast |> check_program
+  teach(env, name, ast)
 }

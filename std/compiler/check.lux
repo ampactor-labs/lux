@@ -157,6 +157,7 @@ fn resolve_env(env, subst, eff_subst) = {
 fn check_program(stmts) = {
   let init_env = env_with_primitives(env_empty())
   handle {
+    prescan_fns(stmts)
     infer_stmts(stmts)
     get_env()
   } with state = (0, [], init_env, EfPure, [], eff_subst_empty()) {
@@ -226,6 +227,20 @@ fn check_program(stmts) = {
       resume(())
     }
   }
+}
+
+// Forward-reference prescan: bind FnStmt names with fresh types
+// so functions can reference each other regardless of definition order.
+// Uses the same Infer effect — no separate mechanism.
+fn prescan_fns(stmts) with Infer = {
+  if len(stmts) > 0 {
+    let s = to_string(stmts[0])
+    if starts_with(s, "FnStmt(") {
+      let name = stmts[0][0]
+      bind(name, fresh(), Inferred("forward declaration"))
+    } else { () }
+    prescan_fns(slice(stmts, 1, len(stmts)))
+  } else { () }
 }
 
 // Source in, truth out.
