@@ -5,7 +5,7 @@
 //   - Variant construction (emit_make_variant, emit_variant_fields)
 //   - Match compilation (emit_match, emit_match_arms, emit_bind_fields)
 //   - Closure captures (emit_closure_captures, find_self_capture)
-//   - Print dispatch (emit_println, is_string_expr)
+//   - (println dispatch removed — lowering resolves to print_string/print_int)
 //
 // All functions are Pure — they produce WAT text strings, no side effects.
 // They call emit_expr from wasm_emit.lux via mutual recursion.
@@ -181,34 +181,3 @@ fn emit_bind_fields(sub_pats, idx, params, locals, ctx)= {
   }
 }
 
-// ─── println Dispatch ───────────────────────────────────────
-
-fn emit_println(args, params, locals, ctx)= {
-  if len(args) == 0 { "" }
-  else {
-    let arg = args[0]
-    if is_string_expr(arg) {
-      emit_expr(arg, params, locals, ctx) ++ "    call $print_string" ++ NL
-    } else {
-      match arg {
-        LCall(func, inner_args) => match func {
-          LGlobal(name) => {
-            if name == "to_string" {
-              emit_expr(inner_args[0], params, locals, ctx) ++ "    call $print_int" ++ NL
-            } else {
-              emit_expr(arg, params, locals, ctx) ++ "    call $print_int" ++ NL
-            }
-          },
-          _ => emit_expr(arg, params, locals, ctx) ++ "    call $print_int" ++ NL
-        },
-        _ => emit_expr(arg, params, locals, ctx) ++ "    call $print_int" ++ NL
-      }
-    }
-  }
-}
-
-fn is_string_expr(e)= match e {
-  LConst(v) => match v { LString(_) => true, _ => false },
-  LBinOp(op, _, _) => op == "Concat",
-  _ => false
-}

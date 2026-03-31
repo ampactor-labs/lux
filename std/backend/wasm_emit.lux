@@ -163,13 +163,8 @@ fn emit_expr(e, params, locals, ctx)= match e {
   },
   LLet(name, value) => emit_expr(value, params, locals, ctx) ++ "    local.set $" ++ name ++ NL,
   LBlock(stmts) => emit_stmts_value(stmts, 0, params, locals, ctx),
-  LBinOp(op, l, r) => {
-    if op == "Concat" {
-      emit_expr(l, params, locals, ctx) ++ emit_expr(r, params, locals, ctx) ++ "    call $str_concat" ++ NL
-    } else {
-      emit_expr(l, params, locals, ctx) ++ emit_expr(r, params, locals, ctx) ++ emit_binop(op)
-    }
-  },
+  LBinOp(op, l, r) =>
+    emit_expr(l, params, locals, ctx) ++ emit_expr(r, params, locals, ctx) ++ emit_binop(op),
   LUnaryOp(op, inner) => match op {
     "Neg" => "    i32.const 0" ++ NL ++ emit_expr(inner, params, locals, ctx) ++ "    i32.sub" ++ NL,
     "Not" => emit_expr(inner, params, locals, ctx) ++ "    i32.eqz" ++ NL,
