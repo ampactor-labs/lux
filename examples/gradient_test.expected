@@ -6,7 +6,7 @@
    start with (1).
 
 --- effectful function ---
-  logger: (?2) -> ?2 with Log
+  logger: (?3) -> ?3 with Log
    1. add `with !Alloc` -> real-time safe, embeddable
    2. add `with !Network` -> sandboxed
    start with (1).
@@ -20,11 +20,9 @@ suggestions: 0
    start with (1).
 
 --- handler absorption path ---
-effect error: 'processor' declares !Alloc but performs Alloc
-  hint: wrap the Alloc-performing code in a handler to absorb it
-  processor: (Int) -> Int with 
+  processor: (Int) -> Int with Alloc
    1. wrap Alloc calls in handler
-   2. add `with Pure` -> memoization, parallelism, compile-time eval
+   2. add `with !Network` -> sandboxed
    start with (1).
 
 === The compiler illuminates ===

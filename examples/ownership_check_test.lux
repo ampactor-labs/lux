@@ -2,6 +2,7 @@
 // Tests own/ref enforcement through the self-hosted checker.
 
 import compiler/check
+import compiler/why
 
 println("=== Phase 15: Ownership Checking ===")
 println("")

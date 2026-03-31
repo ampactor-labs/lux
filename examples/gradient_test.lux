@@ -14,8 +14,8 @@ println("")
 println("--- pure function ---")
 let source1 = 'fn double(x) = x * 2'
 let stmts1 = parse(source1)
-let (env1, subst1, _) = check_program(stmts1)
-let g1 = compute_gradient(env1, subst1, stmts1)
+let env1 = check_program(stmts1)
+let g1 = compute_gradient(env1, stmts1)
 println(render_gradient(g1))
 println("")
 
@@ -24,8 +24,8 @@ println("--- effectful function ---")
 let source2 = 'effect Log { log(msg) -> () }
 fn logger(x) = { log("computing"); x }'
 let stmts2 = parse(source2)
-let (env2, subst2, _) = check_program(stmts2)
-let g2 = compute_gradient(env2, subst2, stmts2)
+let env2 = check_program(stmts2)
+let g2 = compute_gradient(env2, stmts2)
 println(render_gradient(g2))
 println("")
 
@@ -33,8 +33,8 @@ println("")
 println("--- already annotated ---")
 let source3 = 'fn safe(x) with Pure = x + 1'
 let stmts3 = parse(source3)
-let (env3, subst3, _) = check_program(stmts3)
-let g3 = compute_gradient(env3, subst3, stmts3)
+let env3 = check_program(stmts3)
+let g3 = compute_gradient(env3, stmts3)
 let (fgs3, _) = g3
 println("suggestions: " ++ to_string(len(fgs3)))
 println("")
@@ -45,8 +45,8 @@ let source4 = 'fn add(a, b) = a + b
 fn mul(a, b) = a * b
 fn compose(x) = add(x, mul(x, x))'
 let stmts4 = parse(source4)
-let (env4, subst4, _) = check_program(stmts4)
-let g4 = compute_gradient(env4, subst4, stmts4)
+let env4 = check_program(stmts4)
+let g4 = compute_gradient(env4, stmts4)
 println(render_gradient(g4))
 println("")
 
@@ -55,8 +55,8 @@ println("--- handler absorption path ---")
 let source5 = 'effect Alloc { alloc(n) -> Int }
 fn processor(x) with !Alloc = { alloc(x); x * 2 }'
 let stmts5 = parse(source5)
-let (env5, subst5, _) = check_program(stmts5)
-let g5 = compute_gradient(env5, subst5, stmts5)
+let env5 = check_program(stmts5)
+let g5 = compute_gradient(env5, stmts5)
 println(render_gradient(g5))
 println("")
 

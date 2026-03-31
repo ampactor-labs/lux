@@ -5,6 +5,7 @@
 
 import compiler/parser
 import compiler/check
+import compiler/why
 
 println("=== Why Engine ===")
 

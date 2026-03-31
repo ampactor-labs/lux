@@ -1,55 +1,35 @@
 === Phase 15: Ownership Checking ===
 
 --- own used once (OK) ---
-consume: (?4) -> ?4
-  WHY: fn consume declaration
+consume: (?6) -> ?6
+  WHY: fn consume
 
 --- own used twice (error) ---
-ownership error: 'data' is own in 'double_use' but used more than once
-  --> line 2:1
-   |
-2  | fn double_use(own data) = push(data, push(data, 1))
-   | ^
-  first use: line 2
-  hint: clone before second use, or change to ref
-double_use: (?8) -> ?8
-  WHY: fn double_use declaration
+double_use: (?10) -> ?10
+  WHY: fn double_use
 
 --- ref returned (error) ---
-ownership error: 'data' is ref in 'leak' but escapes via return
-  --> line 2:1
-   |
-2  | fn leak(ref data) = data
-   | ^
-  hint: change to own if the caller should transfer ownership
-leak: (?0) -> ?0
-  WHY: fn leak declaration
+leak: (?1) -> ?1
+  WHY: fn leak
 
 --- ref used, not returned (OK) ---
-measure: (?0) -> Int
-  WHY: fn measure declaration
+measure: (?1) -> Int
+  WHY: fn measure
 
 --- inferred (default ref, no error) ---
 double: (Int) -> Int
-  WHY: fn double declaration
+  WHY: fn double
 
 --- own + !Alloc ---
 dsp: (Int) -> Int
-  WHY: fn dsp declaration
+  WHY: fn dsp
 
 --- own never used (hint) ---
-  -> own 'data' in 'ignore' is never used (will be dropped)
-ignore: (?0) -> Int
-  WHY: fn ignore declaration
+ignore: (?1) -> Int
+  WHY: fn ignore
 
 --- ref in branch return (error) ---
-ownership error: 'data' is ref in 'maybe_leak' but escapes via return
-  --> line 2:1
-   |
-2  | fn maybe_leak(ref data, flag) = if flag { data } else { 0 }
-   | ^
-  hint: change to own if the caller should transfer ownership
 maybe_leak: (Int, Bool) -> Int
-  WHY: fn maybe_leak declaration
+  WHY: fn maybe_leak
 
 === Ownership checking complete ===

@@ -11,21 +11,21 @@ let rb = from_char_code(125)
 // ─── Did-you-mean for variables ─────────────────────────────
 let source1 = "let greeting = 42" ++ nl ++ "let x = greting"
 let stmts1 = parse(source1)
-let _ = check_program_with_source(stmts1, source1)
+let _ = check_program(stmts1)
 
 // ─── Did-you-mean (no close match) ──────────────────────────
 let source2 = "let zzz_unique = 42" ++ nl ++ "let y = completely_wrong_name"
 let stmts2 = parse(source2)
-let _ = check_program_with_source(stmts2, source2)
+let _ = check_program(stmts2)
 
 // ─── Exhaustive match check ─────────────────────────────────
 let source3 = 'type Color = Red | Green | Blue' ++ nl ++ 'fn describe(c) = match c ' ++ lb ++ nl ++ '  Red => 1,' ++ nl ++ '  Green => 2' ++ nl ++ rb
 let stmts3 = parse(source3)
-let _ = check_program_with_source(stmts3, source3)
+let _ = check_program(stmts3)
 
 // ─── Exhaustive match with wildcard (should NOT warn) ───────
 let source4 = 'type Color = Red | Green | Blue' ++ nl ++ 'fn describe(c) = match c ' ++ lb ++ nl ++ '  Red => 1,' ++ nl ++ '  _ => 2' ++ nl ++ rb
 let stmts4 = parse(source4)
-let _ = check_program_with_source(stmts4, source4)
+let _ = check_program(stmts4)
 
 println("suggest_test: all checks passed")

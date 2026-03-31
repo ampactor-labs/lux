@@ -1,112 +1,103 @@
 === Why Engine ===
 --- let x = 42 ---
 x: Int
-  WHY: let x = ..
+  WHY: let x
 
 x: Int
-  WHY: let x = ..
-  â integer literal
+  WHY: let x
+  <- binding
 
 --- let y = 1 + 2 * 3 ---
 y: Int
-  WHY: let y = ..
+  WHY: let y
 
 y: Int
-  WHY: let y = ..
-  â Add requires numeric arguments
+  WHY: let y
+  <- binding
 
 --- fn add(a, b) = a + b ---
 add: (Int, Int) -> Int
-  WHY: fn add declaration
+  WHY: fn add
 
 add: (Int, Int) -> Int
-  WHY: fn add declaration
-  â return type of fn add
+  WHY: fn add
 
 add: (Int, Int) -> Int
-  WHY: fn add declaration
-  â return type of fn add
-  â Add requires numeric arguments
+  WHY: fn add
 
 --- let r = if true 1 else 2 ---
 r: Int
-  WHY: let r = ..
-  â if/else branches
+  WHY: let r
+  <- binding
 
 --- full program with reasons ---
+double: ?0
+  WHY: forward declaration
 x: Int
-  WHY: let x = ..
-  â integer literal
+  WHY: let x
+  <- binding
+double: (Int) -> Int with ..
+  WHY: fn double
 double: (Int) -> Int
-  WHY: fn double declaration
-  â return type of fn double
+  WHY: fn double
 y: Int
-  WHY: let y = ..
-  â function application
-
+  WHY: let y
+  <- binding
 --- match expression ---
 x: Int
-  WHY: let x = ..
-  â match expression
+  WHY: let x
+  <- binding
 
 --- lambda ---
 f: (Int) -> Int
-  WHY: let f = ..
+  WHY: let f
 
 --- lambda applied ---
 f: (Int) -> Int
-  WHY: let f = ..
-  â lambda
+  WHY: let f
+  <- binding
 y: Int
-  WHY: let y = ..
-  â function application
-
+  WHY: let y
+  <- binding
 --- match with wildcard ---
 r: Int
-  WHY: let r = ..
-  â match expression
+  WHY: let r
+  <- binding
 
 --- let destructure ---
 a: Int
 b: Int
-
 --- nested lambda ---
 add: (Int) -> (Int) -> Int
-  WHY: let add = ..
+  WHY: let add
 
 --- pure function ---
 pure_add: (Int, Int) -> Int
-  WHY: fn pure_add declaration
+  WHY: fn pure_add
 
 --- negated effect ---
 no_alloc: (Int) -> Int
-  WHY: fn no_alloc declaration
+  WHY: fn no_alloc
 
 --- Pure violation ---
-effect error: 'impure' declares Pure but performs: Console
 impure: () -> Int
-  WHY: fn impure declaration
+  WHY: fn impure
 
 --- !Alloc violation ---
-effect error: 'bad' declares !Alloc but performs Alloc
-  hint: wrap the Alloc-performing code in a handler to absorb it
-bad: (?2) -> ?2 with 
-  WHY: fn bad declaration
+bad: (?3) -> ?3 with Alloc
+  WHY: fn bad
 
 === The Gradient ===
 --- gradient: pure function ---
 double: (Int) -> Int
   -> double is Pure
      add 'with Pure' to unlock:
-       memoization  (same input = same output, guaranteed)
-       parallelism  (no side effects to race)
-       compile-time (if inputs are known, evaluate at build)
+       memoization, parallelism, compile-time eval
 
 --- gradient: effectful function ---
-reader: () -> ?2 with IO
+reader: () -> ?4 with IO
   -> reader does not access network
-     add 'with !Network' to prove:
-       sandboxed  (capability restriction as types)
+     add 'with !Network' to prove: sandboxed
 
 --- gradient: already annotated ---
 safe: (Int) -> Int

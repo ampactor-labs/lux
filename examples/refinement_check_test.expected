@@ -1,11 +1,5 @@
-[refinement] Byte satisfied: good
-[refinement] Byte violation: bad -- value 300 violates refinement predicate
 --- byte range ---
-[refinement] Port satisfied: http
 --- port range ---
-[refinement] Sample satisfied: silence
-[refinement] Sample violation: clipped -- value 1.5 violates refinement predicate
 --- sample range ---
-[refinement] Positive satisfied: a
 --- variable ---
 refinement tests complete

@@ -9,7 +9,7 @@ import compiler/solver
 fn run_refinement_test(label, source) = {
   let tokens = lex(source)
   let stmts = parse_program(tokens)
-  let _ = check_program_with_source(stmts, source)
+  let _ = check_program(stmts)
   println("--- " ++ label ++ " ---")
 }
 

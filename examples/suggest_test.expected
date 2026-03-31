@@ -1,11 +1,2 @@
 Error: unknown variable 'greting' â did you mean 'greeting'?
-  --> line 2:9
-   |
-2  | let x = greting
-   |         ^
-Warning: non-exhaustive match â missing: Blue
-  --> line 2:24
-   |
-2  | fn describe(c) = match c {
-   |                        ^
 suggest_test: all checks passed

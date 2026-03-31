@@ -48,7 +48,7 @@ println("")
 
 let tokens = lex(verification_source)
 let stmts = parse_program(tokens)
-let _ = check_program_with_source(stmts, verification_source)
+let _ = check_program(stmts)
 
 println("")
 println("The compiler verifies itself.")

@@ -1,66 +1,6 @@
 === Self-Verification Report ===
 Verifying compiler data structure invariants...
 
-[refinement] Opcode satisfied: op_load_const
-[refinement] StackDepth satisfied: op_load_const
-[refinement] FreshId satisfied: op_load_const
-[refinement] Opcode satisfied: op_load_int
-[refinement] StackDepth satisfied: op_load_int
-[refinement] FreshId satisfied: op_load_int
-[refinement] Opcode satisfied: op_load_bool
-[refinement] StackDepth satisfied: op_load_bool
-[refinement] FreshId satisfied: op_load_bool
-[refinement] Opcode satisfied: op_load_unit
-[refinement] StackDepth satisfied: op_load_unit
-[refinement] FreshId satisfied: op_load_unit
-[refinement] Opcode satisfied: op_add
-[refinement] StackDepth satisfied: op_add
-[refinement] FreshId satisfied: op_add
-[refinement] Opcode satisfied: op_eq
-[refinement] StackDepth satisfied: op_eq
-[refinement] FreshId satisfied: op_eq
-[refinement] Opcode satisfied: op_jump
-[refinement] StackDepth satisfied: op_jump
-[refinement] FreshId satisfied: op_jump
-[refinement] Opcode satisfied: op_call
-[refinement] StackDepth satisfied: op_call
-[refinement] FreshId satisfied: op_call
-[refinement] Opcode satisfied: op_return
-[refinement] StackDepth satisfied: op_return
-[refinement] FreshId satisfied: op_return
-[refinement] Opcode satisfied: op_make_list
-[refinement] StackDepth satisfied: op_make_list
-[refinement] FreshId satisfied: op_make_list
-[refinement] Opcode satisfied: op_perform
-[refinement] StackDepth satisfied: op_perform
-[refinement] FreshId satisfied: op_perform
-[refinement] Opcode satisfied: op_resume
-[refinement] StackDepth satisfied: op_resume
-[refinement] FreshId satisfied: op_resume
-[refinement] Opcode satisfied: op_string_interp
-[refinement] StackDepth satisfied: op_string_interp
-[refinement] FreshId satisfied: op_string_interp
-[refinement] Opcode satisfied: empty_stack
-[refinement] StackDepth satisfied: empty_stack
-[refinement] FreshId satisfied: empty_stack
-[refinement] Opcode satisfied: after_push
-[refinement] StackDepth satisfied: after_push
-[refinement] FreshId satisfied: after_push
-[refinement] Opcode satisfied: nested
-[refinement] StackDepth satisfied: nested
-[refinement] FreshId satisfied: nested
-[refinement] Opcode satisfied: first_var
-[refinement] StackDepth satisfied: first_var
-[refinement] FreshId satisfied: first_var
-[refinement] Opcode satisfied: hundredth_var
-[refinement] StackDepth satisfied: hundredth_var
-[refinement] FreshId satisfied: hundredth_var
-[refinement] Opcode violation: bad_opcode -- value 200 violates refinement predicate
-[refinement] StackDepth satisfied: bad_opcode
-[refinement] FreshId satisfied: bad_opcode
-[refinement] Opcode violation: bad_depth -- value -1 violates refinement predicate
-[refinement] StackDepth violation: bad_depth -- value -1 violates refinement predicate
-[refinement] FreshId violation: bad_depth -- value -1 violates refinement predicate
 
 The compiler verifies itself.
 solver.lux proved these properties.

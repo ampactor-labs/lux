@@ -2,46 +2,40 @@
 
 --- transitive !Alloc: pure callee passes ---
 caller: (Int) -> Int
-  WHY: fn caller declaration
+  WHY: fn caller
 
 --- transitive !Alloc: violation detected ---
-effect error: 'bad_caller' declares !Alloc but performs Alloc
-  hint: wrap the Alloc-performing code in a handler to absorb it
-bad_caller: (?8) -> ?8 with 
-  WHY: fn bad_caller declaration
+bad_caller: (?12) -> ?12 with Alloc
+  WHY: fn bad_caller
 
 --- transitive chain: three levels ---
-effect error: 'level_a' declares !Network but performs Network
-  hint: wrap the Network-performing code in a handler to absorb it
-level_a: (Int) -> Int with 
-  WHY: fn level_a declaration
+level_a: (Int) -> Int with Network
+  WHY: fn level_a
 
 --- Pure calls Pure ---
 pure_fn: (Int) -> Int
-  WHY: fn pure_fn declaration
+  WHY: fn pure_fn
 
 --- effect union from callees ---
-both: (?17) -> ?17 with Log, Store
-  WHY: fn both declaration
+both: (?23) -> ?23 with Log
+  WHY: fn both
 
 --- gradient: transitive purity ---
 quad: (Int) -> Int
   -> quad is Pure
      add 'with Pure' to unlock:
-       memoization  (same input = same output, guaranteed)
-       parallelism  (no side effects to race)
-       compile-time (if inputs are known, evaluate at build)
+       memoization, parallelism, compile-time eval
 
 --- !Alloc on pure arithmetic ---
-clamp: (?2, ?2, ?2) -> ?2
-  WHY: fn clamp declaration
+clamp: (?3, ?3, ?3) -> ?3
+  WHY: fn clamp
 
 --- handler absorbs effects ---
-outer: (?8) -> ?10 with 
-  WHY: fn outer declaration
+outer: (?11) -> ?14 with Alloc
+  WHY: fn outer
 
 --- partial absorption ---
-handled: (?13) -> ?13 with Store
-  WHY: fn handled declaration
+handled: (?17) -> ?17 with Log
+  WHY: fn handled
 
 === Effect unification complete ===
