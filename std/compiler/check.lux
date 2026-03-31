@@ -175,7 +175,10 @@ fn check_program(stmts) = {
         } else { () }
         resume(TVar(n)) with state = (n + 1, s, e, ef, sc, es)
       } else {
-        if has_negative_tvars(ty) {
+        // Instantiate polymorphic types: builtins (negative TVars) AND
+        // effect ops (positive TVars, shared across handlers — each use
+        // needs fresh copies so handlers don't cross-contaminate types).
+        if needs_instantiation(ty, reason) {
           let (inst_ty, c2, _) = instantiate_type(ty, (n, es), [])
           let (new_n, new_es) = c2
           resume(apply(s, inst_ty)) with state = (new_n, s, e, ef, sc, new_es)
@@ -226,6 +229,17 @@ fn check_program(stmts) = {
       println(kind ++ ": " ++ msg)
       resume(())
     }
+  }
+}
+
+// Effect ops and builtins are polymorphic — shared bindings that
+// need fresh type vars at each use site. Without this, all handlers
+// for the same effect cross-contaminate types through shared TVars.
+fn needs_instantiation(ty, reason) = {
+  if has_negative_tvars(ty) { true }
+  else {
+    let s = to_string(reason)
+    starts_with(s, "Declared(") && (contains(s, "effect op") || contains(s, "constructor"))
   }
 }
 

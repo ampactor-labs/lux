@@ -118,21 +118,20 @@ fn env_with_primitives(env) = {
 
 fn instantiate_type(ty, counter, mapping) = match ty {
   TVar(id) => {
-    if id >= 0 { (ty, counter, mapping) }
+    let existing = find_inst_mapping(mapping, id)
+    if existing >= 0 { (TVar(existing), counter, mapping) }
     else {
-      let existing = find_inst_mapping(mapping, id)
-      if existing >= 0 { (TVar(existing), counter, mapping) }
-      else {
-        let (fresh, c2) = fresh_var(counter)
-        let (c2_id, _) = c2
-        (fresh, c2, [(id, c2_id - 1)] ++ mapping)
-      }
+      let (fresh, c2) = fresh_var(counter)
+      let (c2_id, _) = c2
+      (fresh, c2, [(id, c2_id - 1)] ++ mapping)
     }
   },
   TFun(params, ret, eff) => {
     let (new_params, c2, m2) = instantiate_types(params, counter, mapping)
     let (new_ret, c3, m3) = instantiate_type(ret, c2, m2)
-    (TFun(new_params, new_ret, eff), c3, m3)
+    let new_eff = instantiate_eff(eff, c3, m3)
+    let (inst_eff, c4, m4) = new_eff
+    (TFun(new_params, new_ret, inst_eff), c4, m4)
   },
   TList(elem) => {
     let (new_elem, c2, m2) = instantiate_type(elem, counter, mapping)
@@ -148,6 +147,19 @@ fn instantiate_types(tys, counter, mapping) = {
     let (new_tail, c3, m3) = instantiate_types(slice(tys, 1, len(tys)), c2, m2)
     ([new_head] ++ new_tail, c3, m3)
   }
+}
+
+fn instantiate_eff(eff, counter, mapping) = match eff {
+  EfOpen(names, var) => {
+    let existing = find_inst_mapping(mapping, var)
+    if existing >= 0 { (EfOpen(names, existing), counter, mapping) }
+    else {
+      let (fresh, c2) = fresh_var(counter)
+      let (c2_id, _) = c2
+      (EfOpen(names, c2_id - 1), c2, [(var, c2_id - 1)] ++ mapping)
+    }
+  },
+  _ => (eff, counter, mapping)
 }
 
 fn find_inst_mapping(mapping, id) = {

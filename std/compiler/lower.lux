@@ -109,10 +109,10 @@ fn lower_expr(sexpr, env) = {
               }
             } else {
               let effs = get_user_effects(name, env)
-              // Only pass dicts when inside a handle block that provides them.
-              // find_rewrite returns non-empty if we're inside a handler for that effect's ops.
-              let available_effs = filter(|e| has_active_handler(e, env), effs)
-              let dict_args = map(|e| LGlobal("__dict_" ++ e), available_effs)
+              // Pass dicts for all user effects the callee performs.
+              // The dict is available as a param (from FnStmt lowering) or
+              // as a local (from handle block dict init). The emitter resolves.
+              let dict_args = map(|e| LGlobal("__dict_" ++ e), effs)
               LCall(lower_expr(func, env), lower_exprs(args, env) ++ dict_args)
             } } } }
           }
