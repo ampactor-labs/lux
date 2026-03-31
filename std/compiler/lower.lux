@@ -67,7 +67,9 @@ fn lower_expr(sexpr, env) = {
         let r = lower_expr(right, env)
         let eq = match inferred_type(left, env) {
           TString => LCall(LGlobal("str_eq"), [l, r]),
-          _ => LBinOp("Eq", l, r)
+          TInt => LBinOp("Eq", l, r),
+          TBool => LBinOp("Eq", l, r),
+          _ => LCall(LGlobal("val_eq"), [l, r])
         }
         if op == "Neq" { LUnaryOp("Not", eq) } else { eq }
       } else { if op == "Concat" {
