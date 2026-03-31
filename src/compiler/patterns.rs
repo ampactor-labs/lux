@@ -269,8 +269,22 @@ impl Compiler {
                     self.compile_let_pattern_global(p, line)?;
                 }
             }
+            Pattern::Variant {
+                name: _,
+                fields,
+                span: _,
+            } => {
+                for (i, p) in fields.iter().enumerate() {
+                    self.emit_op(OpCode::LoadGlobal, line);
+                    self.emit_u16(scratch, line);
+                    self.emit_op(OpCode::LoadInt, line);
+                    self.emit_u8(i as u8, line);
+                    self.emit_op(OpCode::ListIndex, line);
+                    self.compile_let_pattern_global(p, line)?;
+                }
+            }
             Pattern::Wildcard(_) => {}
-            _ => {} // Record/List: extend as needed
+            _ => {}
         }
         Ok(())
     }

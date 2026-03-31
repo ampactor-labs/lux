@@ -81,12 +81,7 @@ fn lower_expr(sexpr, env) = {
       let S(f, _, _) = func
       match f {
         VarRef(name) => {
-          let (is_op, eff_name, op_idx) = get_op_info(name, env)
-          if is_op {
-            let dict_var = LGlobal("__dict_" ++ eff_name)
-            let op_ptr = LIndex(dict_var, LConst(LInt(op_idx)))
-            LCall(op_ptr, lower_exprs(args, env))
-          } else {
+          {
             if is_ctor(name) { LMakeVariant(name, lower_exprs(args, env)) }
             else { if (name == "println" || name == "print") && len(args) > 0 {
               let arg = args[0]
@@ -108,12 +103,7 @@ fn lower_expr(sexpr, env) = {
                 _ => LCall(LGlobal("slice"), lower_exprs(args, env))
               }
             } else {
-              let effs = get_user_effects(name, env)
-              // Pass dicts for all user effects the callee performs.
-              // The dict is available as a param (from FnStmt lowering) or
-              // as a local (from handle block dict init). The emitter resolves.
-              let dict_args = map(|e| LGlobal("__dict_" ++ e), effs)
-              LCall(lower_expr(func, env), lower_exprs(args, env) ++ dict_args)
+              LCall(lower_expr(func, env), lower_exprs(args, env))
             } } } }
           }
         },
@@ -256,7 +246,7 @@ fn lower_stmt(stmt, env) = match stmt {
     let pat_str = to_string(pat)
     if starts_with(pat_str, "PCon(") {
       let names = extract_pvar_names_from_string(pat_str)
-      LBlock([LLet("_lp", lowered)] ++ lower_destructure_bindings_offset(names, 1, 0))
+      LBlock([LLet("_lp", lowered)] ++ lower_destructure_bindings_offset(names, 0, 0))
     } else { if starts_with(pat_str, "PTuple(") {
       let names = extract_pvar_names_from_string(pat_str)
       LBlock([LLet("_lp", lowered)] ++ lower_destructure_bindings_offset(names, 0, 0))
@@ -269,14 +259,17 @@ fn lower_stmt(stmt, env) = match stmt {
   },
   FnStmt(name, params, body, _) => {
     let base_params = extract_param_names(params)
-    let effs = get_user_effects(name, env)
-    let dict_params = map(|e| "__dict_" ++ e, effs)
-    let param_names = base_params ++ dict_params
+    let param_names = base_params
     if is_global(name) { LLet(name, lower_lambda(name, param_names, body, env)) }
     else { LLet(name, lower_lambda_inner(name, param_names, body, env)) }
   },
   ExprStmt(expr) => lower_expr(expr, env),
-  EffectDeclStmt(_, ops) => LBlock(emit_dummy_ops(ops, env)),
+  EffectDeclStmt(eff_name, ops) => {
+    // Runtime effects (Memory, Alloc, WASI) are handled by emit_builtin.
+    // Only user effects get dummy op stubs.
+    if eff_name == "Memory" || eff_name == "Alloc" || eff_name == "WASI" { LConst(LUnit) }
+    else { LBlock(emit_dummy_ops(ops, env)) }
+  },
   _ => LConst(LUnit)
 }
 
@@ -317,7 +310,7 @@ fn lower_destructure_bindings(names, idx) = {
 
 fn lower_handle(body, arms, state_bindings, env) = {
   let rw_map = build_rewrite_map(arms)
-  let dict_inits = build_user_effect_dicts(rw_map, env)
+  let dict_inits = []
   let state_inits = lower_state_inits(state_bindings, env)
   let lowered_body = handle {
     lower_expr(body, env)

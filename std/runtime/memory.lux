@@ -248,10 +248,9 @@ fn chars(s) with Memory, Alloc = {
   list
 }
 
-fn println(x) with Memory, Alloc = {
-  print_int(x)
-  print_newline()
-}
+// println is NOT a runtime function. The lowering dispatches it
+// at compile time: print_string or print_int based on type_of.
+// Defining it here would shadow the dispatch with always-print_int.
 
 fn print_newline() with Memory = {
   store_i8(200, 10)

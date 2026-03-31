@@ -1234,55 +1234,53 @@ impl Compiler {
         // wrapped in a closure so they're first-class: |x| resolve(x)
         if self.scope.scope_depth > 0 {
             if let Some(_effect_name) = self.effect_ops.get(name).cloned() {
-            // Build a wrapper closure: fn(arg) { Perform op_name 1; Return }
-            let outer_scope = std::mem::replace(&mut self.scope, super::scope::Scope::new());
-            let mut wrapper = Compiler::new(
-                &format!("<effect:{name}>"),
-                self.effect_routing.clone(),
-            );
-            wrapper.effect_ops = self.effect_ops.clone();
-            wrapper.scope.enclosing = Some(Box::new(outer_scope));
-            wrapper.scope.begin_scope();
-            wrapper.scope.declare_local("__arg__");
+                // Build a wrapper closure: fn(arg) { Perform op_name 1; Return }
+                let outer_scope = std::mem::replace(&mut self.scope, super::scope::Scope::new());
+                let mut wrapper =
+                    Compiler::new(&format!("<effect:{name}>"), self.effect_routing.clone());
+                wrapper.effect_ops = self.effect_ops.clone();
+                wrapper.scope.enclosing = Some(Box::new(outer_scope));
+                wrapper.scope.begin_scope();
+                wrapper.scope.declare_local("__arg__");
 
-            // Check if this op should use evidence dispatch
-            if let Some(&ev_local) = self.evidence_slots.get(name) {
-                // Evidence path
-                wrapper.emit_op(OpCode::LoadLocal, line);
-                wrapper.emit_u16(0, line); // __arg__
-                wrapper.emit_op(OpCode::PerformEvidence, line);
-                wrapper.emit_u16(ev_local, line);
-                let op_name_idx = wrapper.chunk.intern_name(name);
-                wrapper.emit_u16(op_name_idx, line);
-                wrapper.emit_u8(1, line);
-            } else {
-                // Normal Perform path
-                wrapper.emit_op(OpCode::LoadLocal, line);
-                wrapper.emit_u16(0, line); // __arg__
-                let op_name_idx = wrapper.chunk.intern_name(name);
-                wrapper.emit_op(OpCode::Perform, line);
-                wrapper.emit_u16(op_name_idx, line);
-                wrapper.emit_u8(1, line); // 1 argument
+                // Check if this op should use evidence dispatch
+                if let Some(&ev_local) = self.evidence_slots.get(name) {
+                    // Evidence path
+                    wrapper.emit_op(OpCode::LoadLocal, line);
+                    wrapper.emit_u16(0, line); // __arg__
+                    wrapper.emit_op(OpCode::PerformEvidence, line);
+                    wrapper.emit_u16(ev_local, line);
+                    let op_name_idx = wrapper.chunk.intern_name(name);
+                    wrapper.emit_u16(op_name_idx, line);
+                    wrapper.emit_u8(1, line);
+                } else {
+                    // Normal Perform path
+                    wrapper.emit_op(OpCode::LoadLocal, line);
+                    wrapper.emit_u16(0, line); // __arg__
+                    let op_name_idx = wrapper.chunk.intern_name(name);
+                    wrapper.emit_op(OpCode::Perform, line);
+                    wrapper.emit_u16(op_name_idx, line);
+                    wrapper.emit_u8(1, line); // 1 argument
+                }
+
+                wrapper.emit_op(OpCode::Return, line);
+
+                let upvalues: Vec<_> = wrapper.scope.upvalues.clone();
+                let enclosing = wrapper.scope.enclosing.take().unwrap();
+                self.scope = *enclosing;
+
+                let mut proto = wrapper.finish();
+                proto.arity = 1;
+
+                let proto_idx = self.chunk.add_constant(Constant::FnProto(Arc::new(proto)));
+                self.emit_op(OpCode::MakeClosure, line);
+                self.emit_u16(proto_idx, line);
+                for uv in &upvalues {
+                    self.emit_u8(u8::from(uv.is_local), line);
+                    self.emit_u16(uv.index, line);
+                }
+                return;
             }
-
-            wrapper.emit_op(OpCode::Return, line);
-
-            let upvalues: Vec<_> = wrapper.scope.upvalues.clone();
-            let enclosing = wrapper.scope.enclosing.take().unwrap();
-            self.scope = *enclosing;
-
-            let mut proto = wrapper.finish();
-            proto.arity = 1;
-
-            let proto_idx = self.chunk.add_constant(Constant::FnProto(Arc::new(proto)));
-            self.emit_op(OpCode::MakeClosure, line);
-            self.emit_u16(proto_idx, line);
-            for uv in &upvalues {
-                self.emit_u8(u8::from(uv.is_local), line);
-                self.emit_u16(uv.index, line);
-            }
-            return;
-        }
         }
         // Fall back to global
         let name_idx = self.chunk.intern_name(name);
