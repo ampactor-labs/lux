@@ -3,7 +3,7 @@
 // Between AST and WASM. No handler stack, no stack unwinding, no
 // continuation replay. Just Loop, Switch, State, Call.
 //
-// type_of reads the frozen env directly. No heuristics. No string
+// inferred_type reads the frozen env directly. No heuristics. No string
 // type maps. The checker already said what everything IS — the
 // lowering just reads the answer and dispatches.
 
@@ -11,11 +11,12 @@ import compiler/lower_ir
 import compiler/lower_closure
 import compiler/ty
 
-// ─── type_of: Read-Only Mirror of the Frozen Type Rules ────
-// The checker solved everything. type_of just reads the answer.
+// ─── inferred_type: Read-Only Mirror of the Frozen Type Rules ──
+// The checker solved everything. inferred_type just reads the answer.
 // Pure function. No unification. No effects. Just lookup and match.
+// Named to avoid shadowing the Rust VM's builtin `type_of`.
 
-fn type_of(sexpr, env) = {
+fn inferred_type(sexpr, env) = {
   let S(expr, _, _) = sexpr
   match expr {
     IntLit(_)    => TInt,
@@ -32,23 +33,23 @@ fn type_of(sexpr, env) = {
       else { TUnit } } } }
     },
     UnaryOp(op, _) => if op == "Neg" { TInt } else { if op == "Not" { TBool } else { TUnit } },
-    Call(func, _) => match type_of(func, env) { TFun(_, ret, _) => ret, _ => TUnit },
-    IfExpr(_, then_br, _) => type_of(then_br, env),
-    ListExpr(elems) => if len(elems) == 0 { TList(TUnit) } else { TList(type_of(elems[0], env)) },
-    TupleExpr(elems) => TTuple(map(|e| type_of(e, env), elems)),
-    Index(coll, _) => match type_of(coll, env) { TList(elem) => elem, _ => TUnit },
+    Call(func, _) => match inferred_type(func, env) { TFun(_, ret, _) => ret, _ => TUnit },
+    IfExpr(_, then_br, _) => inferred_type(then_br, env),
+    ListExpr(elems) => if len(elems) == 0 { TList(TUnit) } else { TList(inferred_type(elems[0], env)) },
+    TupleExpr(elems) => TTuple(map(|e| inferred_type(e, env), elems)),
+    Index(coll, _) => match inferred_type(coll, env) { TList(elem) => elem, _ => TUnit },
     StringInterp(_) => TString,
-    PipeExpr(_, step) => type_of(step, env),
-    BlockExpr(_, final_expr) => type_of(final_expr, env),
-    MatchExpr(_, arms) => if len(arms) > 0 { let (_, body) = arms[0]; type_of(body, env) } else { TUnit },
-    HandleExpr(body, _, _) => type_of(body, env),
+    PipeExpr(_, step) => inferred_type(step, env),
+    BlockExpr(_, final_expr) => inferred_type(final_expr, env),
+    MatchExpr(_, arms) => if len(arms) > 0 { let (_, body) = arms[0]; inferred_type(body, env) } else { TUnit },
+    HandleExpr(body, _, _) => inferred_type(body, env),
     _ => TUnit
   }
 }
 
 // ─── The One lower_expr ─────────────────────────────────────
 // Performs LowerCtx effects (is_ctor, find_rewrite, is_global, fresh_id).
-// Type dispatch via type_of — pure function on the env, no effect.
+// Type dispatch via inferred_type — pure function on the env, no effect.
 
 fn lower_expr(sexpr, env) = {
   let S(expr, _, _) = sexpr
@@ -64,7 +65,7 @@ fn lower_expr(sexpr, env) = {
       if op == "Eq" || op == "Neq" {
         let l = lower_expr(left, env)
         let r = lower_expr(right, env)
-        let eq = match type_of(left, env) {
+        let eq = match inferred_type(left, env) {
           TString => LCall(LGlobal("str_eq"), [l, r]),
           _ => LBinOp("Eq", l, r)
         }
@@ -86,19 +87,19 @@ fn lower_expr(sexpr, env) = {
             else { if (name == "println" || name == "print") && len(args) > 0 {
               let arg = args[0]
               let lowered_arg = lower_expr(arg, env)
-              let printer = match type_of(arg, env) { TString => "print_string", _ => "print_int" }
+              let printer = match inferred_type(arg, env) { TString => "print_string", _ => "print_int" }
               if name == "println" {
                 LBlock([LCall(LGlobal(printer), [lowered_arg]), LCall(LGlobal("print_newline"), [])])
               } else {
                 LCall(LGlobal(printer), [lowered_arg])
               }
             } else { if name == "to_string" && len(args) > 0 {
-              match type_of(args[0], env) {
+              match inferred_type(args[0], env) {
                 TString => lower_expr(args[0], env),
                 _ => LCall(LGlobal("int_to_str"), [lower_expr(args[0], env)])
               }
             } else { if name == "slice" && len(args) >= 3 {
-              match type_of(args[0], env) {
+              match inferred_type(args[0], env) {
                 TString => LCall(LGlobal("str_slice"), lower_exprs(args, env)),
                 _ => LCall(LGlobal("slice"), lower_exprs(args, env))
               }
@@ -187,7 +188,7 @@ fn lower_exprs(sexprs, env) = {
 fn lower_string_interp(parts, env) = {
   if len(parts) == 0 { LConst(LString("")) }
   else { if len(parts) == 1 {
-    match type_of(parts[0], env) {
+    match inferred_type(parts[0], env) {
       TString => lower_expr(parts[0], env),
       _ => LCall(LGlobal("int_to_str"), [lower_expr(parts[0], env)])
     }
@@ -498,7 +499,7 @@ fn lower_state_assign_temps(updates, idx) = {
 }
 
 // ─── Program Lowering ───────────────────────────────────────
-// env replaces type_map. type_of reads it directly.
+// env replaces type_map. inferred_type reads it directly.
 
 fn add_op_indices_to_env(stmts, idx, env) = {
   if idx >= len(stmts) { env }
