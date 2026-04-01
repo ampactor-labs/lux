@@ -458,15 +458,58 @@ fn parse_pattern_args(tokens, pos) = {
   }
 }
 
-// Lambda expression |params| body
+// Lambda expression |params| body — supports destructuring: |(a, b)| expr
+// Desugars |(n, _)| body → |__p0| { let (n, _) = __p0; body }
 fn parse_lambda(tokens, pos) = {
   // pos is AFTER the first | token
-  let (params, p) = parse_names(tokens, pos, "Pipe");
+  let (params, patterns, p) = parse_lambda_params(tokens, pos, 0);
   let p2 = skip_ws(tokens, p);
   let (body, p3) =
     if at(tokens, p2, "LBrace") { parse_block(tokens, p2 + 1) }
     else { parse_expr(tokens, p2) };
-  (sp(LambdaExpr(params, body), tokens, pos), p3)
+  // If any destructuring patterns, wrap body with let-pattern bindings
+  let final_body = wrap_destructure(patterns, body, tokens, pos);
+  (sp(LambdaExpr(params, final_body), tokens, pos), p3)
+}
+
+// Parse lambda params: simple names or (pattern) destructuring, ended by |
+fn parse_lambda_params(tokens, pos, idx) = {
+  let p = skip_ws(tokens, pos);
+  if at(tokens, p, "Pipe") { ([], [], p + 1) }
+  else {
+    if at(tokens, p, "LParen") {
+      // Destructuring pattern: parse it, generate a synthetic param name
+      let (pat, p2) = parse_pattern(tokens, p);
+      let param_name = "__p" ++ to_string(idx);
+      let p3 = skip_ws(tokens, p2);
+      if at(tokens, p3, "Comma") {
+        let (rest_params, rest_pats, p4) = parse_lambda_params(tokens, p3 + 1, idx + 1);
+        ([param_name] ++ rest_params, [(param_name, pat)] ++ rest_pats, p4)
+      } else {
+        ([param_name], [(param_name, pat)], expect(tokens, p3, "Pipe"))
+      }
+    } else {
+      let name = tok_val(tokens, p);
+      let p2 = skip_ws(tokens, p + 1);
+      if at(tokens, p2, "Comma") {
+        let (rest_params, rest_pats, p3) = parse_lambda_params(tokens, p2 + 1, idx + 1);
+        ([name] ++ rest_params, rest_pats, p3)
+      } else {
+        ([name], [], expect(tokens, p2, "Pipe"))
+      }
+    }
+  }
+}
+
+// Wrap body with let-pattern destructuring for each pattern param
+fn wrap_destructure(patterns, body, tokens, pos) = {
+  if len(patterns) == 0 { body }
+  else {
+    let (param_name, pat) = patterns[0];
+    let inner = wrap_destructure(slice(patterns, 1, len(patterns)), body, tokens, pos);
+    let desugar = LetPattern(pat, sp(VarRef(param_name), tokens, pos));
+    sp(BlockExpr([desugar], inner), tokens, pos)
+  }
 }
 
 // Primary expression → Expr
