@@ -1,0 +1,19 @@
+// Crucible 8: Evidence passing — effect ops across function boundaries
+
+effect Acc {
+  add_val(x) -> ()
+  get_total() -> Int
+}
+
+fn sum_list(xs) = {
+  if len(xs) > 0 {
+    add_val(xs[0])
+    sum_list(slice(xs, 1, len(xs)))
+  } else { () }
+}
+
+let answer = handle { sum_list([10, 20, 30]); get_total() } with acc = 0 {
+  add_val(x) => resume(()) with acc = acc + x,
+  get_total() => resume(acc),
+}
+println(answer)

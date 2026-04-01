@@ -67,6 +67,17 @@ fn from_char_code(code) with Memory, Alloc = {
   ptr
 }
 
+fn list_concat(a, b) with Memory, Alloc = {
+  let len_a = load_i32(a)
+  let len_b = load_i32(b)
+  let total = len_a + len_b
+  let new_list = alloc(4 + total * 4)
+  store_i32(new_list, total)
+  if len_a > 0 { mem_copy(new_list + 4, a + 4, len_a * 4) } else { () }
+  if len_b > 0 { mem_copy(new_list + 4 + len_a * 4, b + 4, len_b * 4) } else { () }
+  new_list
+}
+
 fn str_concat(a, b) with Memory, Alloc = {
   let len_a = load_i32(a)
   let len_b = load_i32(b)

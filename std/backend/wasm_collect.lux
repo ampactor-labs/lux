@@ -227,6 +227,41 @@ fn emit_fn_table_elems(fn_table, idx)= {
   else { " $" ++ fn_table[idx] ++ emit_fn_table_elems(fn_table, idx + 1) }
 }
 
+// ─── Handler State Globals ──────────────────────────────────
+// Evidence passing creates __hs_* globals inside function bodies.
+// The emitter needs them as top-level WASM globals.
+
+fn collect_handler_globals(fns, idx) = {
+  if idx >= len(fns) { [] }
+  else {
+    let LFn(_, _, _, body) = fns[idx]
+    string_union(collect_hs_names(body, 0), collect_handler_globals(fns, idx + 1))
+  }
+}
+
+fn collect_hs_names(stmts, idx) = {
+  if idx >= len(stmts) { [] }
+  else {
+    string_union(collect_hs_name(stmts[idx]), collect_hs_names(stmts, idx + 1))
+  }
+}
+
+fn collect_hs_name(e) = {
+  let s = to_string(e)
+  if len(s) > 4 && string_slice(s, 0, 4) == "LLet" {
+    let LLet(name, value) = e
+    let ns = to_string(name)
+    let here = if len(ns) > 5 && string_slice(ns, 0, 5) == "__hs_" { [name] }
+      else { if len(ns) > 12 && string_slice(ns, 0, 12) == "__save___hs_" { [name] }
+      else { if len(ns) > 11 && string_slice(ns, 0, 11) == "__ev_result" { [name] }
+      else { [] } } }
+    string_union(here, collect_hs_name(value))
+  } else { if len(s) > 6 && string_slice(s, 0, 6) == "LBlock" {
+    let LBlock(inner) = e
+    collect_hs_names(inner, 0)
+  } else { [] } }
+}
+
 // ─── Utility ────────────────────────────────────────────────
 
 // string_union provided by lower_closure.lux

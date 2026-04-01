@@ -73,7 +73,11 @@ fn lower_expr(sexpr, env) = {
         }
         if op == "Neq" { LUnaryOp("Not", eq) } else { eq }
       } else { if op == "Concat" {
-        LCall(LGlobal("str_concat"), [lower_expr(left, env), lower_expr(right, env)])
+        let concat_fn = match inferred_type(left, env) {
+          TList(_) => "list_concat",
+          _ => "str_concat"
+        }
+        LCall(LGlobal(concat_fn), [lower_expr(left, env), lower_expr(right, env)])
       } else {
         LBinOp(op, lower_expr(left, env), lower_expr(right, env))
       } }
@@ -323,17 +327,47 @@ fn lower_destructure_bindings(names, idx) = {
 
 fn lower_handle(body, arms, state_bindings, env) = {
   let rw_map = build_rewrite_map(arms)
-  let dict_inits = []
-  let state_inits = lower_state_inits(state_bindings, env)
+
+  // ─── Evidence Passing: effects flow through global bindings ───
+  // 1. State → heap cells (closures share mutable state via pointers)
+  // 2. Ops → save current global, install closure, restore after body
+
+  // Handler state → fresh globals (closures reference directly, no captures needed)
+  let state_names = gen_state_names(state_bindings)
+  // state_names: [("acc", "__hs_42")] — maps original name → global
+  let state_inits = init_state_globals(state_bindings, state_names, env)
+
+  // Save current op bindings (for nesting)
+  let op_names = extract_arm_op_names(arms)
+  let op_saves = save_op_bindings(op_names)
+
+  // Build evidence closures — reference state globals directly
+  let ev_closures = build_evidence_installs(arms, state_names, env)
+
+  // Remap rewrite entries: state refs → global names
+  let rw_map_cells = remap_rewrites_to_cells(rw_map, state_names, env)
+
+  // Lower body — direct rewrites use cell-based state, cross-fn calls go through globals
   let lowered_body = handle {
     lower_expr(body, env)
   } {
     find_rewrite(name) => {
-      let entry = lookup_rewrite(rw_map, name, 0)
+      let entry = lookup_rewrite(rw_map_cells, name, 0)
       resume(entry)
     }
   }
-  LBlock(state_inits ++ dict_inits ++ [lowered_body])
+
+  // Restore op bindings
+  let op_restores = restore_op_bindings(op_names)
+
+  // Restore state globals
+  let state_restores = restore_state_globals(state_names)
+
+  // Capture body result before restoring, then return it as last expression
+  LBlock(state_inits ++ op_saves ++ ev_closures
+         ++ [LLet("__ev_result", lowered_body)]
+         ++ op_restores ++ state_restores
+         ++ [LGlobal("__ev_result")])
 }
 
 fn build_user_effect_dicts(arms, env) = {
@@ -383,6 +417,224 @@ fn build_dict_arm(arm, env) = {
   LMakeClosure(fn_def, [])
 }
 
+// ─── Evidence Passing Infrastructure ────────────────────────
+// Effect ops are global bindings. Handlers install closures.
+// State lives in heap cells. Save/restore handles nesting.
+
+// Generate global names for handler state variables
+// Uses fresh_id for uniqueness (prevents collision in nested/recursive handlers)
+fn gen_state_names(bindings) = {
+  if len(bindings) == 0 { [] }
+  else {
+    let (name, _) = bindings[0]
+    let gname = "__hs_" ++ name ++ "_" ++ to_string(fresh_id())
+    [(name, gname)] ++ gen_state_names(slice(bindings, 1, len(bindings)))
+  }
+}
+
+// Save current state globals (for nesting), then init with values
+fn init_state_globals(bindings, state_names, env) = {
+  if len(bindings) == 0 { [] }
+  else {
+    let (_, init_sexpr) = bindings[0]
+    let (_, gname) = state_names[0]
+    // Save for nesting, then init
+    [ LLet("__save_" ++ gname, LGlobal(gname)),
+      LLet(gname, lower_expr(init_sexpr, env)) ]
+    ++ init_state_globals(slice(bindings, 1, len(bindings)),
+                          slice(state_names, 1, len(state_names)), env)
+  }
+}
+
+// Restore state globals after handler body
+fn restore_state_globals(state_names) = {
+  if len(state_names) == 0 { [] }
+  else {
+    let (_, gname) = state_names[0]
+    [LLet(gname, LGlobal("__save_" ++ gname))]
+    ++ restore_state_globals(slice(state_names, 1, len(state_names)))
+  }
+}
+
+// Extract op names from handler arms
+fn extract_arm_op_names(arms) = {
+  if len(arms) == 0 { [] }
+  else {
+    let (op_name, _, _) = arms[0]
+    [op_name] ++ extract_arm_op_names(slice(arms, 1, len(arms)))
+  }
+}
+
+// Save current op globals: let __save_yield = yield
+fn save_op_bindings(op_names) = {
+  if len(op_names) == 0 { [] }
+  else {
+    [LLet("__save_" ++ op_names[0], LGlobal(op_names[0]))]
+    ++ save_op_bindings(slice(op_names, 1, len(op_names)))
+  }
+}
+
+// Restore op globals: let yield = __save_yield
+fn restore_op_bindings(op_names) = {
+  if len(op_names) == 0 { [] }
+  else {
+    [LLet(op_names[0], LGlobal("__save_" ++ op_names[0]))]
+    ++ restore_op_bindings(slice(op_names, 1, len(op_names)))
+  }
+}
+
+// Build evidence closures and install them: let yield = <closure>
+fn build_evidence_installs(arms, cell_names, env) = {
+  if len(arms) == 0 { [] }
+  else {
+    let (op_name, params, handler_body) = arms[0]
+    let entry = extract_handler_entry(op_name, params, handler_body)
+    let closure = build_evidence_closure(entry, cell_names, env)
+    [LLet(op_name, closure)]
+    ++ build_evidence_installs(slice(arms, 1, len(arms)), cell_names, env)
+  }
+}
+
+// Build a single evidence closure for a handler arm
+// The closure reads/writes state through heap cells
+fn build_evidence_closure(entry, cell_names, env) = {
+  let op_name = entry[0]
+  let params = entry[1]
+  let pre_stmts = entry[2]
+  let resume_value = entry[3]
+  let updates = entry[4]
+  // Lower the arm body using full lowering (needs Concat dispatch, etc.)
+  let lowered_pre = lower_stmts_pure(pre_stmts, env)
+  let lowered_value = lower_expr(resume_value, env)
+  let lowered_updates = lower_state_updates(updates, env)
+  // Remap state variable references to cell loads, state updates to cell stores
+  let body_raw = if len(lowered_pre) == 0 && len(lowered_updates) == 0 {
+    lowered_value
+  } else {
+    LBlock(lowered_pre ++ lowered_updates ++ [lowered_value])
+  }
+  let body = subst_state_to_cells(body_raw, cell_names)
+  // Detect captures: LGlobal refs that aren't params, ctors, or real globals
+  let free_names = collect_free_lowir(body, params)
+  let captures = filter_out_hs_names(filter_real_captures_no_self(free_names))
+  let fname = "__ev_" ++ op_name ++ "_" ++ to_string(fresh_id())
+  // Evidence closures are called indirectly through globals.
+  // The calling convention does i32.load on the closure ptr to get fn_idx.
+  // Always create a heap closure object (even with no captures) so i32.load works.
+  if len(captures) == 0 {
+    LMakeClosure(LFn(fname, len(params), params, [body]), [LConst(LInt(0))])
+  } else {
+    let rewritten = rewrite_captures(body, captures)
+    let capture_exprs = map_to_globals(captures, 0)
+    LMakeClosure(LFn(fname, len(params), params, [rewritten]), capture_exprs)
+  }
+}
+
+// Handler state globals are NOT captures — they're shared mutable globals
+fn filter_out_hs_names(names) = {
+  if len(names) == 0 { [] }
+  else {
+    let n = names[0]
+    let rest = filter_out_hs_names(slice(names, 1, len(names)))
+    if starts_with(n, "__hs_") || starts_with(n, "__save___hs_") || starts_with(n, "__ev_result") { rest }
+    else { [n] ++ rest }
+  }
+}
+
+// Collect free LGlobal names from LowIR (names not in bound set)
+fn collect_free_lowir(node, bound) = match node {
+  LGlobal(name) => if string_in(bound, name, 0) { [] } else { [name] },
+  LLet(name, value) => collect_free_lowir(value, bound),
+  LBlock(stmts) => collect_free_lowir_list(stmts, bound),
+  LCall(func, args) => string_union(collect_free_lowir(func, bound), collect_free_lowir_list(args, bound)),
+  LBinOp(_, l, r) => string_union(collect_free_lowir(l, bound), collect_free_lowir(r, bound)),
+  LUnaryOp(_, inner) => collect_free_lowir(inner, bound),
+  LIf(c, t, e) => string_union(collect_free_lowir(c, bound),
+    string_union(collect_free_lowir_list(t, bound), collect_free_lowir_list(e, bound))),
+  LMakeTuple(elems) => collect_free_lowir_list(elems, bound),
+  LMakeList(elems) => collect_free_lowir_list(elems, bound),
+  LIndex(coll, idx) => string_union(collect_free_lowir(coll, bound), collect_free_lowir(idx, bound)),
+  _ => []
+}
+
+fn collect_free_lowir_list(nodes, bound) = {
+  if len(nodes) == 0 { [] }
+  else {
+    string_union(collect_free_lowir(nodes[0], bound),
+                 collect_free_lowir_list(slice(nodes, 1, len(nodes)), bound))
+  }
+}
+
+fn lower_state_updates_pure(updates, env) = {
+  if len(updates) == 0 { [] }
+  else {
+    let (name, value_sexpr) = updates[0]
+    [LLet(name, lower_expr_pure(value_sexpr, env))]
+    ++ lower_state_updates_pure(slice(updates, 1, len(updates)), env)
+  }
+}
+
+// Substitute state variable names in LowIR:
+//   LGlobal("acc") → LGlobal("__hs_42")    (read state global)
+//   LLet("acc", v)  → LLet("__hs_42", v)    (write state global)
+fn subst_state_to_cells(node, state_names) = {
+  if len(state_names) == 0 { node }
+  else {
+    let (orig, gname) = state_names[0]
+    let replaced = subst_one_state(node, orig, gname)
+    subst_state_to_cells(replaced, slice(state_names, 1, len(state_names)))
+  }
+}
+
+fn subst_one_state(node, orig, gname) = match node {
+  LGlobal(name) =>
+    if name == orig { LGlobal(gname) }
+    else { LGlobal(name) },
+  LLet(name, value) =>
+    if name == orig {
+      LLet(gname, subst_one_state(value, orig, gname))
+    } else {
+      LLet(name, subst_one_state(value, orig, gname))
+    },
+  LBlock(stmts) => LBlock(subst_one_state_list(stmts, orig, gname)),
+  LCall(func, args) =>
+    LCall(subst_one_state(func, orig, gname), subst_one_state_list(args, orig, gname)),
+  LBinOp(op, l, r) =>
+    LBinOp(op, subst_one_state(l, orig, gname), subst_one_state(r, orig, gname)),
+  LUnaryOp(op, inner) =>
+    LUnaryOp(op, subst_one_state(inner, orig, gname)),
+  LIf(c, t, e) =>
+    LIf(subst_one_state(c, orig, gname),
+        subst_one_state_list(t, orig, gname),
+        subst_one_state_list(e, orig, gname)),
+  LMakeTuple(elems) => LMakeTuple(subst_one_state_list(elems, orig, gname)),
+  LMakeList(elems) => LMakeList(subst_one_state_list(elems, orig, gname)),
+  LIndex(coll, idx) =>
+    LIndex(subst_one_state(coll, orig, gname), subst_one_state(idx, orig, gname)),
+  LConst(_) => node,
+  LUpval(_) => node,
+  _ => node
+}
+
+fn subst_one_state_list(nodes, orig, gname) = {
+  if len(nodes) == 0 { [] }
+  else {
+    [subst_one_state(nodes[0], orig, gname)]
+    ++ subst_one_state_list(slice(nodes, 1, len(nodes)), orig, gname)
+  }
+}
+
+// Remap rewrite entries: append cell_names so apply_rewrite substitutes state vars
+fn remap_rewrites_to_cells(rw_map, cell_names, env) = {
+  if len(rw_map) == 0 { [] }
+  else {
+    let entry = rw_map[0]
+    // Append cell_names as 6th element — apply_rewrite detects and substitutes
+    [entry ++ [cell_names]]
+    ++ remap_rewrites_to_cells(slice(rw_map, 1, len(rw_map)), cell_names, env)
+  }
+}
+
 fn bind_rewrite_params(params, args, env, idx) = {
   if idx >= len(params) || idx >= len(args) { [] }
   else {
@@ -395,14 +647,18 @@ fn apply_rewrite(rw, env) = {
   let pre_stmts = rw[2]
   let resume_value = rw[3]
   let updates = rw[4]
+  let cell_names = if len(rw) > 5 { rw[5] } else { [] }
   let lowered_pre = lower_stmts_pure(pre_stmts, env)
   let lowered_updates = lower_state_updates(updates, env)
   let lowered_value = lower_expr(resume_value, env)
-  if len(lowered_pre) == 0 && len(lowered_updates) == 0 {
+  let result = if len(lowered_pre) == 0 && len(lowered_updates) == 0 {
     lowered_value
   } else {
     LBlock(lowered_pre ++ lowered_updates ++ [lowered_value])
   }
+  // If cell_names present, substitute state vars → cell load/store
+  if len(cell_names) > 0 { subst_state_to_cells(result, cell_names) }
+  else { result }
 }
 
 fn lower_stmts_pure(stmts, env) = {

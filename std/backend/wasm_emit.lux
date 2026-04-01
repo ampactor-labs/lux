@@ -30,7 +30,7 @@ fn ctx_globals(ctx)= ctx[3]
 fn emit_module(defs, type_map) = {
   let fns = dedup_fns(collect_fns(defs, 0))
   let top_stmts = collect_top_stmts(defs, 0)
-  let top_globals = collect_top_let_names(top_stmts, 0)
+  let top_globals = string_union(collect_top_let_names(top_stmts, 0), collect_handler_globals(fns, 0))
   let all_strings = collect_all_strings(defs, 0)
   let string_map = assign_offsets(all_strings, 0, 1024)
   let heap_start = string_heap_end(string_map, 0, 1024)
@@ -90,7 +90,8 @@ fn emit_fn(fn_def, ctx)= {
   let LFn(name, arity, params, body) = fn_def
   let fn_locals = collect_locals(body, 0)
   let no_params = filter_out_names(fn_locals, params, 0)
-  let with_temps = add_emitter_temps(no_params, ctx)
+  let no_globals = filter_out_globals(no_params, ctx_globals(ctx), 0)
+  let with_temps = add_emitter_temps(no_globals, ctx)
   "  (func $" ++ name ++ " (param $__closure i32)" ++ emit_params(params, 0) ++ " (result i32)" ++ NL
     ++ emit_local_decls(with_temps, 0)
     ++ emit_fn_body(body, params, with_temps, ctx)
