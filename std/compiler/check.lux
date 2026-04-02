@@ -167,7 +167,7 @@ fn check_program(stmts) = {
     },
     lookup(name) => {
       let (n, s, e, ef, sc, es) = state
-      let (found, ty, _) = env_lookup(e, name)
+      let (found, ty, reason) = env_lookup(e, name)
       if found == "not_found" {
         let similar = find_similar_name(e, name)
         let _ = if len(similar) > 0 {

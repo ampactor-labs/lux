@@ -95,7 +95,7 @@ double: (Int) -> Int
        memoization, parallelism, compile-time eval
 
 --- gradient: effectful function ---
-reader: () -> ?4 with IO
+reader: () -> ?5 with IO
   -> reader does not access network
      add 'with !Network' to prove: sandboxed
 

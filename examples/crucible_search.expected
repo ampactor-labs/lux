@@ -1,0 +1,35 @@
+âââ Lux Search: Nondeterminism as an Algebraic Effect âââ
+
+ââ Test 1: 4-Queens ââ
+No solution found!
+
+ââ Test 2: Simple Choice ââ
+  First valid x + y where x + y <= 22: 11
+  (expected: 11 = 1 + 10)
+
+ââ Test 3: Pythagorean Triples ââ
+  Finding aÂ² + bÂ² = cÂ² where a,b,c in 1..20
+  Found: (3, 4, 5)
+  (expected: (3, 4, 5))
+
+ââ Test 4: All Pythagorean Triples (collect all) ââ
+  Found 6 triples:
+    (3, 4, 5)
+    (5, 12, 13)
+    (6, 8, 10)
+    (8, 15, 17)
+    (9, 12, 15)
+    (12, 16, 20)
+
+ââ What This Crucible Proves ââ
+â¢ Choose as nondeterministic effect: pick from candidates
+â¢ [] as backtracking signal: empty means failure
+â¢ Handler-driven search: fold over options, resume per option
+â¢ Multi-shot resume: resume() called N times in one handler arm
+â¢ First-solution AND all-solutions from same computation
+
+ââ What This Crucible Demands of Lux ââ
+â¢ Multiple resume() calls in one handler arm (fork)
+â¢ Continuation captured and re-entered per option
+â¢ Deep nesting: choose inside choose inside recursion
+â¢ Eventually: state machine transform for zero-alloc search

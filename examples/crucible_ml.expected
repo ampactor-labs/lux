@@ -1,0 +1,29 @@
+âââ Lux ML: Autodiff as an Algebraic Effect âââ
+
+ââ Test 1: Forward Pass ââ
+xÂ² + yÂ² where x=3, y=4: 25 (expected: 25)
+
+ââ Test 2: Activations ââ
+sigmoid(0) = 0.5 (expected: 0.5)
+tanh(0) = 0 (expected: 0.0)
+
+ââ Test 3: Network Forward Pass (pipe) ââ
+tiny_net(1.0) = 0.23105857863000487
+
+ââ Test 4: MSE Loss ââ
+MSE(net(1.0), 0.5) = 0.07232948812851325
+
+ââ Test 5: Numerical Gradient ââ
+d/dx(xÂ²) at x=3: 6.000000000012662 (expected: ~6.0)
+
+ââ What This Crucible Demands of Lux ââ
+â¢ Multi-shot resume for gradient accumulation
+â¢ Handler-local state for gradient tape
+â¢ Nested handlers: Grad inside Optimizer inside DataLoader
+â¢ Tensor types with !Alloc-safe fixed-size variants
+â¢ Reverse-mode autodiff handler (backprop through resume)
+â¢ !Alloc inference handler for embedded deployment
+
+forward, reverse, symbolic differentiation =
+  different HANDLERS for the same Grad effect.
+Same network. Different handler. Different math.

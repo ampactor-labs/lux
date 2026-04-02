@@ -1,0 +1,13 @@
+// Crucible 9: The checker compiles to WASM
+// Proves: HM type inference with 11-op Infer effect + Diagnostic effect
+// runs as compiled WASM through evidence passing.
+
+import compiler/lexer
+import compiler/parser
+import compiler/check
+import compiler/ty
+import compiler/eff
+
+let source = "let x = 42"
+let env = source |> lex |> parse_program |> check_program
+println(len(env))

@@ -1,0 +1,59 @@
+âââ Lux: Vertical Effect Composition âââ
+Search Ã ML Ã Arithmetic â three effect layers, nested
+
+ââ Test 1: Model Prediction ââ
+  w*x = 1.5 (expected: 1.5)
+  MSE(w=0.5, target=2.0) = 2.25 (expected: 2.25)
+
+ââ Test 2: Numerical Gradient ââ
+  d/dw MSE at w=0.5: -2.9999999999996696 (expected: ~-3.0)
+
+ââ Test 3: Training (single lr) ââ
+  After 20 steps (lr=0.1, target=2.0):
+    w = 1.9827061774308856 (expected: ~2.0)
+    loss = 0.00029907629905200994
+
+ââ Test 4: Hyperparameter Search ââ
+  Choose effect selects lr, train runs per lr
+  Searching: [0.01, 0.05, 0.1, 0.3, 0.5]
+
+  lr=0.01  w=0.9985880423672984  loss=1.0028259088897598  
+  lr=0.05  w=1.8176350181141125  loss=0.03325698661824006  âââââââââââââââââââââââââââââââââ
+  lr=0.1  w=1.9827061774308856  loss=0.00029907629905200994  ââââââââââââââââââââââââââââââââââââââââââââââââââ
+  lr=0.3  w=1.9999999835073254  loss=0.0000000000000002720083141218647  ââââââââââââââââââââââââââââââââââââââââââââââââââ
+  lr=0.5  w=1.9999999999999998  loss=0.00000000000000000000000000000004930380657631324  ââââââââââââââââââââââââââââââââââââââââââââââââââ
+
+  Best: lr=0.5 â w=1.9999999999999998 (loss=0.00000000000000000000000000000004930380657631324)
+
+ââ Test 5: Double Nesting (Choose Ã Choose) ââ
+  Grid search: lr Ã target
+  9 combinations tested:
+    lr=0.05 target=1 â w=0.8970544339526568 loss=0.010597789568807895  
+    lr=0.05 target=2 â w=1.691163301857989 loss=0.09538010611925961  
+    lr=0.05 target=3 â w=2.48527216976363 loss=0.26494473921984135  
+    lr=0.1 target=1 â w=0.9824078139555762 loss=0.0003094850098216198 â
+    lr=0.1 target=2 â w=1.9472234418667236 loss=0.002785365088395105 â
+    lr=0.1 target=3 â w=2.9120390697782867 loss=0.007737125245469108 â
+    lr=0.3 target=1 â w=0.999999463129088 loss=0.0000000000002882303760970523 â
+    lr=0.3 target=2 â w=1.999998389387264 loss=0.0000000000025940733855887265 â
+    lr=0.3 target=3 â w=2.99999731564544 loss=0.0000000000072057594036184005 â
+  6 of 9 converged (loss < 0.01)
+
+ââ Test 6: Choose Ã Grad (effect composition) ââ
+  Choose resumes into bodies with nested Grad handlers
+    scale=1 â 5
+    scale=2 â 10
+    scale=3 â 15
+  (expected: 5, 10, 15)
+
+ââ What This Crucible Proves ââ
+â¢ Choose wraps training: search over learning rates
+â¢ Choose wraps Choose: nested nondeterminism (lr Ã target grid)
+â¢ Choose wraps Grad: nested effect handlers compose â
+â¢ Nested handlers inside resumed continuations: WORKING
+â¢ Effects compose vertically: each layer independent
+â¢ Same code, different handler stack â different behavior
+
+ââ The Thesis ââ
+Effects compose vertically. No framework boundaries.
+No adapter code. The pipe flows through all of them.

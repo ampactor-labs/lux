@@ -5,7 +5,7 @@ caller: (Int) -> Int
   WHY: fn caller
 
 --- transitive !Alloc: violation detected ---
-bad_caller: (?12) -> ?12 with Alloc
+bad_caller: (?14) -> ?14 with Alloc
   WHY: fn bad_caller
 
 --- transitive chain: three levels ---
@@ -17,7 +17,7 @@ pure_fn: (Int) -> Int
   WHY: fn pure_fn
 
 --- effect union from callees ---
-both: (?23) -> ?23 with Log
+both: (?28) -> ?28 with Log
   WHY: fn both
 
 --- gradient: transitive purity ---
@@ -31,11 +31,11 @@ clamp: (?3, ?3, ?3) -> ?3
   WHY: fn clamp
 
 --- handler absorbs effects ---
-outer: (?11) -> ?14 with Alloc
+outer: (?15) -> ?18 with Alloc
   WHY: fn outer
 
 --- partial absorption ---
-handled: (?17) -> ?17 with Log
+handled: (?22) -> ?22 with Log
   WHY: fn handled
 
 === Effect unification complete ===
