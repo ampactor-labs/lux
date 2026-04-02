@@ -344,8 +344,19 @@ fn emit_call_expr(func, args, params, locals, ctx)= {
             ++ "    i32.load" ++ NL
             ++ "    call_indirect (type $fn" ++ to_string(len(args)) ++ ")" ++ NL
           } else {
-            // Direct call: pass 0 as closure ptr
-            "    i32.const 0" ++ NL ++ emit_args(args, 0, params, locals, ctx) ++ "    call $" ++ name ++ NL
+            // Check if __ev_op_ prefixed version exists (effect op call outside handler)
+            let ev_name = "__ev_op_" ++ name
+            if string_in(ctx_globals(ctx), ev_name, 0) {
+              // Indirect call through evidence global
+              "    global.get $" ++ ev_name ++ NL
+              ++ emit_args(args, 0, params, locals, ctx)
+              ++ "    global.get $" ++ ev_name ++ NL
+              ++ "    i32.load" ++ NL
+              ++ "    call_indirect (type $fn" ++ to_string(len(args)) ++ ")" ++ NL
+            } else {
+              // Direct call: pass 0 as closure ptr
+              "    i32.const 0" ++ NL ++ emit_args(args, 0, params, locals, ctx) ++ "    call $" ++ name ++ NL
+            }
           } }
         }
       }

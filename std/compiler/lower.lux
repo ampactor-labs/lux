@@ -126,13 +126,10 @@ fn lower_expr(sexpr, env) = {
                 if len(bindings) == 0 { body }
                 else { LBlock(bindings ++ [body]) }
               } else {
-                // Effect ops dispatch through __ev_op_ prefixed globals
-                let (is_op, _, _) = get_op_info(name, env)
-                if is_op {
-                  LCall(LGlobal("__ev_op_" ++ name), lower_exprs(args, env))
-                } else {
-                  LCall(lower_expr(func, env), lower_exprs(args, env))
-                }
+                // No active rewrite — regular call.
+                // Effect ops (resolve, bind, etc.) will resolve through the
+                // emitter's __ev_op_ fallback when not found as local/global/fn.
+                LCall(lower_expr(func, env), lower_exprs(args, env))
               }
             } } } }
           }
