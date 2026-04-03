@@ -41,7 +41,7 @@ fn emit_closure_captures_stacked(captures, idx, params, locals, ctx)= {
     // Reload base from variant stack top
     "    global.get $__vsp" ++ NL ++ "    i32.const 1" ++ NL ++ "    i32.sub" ++ NL
     ++ "    i32.const 4" ++ NL ++ "    i32.mul" ++ NL
-    ++ "    i32.const 200" ++ NL ++ "    i32.add" ++ NL
+    ++ "    i32.const 400" ++ NL ++ "    i32.add" ++ NL
     ++ "    i32.load" ++ NL
     ++ "    i32.const " ++ to_string(offset) ++ NL
     ++ "    i32.add" ++ NL
@@ -125,7 +125,7 @@ fn emit_make_variant(tag, fields, params, locals, ctx)= {
   // Push base pointer onto memory stack: mem[200 + __vsp*4] = ptr; __vsp++
   ++ "    global.get $__vsp" ++ NL
   ++ "    i32.const 4" ++ NL ++ "    i32.mul" ++ NL
-  ++ "    i32.const 200" ++ NL ++ "    i32.add" ++ NL
+  ++ "    i32.const 400" ++ NL ++ "    i32.add" ++ NL
   ++ "    local.get $__vptr" ++ NL
   ++ "    i32.store" ++ NL
   ++ "    global.get $__vsp" ++ NL ++ "    i32.const 1" ++ NL ++ "    i32.add" ++ NL
@@ -141,7 +141,7 @@ fn emit_make_variant(tag, fields, params, locals, ctx)= {
   ++ "    global.set $__vsp" ++ NL
   ++ "    global.get $__vsp" ++ NL
   ++ "    i32.const 4" ++ NL ++ "    i32.mul" ++ NL
-  ++ "    i32.const 200" ++ NL ++ "    i32.add" ++ NL
+  ++ "    i32.const 400" ++ NL ++ "    i32.add" ++ NL
   ++ "    i32.load" ++ NL
 }
 
@@ -152,7 +152,7 @@ fn emit_variant_fields(fields, idx, params, locals, ctx)= {
     // Reload base from memory stack top (peek at __vsp - 1)
     "    global.get $__vsp" ++ NL ++ "    i32.const 1" ++ NL ++ "    i32.sub" ++ NL
     ++ "    i32.const 4" ++ NL ++ "    i32.mul" ++ NL
-    ++ "    i32.const 200" ++ NL ++ "    i32.add" ++ NL
+    ++ "    i32.const 400" ++ NL ++ "    i32.add" ++ NL
     ++ "    i32.load" ++ NL
     // Compute field address (on WASM stack — survives nested eval)
     ++ "    i32.const " ++ to_string(field_offset) ++ NL
