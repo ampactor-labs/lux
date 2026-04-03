@@ -84,19 +84,22 @@ fn list_concat(a, b) with Memory, Alloc = {
 // Otherwise treat as list. Not perfect, but safe for bootstrap.
 fn val_concat(a, b) with Memory, Alloc = {
   let count_a = load_i32(a)
+  // Heuristic: check ALL bytes in the first 4 bytes of data.
+  // Strings have printable ASCII (or UTF-8). Lists have i32 pointers
+  // (typically > 255 as individual bytes). If count is 0, both work
+  // but list_concat is safer (empty list ++ anything = anything).
   if count_a > 0 && count_a < 1000 {
-    // Check if first "element" looks like a list element (heap pointer)
-    // or a string byte. List elements are i32 (>= some threshold).
-    // String bytes are stored byte-by-byte after the length.
-    let first_byte = load_i8(a + 4)
-    if first_byte >= 32 && first_byte < 127 {
-      // Likely a string (printable ASCII first byte, reasonable length)
+    // Check first 4 bytes — if ALL are printable ASCII, likely a string
+    let b0 = load_i8(a + 4)
+    let b1 = if count_a > 1 { load_i8(a + 5) } else { 65 }
+    let b2 = if count_a > 2 { load_i8(a + 6) } else { 65 }
+    let b3 = if count_a > 3 { load_i8(a + 7) } else { 65 }
+    if b0 >= 32 && b0 < 127 && b1 >= 32 && b1 < 127 && b2 >= 32 && b2 < 127 && b3 >= 32 && b3 < 127 {
       str_concat(a, b)
     } else {
       list_concat(a, b)
     }
   } else {
-    // count = 0 (empty) or very large → treat as list
     list_concat(a, b)
   }
 }
