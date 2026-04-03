@@ -85,9 +85,18 @@ fn lower_expr(sexpr, env) = {
         }
         if op == "Neq" { LUnaryOp("Not", eq) } else { eq }
       } else { if op == "Concat" {
-        let concat_fn = match inferred_type(left, env) {
+        let left_ty = inferred_type(left, env)
+        let right_ty = inferred_type(right, env)
+        // Dispatch: known String → str_concat, known List → list_concat
+        // Unknown → val_concat (runtime dispatch based on first-element heuristic)
+        let concat_fn = match left_ty {
+          TString => "str_concat",
           TList(_) => "list_concat",
-          _ => "str_concat"
+          _ => match right_ty {
+            TString => "str_concat",
+            TList(_) => "list_concat",
+            _ => "val_concat"
+          }
         }
         LCall(LGlobal(concat_fn), [lower_expr(left, env), lower_expr(right, env)])
       } else {
@@ -686,21 +695,26 @@ fn bind_rewrite_params(params, args, env, idx) = {
 }
 
 fn apply_rewrite(rw, env) = {
-  let pre_stmts = rw[2]
-  let resume_value = rw[3]
-  let updates = rw[4]
-  let cell_names = if len(rw) > 5 { rw[5] } else { [] }
-  let lowered_pre = lower_stmts(pre_stmts, env)
-  let lowered_updates = lower_state_updates(updates, env)
-  let lowered_value = lower_expr(resume_value, env)
-  let result = if len(lowered_pre) == 0 && len(lowered_updates) == 0 {
-    lowered_value
+  if len(rw) < 5 {
+    // Malformed rewrite entry — skip
+    LConst(LUnit)
   } else {
-    LBlock(lowered_pre ++ lowered_updates ++ [lowered_value])
+    let pre_stmts = rw[2]
+    let resume_value = rw[3]
+    let updates = rw[4]
+    let cell_names = if len(rw) > 5 { rw[5] } else { [] }
+    let lowered_pre = flatten_blocks(lower_stmts(pre_stmts, env))
+    let lowered_updates = lower_state_updates(updates, env)
+    let lowered_value = lower_expr(resume_value, env)
+    let result = if len(lowered_pre) == 0 && len(lowered_updates) == 0 {
+      lowered_value
+    } else {
+      LBlock(lowered_pre ++ lowered_updates ++ [lowered_value])
+    }
+    // If cell_names present, substitute state vars → cell load/store
+    if len(cell_names) > 0 { subst_state_to_cells(result, cell_names) }
+    else { result }
   }
-  // If cell_names present, substitute state vars → cell load/store
-  if len(cell_names) > 0 { subst_state_to_cells(result, cell_names) }
-  else { result }
 }
 
 fn lower_stmts_pure(stmts, env) = {

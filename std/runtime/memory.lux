@@ -78,6 +78,29 @@ fn list_concat(a, b) with Memory, Alloc = {
   new_list
 }
 
+// Runtime-dispatch concatenation for unknown types.
+// Heuristic: if the count field looks like a small string length AND
+// the first byte is a printable ASCII char, treat as string.
+// Otherwise treat as list. Not perfect, but safe for bootstrap.
+fn val_concat(a, b) with Memory, Alloc = {
+  let count_a = load_i32(a)
+  if count_a > 0 && count_a < 1000 {
+    // Check if first "element" looks like a list element (heap pointer)
+    // or a string byte. List elements are i32 (>= some threshold).
+    // String bytes are stored byte-by-byte after the length.
+    let first_byte = load_i8(a + 4)
+    if first_byte >= 32 && first_byte < 127 {
+      // Likely a string (printable ASCII first byte, reasonable length)
+      str_concat(a, b)
+    } else {
+      list_concat(a, b)
+    }
+  } else {
+    // count = 0 (empty) or very large → treat as list
+    list_concat(a, b)
+  }
+}
+
 fn str_concat(a, b) with Memory, Alloc = {
   let len_a = load_i32(a)
   let len_b = load_i32(b)
