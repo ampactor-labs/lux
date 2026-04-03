@@ -90,29 +90,53 @@ fn emit_make_variant(tag, fields, params, locals, ctx)= {
   let tag_id = find_tag_id(ctx_tags(ctx), tag, 0)
   let n_fields = len(fields)
   let total_size = (1 + n_fields) * 4
-  "    i32.const " ++ to_string(total_size) ++ NL
-  ++ "    call $alloc" ++ NL
-  ++ "    local.set $__vptr" ++ NL
-  // Store tag
-  ++ "    local.get $__vptr" ++ NL
-  ++ "    i32.const " ++ to_string(tag_id) ++ NL
-  ++ "    i32.store" ++ NL
-  // Store fields
-  ++ emit_variant_fields(fields, 0, params, locals, ctx)
-  // Push ptr as result
-  ++ "    local.get $__vptr" ++ NL
+  if n_fields == 0 {
+    // Zero-field variant: just alloc + store tag, no nesting risk
+    "    i32.const " ++ to_string(total_size) ++ NL
+    ++ "    call $alloc" ++ NL
+    ++ "    local.tee $__vptr" ++ NL
+    ++ "    i32.const " ++ to_string(tag_id) ++ NL
+    ++ "    i32.store" ++ NL
+    ++ "    local.get $__vptr" ++ NL
+  } else {
+    // Multi-field variant: evaluate all fields FIRST (onto stack temps),
+    // then alloc + store. This avoids __vptr clobber from nested allocs.
+    emit_variant_field_exprs(fields, 0, params, locals, ctx)
+    ++ "    i32.const " ++ to_string(total_size) ++ NL
+    ++ "    call $alloc" ++ NL
+    ++ "    local.set $__vptr" ++ NL
+    // Store tag
+    ++ "    local.get $__vptr" ++ NL
+    ++ "    i32.const " ++ to_string(tag_id) ++ NL
+    ++ "    i32.store" ++ NL
+    // Store fields from temps
+    ++ emit_variant_field_stores(n_fields, 0)
+    // Push variant pointer as result
+    ++ "    local.get $__vptr" ++ NL
+  }
 }
 
-fn emit_variant_fields(fields, idx, params, locals, ctx)= {
+// Evaluate all field expressions and save to __f0, __f1, etc.
+fn emit_variant_field_exprs(fields, idx, params, locals, ctx)= {
   if idx >= len(fields) { "" }
+  else {
+    emit_expr(fields[idx], params, locals, ctx)
+    ++ "    local.set $__f" ++ to_string(idx) ++ NL
+    ++ emit_variant_field_exprs(fields, idx + 1, params, locals, ctx)
+  }
+}
+
+// Store pre-evaluated fields from __f0, __f1, etc. into variant
+fn emit_variant_field_stores(n_fields, idx)= {
+  if idx >= n_fields { "" }
   else {
     let field_offset = (1 + idx) * 4
     "    local.get $__vptr" ++ NL
     ++ "    i32.const " ++ to_string(field_offset) ++ NL
     ++ "    i32.add" ++ NL
-    ++ emit_expr(fields[idx], params, locals, ctx)
+    ++ "    local.get $__f" ++ to_string(idx) ++ NL
     ++ "    i32.store" ++ NL
-    ++ emit_variant_fields(fields, idx + 1, params, locals, ctx)
+    ++ emit_variant_field_stores(n_fields, idx + 1)
   }
 }
 

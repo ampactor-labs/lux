@@ -467,9 +467,10 @@ fn filter_out_names(locals, exclude, idx) = {
 }
 
 fn add_emitter_temps(locals, ctx)= {
-  // __vptr: temp for heap allocation (variants, tuples). Always available, zero cost.
+  // __vptr: temp for heap allocation (tuples, closures).
+  // __f0-__f5: pre-evaluated variant fields (avoids __vptr clobber from nested allocs).
   // __match: added by collect_locals_expr when LMatch is seen.
-  string_union(locals, ["__vptr", "__match"])
+  string_union(locals, ["__vptr", "__match", "__f0", "__f1", "__f2", "__f3", "__f4", "__f5"])
 }
 
 // Remove handler state globals from function locals — these must be WASM globals
