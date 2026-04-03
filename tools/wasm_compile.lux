@@ -4,14 +4,113 @@
 // Output: WAT to stdout
 //
 // When this tool can compile itself, Rust deletes itself.
+//
+// Uses build_decl_env for type-directed dispatch — the compiler
+// trusts its own declarations. Full HM inference is for verification,
+// not for compilation. The lowering just needs to know names and types.
 
 import compiler/lexer
 import compiler/parser
+import compiler/ty
+import compiler/eff
 import compiler/lower
 import backend/wasm_emit
 
+fn extract_constructors(env) = extract_ctors_iter(env, 0)
+
+fn extract_ctors_iter(env, idx) = {
+  if idx >= len(env) { [] }
+  else {
+    let (name, ty, _) = env[idx]
+    let is_ctor = match ty { TName(_, _) => true, _ => false }
+    let rest = extract_ctors_iter(env, idx + 1)
+    if is_ctor { [name] ++ rest } else { rest }
+  }
+}
+
+fn build_decl_env(stmts, env, n) = {
+  if len(stmts) == 0 { env }
+  else {
+    let (new_env, new_n) = build_decl_entry(stmts[0], env, n)
+    build_decl_env(slice(stmts, 1, len(stmts)), new_env, new_n)
+  }
+}
+
+fn build_decl_entry(stmt, env, n) = match stmt {
+  EffectDeclStmt(name, ops) => build_effect_ops(name, ops, env, n),
+  TypeStmt(name, variants) => (build_type_ctors(name, variants, env), n),
+  FnStmt(name, params, body, declared_effects) => {
+    let param_names = map(|(pn, _)| pn, params)
+    let param_count = len(param_names)
+    let param_types = build_fresh_tvars(param_count, n)
+    let new_n = n + param_count + 1
+    let body_env = bind_params(param_names, param_types, env)
+    let ret_ty = inferred_type(body, body_env)
+    let eff = build_declared_eff(declared_effects)
+    ([(name, TFun(param_types, ret_ty, eff), Declared("fn " ++ name))] ++ env, new_n)
+  },
+  LetStmt(name, value) => {
+    let ty = inferred_type(value, env)
+    ([(name, ty, Declared("let " ++ name))] ++ env, n)
+  },
+  _ => (env, n)
+}
+
+fn build_effect_ops(eff_name, ops, env, n) = {
+  if len(ops) == 0 { (env, n) }
+  else {
+    let (op_name, params) = ops[0]
+    let param_types = build_fresh_tvars(len(params), n)
+    let ret = TVar(0 - (n + len(params) + 1))
+    let new_n = n + len(params) + 2
+    let new_env = [(op_name, TFun(param_types, ret, EfClosed([eff_name])), Declared("effect op"))] ++ env
+    build_effect_ops(eff_name, slice(ops, 1, len(ops)), new_env, new_n)
+  }
+}
+
+fn build_type_ctors(type_name, variants, env) = {
+  if len(variants) == 0 { env }
+  else {
+    let (v_name, _) = variants[0]
+    build_type_ctors(type_name, slice(variants, 1, len(variants)),
+      [(v_name, TName(type_name, []), Declared("constructor"))] ++ env)
+  }
+}
+
+fn build_fresh_tvars(count, start) = {
+  if count <= 0 { [] }
+  else { [TVar(0 - (start + 1))] ++ build_fresh_tvars(count - 1, start + 1) }
+}
+
+fn bind_params(names, types, env) = {
+  if len(names) == 0 { env }
+  else {
+    bind_params(slice(names, 1, len(names)), slice(types, 1, len(types)),
+      [(names[0], types[0], Inferred("parameter"))] ++ env)
+  }
+}
+
+fn build_declared_eff(declared) = {
+  if len(declared) == 0 { EfPure }
+  else {
+    let names = extract_eff_names(declared)
+    if list_contains(names, "Pure") { EfPure }
+    else { if len(names) > 0 { EfClosed(names) } else { EfPure } }
+  }
+}
+
+fn extract_eff_names(effects) = {
+  if len(effects) == 0 { [] }
+  else {
+    let (name, negated) = effects[0]
+    let rest = extract_eff_names(slice(effects, 1, len(effects)))
+    if negated { rest } else { [name] ++ rest }
+  }
+}
+
 let source = read_stdin()
-let tokens = lex(source)
-let ast = parse_program(tokens)
-let lowered = lower_program(ast)
+let ast = source |> lex |> parse_program
+let env = build_decl_env(ast, env_with_primitives(env_empty()), 0)
+let ctors = extract_constructors(env)
+let lowered = lower_program_typed(ast, ctors, env)
 emit_module(lowered, [])

@@ -100,11 +100,19 @@ fn lower_expr(sexpr, env) = {
             else { if (name == "println" || name == "print") && len(args) > 0 {
               let arg = args[0]
               let lowered_arg = lower_expr(arg, env)
-              let printer = match inferred_type(arg, env) { TString => "print_string", _ => "print_int" }
+              let arg_ty = inferred_type(arg, env)
+              // Known Int/Bool → print_int. Known String → print_string.
+              // Unknown → to_string (runtime dispatch) then print_string.
+              let (printer, final_arg) = match arg_ty {
+                TInt => ("print_int", lowered_arg),
+                TBool => ("print_int", lowered_arg),
+                TString => ("print_string", lowered_arg),
+                _ => ("print_string", LCall(LGlobal("to_string"), [lowered_arg]))
+              }
               if name == "println" {
-                LBlock([LCall(LGlobal(printer), [lowered_arg]), LCall(LGlobal("print_newline"), [])])
+                LBlock([LCall(LGlobal(printer), [final_arg]), LCall(LGlobal("print_newline"), [])])
               } else {
-                LCall(LGlobal(printer), [lowered_arg])
+                LCall(LGlobal(printer), [final_arg])
               }
             } else { if name == "to_string" && len(args) > 0 {
               match inferred_type(args[0], env) {
