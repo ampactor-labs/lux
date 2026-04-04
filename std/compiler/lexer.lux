@@ -3,6 +3,10 @@
 // The first self-hosted compiler component. Tokenizes Lux source code
 // into a list of (type, value, line, column) tuples.
 //
+
+// String concatenation helper — ensures ++ dispatches to str_concat
+// in WASM even when operand types are unknown (function params, locals).
+fn str_cat(a, b) = a ++ (b ++ "")
 // Uses closures to capture `cs` and `src_len` — no explicit threading.
 
 // --- Special character constants ---
@@ -128,25 +132,25 @@ fn lex(source) = {
           else { if esc == ch_backslash { ch_backslash }
           else { if esc == ch_dquote { ch_dquote }
           else { esc } } } };
-        scan_string(p + 2, acc ++ escaped)
+        scan_string(p + 2, str_cat(acc, escaped))
       }
-      else { scan_string(p + 1, acc ++ c) } }
+      else { scan_string(p + 1, str_cat(acc, c)) } }
     };
 
   fn scan_number(p, acc, has_dot) =
     if p >= src_len { (p, acc, has_dot) }
     else {
       let c = cs[p];
-      if is_digit(c) { scan_number(p + 1, acc ++ c, has_dot) }
+      if is_digit(c) { scan_number(p + 1, str_cat(acc, c), has_dot) }
       else { if c == "." && !has_dot && p + 1 < src_len && is_digit(cs[p + 1]) {
-        scan_number(p + 2, acc ++ "." ++ cs[p + 1], true)
+        scan_number(p + 2, str_cat(str_cat(acc, "."), cs[p + 1]), true)
       }
       else { (p, acc, has_dot) } }
     };
 
   fn scan_ident(p, acc) =
     if p >= src_len { (p, acc) }
-    else { if is_alnum(cs[p]) { scan_ident(p + 1, acc ++ cs[p]) }
+    else { if is_alnum(cs[p]) { scan_ident(p + 1, str_cat(acc, cs[p])) }
     else { (p, acc) } };
 
   fn skip_comment(p) =
@@ -165,10 +169,10 @@ fn lex(source) = {
           else { if esc == "t" { "\t" }
           else { if esc == ch_backslash { ch_backslash }
           else { if esc == ch_squote { ch_squote }
-          else { ch_backslash ++ esc } } } };
-        scan_raw_string(p + 2, acc ++ escaped)
+          else { str_cat(ch_backslash, esc) } } } };
+        scan_raw_string(p + 2, str_cat(acc, escaped))
       }
-      else { scan_raw_string(p + 1, acc ++ c) } }
+      else { scan_raw_string(p + 1, str_cat(acc, c)) } }
     };
 
   // -- Main tokenizer (closure captures cs, src_len, and scan helpers) --
@@ -210,7 +214,7 @@ fn lex(source) = {
         let ch2 = if pos + 1 < src_len { cs[pos + 1] } else { "" };
         let op2 = two_char_op(ch, ch2);
         if op2 != "" {
-          lex_from(pos + 2, line, col + 2, push(tokens, token(op2, ch ++ ch2, line, col)))
+          lex_from(pos + 2, line, col + 2, push(tokens, token(op2, str_cat(ch, ch2), line, col)))
         }
         else {
           let op1 = single_char_type(ch);

@@ -53,7 +53,10 @@ fn infer_concat_type(sexpr, env) = {
   let S(expr, _, _) = sexpr
   match expr {
     ListExpr(_) => TList(TUnit),
-    BinOp(op, left, _) => if op == "Concat" { infer_concat_type(left, env) } else { inferred_type(sexpr, env) },
+    BinOp(op, left, right) => if op == "Concat" {
+      let lt = infer_concat_type(left, env)
+      match lt { TString => TString, TList(_) => lt, _ => infer_concat_type(right, env) }
+    } else { inferred_type(sexpr, env) },
     MatchExpr(_, arms) => if len(arms) > 0 { let (_, body) = arms[0]; infer_concat_type(body, env) } else { TUnit },
     IfExpr(_, then_br, _) => infer_concat_type(then_br, env),
     BlockExpr(_, final_expr) => infer_concat_type(final_expr, env),
@@ -103,14 +106,16 @@ fn lower_expr(sexpr, env) = {
         let left_ty = infer_concat_type(left, env)
         let right_ty = infer_concat_type(right, env)
         // Dispatch: known String → str_concat, known List → list_concat
-        // Unknown → val_concat (runtime dispatch based on first-element heuristic)
+        // Unknown → list_concat (the compiler's ++ is almost always lists;
+        // string ++ in the emitter/lexer uses explicit str_concat or has
+        // one known-String operand)
         let concat_fn = match left_ty {
           TString => "str_concat",
           TList(_) => "list_concat",
           _ => match right_ty {
             TString => "str_concat",
             TList(_) => "list_concat",
-            _ => "val_concat"
+            _ => "list_concat"
           }
         }
         LCall(LGlobal(concat_fn), [lower_expr(left, env), lower_expr(right, env)])
