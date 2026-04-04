@@ -120,10 +120,9 @@ fn escape_wat_string(s, idx)= {
 fn escape_wat_chars(cs, idx)= {
   if idx >= len(cs) { "" }
   else {
-    let ch = cs[idx]
-    let code = char_code(ch)
-    let escaped = if code < 32 || code == 34 || code == 92 { hex_byte(code) } else { ch }
-    escaped ++ escape_wat_chars(cs, idx + 1)
+    let code = char_code(cs[idx])
+    // Hex-encode every byte — avoids all WAT string escaping ambiguity
+    hex_byte(code) ++ escape_wat_chars(cs, idx + 1)
   }
 }
 
