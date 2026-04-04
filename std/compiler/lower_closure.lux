@@ -130,19 +130,23 @@ fn extract_pat_names_safe(pat) = {
 }
 
 fn extract_pvar_names_from_string(s) = {
-  // Extract PVar names from stringified pattern: PCon("S", [PVar("inner"), PWild])
-  // Find all PVar(" occurrences, extract name between quotes
+  // Extract PVar/PWild from stringified pattern: PCon("S", [PVar("inner"), PWild])
+  // Returns names for PVar and "_" for PWild, preserving positions.
   fn find_pvars(s, idx, acc) =
-    if idx + 6 >= len(s) { acc }
+    if idx + 5 >= len(s) { acc }
     else {
-      if string_slice(s, idx, idx + 6) == "PVar(\"" {
-        let rest = string_slice(s, idx + 6, len(s))
-        let end = index_of(rest, "\"")
-        if end >= 0 {
-          let name = string_slice(s, idx + 6, idx + 6 + end)
-          find_pvars(s, idx + 6 + end, acc ++ [name])
+      if string_slice(s, idx, idx + 5) == "PWild" {
+        find_pvars(s, idx + 5, acc ++ ["_"])
+      } else {
+        if idx + 6 < len(s) && string_slice(s, idx, idx + 6) == "PVar(\"" {
+          let rest = string_slice(s, idx + 6, len(s))
+          let end = index_of(rest, "\"")
+          if end >= 0 {
+            let name = string_slice(s, idx + 6, idx + 6 + end)
+            find_pvars(s, idx + 6 + end, acc ++ [name])
+          } else { find_pvars(s, idx + 1, acc) }
         } else { find_pvars(s, idx + 1, acc) }
-      } else { find_pvars(s, idx + 1, acc) }
+      }
     }
   find_pvars(s, 0, [])
 }
