@@ -337,6 +337,14 @@ fn emit_builtin(name, args, params, locals, ctx)= {
     emit_args(args, 0, params, locals, ctx) ++ "    i32.store8" ++ NL ++ "    i32.const 0" ++ NL
   } else { if name == "mem_copy" {
     emit_args(args, 0, params, locals, ctx) ++ "    memory.copy" ++ NL ++ "    i32.const 0" ++ NL
+  // byte_at(s, i) → load_i8(s + 4 + i) — string byte access, UTF-8 safe
+  } else { if name == "byte_at" {
+    emit_args(args, 0, params, locals, ctx)
+    ++ "    i32.const 4" ++ NL ++ "    i32.add" ++ NL ++ "    i32.add" ++ NL
+    ++ "    i32.load8_u" ++ NL
+  // byte_len(s) → load_i32(s) — string byte length (same as len for strings)
+  } else { if name == "byte_len" {
+    emit_args(args, 0, params, locals, ctx) ++ "    i32.load" ++ NL
   // Alloc effect → bump allocator (the one true WAT primitive)
   } else { if name == "alloc" {
     emit_args(args, 0, params, locals, ctx) ++ "    call $alloc" ++ NL
@@ -347,7 +355,7 @@ fn emit_builtin(name, args, params, locals, ctx)= {
     emit_args(args, 0, params, locals, ctx) ++ "    call $fd_read" ++ NL
   } else {
     "" // Not a primitive — compiled Lux handles it
-  } } } } } } } }
+  } } } } } } } } } }
 }
 
 fn emit_call_expr(func, args, params, locals, ctx)= {

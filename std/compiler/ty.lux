@@ -103,6 +103,9 @@ fn env_with_primitives(env) = {
     // Character encoding — needs VM string internals
     |> env_extend("char_code", TFun([TString], TInt, EfPure), Declared("builtin"))
     |> env_extend("from_char_code", TFun([TInt], TString, EfPure), Declared("builtin"))
+    // Byte-level string access — UTF-8 safe, used by the WAT emitter
+    |> env_extend("byte_at", TFun([TString, TInt], TInt, EfPure), Declared("builtin"))
+    |> env_extend("byte_len", TFun([TString], TInt, EfPure), Declared("builtin"))
     // Type dispatch — needs runtime type info
     |> env_extend("to_string", TFun([a], TString, EfPure), Declared("builtin"))
     |> env_extend("type_of", TFun([a], TString, EfPure), Declared("builtin"))

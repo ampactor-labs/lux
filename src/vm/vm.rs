@@ -1173,6 +1173,26 @@ impl Vm {
             }
             _ => Err("chars expects a string".into()),
         });
+        // byte_at(s, i): returns the i-th byte of string s as an Int.
+        // Consistent with WASM's load_i8 semantics — iterates UTF-8 bytes,
+        // not Unicode codepoints. Used by the emitter for WAT string escaping.
+        self.register_builtin("byte_at", |args| match (args.first(), args.get(1)) {
+            (Some(VmValue::String(s)), Some(VmValue::Int(i))) => {
+                let bytes = s.as_bytes();
+                let idx = *i as usize;
+                if idx < bytes.len() {
+                    Ok(VmValue::Int(bytes[idx] as i64))
+                } else {
+                    Ok(VmValue::Int(0))
+                }
+            }
+            _ => Err("byte_at expects (string, int)".into()),
+        });
+        // byte_len(s): returns the UTF-8 byte length of string s (not character count).
+        self.register_builtin("byte_len", |args| match args.first() {
+            Some(VmValue::String(s)) => Ok(VmValue::Int(s.len() as i64)),
+            _ => Err("byte_len expects a string".into()),
+        });
         self.register_builtin("join", |args| match (args.first(), args.get(1)) {
             (Some(VmValue::List(items)), Some(VmValue::String(sep))) => {
                 let strings: Vec<String> = items

@@ -113,15 +113,27 @@ fn hex_digit(n)= if n < 10 { from_char_code(48 + n) } else { from_char_code(87 +
 
 // Escape string for WAT data segments: control chars → \xx hex escapes
 fn escape_wat_string(s, idx)= {
-  let cs = chars(s)
-  escape_wat_chars(cs, 0)
+  // Iterate BYTES directly, not Unicode codepoints.
+  // The Rust VM's chars() splits by codepoint; multi-byte UTF-8 characters
+  // become single chars with huge codepoints, causing hex_byte to produce
+  // garbage (e.g., hex_digit(600) = from_char_code(687) = ʯ).
+  // byte_at/byte_len are Rust VM builtins that work on UTF-8 bytes directly.
+  // In WASM, they're emitted as load_i8 and load_i32 respectively.
+  escape_wat_bytes(s, 0, byte_len(s))
+}
+
+fn escape_wat_bytes(s, i, slen)= {
+  if i >= slen { "" }
+  else {
+    let b = byte_at(s, i)
+    hex_byte(b) ++ escape_wat_bytes(s, i + 1, slen)
+  }
 }
 
 fn escape_wat_chars(cs, idx)= {
   if idx >= len(cs) { "" }
   else {
     let code = char_code(cs[idx])
-    // Hex-encode every byte — avoids all WAT string escaping ambiguity
     hex_byte(code) ++ escape_wat_chars(cs, idx + 1)
   }
 }
