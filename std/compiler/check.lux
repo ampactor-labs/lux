@@ -195,13 +195,19 @@ fn check_program(stmts) = {
       // Preserve builtin annotations: if name already has Declared("builtin") in env,
       // don't overwrite. env_with_primitives declares canonical types that the
       // memory.lux implementations would otherwise override with inferred i32 types.
+      //
+      // NOTE: the `let new_e = if ... { e } else { [...] ++ e }` form is load-bearing.
+      // Writing this as `if ... { resume(()) } else { resume(()) with state = ... }`
+      // hits a lowerer bug where conditional `resume(x) with state = (...)` inside
+      // an if-branch silently drops the state update during WASM emission. The
+      // canonical form (compute new_state conditionally, resume-with-state at the
+      // unconditional tail) is what push_scope etc. use and what the lowerer handles
+      // correctly today. See examples/conditional_resume*.lux for the minimal
+      // reproduction. Proper fix belongs in std/compiler/lower.lux (extract_handler_entry).
       let (found, _, existing_reason) = env_lookup(e, name)
       let is_existing_builtin = if found == "not_found" { false } else { is_builtin_reason(existing_reason) }
-      if is_existing_builtin {
-        resume(())
-      } else {
-        resume(()) with state = (n, s, [(name, apply(s, ty), reason)] ++ e, ef, sc, es)
-      }
+      let new_e = if is_existing_builtin { e } else { [(name, apply(s, ty), reason)] ++ e }
+      resume(()) with state = (n, s, new_e, ef, sc, es)
     },
     unify(a, b) => {
       let (n, s, e, ef, sc, es) = state

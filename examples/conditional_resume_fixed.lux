@@ -1,0 +1,25 @@
+// Fix verification: same semantics as conditional_resume.lux, but the
+// conditional is pulled INSIDE the value computation, leaving
+// `resume(()) with state = (...)` at the unconditional tail — the shape
+// the lowerer handles correctly (cf. push_scope in std/compiler/check.lux).
+//
+// Expected (both paths): result=10
+
+effect Counter {
+  maybe_bump(n: Int) -> ()
+  get() -> Int
+}
+
+let result = handle {
+  maybe_bump(10)
+  get()
+} with state = 0 {
+  maybe_bump(n) => {
+    let cur = state
+    let next = if n == 0 { cur } else { cur + n }
+    resume(()) with state = next
+  },
+  get() => resume(state),
+}
+
+println("result=" ++ to_string(result))

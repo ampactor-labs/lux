@@ -1,0 +1,25 @@
+// Diagnostic crucible — introspect the checker's env construction.
+//
+// Purpose: resolve the 14-vs-15 off-by-one between bare-path and WASM-path
+// executions of wasm_check.lux. Same check_program call produced len(env)=15
+// in the Rust bytecode VM and len(env)=14 in wasmtime, on the same source
+// "let x = 42". This census prints both the pre-check primitive count and
+// the post-check binding count, so the delta can be localized.
+//
+// Expected (bare path): primitives=14, after_check=15.
+// If WASM reports primitives=13 → env_with_primitives lost a binding during
+// emission (likely list-concat / env_extend chain). If WASM reports
+// primitives=14, after_check=14 → check_stmt isn't recording the LetStmt
+// binding. The two stories have different fixes.
+
+import compiler/ty
+import compiler/lexer
+import compiler/parser
+import compiler/check
+
+let base = env_with_primitives(env_empty())
+println("primitives=" ++ to_string(len(base)))
+
+let ast = "let x = 42" |> lex |> parse_program
+let env = check_program(ast)
+println("after_check=" ++ to_string(len(env)))
