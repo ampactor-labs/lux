@@ -132,7 +132,18 @@ fn collect_free(sexpr, bound) = {
       // Inner lambda: its params are bound inside, but free vars propagate up
       collect_free(body, bound ++ params)
     },
+    FieldAccess(obj, _) => collect_free(obj, bound),
+    RecordExpr(fields) => collect_free_record(fields, bound),
+    ForExpr(var, iter, body) => string_union(collect_free(iter, bound), collect_free(body, bound ++ [var])),
     _ => []
+  }
+}
+
+fn collect_free_record(fields, bound) = {
+  if len(fields) == 0 { [] }
+  else {
+    let (_, val) = fields[0]
+    string_union(collect_free(val, bound), collect_free_record(slice(fields, 1, len(fields)), bound))
   }
 }
 
@@ -159,7 +170,7 @@ fn collect_free_stmt(stmt, bound) = match stmt {
     let pat_names = extract_pat_names_safe(pat)
     (collect_free(value, bound), bound ++ pat_names)
   },
-  FnStmt(name, params, body, _) => {
+  FnStmt(name, params, body, _, _) => {
     let fn_params = extract_param_names_pure(params)
     (collect_free(body, bound ++ [name] ++ fn_params), bound ++ [name])
   },
@@ -208,7 +219,7 @@ fn collect_pat_names_lower(pat) = {
 fn extract_param_names_pure(params) = {
   if len(params) == 0 { [] }
   else {
-    let (name, _) = params[0]
+    let name = match params[0] { (n, _, _) => n, (n, _) => n, _ => params[0] };
     [name] ++ extract_param_names_pure(slice(params, 1, len(params)))
   }
 }

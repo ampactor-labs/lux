@@ -109,7 +109,7 @@ fn build_declared_map(ast) = {
   if len(ast) == 0 { [] }
   else {
     let entry = match ast[0] {
-      FnStmt(name, params, body, effects) => [(name, effects)],
+      FnStmt(name, params, body, effects, _) => [(name, effects)],
       _ => []
     }
     entry ++ build_declared_map(slice(ast, 1, len(ast)))

@@ -37,6 +37,14 @@ fn type_to_string(subst, ty) = match apply(subst, ty) {
       let arg_strs = map(|a| type_to_string(subst, a), args)
       name ++ "<" ++ join(arg_strs, ", ") ++ ">"
     }
+  },
+  TRecord(fields) => {
+    let field_strs = map(|f| match f { (n, t) => n ++ ": " ++ type_to_string(subst, t), _ => "?" }, fields)
+    "\{ " ++ join(field_strs, ", ") ++ " \}"
+  },
+  TRecordOpen(fields, v) => {
+    let field_strs = map(|f| match f { (n, t) => n ++ ": " ++ type_to_string(subst, t), _ => "?" }, fields)
+    "\{ " ++ join(field_strs, ", ") ++ " | ?" ++ to_string(v) ++ " \}"
   }
 }
 

@@ -56,7 +56,7 @@ fn fn_has_annotations(stmts, name) = {
   if len(stmts) == 0 { false }
   else {
     match stmts[0] {
-      FnStmt(n, _, _, effs) => if n == name { len(effs) > 0 }
+      FnStmt(n, _, _, effs, _) => if n == name { len(effs) > 0 }
         else { fn_has_annotations(slice(stmts, 1, len(stmts)), name) },
       _ => fn_has_annotations(slice(stmts, 1, len(stmts)), name)
     }

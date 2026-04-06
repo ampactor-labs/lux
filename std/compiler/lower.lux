@@ -254,6 +254,14 @@ fn lower_expr(sexpr, env) = {
       LIndex(lty_index_result(lowered_obj), lowered_obj, LConst(TString, LString(field)))
     },
 
+    RecordExpr(fields) => {
+      // Sort fields by name for canonical ordering — same as codegen.lux
+      let sorted = sort_fields_for_lower(fields)
+      let lowered = lower_record_fields(sorted, env)
+      let tag = lower_record_tag(sorted)
+      LMakeVariant(TRecord(infer_record_field_types(lowered)), tag, lowered)
+    },
+
     LambdaExpr(params, body) => lower_lambda_inner("lambda_" ++ to_string(fresh_id()), params, body, env),
 
     HandleExpr(body, arms, state_bindings) =>
@@ -282,6 +290,53 @@ fn fan_out_lower(fns, input, env) = {
 fn lower_exprs(sexprs, env) = {
   if len(sexprs) == 0 { [] }
   else { [lower_expr(sexprs[0], env)] ++ lower_exprs(slice(sexprs, 1, len(sexprs)), env) }
+}
+
+fn lower_record_fields(fields, env) = {
+  if len(fields) == 0 { [] }
+  else {
+    let (_, val) = fields[0]
+    [lower_expr(val, env)] ++ lower_record_fields(slice(fields, 1, len(fields)), env)
+  }
+}
+
+fn sort_fields_for_lower(fields) = {
+  if len(fields) <= 1 { fields }
+  else {
+    let rest = sort_fields_for_lower(slice(fields, 1, len(fields)))
+    insert_field_sorted(fields[0], rest)
+  }
+}
+
+fn insert_field_sorted(field, sorted) = {
+  if len(sorted) == 0 { [field] }
+  else {
+    let (fa, _) = field
+    let (fb, _) = sorted[0]
+    if fa < fb { [field] ++ sorted }
+    else { [sorted[0]] ++ insert_field_sorted(field, slice(sorted, 1, len(sorted))) }
+  }
+}
+
+fn lower_record_tag(sorted_fields) = {
+  "#record:" ++ lower_field_name_list(sorted_fields)
+}
+
+fn lower_field_name_list(fields) = {
+  if len(fields) == 0 { "" }
+  else {
+    let (name, _) = fields[0]
+    if len(fields) == 1 { name }
+    else { name ++ "," ++ lower_field_name_list(slice(fields, 1, len(fields))) }
+  }
+}
+
+fn infer_record_field_types(lowered_exprs) = {
+  // Extract type from each lowered expression for the TRecord type
+  if len(lowered_exprs) == 0 { [] }
+  else {
+    [lexpr_ty(lowered_exprs[0])] ++ infer_record_field_types(slice(lowered_exprs, 1, len(lowered_exprs)))
+  }
 }
 
 fn lower_string_interp(parts, env) = {
@@ -345,7 +400,7 @@ fn lower_stmts_with_env(stmts, env) = {
 // env — we don't shadow it.
 fn extend_env_from_stmt(stmt, lowered, env) = match stmt {
   LetStmt(name, _) => [(name, lexpr_ty(lowered), Inferred("let"))] ++ env,
-  FnStmt(_, _, _, _) => env,  // real TFun already in env from checker
+  FnStmt(_, _, _, _, _) => env,  // real TFun already in env from checker
   LetDestructure(names, _) => bind_names_unknown(names, env),
   _ => env
 }
@@ -358,7 +413,7 @@ fn bind_names_unknown(names, env) = {
 fn extract_param_names(params) = {
   if len(params) == 0 { [] }
   else {
-    let (name, _) = params[0]
+    let name = match params[0] { (n, _, _) => n, (n, _) => n, _ => params[0] };
     [name] ++ extract_param_names(slice(params, 1, len(params)))
   }
 }
@@ -389,7 +444,7 @@ fn lower_stmt(stmt, env) = match stmt {
       LLet(lowered_ty, "_lp", lowered)
     } } }
   },
-  FnStmt(name, params, body, _) => {
+  FnStmt(name, params, body, _, _) => {
     let base_params = extract_param_names(params)
     let param_names = base_params
     let lowered_lambda = if is_global(name) { lower_lambda(name, param_names, body, env) }
@@ -1056,7 +1111,7 @@ fn collect_top_names(stmts, idx) = {
   if idx >= len(stmts) { [] }
   else {
     let here = match stmts[idx] {
-      FnStmt(name, _, _, _) => [name],
+      FnStmt(name, _, _, _, _) => [name],
       LetStmt(name, _) => [name],
       EffectDeclStmt(_, ops) => collect_effect_op_names(ops, 0),
       _ => []

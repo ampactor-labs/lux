@@ -50,6 +50,7 @@ let OP_TAIL_CALL   = 73
 let OP_MAKE_LIST   = 80
 let OP_MAKE_TUPLE  = 81
 let OP_LIST_INDEX  = 82
+let OP_FIELD_ACCESS= 83
 let OP_MAKE_VARIANT= 84
 let OP_MATCH_INT   = 90
 let OP_MATCH_BOOL  = 91
@@ -462,6 +463,47 @@ fn compile_expr(ctx, sexpr) = {
     let ctx2 = compile_expr(ctx, obj)
     let ctx3 = compile_expr(ctx2, idx)
     emit_op(ctx3, OP_LIST_INDEX)
+  },
+
+  FieldAccess(obj, field) => {
+    let ctx2 = compile_expr(ctx, obj)
+    let (ctx3, name_idx) = intern_name(ctx2, field)
+    emit_u16(emit_op(ctx3, OP_FIELD_ACCESS), name_idx)
+  },
+
+  RecordExpr(fields) => {
+    // Sort fields by name for canonical ordering
+    let sorted = sort_record_fields(fields)
+    // Compile field values in sorted order
+    let ctx2 = compile_record_values(ctx, sorted)
+    // Create schema tag: #record:field1,field2,...
+    let tag = record_schema_tag(sorted)
+    let (ctx3, tag_idx) = intern_name(ctx2, tag)
+    emit_u16(emit_u16(emit_op(ctx3, OP_MAKE_VARIANT), tag_idx), len(sorted))
+  },
+
+  ForExpr(var, iter, body) => {
+    // Compile: for_each(|var| body, iter)
+    // 1. Load "for_each" from prelude
+    let (ctx2, fn_idx) = intern_name(ctx, "for_each")
+    let ctx3 = emit_u16(emit_op(ctx2, OP_LOAD_GLOBAL), fn_idx)
+    // 2. Compile lambda |var| body (first arg)
+    let fn_ctx = ctx_child(ctx3)
+    let fn_ctx2 = begin_scope(fn_ctx)
+    let (fn_ctx3, _) = declare_local(fn_ctx2, var)
+    let fn_ctx4 = compile_expr(fn_ctx3, body)
+    let fn_ctx5 = emit_op(fn_ctx4, OP_RETURN)
+    let upvals = ctx_upvalues(fn_ctx5)
+    let proto = ("fn_proto", "<for>", 1, ctx_code(fn_ctx5),
+      ctx_constants(fn_ctx5), ctx_names(fn_ctx5),
+      ctx_next_slot(fn_ctx5), len(upvals))
+    let (ctx4, proto_idx) = add_constant(ctx3, proto)
+    let ctx5 = emit_u16(emit_op(ctx4, OP_MAKE_CLOSURE), proto_idx)
+    let ctx6 = emit_upvalue_descriptors(ctx5, upvals)
+    // 3. Compile iter (second arg)
+    let ctx7 = compile_expr(ctx6, iter)
+    // 4. Call for_each(lambda, iter) — 2 args
+    emit_u8(emit_op(ctx7, OP_CALL), 2)
   },
 
   MatchExpr(scrutinee, arms) => {
@@ -976,7 +1018,7 @@ fn compile_stmt(ctx, stmt) = match stmt {
     }
   },
 
-  FnStmt(name, params, body, _effects) => {
+  FnStmt(name, params, body, _effects, _ret_type) => {
     // Pre-declare: store Unit placeholder so recursive calls resolve via LoadGlobal
     let (ctx_pre, name_idx_pre) = intern_name(ctx, name)
     let ctx_pre2 = emit_u16(emit_op(emit_op(ctx_pre, OP_LOAD_UNIT), OP_STORE_GLOBAL), name_idx_pre)
@@ -1019,6 +1061,12 @@ fn compile_stmt(ctx, stmt) = match stmt {
     ctx_add_effect_ops(ctx, name, ops)
   },
 
+  HandlerDeclStmt(name, parent, arms) => {
+    // Handler declarations are stored as named handlers for the Rust compiler
+    // Self-hosted: store as a global with handler metadata
+    ctx
+  },
+
   TypeAliasStmt(_, _, _) => ctx,  // type aliases are compile-time only
 
   ImportStmt(_) => ctx,  // imports resolved before compilation
@@ -1029,8 +1077,9 @@ fn compile_stmt(ctx, stmt) = match stmt {
 fn declare_params(ctx, params) = {
   if len(params) == 0 { ctx }
   else {
-    // Params are (name, tier) pairs from parse_fn_params
+    // Params are (name, tier, ty) triples or bare strings (lambda)
     let name = match params[0] {
+      (n, _, _) => n,
       (n, _) => n,
       _ => params[0]
     };
@@ -1232,6 +1281,49 @@ fn pad_num(n, width) = {
   if len(s) >= width { s }
   else { pad_num(n, width - 1) ++ " " }
   // simplified padding — left-pads aren't easy without string multiply
+}
+
+// ─── Record Helpers ──────────────────────────────────────────
+
+fn sort_record_fields(fields) = {
+  // Insertion sort by field name
+  if len(fields) <= 1 { fields }
+  else {
+    let sorted_rest = sort_record_fields(slice(fields, 1, len(fields)))
+    insert_field(fields[0], sorted_rest)
+  }
+}
+
+fn insert_field(field, sorted) = {
+  if len(sorted) == 0 { [field] }
+  else {
+    let (fa, _) = field
+    let (fb, _) = sorted[0]
+    if fa < fb { [field] ++ sorted }
+    else { [sorted[0]] ++ insert_field(field, slice(sorted, 1, len(sorted))) }
+  }
+}
+
+fn compile_record_values(ctx, fields) = {
+  if len(fields) == 0 { ctx }
+  else {
+    let (_, val) = fields[0]
+    let ctx2 = compile_expr(ctx, val)
+    compile_record_values(ctx2, slice(fields, 1, len(fields)))
+  }
+}
+
+fn record_schema_tag(sorted_fields) = {
+  "#record:" ++ record_field_names(sorted_fields)
+}
+
+fn record_field_names(fields) = {
+  if len(fields) == 0 { "" }
+  else {
+    let (name, _) = fields[0]
+    if len(fields) == 1 { name }
+    else { name ++ "," ++ record_field_names(slice(fields, 1, len(fields))) }
+  }
 }
 
 // ─── Full Pipeline ───────────────────────────────────────────

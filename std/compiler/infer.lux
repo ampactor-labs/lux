@@ -172,8 +172,15 @@ fn infer(sexpr) with Infer, Diagnostic = {
           if idx >= 0 && idx < len(elems) { elems[idx] }
           else { fresh() }
         },
+        TRecord(fields) => record_field_type(fields, field),
+        TRecordOpen(fields, _) => record_field_type(fields, field),
         _ => fresh()
       }
+    },
+
+    RecordExpr(fields) => {
+      let field_types = infer_record_fields(fields)
+      TRecord(field_types)
     },
 
     ForExpr(var, iter, body) => {
@@ -225,6 +232,26 @@ fn infer_unaryop(op, inner) with Infer, Diagnostic = {
   else { t } }
 }
 
+// ─── Record Helpers ─────────────────────────────────────────
+
+fn record_field_type(fields, name) with Infer = {
+  if len(fields) == 0 { fresh() }
+  else {
+    let (fname, fty) = fields[0]
+    if fname == name { fty }
+    else { record_field_type(slice(fields, 1, len(fields)), name) }
+  }
+}
+
+fn infer_record_fields(fields) with Infer, Diagnostic = {
+  if len(fields) == 0 { [] }
+  else {
+    let (name, expr) = fields[0]
+    let ty = infer(expr)
+    [(name, ty)] ++ infer_record_fields(slice(fields, 1, len(fields)))
+  }
+}
+
 // ─── Helpers ────────────────────────────────────────────────
 
 fn infer_list(sexprs) with Infer, Diagnostic = {
@@ -251,6 +278,18 @@ fn bind_names(names, types) with Infer = {
   if len(names) > 0 && len(types) > 0 {
     bind(names[0], types[0], Inferred("parameter"))
     bind_names(slice(names, 1, len(names)), slice(types, 1, len(types)))
+  } else { () }
+}
+
+// Gradient-aware binding: Declared reason when type annotation present
+fn bind_names_gradient(names, types, params) with Infer = {
+  if len(names) > 0 && len(types) > 0 {
+    let reason = match params[0] {
+      (_, _, ty) => match ty { TUnit => Inferred("parameter"), _ => Declared("annotation") },
+      _ => Inferred("parameter")
+    }
+    bind(names[0], types[0], reason)
+    bind_names_gradient(slice(names, 1, len(names)), slice(types, 1, len(types)), slice(params, 1, len(params)))
   } else { () }
 }
 
@@ -282,14 +321,18 @@ fn infer_stmt(stmt) with Infer, Diagnostic = match stmt {
     bind_pattern(pat, ty)
   },
 
-  FnStmt(name, params, body, declared_effects) => {
-    let param_names = map(|(n, _)| n, params)
-    let param_types = map(|_| fresh(), param_names)
-    let ret = fresh()
+  FnStmt(name, params, body, declared_effects, ret_type) => {
+    let param_names = map(|p| match p { (n, _, _) => n, (n, _) => n, _ => p }, params)
+    // The gradient: declared types become constraints, not guesses
+    let param_types = map(|p| match p {
+      (_, _, ty) => match ty { TUnit => fresh(), _ => ty },
+      _ => fresh()
+    }, params)
+    let ret = match ret_type { TUnit => fresh(), _ => ret_type }
     let eff = fresh_eff()
     bind(name, TFun(param_types, ret, eff), Declared("fn " ++ name))
     push_scope()
-    bind_names(param_names, param_types)
+    bind_names_gradient(param_names, param_types, params)
     let body_ty = infer(body)
     let body_effs = pop_scope()
     unify(ret, body_ty)
@@ -309,6 +352,11 @@ fn infer_stmt(stmt) with Infer, Diagnostic = match stmt {
       _ => TName(base, [])
     }
     bind(name, base_ty, Declared("type alias " ++ name))
+  },
+
+  HandlerDeclStmt(name, parent, arms) => {
+    // Handler declarations: bind name for bare handler references
+    bind(name, TUnit, Declared("handler " ++ name))
   },
 
   _ => ()

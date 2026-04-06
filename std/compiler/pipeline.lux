@@ -41,7 +41,14 @@ import backend/wasm_emit
 
 // Stage 1: Frontend — source to structure
 // The frontend IS the composition of lex and parse.
-fn frontend(source) = source |> lex |> parse_program
+// ParseError handler: report via Diagnostic, resume with NoneExpr sentinel.
+fn frontend(source) =
+  handle { source |> lex |> parse_program } {
+    unexpected(expected, got, line, col) => {
+      println("Parse error [" ++ to_string(line) ++ ":" ++ to_string(col) ++ "]: expected " ++ expected ++ " got " ++ got)
+      resume(NoneExpr)
+    }
+  }
 
 // Stage 2: Check — structure to truth (frozen)
 // check_program IS the middle. One function. Source of all truth.

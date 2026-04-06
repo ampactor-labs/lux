@@ -9,6 +9,7 @@
 //   - Instantiation (instantiate_type, instantiate_types)
 //   - Builtin helpers (env_with_primitives, is_builtin_reason, ...)
 
+import compiler/types
 import compiler/eff
 
 // ─── Diagnostic Effect ──────────────────────────────────────
@@ -18,45 +19,6 @@ import compiler/eff
 effect Diagnostic {
   report(source: String, kind: String, msg: String, line: Int, col: Int) -> ()
 }
-
-// ─── Type Representation ─────────────────────────────────────
-
-type Ty
-  = TInt
-  | TFloat
-  | TString
-  | TBool
-  | TUnit
-  | TList(Ty)
-  | TTuple(List)
-  | TFun(List, Ty, EffRow)
-  | TVar(Int)
-  | TName(String, List)
-
-// ─── Reason ADT ──────────────────────────────────────────────
-// Every type inference produces a Reason explaining HOW and WHY.
-// Reasons form a tree: each node has a human summary and links
-// to the reasoning steps that support it.
-//
-// This is the soul of the Why Engine. The Reason is not an
-// afterthought bolted onto types — it's a first-class output
-// of the inference process, as fundamental as the type itself.
-
-type Reason
-  = Literal(String)                    // "42 is Int (integer literal)"
-  | VarLookup(String, Reason)          // "x is Int (bound in scope)"
-  | Declared(String)                   // "x: Int (user annotation)"
-  | OpConstraint(String, Reason, Reason)  // "* requires both args Int"
-  | Unified(Reason, Reason)            // "unified LHS with RHS"
-  | FnReturn(String, Reason)           // "return type of fn add"
-  | FnParam(String, Int, Reason)       // "parameter 0 of fn add"
-  | Applied(Reason, List)              // "result of applying f to args"
-  | CondBranch(Reason, Reason)         // "if branches must agree"
-  | ListElement(Reason)                // "element type of list literal"
-  | PipeFlow(Reason, Reason)           // "piped value → function"
-  | Inferred(String)                   // "inferred by context"
-  | Because(String, Reason)            // "X because Y"
-  | Fresh(Int)                         // "fresh type variable ?0"
 
 // ─── Type Environment ────────────────────────────────────────
 // Stores (name, type, reason) triples. Source text rides as a sentinel entry.
@@ -261,7 +223,17 @@ fn apply(subst, ty) = match ty {
   TList(elem) => TList(apply(subst, elem)),
   TFun(params, ret, effs) => TFun(apply_list(subst, params), apply(subst, ret), effs),
   TTuple(elems) => TTuple(apply_list(subst, elems)),
-  TName(name, args) => TName(name, apply_list(subst, args))
+  TName(name, args) => TName(name, apply_list(subst, args)),
+  TRecord(fields) => TRecord(apply_fields(subst, fields)),
+  TRecordOpen(fields, v) => TRecordOpen(apply_fields(subst, fields), v)
+}
+
+fn apply_fields(subst, fields) = {
+  if len(fields) == 0 { [] }
+  else {
+    let (name, ty) = fields[0]
+    [(name, apply(subst, ty))] ++ apply_fields(subst, slice(fields, 1, len(fields)))
+  }
 }
 
 fn apply_list(subst, tys) = {

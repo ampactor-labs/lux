@@ -58,61 +58,26 @@ special cases, the architecture is wrong.
 > Full manifesto: `docs/DESIGN.md`
 > Full roadmap: `docs/ROADMAP.md`
 
-## STATE OF THE WORLD — Last Updated: 2026-03-31
+## STATE OF THE WORLD — Last Updated: 2026-04-06
 
 **THE COMPILER VERIFIES ITSELF.** 272 functions across 9 compiler modules
 proven pure. The Diagnostic effect makes the inference engine externally
 pure. The compiler reads its own source, checks its own types, and proves
 its own purity — using the same mechanisms it enforces on user code.
 
-| Subsystem | Status | Notes |
-|-----------|--------|-------|
-| **Self-hosted pipeline** | ✅ **PRIMARY** | Default for `lux run` and `lux check` — the only intelligence |
-| **Rust checker** | **DELETED** | 4,200 lines retired (c84cd43). Self-hosted checker replaces it. |
-| Rust bootstrap | ✅ Scaffolding | lexer, parser, compiler (AST→bytecode), VM — bootstrap only, Arc 2 deletes these |
-| Effect system | ✅ Working | Fail, Console, State, Compute, handler-local state, evidence-passing |
-| Handle semantics | ✅ Working | Handle returns body value only — state is internal to handler |
-| Effect algebra | ✅ Working | `!E`, `E-F`, `Pure` constraints, compile-time enforcement |
-| String interpolation | ✅ Working | `"hello {name}"` — `{expr}` inside double quotes |
-| Raw string literals | ✅ Working | `'hello {name}'` — no interpolation, braces are literal |
-| Teaching compiler | ✅ Working | `--teach` flag, inferred types/effects display |
-| Handler composition | ✅ Working | `handler` items, bare ref, inheritance, `use` clause |
-| Self-hosted lexer | ✅ Working | All token types, compiles itself |
-| Self-hosted parser | ✅ Working | All expression/statement forms, TypeAliasStmt, compiles itself |
-| Self-hosted checker | ✅ Working | HM inference + Why Engine + effect rows + did-you-mean + exhaustive match + refinement solver |
-| Self-hosted codegen | ✅ Working | Full bytecode emission, match+field binding, closures, forward references |
-| Self-hosted VM | ✅ Working | 930-line bytecode interpreter in Lux, all 46 opcodes, 45 builtins, effects, recursion |
-| **Effect handlers (self-hosted)** | ✅ **VERIFIED** | handle/resume, nested handlers, handler-local state, string effects — 10 golden-file tests |
-| **Inference pipeline** | ✅ **ACHIEVED** | `tokenize→parse→infer→generate` as 4-op Compiler effect |
-| Pipeline handlers | ✅ Working | 8 handlers: standard, teaching, explaining (Why), documenting, checking, tracing, lowering, wasm |
-| CLI subcommands | ✅ Working | `lux run/why/doc/check/test/repl/lower/wasm` |
-| Gradient engine | ✅ Working | Detects purity, suggests ONE annotation per compile |
-| ML framework | ✅ Working | Autodiff via Compute effect, XOR trains to convergence |
-| DSP library | ✅ Working | std/dsp/ with effect-algebraic proofs, uses abs() |
-| Prelude | ✅ Working | 45+ functions (map, filter, fold, sort, max, min, clamp, etc.) |
-| Math stdlib | ✅ Working | abs, max, min, clamp, round, sqrt, pow, log, exp, sin, cos, tanh, atan2, pi |
-| Test framework | ✅ Working | Test effect with `assert`, `expect_eq`, `run_tests`/`run_suite` handlers |
-| Elm-quality errors | ✅ Working | Did-you-mean (Levenshtein), exhaustive match hints, effect violation suggestions |
-| Did-you-mean suggestions | ✅ Working | Levenshtein distance, threshold ≤ 3, self-hosted `suggest.lux` |
-| Exhaustive match analysis | ✅ Working | ADT variant coverage, wildcard detection, missing variant warnings |
-| Refinement solver | ✅ Working | `solver.lux` — Proven/Disproven/Unknown, compile-time predicate verification |
-| Ownership enforcement | ✅ Working | `own` = affine (linear), `ref` = scoped (no escape), tracked through effect system, self-hosted walk_expr |
-| **AST spans (SExpr)** | ✅ **Working** | `S(Expr, line, col)` wrapper on all 29 parser sites, source-context diagnostics |
-| **Diagnostic effect** | ✅ **Working** | `effect Diagnostic { report(...) }` — all checker output flows through effect, handled at check_program boundary |
-| **Diagnostic architecture** | ✅ **Working** | `format_diagnostic` with source line + caret, structured EffectViolation type |
-| **Self-checking** | ✅ **Working** | `lux check std/compiler/*.lux` — zero parse errors, all 10 modules type-check |
-| **Purity proofs** | ✅ **272 functions** | 9/10 compiler modules fully annotated `with Pure`; inference engine externally pure |
-| **Constructor let-patterns** | ✅ **Working** | `let S(e, l, c) = sexpr` — LetPattern(Pat, Expr) Stmt variant |
-| **Tuple match patterns** | ✅ **Working** | `(name, _) => name` — PTuple(List) Pat variant |
-| `!Alloc` transitivity | ✅ Working | Resolve-then-check, open-row rejection. Approach B (inferred): algebra resolves callee effects |
-| Refinement types | ✅ Working | `type Byte = Int where 0 <= self && self <= 255` — syntax, solver, compile-time verification of literals |
-| **LowIR** | ✅ **Working** | 26-variant ADT, AST→LowIR transform, handler elimination, evidence passing (global dispatch) |
-| **WASM emitter** | ✅ **Working** | Clean LowIR→WAT translator, handler globals collection, emit_fn global filtering |
-| **Evidence passing (WASM)** | ✅ **ACHIEVED** | Effect ops as global bindings, handle blocks install closures, handler state in __hs_* globals, 8/8 crucibles |
+**Everything works.** Self-hosted pipeline is PRIMARY (lexer, parser, checker, codegen, VM, LowIR, WASM emitter — all in Lux). Rust checker DELETED (c84cd43). 272 purity proofs. Evidence passing in WASM (8/8 crucibles). Diagnostic effect makes inference engine externally pure. Self-checking: `lux check std/compiler/*.lux` — all 10 modules type-check.
 
-**Achieved**: Everything above, plus: **Rust checker deleted** (Arc 1 complete), **self-hosted pipeline as default**, **272 purity proofs** (Arc 3 Phase 2 complete), **Diagnostic effect** (inference engine externally pure), **evidence passing in WASM** (ce05534 — effect ops as global bindings, handle blocks install closures, cross-function effect dispatch), **8/8 WASM crucibles** including `wasm_prelude` (cross-function handler state accumulation).
+| Milestone | Status |
+|-----------|--------|
+| Self-hosted pipeline as default | ✅ Arc 1 complete |
+| Rust checker deleted (4,200 lines) | ✅ c84cd43 |
+| 272 purity proofs (9 compiler modules) | ✅ Arc 3 Phase 2 |
+| Diagnostic effect (externally pure inference) | ✅ e2bebb9 |
+| LowIR + handler elimination | ✅ 26-variant ADT, 3-tier classification |
+| WASM emitter + evidence passing | ✅ 8/8 crucibles, cross-function dispatch |
+| Rust bootstrap (11,065 lines) | Scaffolding — Arc 2 deletes |
 
-**Next**: Phase 3 of Perfection Plan — checker in WASM. Then wasm_compile.lux rewrite (Phase 4), self-compilation (Phase 5), delete Rust (Phase I).
+**Next**: Phase H — checker in WASM. Then wasm_compile.lux rewrite, self-compilation, delete Rust.
 
 ## READ THIS FIRST — What Lux IS
 
@@ -318,30 +283,19 @@ Standard library: `std/prelude.lux`, `std/test.lux`, `std/types.lux`, `std/vm.lu
 
 ## Key Files
 
-**Rust bootstrap (11,065 lines remaining — Arc 2 deletes these):**
-
-| File | Owns | Status |
-|------|------|--------|
-| `src/token.rs` | Token types, Span | Bootstrap only |
-| `src/lexer.rs` | Tokenization, string interpolation | Bootstrap only |
-| `src/ast.rs` | AST nodes, patterns, type expressions | Bootstrap only |
-| `src/parser/` | Recursive descent, Pratt precedence climbing | Bootstrap only |
-| `src/types.rs` | Internal types, row-polymorphic effects, ADT defs | Bootstrap only |
-| `src/compiler/` | Bytecode compiler (expressions, effects, patterns) | Bootstrap only |
-| `src/vm/` | Stack-based VM (execution, effects, builtins) | Bootstrap only |
-| `src/error.rs` | Error types, source-context formatting | Bootstrap only |
-| `src/loader.rs` | Module import resolution, cycle detection | Bootstrap only |
-| ~~`src/checker/`~~ | ~~HM inference, effect tracking~~ | **DELETED** (c84cd43) |
-| `tests/examples.rs` | Golden-file integration tests | Bootstrap only |
+**Rust bootstrap (11,065 lines — scaffolding, Arc 2 deletes):**
+`src/` — token.rs, lexer.rs, ast.rs, parser/, types.rs, compiler/, vm/, error.rs, loader.rs.
+`tests/examples.rs` — golden-file integration tests. Checker DELETED (c84cd43).
 
 **Lux forever — the real compiler:**
 
 | File | Owns |
 |------|------|
+| `std/compiler/types.lux` | Core ADTs (Ty, EffRow, Reason) — zero imports, foundation for parser+checker |
 | `std/compiler/lexer.lux` | Self-hosted tokenizer |
-| `std/compiler/parser.lux` | Self-hosted recursive descent parser (ADT-based AST, LetPattern, PTuple, TypeAliasStmt) |
-| `std/compiler/infer.lux` | Type rules — 11-op Infer effect, 451 lines. **FROZEN** |
-| `std/compiler/check.lux` | HM algorithm handler — one handle block, source in, truth (env) out. **FROZEN** |
+| `std/compiler/parser.lux` | Self-hosted recursive descent parser (ADT-based AST, type annotations, records, ParseError effect) |
+| `std/compiler/infer.lux` | Type rules — 11-op Infer effect, gradient-aware param/return types |
+| `std/compiler/check.lux` | HM algorithm handler — one handle block, TRecord unification, gradient-aware bind |
 | `std/compiler/ty.lux` | Type ADTs (Ty, Reason, EffRow), TypeEnv, substitution, Diagnostic effect |
 | `std/compiler/eff.lux` | Effect row algebra: merge, unify, negate, constrain, eff_subst |
 | `std/compiler/display.lux` | Type/reason display: show_type, show_env_compact/why/doc |
@@ -447,59 +401,10 @@ audio |> chain
 
 ## Phase History
 
-| Phase | What | Commit |
-|-------|------|--------|
-| 1 | MVP: lexer, parser, checker, interpreter, REPL | 87d69ed |
-| 2 | Strings, loops, tuples, match guards, error formatting | 2f5f88a |
-| 3 | Row-polymorphic effects, generators, traits, 5 examples | ce9fc26 |
-| 4 | Generics, stdlib prelude, TCO, Arc environments | 1de80df |
-| 5 | Stateful effect handlers (handler-local state) | 1985aad |
-| 6A | Named record fields, list patterns, or-patterns | HEAD |
-| 6B | Multi-shot continuations via replay-based re-evaluation | HEAD |
-| 6C | Bytecode VM, module system, VM parity (15/15 examples) | 5787bb1..d933893 |
-| 6C+ | Pipe-aware calls, prelude expansion, exhaustive match warnings, assert | ffb8ae2..a23cbf9 |
-| 4 | Stdlib migration: sort/enumerate/min/max/clamp/flat_map/unique/words/lines to pure Lux; removed 10 shadowed Rust builtins | HEAD |
-| ML | ML framework: autodiff via effects, XOR trains to convergence. Thesis proven. | HEAD |
-| ML+ | Parser newline-aware postfix, checker numeric inference (no more `: Float` ceremony) | HEAD |
-| 7A | Handler state as return value — eliminates `get_tape()` anti-pattern. VM pattern match stack fix. | b33d1ee |
-| 7A.5 | Let destructuring | `let (a, b) = expr` — tuple/list/wildcard/record patterns in let bindings. 13 match→let conversions across examples. | HEAD |
-| 7C | Handler composition | `handler` top-level item, bare handler ref (`with handler_name`), inheritance (`: base`), `use` clause. XOR predict becomes one-liner. | HEAD |
-| 7B | Tail-resumptive fast-path — VM skips continuation capture for `resume(pure_expr)` handlers. Compiler detection, Resume opcode routing. | 1ec1d77 |
-| 7+ | Evidence-passing (local) — direct handler dispatch for evidence-eligible ops. Compiler classifies handlers, emits PushEvidence/PerformEvidence. VM mini-loop for synchronous handler call. 12 of 19 examples use evidence path; XOR gets 4024 evidence dispatches. | HEAD |
-| 8A | Effect algebra (negation) — `!Effect` and `Pure` constraints in function signatures. Parser: `!Name` syntax. Checker: validates body effects against negation constraints. Purely compile-time, zero runtime cost. | HEAD |
-| 8A-DSP | Effect-algebraic DSP framework — std/dsp/ library, pipe operator first usage, four-mode proof | HEAD |
-| 8B | Effect subtraction syntax `E - F` in annotations — desugars to negation constraint. Same semantics as `E, !F` but reads as capability removal. Enables readable sandbox patterns. Generic subtraction (row variables) deferred to Phase 9+. | HEAD |
-| 8C | Teaching compiler (`--teach`) — surfaces inferred types/effects, suggests annotations that unlock guarantees. Friendly type vars (a, b, c), import boundary tracking, purity/effect discovery. Progressive levels foundation. | HEAD |
-| 8D | Evidence-passing for higher-order functions — checker adds effect routing for function-typed Var refs, VM BundledClosure allocates extra locals, BundleEvidence opcode decoder fix. `dsp_sandbox` passes, removed from skip list. | HEAD |
-| 9A | Self-hosted lexer (`std/compiler/lexer.lux`) — tokenizer written in Lux generating Token ADTs. | HEAD |
-| 9B | Self-hosted parser (`std/compiler/parser.lux`) — ADT-based recursive descent parser in Lux. Handles expressions, let bindings, fn declarations, if/else, match, lists, tuples, pipes, blocks. | HEAD |
-| 9C | Self-hosted type checker (`std/compiler/checker.lux`) — HM type inference with unification, occurs check, and constraint propagation. Infers Int, String, Bool, List<T>, function types. | HEAD |
-| 9D | Self-hosted codegen (`std/compiler/codegen.lux`) — bytecode emitter producing correct opcodes for all core constructs + full disassembler. Lux compiles Lux. | 81b8ed7 |
-| 9E | Why Engine (`std/compiler/checker.lux`) — every type inference carries a Reason ADT tree. 14 reason variants. `check_and_explain(source, name, depth)` explains any binding at any depth. The compiler teaches, not just checks. | 3b2eae4 |
-| 9F | Self-compilation — match expressions, lambda/upvalue capture, type declarations, import paths, read_file builtin. All four compiler modules (70,752 chars) compile themselves. Disassembler refactored to 4 helpers. | 1b951f6 |
-| 9G | Elm-quality errors — Levenshtein did-you-mean for variables/types/effects, exhaustive match hints with actionable suggestions, effect constraint violations naming the function and suggesting fixes. Parent scope search for suggestions. | 64e5793 |
-| 10A | Ownership as effect — `own` = affine (linear, used at most once), `ref` = scoped (cannot escape function call). Tracked through TypeEnv alongside effect rows — no separate module. If/else branch merging for linearity. Ref-escape check. Design spec + example specs + Lux-first sketch. | c028f75 |
-| 10B | `!Alloc` transitivity — resolve-then-check with open-row rejection. Approach B (inferred): effect algebra resolves callee effects through unification; negation check operates on resolved rows. Open rows rejected under negation (closed-world: can't prove absence through the unknown). | HEAD |
-| 11A | Refinement type syntax — `type Name = Base where predicate` parses, `self` references typed value. TypeAlias AST node separate from TypeDecl (ADTs). Side table in TypeEnv (not Type::Refined — follows ownership pattern). Resolves to base type transparently. Predicates stored, not yet verified. | HEAD |
-| 11B | Refinement type verification — `solver.rs` evaluates predicates at compile time via literal substitution. `check_refinement(predicate, known_value) -> Proven \| Disproven \| Unknown`. Interface mirrors effect handler response (verification IS an effect). Hooks in `check_fn_decl` and `check_let_decl`. `RefinementViolation` error type. 9 unit tests, 2 error tests. | HEAD |
-| 12A | Self-hosted VM (`std/vm.lux`) — 930-line bytecode interpreter. All 46 opcodes, 45 builtins, 11-tuple threaded state. Codegen forward references (recursive functions). Handler name resolution (indices→strings at install). 38 tests pass including fib(10)=55, fact(5)=120. Full pipeline: lex→parse→codegen→vm all in Lux. | cda9833 |
-| 13A | Effects all the way down — `vm_resume` implemented (finds resume_marker, applies state updates, restores VM state). Checker wildcard replaced with real inference for MatchExpr, LambdaExpr, HandleExpr, ResumeExpr, FieldAccess + LetDestructure, EffectDeclStmt. | fb1bf35 |
-| 13B | Effect handler golden-file verification — `vm_test` wired into `--no-check` test harness. 10 effect tests verified through self-hosted pipeline. Parser fix: disambiguate `resume ... with` state updates from handler arm commas (mirrors `parse_state_bindings` pattern). | 607baa1 |
-| 14 | Checker split + effect unification — extracted `checker_effects.lux` (288 lines: EffRow ops, unify_eff, eff_subst, negation) and `checker_ownership.lux` (70 lines). Counter carries `[fresh_id, eff_subst]` — one channel for inference state. `unify` TFun case unifies effect rows instead of discarding with `_`. `fresh_eff_var` creates effect variables. `apply_eff_subst` resolves before negation checks. 7 transitive golden tests: !Alloc/Pure/!Network through call chains. | a6de722 |
-| 15 | Ownership + SExpr spans + diagnostics — `parse_fn_params` with `own`/`ref` qualifiers, `walk_expr` affine checking (17 AST variants), `check_ref_escape` return-position tracing, `type SExpr = S(Expr, Int, Int)` wrapper on all 29 parser sites, `format_diagnostic` source-context renderer with caret underlines, structured `EffectViolation` type (replacing println), source threading via env, first-use line tracking. Discovery: Rust VM doesn't support nested constructor patterns — workaround: explicit unwrap-then-match. 8 ownership golden tests. | HEAD |
-| 16 | Did-you-mean + exhaustive match + refinement solver (self-hosted) — `checker_suggest.lux` (Levenshtein, 187 lines), `solver.lux` (predicate verification, 124 lines), `TypeAliasStmt` in parser, checker integration. Golden tests for both. | 2c73e67 |
-| 17 | Oracle parity — self-hosted vs Rust pipeline verification. 27/30 match, 0 mismatches. 3 cases where self-hosted surpasses Rust (!Alloc transitivity). | 26a412d |
-| 18 | Self-hosted pipeline as default — `lux run` and `lux check` route through self-hosted by default. `needs_no_check` list removed. All 42 tests pass. | c26b942 |
-| 19 | **Rust checker deleted** — 4,200 lines of scaffolding retired. 5,405 total lines removed. The self-hosted checker is the only intelligence. The student surpassed the teacher. | c84cd43 |
-| 20A | Self-hosted let-patterns — `LetPattern(Pat, Expr)` Stmt variant. Constructor destructuring in let bindings (`let S(e, l, c) = sexpr`). Unblocked self-checking: 8/10 modules pass `lux check`. | 277b291 |
-| 20B | Tuple match patterns — `PTuple(List)` Pat variant. `(name, _) => name` in match arms. Zero parse errors across all 10 compiler modules. | 03244d0 |
-| 21 | **Arc 3 Phase 2: Effect purity** — 272 functions across 9 modules annotated `with Pure`. Gradient engine fixed to see its own annotations (AST passthrough). checker_effects.lux first module at 100%. All modules annotated: lexer, parser, codegen (all-pure), checker (51/58), solver, suggest, ownership, gradient (all-pure). | 15be0d0..4718c09 |
-| 22 | **Diagnostic effect** — `effect Diagnostic { report(source, kind, msg, line, col) -> () }`. All 11 println sites in checker replaced with effect operations. Handler at `check_program` boundary renders output. Inference engine (`infer_expr → check_stmt → check_program`) externally pure. 6 more functions gain `with Pure`. | e2bebb9 |
-| F | **LowIR** — 26-variant ADT between AST and WASM. Three-tier handler classification (TailResumptive/Linear/MultiShot). AST→LowIR transform: tail-resumptive → direct call, linear → direct call with state updates. Discovery: 100% of real handlers compile without state machines. `lux lower` CLI command. Pretty-printer. 541 lines, 29 Pure. | 3731c6a..f5aaf97 |
-| G | **WASM emitter** — LowIR → WAT (WebAssembly Text Format). WASI module emission: fd_write import, linear memory, _start entry point, print_int decimal conversion runtime. `lux wasm` CLI command. First Lux→WASM execution: `fib(10) = 55` on wasmtime. 313 lines, 30 Pure. | 113713f..b100617 |
-| G+ | **WASM Phase G+** — Strings, handler state, ADTs, match, the Ultimate Test. Pipeline alignment, constructor-aware lowering, simultaneous state updates, value/void emission. `fibonacci_via_effects()` with 2 state vars on wasmtime. Runtime split to `wasm_runtime.lux`. LowerCtx effect refactor: 7 duplicate pairs → 1. Closures: function table, call_indirect, capture detection (Pure scope walk), uniform `__closure` calling convention. `lux wasm lexer.lux` attempted — structure compiles, prelude builtins are the wall. | 6a130fa..01aa77d |
-| G++ | **Perfection Plan session** — 6 fixes in one session. `type_of` → `inferred_type` (Rust VM builtin shadow). Handler rewrite connected to Call path (7/7 crucibles). Dead emitter dispatch removed. Locals shadow globals in LLet. `val_eq` for unknown `==` types (keywords work in WASM). `list_concat` added to memory.lux, Concat type-directed dispatch. | 63964ae..d7f7274 |
-| G³ | **Evidence passing** — Effects flow across function boundaries in WASM. Effect ops are global bindings. Handle blocks save/install/restore closures. Handler state in fresh `__hs_*` globals shared between closures and enclosing scope. No callee transformation. `collect_handler_globals` finds `__hs_*` names inside function bodies. `emit_fn` filters globals from function locals. 8/8 crucibles including `wasm_prelude` (cross-function effect dispatch, 10+20+30=60). | ce05534 |
+53 phases from MVP (87d69ed) through self-hosted pipeline, Rust checker deletion,
+272 purity proofs, LowIR, WASM emitter, and evidence passing (G³, ce05534).
+
+> Full history: `docs/PHASE_HISTORY.md`
 
 ## Roadmap
 
@@ -537,13 +442,13 @@ audio |> chain
 | ~~`src/checker/`~~ | ~~docs/DESIGN.md~~ | **DELETED** (c84cd43) |
 | `src/compiler/` (compiler.rs, effects.rs) | CLAUDE.md (Architecture) | Bytecode compilation |
 | `src/vm/` (vm.rs, opcode.rs) | CLAUDE.md (VM Internals) | VM opcodes, execution |
-| `std/compiler/infer.lux`, `std/compiler/check.lux` | CLAUDE.md (Key Files), docs/PLAN.md | Type rules, HM algorithm (FROZEN) |
+| `std/compiler/infer.lux`, `std/compiler/check.lux` | CLAUDE.md (Key Files), docs/PLAN.md | Type rules, HM algorithm, gradient |
 | `std/compiler/ty.lux`, `std/compiler/eff.lux` | CLAUDE.md (Key Files) | Type ADTs, effect row algebra |
 | `examples/*.lux` | CLAUDE.md (Effect System), docs/DESIGN.md | New patterns |
 | `std/prelude.lux` | CLAUDE.md (Key Files) | New stdlib functions |
 | `std/ml/*.lux`, `std/dsp/*.lux` | `docs/specs/lux-ml-design.md` | ML/DSP framework changes |
 | `std/compiler/own.lux` | `docs/specs/ownership-design.md`, CLAUDE.md (Roadmap) | Affine/scoped enforcement |
-| `examples/ownership*.lux` | `docs/specs/ownership-design.md`, CLAUDE.md (Phase History) | Ownership patterns, error specs |
+| `examples/ownership*.lux` | `docs/specs/ownership-design.md`, docs/PHASE_HISTORY.md | Ownership patterns, error specs |
 | `std/compiler/lower*.lux` | CLAUDE.md (Key Files, Phase History), docs/PLAN.md | LowIR types, transform, printer |
 | `std/backend/wasm_emit.lux` | CLAUDE.md (Key Files, Phase History) | WAT emission |
 | `std/backend/wasm_collect.lux`, `std/backend/wasm_construct.lux` | CLAUDE.md (Key Files) | WASM collection, construction helpers |

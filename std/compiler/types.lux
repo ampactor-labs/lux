@@ -1,0 +1,58 @@
+// Lux Core Type ADTs — types.lux
+//
+// ZERO imports. This is the foundation everything else stands on.
+// Ty, EffRow, and Reason live here so that BOTH parser.lux and ty.lux
+// can use them without circular imports. One Ty. Everywhere.
+
+// ─── Type Representation ─────────────────────────────────────
+// The type of every expression, binding, and function in Lux.
+
+type Ty
+  = TInt
+  | TFloat
+  | TString
+  | TBool
+  | TUnit
+  | TList(Ty)
+  | TTuple(List)
+  | TFun(List, Ty, EffRow)
+  | TVar(Int)
+  | TName(String, List)
+  | TRecord(List)
+  | TRecordOpen(List, Int)
+
+// ─── Effect Row Representation ───────────────────────────────
+// Tracks which algebraic effects an expression may perform.
+//   EfPure       — no effects (parallelizable, memoizable)
+//   EfClosed(es) — exactly these effects (es is a list of strings)
+//   EfOpen(es,v) — these effects plus unknown (effect-polymorphic)
+
+type EffRow
+  = EfPure
+  | EfClosed(List)
+  | EfOpen(List, Int)
+
+// ─── Reason ADT ──────────────────────────────────────────────
+// Every type inference produces a Reason explaining HOW and WHY.
+// Reasons form a tree: each node has a human summary and links
+// to the reasoning steps that support it.
+//
+// This is the soul of the Why Engine. The Reason is not an
+// afterthought bolted onto types — it's a first-class output
+// of the inference process, as fundamental as the type itself.
+
+type Reason
+  = Literal(String)
+  | VarLookup(String, Reason)
+  | Declared(String)
+  | OpConstraint(String, Reason, Reason)
+  | Unified(Reason, Reason)
+  | FnReturn(String, Reason)
+  | FnParam(String, Int, Reason)
+  | Applied(Reason, List)
+  | CondBranch(Reason, Reason)
+  | ListElement(Reason)
+  | PipeFlow(Reason, Reason)
+  | Inferred(String)
+  | Because(String, Reason)
+  | Fresh(Int)

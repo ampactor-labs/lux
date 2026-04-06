@@ -8,19 +8,7 @@
 // unification, not discarded. This enables transitive reasoning:
 // calling a !Alloc function from a !Alloc context provably works.
 
-import compiler/lexer
-import compiler/parser
-
-// ─── Effect Row Representation ───────────────────────────────
-// Tracks which algebraic effects an expression may perform.
-//   EfPure       — no effects (parallelizable, memoizable)
-//   EfClosed(es) — exactly these effects (es is a list of strings)
-//   EfOpen(es,v) — these effects plus unknown (effect-polymorphic)
-
-type EffRow
-  = EfPure
-  | EfClosed(List)
-  | EfOpen(List, Int)
+import compiler/types
 
 // ─── Effect Merging ──────────────────────────────────────────
 // Merge two effect rows: EfPure + E = E, closed ∪ closed, etc.

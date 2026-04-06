@@ -4,7 +4,16 @@
 // to define the AST — proving the type system can express its own parser.
 // Each parse function takes (tokens, pos) and returns (node, new_pos).
 
+import compiler/types
 import compiler/lexer
+
+// ─── Parse Error Effect ──────────────────────────────────────
+// The parser doesn't decide policy. It performs an effect.
+// The handler decides: collect errors, bail early, recover with sentinel.
+
+effect ParseError {
+  unexpected(expected: String, got: String, line: Int, col: Int) -> Expr
+}
 
 // ─── AST Types ───────────────────────────────────────────────
 // Lux parsing itself with Lux's own type system.
@@ -32,6 +41,8 @@ type Expr
   | TupleExpr(List)
   | HandleExpr(Expr, List, List)
   | ResumeExpr(Expr, List)
+  | RecordExpr(List)
+  | ForExpr(String, Expr, Expr)
   | NoneExpr
 
 // Match arm: (pattern, body)
@@ -46,10 +57,11 @@ type Stmt
   = LetStmt(String, Expr)
   | LetDestructure(List, Expr)
   | LetPattern(Pat, Expr)
-  | FnStmt(String, List, Expr, List)
+  | FnStmt(String, List, Expr, List, Ty)
   | TypeStmt(String, List)
   | TypeAliasStmt(String, String, Expr)
   | EffectDeclStmt(String, List)
+  | HandlerDeclStmt(String, String, List)
   | ExprStmt(Expr)
   | ImportStmt(String)
 
@@ -88,7 +100,7 @@ fn at(tokens, pos, expected) = tok_type(tokens, pos) == expected
 fn expect(tokens, pos, expected) =
   if at(tokens, pos, expected) { pos + 1 }
   else {
-    println("Parse error: expected " ++ expected ++ " got " ++ tok_type(tokens, pos))
+    unexpected(expected, tok_type(tokens, pos), tok_line(tokens, pos), tok_col(tokens, pos))
     pos
   }
 
@@ -163,17 +175,153 @@ fn parse_names(tokens, pos, end_tok) = {
   }
 }
 
-// ─── Function parameters with ownership qualifiers ───────────
-// Parses: name | own name | ref name — comma-separated, RParen-terminated.
-// Returns [(name, tier)] where tier is "own", "ref", or "inferred".
+// ─── Type Expression Parser ──────────────────────────────────
+// Parses type expressions: Int, List<T>, (A, B) -> C, { x: Int }, ()
+// Produces Ty directly — one Ty, parser to checker, no bridges.
+
+fn parse_type_expr(tokens, pos) = {
+  let p = skip_ws(tokens, pos);
+  let typ = tok_type(tokens, p);
+  let val = tok_val(tokens, p);
+  if typ == "LParen" {
+    // () unit or (A, B) tuple or (A, B) -> C function
+    let p2 = skip_ws(tokens, p + 1);
+    if at(tokens, p2, "RParen") {
+      // () — check for -> (function from unit)
+      let p3 = skip_ws(tokens, p2 + 1);
+      if at(tokens, p3, "Arrow") {
+        let (ret, p4) = parse_type_expr(tokens, skip_ws(tokens, p3 + 1));
+        (TFun([], ret, EfPure), p4)
+      } else { (TUnit, p2 + 1) }
+    } else {
+      // (A, ...) — tuple or function params
+      let (first, p3) = parse_type_expr(tokens, p2);
+      let p4 = skip_ws(tokens, p3);
+      if at(tokens, p4, "Comma") {
+        // (A, B, ...) — collect rest
+        let (rest, p5) = parse_type_list(tokens, p4 + 1);
+        let elems = [first] ++ rest;
+        let p6 = skip_ws(tokens, p5);
+        if at(tokens, p6, "Arrow") {
+          let (ret, p7) = parse_type_expr(tokens, skip_ws(tokens, p6 + 1));
+          (TFun(elems, ret, EfPure), p7)
+        } else { (TTuple(elems), p6) }
+      } else {
+        // (A) — check for ->
+        let p5 = expect(tokens, p4, "RParen");
+        let p6 = skip_ws(tokens, p5);
+        if at(tokens, p6, "Arrow") {
+          let (ret, p7) = parse_type_expr(tokens, skip_ws(tokens, p6 + 1));
+          (TFun([first], ret, EfPure), p7)
+        } else { (first, p5) }
+      }
+    }
+  }
+  else { if typ == "LBrace" {
+    // { x: T, y: U } — record type
+    let (fields, p2) = parse_record_type_fields(tokens, p + 1);
+    (TRecord(fields), p2)
+  }
+  else { if typ == "Ident" {
+    // Named type: Int, Float, String, Bool, List<T>, Name<A, B>
+    let p2 = p + 1;
+    let ty = if val == "Int" { TInt }
+      else { if val == "Float" { TFloat }
+      else { if val == "String" { TString }
+      else { if val == "Bool" { TBool }
+      else { if val == "Unit" { TUnit }
+      else { TName(val, []) } } } } };
+    // Check for <T, U> type parameters
+    let p3 = skip_ws(tokens, p2);
+    if at(tokens, p3, "Lt") {
+      let (args, p4) = parse_type_args(tokens, p3 + 1);
+      if val == "List" && len(args) == 1 { (TList(args[0]), p4) }
+      else { (TName(val, args), p4) }
+    } else { (ty, p2) }
+  }
+  else {
+    // Unrecognized — produce TUnit as sentinel
+    let sentinel = unexpected("type", typ, tok_line(tokens, p), tok_col(tokens, p));
+    (TUnit, p + 1)
+  } } }
+}
+
+// Parse comma-separated type list ending with RParen
+fn parse_type_list(tokens, pos) = {
+  let p = skip_ws(tokens, pos);
+  if at(tokens, p, "RParen") { ([], p + 1) }
+  else {
+    let (ty, p2) = parse_type_expr(tokens, p);
+    let p3 = skip_ws(tokens, p2);
+    if at(tokens, p3, "Comma") {
+      let (rest, p4) = parse_type_list(tokens, p3 + 1);
+      ([ty] ++ rest, p4)
+    } else {
+      ([ty], expect(tokens, p3, "RParen"))
+    }
+  }
+}
+
+// Parse <T, U, ...> type arguments ending with >
+fn parse_type_args(tokens, pos) = {
+  let p = skip_ws(tokens, pos);
+  if at(tokens, p, "Gt") { ([], p + 1) }
+  else {
+    let (ty, p2) = parse_type_expr(tokens, p);
+    let p3 = skip_ws(tokens, p2);
+    if at(tokens, p3, "Comma") {
+      let (rest, p4) = parse_type_args(tokens, p3 + 1);
+      ([ty] ++ rest, p4)
+    } else {
+      ([ty], expect(tokens, p3, "Gt"))
+    }
+  }
+}
+
+// Parse record type fields: x: T, y: U, ... ending with }
+fn parse_record_type_fields(tokens, pos) = {
+  let p = skip_ws(tokens, pos);
+  if at(tokens, p, "RBrace") { ([], p + 1) }
+  else {
+    let name = tok_val(tokens, p);
+    let p2 = expect(tokens, skip_ws(tokens, p + 1), "Colon");
+    let (ty, p3) = parse_type_expr(tokens, skip_ws(tokens, p2));
+    let p4 = skip_ws(tokens, p3);
+    if at(tokens, p4, "Comma") {
+      let (rest, p5) = parse_record_type_fields(tokens, p4 + 1);
+      ([(name, ty)] ++ rest, p5)
+    } else {
+      ([(name, ty)], expect(tokens, p4, "RBrace"))
+    }
+  }
+}
+
+// ─── Function parameters with ownership qualifiers + types ───
+// Parses: name | own name | ref name | name: Type
+// Returns [(name, tier, Ty)] triples. TUnit means no annotation.
 
 fn parse_one_param(tokens, pos) = {
   let val = tok_val(tokens, pos);
   if val == "own" || val == "ref" {
     let p2 = skip_ws(tokens, pos + 1);
-    (tok_val(tokens, p2), val, p2 + 1)
+    let name = tok_val(tokens, p2);
+    let p3 = skip_ws(tokens, p2 + 1);
+    // Check for : Type after owned/ref param
+    if at(tokens, p3, "Colon") {
+      let (ty, p4) = parse_type_expr(tokens, skip_ws(tokens, p3 + 1));
+      (name, val, ty, p4)
+    } else {
+      (name, val, TUnit, p3)
+    }
   } else {
-    (val, "inferred", pos + 1)
+    let p2 = skip_ws(tokens, pos + 1);
+    // Check for : Type
+    if at(tokens, p2, "Colon") {
+      let (ty, p3) = parse_type_expr(tokens, skip_ws(tokens, p2 + 1));
+      (val, "inferred", ty, p3)
+    } else {
+      (val, "inferred", TUnit, p2)
+    }
   }
 }
 
@@ -181,17 +329,17 @@ fn parse_fn_params(tokens, pos) = {
   let p = skip_ws(tokens, pos);
   if at(tokens, p, "RParen") { ([], p + 1) }
   else {
-    let (name, tier, p2) = parse_one_param(tokens, p);
+    let (name, tier, ty, p2) = parse_one_param(tokens, p);
     fn go(tokens, p, acc) = {
       let p2 = skip_ws(tokens, p);
       if at(tokens, p2, "Comma") {
-        let (n, t, p3) = parse_one_param(tokens, skip_ws(tokens, p2 + 1));
-        go(tokens, p3, push(acc, (n, t)))
+        let (n, t, ty, p3) = parse_one_param(tokens, skip_ws(tokens, p2 + 1));
+        go(tokens, p3, push(acc, (n, t, ty)))
       }
       else { if at(tokens, p2, "RParen") { (acc, p2 + 1) }
       else { (acc, p2) } }
     };
-    go(tokens, p2, [(name, tier)])
+    go(tokens, p2, [(name, tier, ty)])
   }
 }
 
@@ -255,7 +403,7 @@ fn parse_let(tokens, pos) = {
 }
 
 // Fn declaration → Stmt
-// fn name(params) [with EffectAnnotations] = body
+// fn name(params) [-> RetType] [with EffectAnnotations] = body
 // Effect annotations: Name, !Name, Pure
 fn parse_fn(tokens, pos) = {
   let p = skip_ws(tokens, pos);
@@ -263,16 +411,29 @@ fn parse_fn(tokens, pos) = {
   let p2 = expect(tokens, skip_ws(tokens, p + 1), "LParen");
   let (params, p3) = parse_fn_params(tokens, p2);
   let p4 = skip_ws(tokens, p3);
+  // Parse optional -> ReturnType
+  let (ret_type, p5) = if at(tokens, p4, "Arrow") {
+    parse_type_expr(tokens, skip_ws(tokens, p4 + 1))
+  } else { (TUnit, p4) };
+  let p6 = skip_ws(tokens, p5);
   // Parse optional "with" effect annotations before "="
-  let (effects, p5) = if at(tokens, p4, "With") {
-    parse_effect_annotations(tokens, p4 + 1)
-  } else { ([], p4) };
-  let p6 = expect(tokens, skip_ws(tokens, p5), "Eq");
-  let p7 = skip_ws(tokens, p6);
-  let (body, p8) =
-    if at(tokens, p7, "LBrace") { parse_block(tokens, p7 + 1) }
-    else { parse_expr(tokens, p7) };
-  (FnStmt(name, params, body, effects), p8)
+  let (effects, p7) = if at(tokens, p6, "With") {
+    parse_effect_annotations(tokens, p6 + 1)
+  } else { ([], p6) };
+  let p8 = skip_ws(tokens, p7);
+  // Accept both = expr and { block } (= is optional before block body)
+  let (body, p10) =
+    if at(tokens, p8, "Eq") {
+      let p9 = skip_ws(tokens, p8 + 1);
+      if at(tokens, p9, "LBrace") { parse_block(tokens, p9 + 1) }
+      else { parse_expr(tokens, p9) }
+    } else { if at(tokens, p8, "LBrace") {
+      parse_block(tokens, p8 + 1)
+    } else {
+      let p9 = expect(tokens, p8, "Eq");
+      parse_expr(tokens, skip_ws(tokens, p9))
+    } };
+  (FnStmt(name, params, body, effects, ret_type), p10)
 }
 
 // Parse effect annotations: comma-separated list of Name or !Name or Pure
@@ -314,7 +475,15 @@ fn block_item(tokens, p, stmts) = {
     let (d, p2) = parse_fn(tokens, p + 1);
     block_loop(tokens, skip_semi(tokens, p2), push(stmts, d))
   }
-  else { block_expr_item(tokens, p, stmts) } }
+  else { if at(tokens, p, "Assert") {
+    let (ae, p2) = parse_assert(tokens, p + 1);
+    block_loop(tokens, skip_semi(tokens, p2), push(stmts, ExprStmt(ae)))
+  }
+  else { if at(tokens, p, "For") {
+    let (fe, p2) = parse_for(tokens, p + 1);
+    block_loop(tokens, skip_semi(tokens, p2), push(stmts, ExprStmt(fe)))
+  }
+  else { block_expr_item(tokens, p, stmts) } } } }
 }
 
 fn block_expr_item(tokens, p, stmts) = {
@@ -526,16 +695,71 @@ fn parse_primary(tokens, pos) = {
   }
 }
 
+// Distinguish { x: expr, ... } (record) from { stmts; expr } (block)
+fn parse_brace(tokens, pos) = {
+  let p = skip_ws(tokens, pos);
+  // Empty braces → empty block
+  if at(tokens, p, "RBrace") { (sp(BlockExpr([], sp(TupleExpr([]), tokens, p)), tokens, pos), p + 1) }
+  // Check for record: ident followed by colon
+  else { if at(tokens, p, "Ident") {
+    let p2 = skip_ws(tokens, p + 1);
+    if at(tokens, p2, "Colon") {
+      // Record literal: { name: expr, ... }
+      parse_record_literal(tokens, pos)
+    } else {
+      // Block expression
+      parse_block(tokens, pos)
+    }
+  } else {
+    parse_block(tokens, pos)
+  } }
+}
+
+// Parse { name: expr, name: expr, ... }
+fn parse_record_literal(tokens, pos) = {
+  let (fields, p) = parse_record_fields(tokens, pos);
+  (sp(RecordExpr(fields), tokens, pos), p)
+}
+
+fn parse_record_fields(tokens, pos) = {
+  let p = skip_ws(tokens, pos);
+  if at(tokens, p, "RBrace") { ([], p + 1) }
+  else {
+    let name = tok_val(tokens, p);
+    let p2 = expect(tokens, skip_ws(tokens, p + 1), "Colon");
+    let (val, p3) = parse_expr(tokens, skip_ws(tokens, p2));
+    let p4 = skip_ws(tokens, p3);
+    if at(tokens, p4, "Comma") {
+      let (rest, p5) = parse_record_fields(tokens, p4 + 1);
+      ([(name, val)] ++ rest, p5)
+    } else {
+      ([(name, val)], expect(tokens, p4, "RBrace"))
+    }
+  }
+}
+
 fn parse_dispatch(tokens, p, typ) = {
   if typ == "LBracket" { parse_list(tokens, p + 1) }
   else { if typ == "LParen" { parse_paren(tokens, p + 1) }
-  else { if typ == "LBrace" { parse_block(tokens, p + 1) }
+  else { if typ == "LBrace" { parse_brace(tokens, p + 1) }
   else { if typ == "If" { parse_if(tokens, p + 1) }
   else { if typ == "Match" { parse_match(tokens, p + 1) }
   else { if typ == "Pipe" { parse_lambda(tokens, p + 1) }
+  else { if typ == "Or" {
+    // || body — zero-param lambda
+    let p2 = skip_ws(tokens, p + 1);
+    let (body, p3) =
+      if at(tokens, p2, "LBrace") { parse_block(tokens, p2 + 1) }
+      else { parse_expr(tokens, p2) };
+    (sp(LambdaExpr([], body), tokens, p), p3)
+  }
+  else { if typ == "For" {
+    let (fe, p2) = parse_for(tokens, p + 1);
+    (fe, p2)
+  }
   else { if typ == "Handle" { parse_handle(tokens, p + 1) }
   else { if typ == "Resume" { parse_resume(tokens, p + 1) }
-  else { parse_prefix(tokens, p, typ) }}}}}}}}
+  else { parse_prefix(tokens, p, typ) }}}}}}}}}}
 }
 
 fn parse_prefix(tokens, p, typ) = {
@@ -548,8 +772,8 @@ fn parse_prefix(tokens, p, typ) = {
     (sp(UnaryOp("Not", op), tokens, p), p2)
   }
   else {
-    println("Parse error: unexpected " ++ typ)
-    (sp(VarRef("_error"), tokens, p), p + 1)
+    let sentinel = unexpected("expression", typ, tok_line(tokens, p), tok_col(tokens, p))
+    (sp(sentinel, tokens, p), p + 1)
   }}
 }
 
@@ -664,21 +888,51 @@ fn parse_import_path(tokens, pos) = {
 
 fn parse_handle(tokens, pos) = {
   let p = skip_ws(tokens, pos);
-  // Parse body: { ... }
-  let p2 = expect(tokens, p, "LBrace");
-  let (body, p3) = parse_block(tokens, p2);
+  // Parse body: { ... } or bare expression
+  let (body, p3) = if at(tokens, p, "LBrace") {
+    parse_block(tokens, p + 1)
+  } else {
+    parse_expr(tokens, p)
+  };
   let p4 = skip_ws(tokens, p3);
 
-  // Parse optional "with state = init, ..."
-  let (state_bindings, p5) = if at(tokens, p4, "With") {
-    parse_state_bindings(tokens, p4 + 1)
-  } else { ([], p4) };
+  // Parse optional "with ..."
+  let (state_bindings, handler_ref, p5) = if at(tokens, p4, "With") {
+    let pw = skip_ws(tokens, p4 + 1);
+    // Could be: state bindings (name = expr), or bare handler reference (name)
+    let maybe_name = tok_val(tokens, pw);
+    let pw2 = skip_ws(tokens, pw + 1);
+    if at(tokens, pw2, "Eq") {
+      // State binding: with state = init, ...
+      let (bindings, pb) = parse_state_bindings(tokens, pw);
+      (bindings, "", pb)
+    } else { if at(tokens, pw2, "LBrace") || at(tokens, pw2, "Comma") || at(tokens, pw2, "Newline") || at(tokens, pw2, "Eof") || at(tokens, pw2, "RBrace") || at(tokens, pw2, "RParen") {
+      // Bare handler reference: with handler_name
+      ([], maybe_name, pw + 1)
+    } else {
+      // State binding: with state_expr ...
+      let (bindings, pb) = parse_state_bindings(tokens, pw);
+      (bindings, "", pb)
+    } }
+  } else { ([], "", p4) };
 
-  // Parse handler clauses: { op(params) => body, ... }
   let p6 = skip_ws(tokens, p5);
-  let p7 = expect(tokens, p6, "LBrace");
-  let (arms, p8) = parse_handler_clauses(tokens, p7);
-  (sp(HandleExpr(body, arms, state_bindings), tokens, pos), p8)
+
+  if handler_ref != "" {
+    // Bare handler reference — handler arms come from the named handler
+    // Check for optional inline override clauses
+    if at(tokens, p6, "LBrace") {
+      let (arms, p7) = parse_handler_clauses(tokens, p6 + 1);
+      (sp(HandleExpr(body, [("__use", [], sp(VarRef(handler_ref), tokens, pos))] ++ arms, state_bindings), tokens, pos), p7)
+    } else {
+      (sp(HandleExpr(body, [("__use", [], sp(VarRef(handler_ref), tokens, pos))], state_bindings), tokens, pos), p6)
+    }
+  } else {
+    // Standard handler clauses
+    let p7 = expect(tokens, p6, "LBrace");
+    let (arms, p8) = parse_handler_clauses(tokens, p7);
+    (sp(HandleExpr(body, arms, state_bindings), tokens, pos), p8)
+  }
 }
 
 fn parse_state_bindings(tokens, pos) = {
@@ -790,16 +1044,10 @@ fn parse_effect_ops(tokens, pos) = {
     // Parse parameter names (skip type annotations for now)
     let (params, p3) = parse_effect_params(tokens, p2);
     let p4 = skip_ws(tokens, p3);
-    // Skip optional -> ReturnType
+    // Parse optional -> ReturnType
     let p5 = if at(tokens, p4, "Arrow") {
-      // Skip the type name(s)
-      let p_ty = skip_ws(tokens, p4 + 1);
-      // Skip return type: simple name, () unit, or (A, B, C) tuple
-      if at(tokens, p_ty, "LParen") {
-        skip_balanced_parens(tokens, p_ty + 1, 1)
-      } else {
-        p_ty + 1
-      }
+      let (_, p_after) = parse_type_expr(tokens, skip_ws(tokens, p4 + 1));
+      p_after
     } else { p4 };
     let p6 = skip_ws(tokens, p5);
     // Skip comma/newline separator
@@ -816,10 +1064,10 @@ fn parse_effect_params(tokens, pos) = {
   else {
     let name = tok_val(tokens, p);
     let p2 = skip_ws(tokens, p + 1);
-    // Skip optional : Type annotation
+    // Parse optional : Type annotation (parsed, not skipped)
     let p3 = if at(tokens, p2, "Colon") {
-      let p_ty = skip_ws(tokens, p2 + 1);
-      p_ty + 1  // skip the type name
+      let (_, p_ty) = parse_type_expr(tokens, skip_ws(tokens, p2 + 1));
+      p_ty
     } else { p2 };
     let p4 = skip_ws(tokens, p3);
     if at(tokens, p4, "Comma") {
@@ -837,6 +1085,57 @@ fn skip_balanced_parens(tokens, pos, depth) = {
   else { if at(tokens, pos, "LParen") { skip_balanced_parens(tokens, pos + 1, depth + 1) }
   else { if at(tokens, pos, "RParen") { skip_balanced_parens(tokens, pos + 1, depth - 1) }
   else { skip_balanced_parens(tokens, pos + 1, depth) } } }
+}
+
+// ─── Handler Declarations ────────────────────────────────────
+// handler name [: parent] { op(params) => body, ... }
+
+fn parse_handler_decl(tokens, pos) = {
+  let p = skip_ws(tokens, pos);
+  let name = tok_val(tokens, p);
+  let p2 = skip_ws(tokens, p + 1);
+  // Check for optional : parent
+  let (parent, p3) = if at(tokens, p2, "Colon") {
+    let p_name = skip_ws(tokens, p2 + 1);
+    (tok_val(tokens, p_name), skip_ws(tokens, p_name + 1))
+  } else { ("", p2) };
+  let p4 = expect(tokens, p3, "LBrace");
+  let (arms, p5) = parse_handler_clauses(tokens, p4);
+  (HandlerDeclStmt(name, parent, arms), p5)
+}
+
+// ─── Assert ──────────────────────────────────────────────────
+// assert expr, "msg"  →  Call(VarRef("assert"), [cond, msg])
+
+fn parse_assert(tokens, pos) = {
+  let p = skip_ws(tokens, pos);
+  let (cond, p2) = parse_expr(tokens, p);
+  let p3 = skip_ws(tokens, p2);
+  let (msg, p4) = if at(tokens, p3, "Comma") {
+    parse_expr(tokens, skip_ws(tokens, p3 + 1))
+  } else {
+    (sp(StringLit("assertion failed"), tokens, p3), p3)
+  };
+  // Desugar: assert cond, msg → if !(cond) { println("ASSERT FAIL: " ++ msg) } else { () }
+  let fail_body = sp(Call(sp(VarRef("println"), tokens, pos),
+    [sp(BinOp("PlusPlus", sp(StringLit("ASSERT FAIL: "), tokens, pos), msg), tokens, pos)]), tokens, pos);
+  let unit = sp(TupleExpr([]), tokens, pos);
+  (sp(IfExpr(cond, unit, fail_body), tokens, pos), p4)
+}
+
+// ─── For Loop ────────────────────────────────────────────────
+// for var in expr { body }
+
+fn parse_for(tokens, pos) = {
+  let p = skip_ws(tokens, pos);
+  let var = tok_val(tokens, p);
+  let p2 = expect(tokens, skip_ws(tokens, p + 1), "In");
+  let (iter, p3) = parse_expr(tokens, skip_ws(tokens, p2));
+  let p4 = skip_ws(tokens, p3);
+  let (body, p5) =
+    if at(tokens, p4, "LBrace") { parse_block(tokens, p4 + 1) }
+    else { parse_expr(tokens, p4) };
+  (sp(ForExpr(var, iter, body), tokens, pos), p5)
 }
 
 // ─── Program ─────────────────────────────────────────────────
@@ -870,10 +1169,22 @@ fn prog_loop(tokens, pos, items) = {
     let (ed, p2) = parse_effect_decl(tokens, p + 1);
     prog_loop(tokens, skip_semi(tokens, p2), push(items, ed))
   }
+  else { if at(tokens, p, "Handler") {
+    let (hd, p2) = parse_handler_decl(tokens, p + 1);
+    prog_loop(tokens, skip_semi(tokens, p2), push(items, hd))
+  }
+  else { if at(tokens, p, "Assert") {
+    let (ae, p2) = parse_assert(tokens, p + 1);
+    prog_loop(tokens, skip_semi(tokens, p2), push(items, ExprStmt(ae)))
+  }
+  else { if at(tokens, p, "For") {
+    let (fe, p2) = parse_for(tokens, p + 1);
+    prog_loop(tokens, skip_semi(tokens, p2), push(items, ExprStmt(fe)))
+  }
   else {
     let (e, p2) = parse_expr(tokens, p);
     prog_loop(tokens, skip_semi(tokens, p2), push(items, ExprStmt(e)))
-  }}}}}}
+  }}}}}}}}}
 }
 
 // ─── Public API ──────────────────────────────────────────────

@@ -103,6 +103,16 @@ fn unify_structure(subst, counter, a, b, context) = match a {
     },
     _ => (false, subst, Because("expected " ++ n1 ++ ", got " ++ type_to_string(subst, b), context), counter)
   },
+  TRecord(f1) => match b {
+    TRecord(f2) => unify_record_fields(subst, counter, f1, f2, context),
+    TRecordOpen(f2, _) => unify_record_fields(subst, counter, f1, f2, context),
+    _ => (false, subst, Because("expected record, got " ++ type_to_string(subst, b), context), counter)
+  },
+  TRecordOpen(f1, _) => match b {
+    TRecord(f2) => unify_record_fields(subst, counter, f1, f2, context),
+    TRecordOpen(f2, _) => unify_record_fields(subst, counter, f1, f2, context),
+    _ => (false, subst, Because("expected record, got " ++ type_to_string(subst, b), context), counter)
+  },
   _ => (false, subst, Because("type mismatch", context), counter)
 }
 
@@ -112,6 +122,52 @@ fn unify_list(subst, counter, ts1, ts2, context) = {
     let (ok, s2, r, c2) = unify_types(subst, counter, ts1[0], ts2[0], context)
     if !ok { (false, s2, r, c2) }
     else { unify_list(s2, c2, slice(ts1, 1, len(ts1)), slice(ts2, 1, len(ts2)), context) }
+  }
+}
+
+// ─── Record Unification ─────────────────────────────────────
+// Unify two record field lists. Both must be sorted by name.
+// Same field names → unify types. Missing fields → error.
+
+fn unify_record_fields(subst, counter, f1, f2, context) = {
+  // Sort both by name for canonical comparison
+  let s1 = sort_field_list(f1)
+  let s2 = sort_field_list(f2)
+  unify_sorted_fields(subst, counter, s1, s2, context)
+}
+
+fn unify_sorted_fields(subst, counter, f1, f2, context) = {
+  if len(f1) == 0 && len(f2) == 0 { (true, subst, context, counter) }
+  else { if len(f1) == 0 || len(f2) == 0 {
+    (false, subst, Because("record field count mismatch", context), counter)
+  } else {
+    let (n1, t1) = f1[0]
+    let (n2, t2) = f2[0]
+    if n1 == n2 {
+      let (ok, s2, r, c2) = unify_types(subst, counter, t1, t2, Because("field '" ++ n1 ++ "'", context))
+      if !ok { (false, s2, r, c2) }
+      else { unify_sorted_fields(s2, c2, slice(f1, 1, len(f1)), slice(f2, 1, len(f2)), context) }
+    } else {
+      (false, subst, Because("record field mismatch: " ++ n1 ++ " vs " ++ n2, context), counter)
+    }
+  } }
+}
+
+fn sort_field_list(fields) = {
+  if len(fields) <= 1 { fields }
+  else {
+    let rest = sort_field_list(slice(fields, 1, len(fields)))
+    insert_field_by_name(fields[0], rest)
+  }
+}
+
+fn insert_field_by_name(field, sorted) = {
+  if len(sorted) == 0 { [field] }
+  else {
+    let (fa, _) = field
+    let (fb, _) = sorted[0]
+    if fa < fb { [field] ++ sorted }
+    else { [sorted[0]] ++ insert_field_by_name(field, slice(sorted, 1, len(sorted))) }
   }
 }
 
@@ -128,7 +184,18 @@ fn resolve_type(subst, eff_subst, ty) = match apply(subst, ty) {
   TList(elem) => TList(resolve_type(subst, eff_subst, elem)),
   TTuple(elems) => TTuple(resolve_type_list(subst, eff_subst, elems)),
   TName(name, args) => TName(name, resolve_type_list(subst, eff_subst, args)),
+  TRecord(fields) => TRecord(resolve_record_fields(subst, eff_subst, fields)),
+  TRecordOpen(fields, v) => TRecordOpen(resolve_record_fields(subst, eff_subst, fields), v),
   other => other
+}
+
+fn resolve_record_fields(subst, eff_subst, fields) = {
+  if len(fields) == 0 { [] }
+  else {
+    let (name, ty) = fields[0]
+    [(name, resolve_type(subst, eff_subst, ty))]
+      ++ resolve_record_fields(subst, eff_subst, slice(fields, 1, len(fields)))
+  }
 }
 
 fn resolve_type_list(subst, eff_subst, tys) = {
