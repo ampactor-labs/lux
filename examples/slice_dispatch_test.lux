@@ -1,0 +1,24 @@
+// Inlined env_lookup to test slice dispatch via `lux lower`
+
+type Ty = TUnit | TInt | TString
+
+fn env_empty() = []
+
+fn env_extend(env, name, ty) = [(name, ty)] ++ env
+
+fn env_lookup(env, name) = {
+  if len(env) == 0 { ("not_found", TUnit) }
+  else {
+    let entry = env[0]
+    let (k, v) = entry
+    if k == name { (k, v) }
+    else { env_lookup(slice(env, 1, len(env)), name) }
+  }
+}
+
+let e = env_empty()
+  |> env_extend("x", TInt)
+  |> env_extend("y", TString)
+
+let (found, _) = env_lookup(e, "x")
+println("found=" ++ found)

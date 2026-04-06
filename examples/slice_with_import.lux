@@ -1,0 +1,10 @@
+// Test: does env_lookup's slice dispatch break when imported?
+// If this crashes like wasm_check.lux, the bug is in how env_lookup
+// is lowered in a multi-module context. If it works, the interaction
+// requires the full 5-module import chain.
+
+import compiler/ty
+
+let env = env_with_primitives(env_empty())
+let (found, _, _) = env_lookup(env, "println")
+println("found=" ++ found)
