@@ -190,34 +190,40 @@ fn lower_expr(sexpr, env) = {
       let S(branches_expr, bl, bc) = branches
       match branches_expr {
         TupleExpr(fns) => {
-          let elems = fan_out_lower(fns, data, env)
-          LMakeTuple(TTuple(lty_tuple_elems(elems)), elems)
+          // Fan-out: input lowered ONCE (the fix), preserved as LFanOut
+          let lowered_input = lower_expr(data, env)
+          let branch_fns = lower_exprs(fns, env)
+          let elem_types = lty_fanout_results(branch_fns)
+          LFanOut(TTuple(elem_types), lowered_input, branch_fns)
         },
         _ => lower_expr(S(Call(branches, [data]), bl, bc), env)
       }
     },
 
     JoinExpr(f, g) => {
-      // f >< g = |x| g(f(x)) — f first, then g. Left to right.
+      // f >< g — effects merged, closure wraps the chain
       let param = "__join_x"
       let lowered_f = lower_expr(f, env)
       let lowered_g = lower_expr(g, env)
       let f_ret = lty_call_result(lowered_f)
       let g_ret = lty_call_result(lowered_g)
+      let f_eff = lty_fn_eff(lowered_f)
+      let g_eff = lty_fn_eff(lowered_g)
+      let merged = merge_effects(f_eff, g_eff)
       let f_call = LCall(f_ret, lowered_f, [LGlobal(TUnit, param)])
       let g_call = LCall(g_ret, lowered_g, [f_call])
-      LMakeClosure(TFun([TUnit], g_ret, EfPure),
+      LMakeClosure(TFun([TUnit], g_ret, merged),
         LFn("__joined_" ++ to_string(fresh_id()), 1, [param], [g_call]), [])
     },
 
     HandlePipeExpr(computation, strategy) => {
-      // computation ~> strategy desugars to strategy(|| computation)
+      // Handler install — preserved as LHandlerInstall
       let thunk_body = lower_expr(computation, env)
       let thunk_ty = TFun([], lexpr_ty(thunk_body), EfPure)
       let thunk = LMakeClosure(thunk_ty,
         LFn("__thunk_" ++ to_string(fresh_id()), 0, [], [thunk_body]), [])
       let lowered_strategy = lower_expr(strategy, env)
-      LCall(lty_call_result(lowered_strategy), lowered_strategy, [thunk])
+      LHandlerInstall(lty_call_result(lowered_strategy), thunk, lowered_strategy)
     },
 
     IfExpr(cond, then_e, else_e) => {
@@ -276,6 +282,18 @@ fn lower_expr(sexpr, env) = {
 
     _ => LConst(TUnit, LUnit)
   }
+}
+
+// ─── Verb Helpers ───────────────────────────────────────────
+
+fn lty_fanout_results(branch_fns) = {
+  if len(branch_fns) == 0 { [] }
+  else { [lty_call_result(branch_fns[0])] ++ lty_fanout_results(slice(branch_fns, 1, len(branch_fns))) }
+}
+
+fn lty_fn_eff(lowered) = match lexpr_ty(lowered) {
+  TFun(_, _, eff) => eff,
+  _ => EfPure
 }
 
 fn fan_out_lower(fns, input, env) = {

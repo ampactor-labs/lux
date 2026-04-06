@@ -51,6 +51,14 @@ fn pe_ctrl(e) = match e {
 fn pe_state(e) = match e {
   LStateGet(_, i) => "state[" ++ to_string(i) ++ "]",
   LStateSet(_, i, v) => "state[" ++ to_string(i) ++ "] = " ++ pe(v),
+  _ => pe_verb(e)
+}
+
+fn pe_verb(e) = match e {
+  LPipeChain(_, _, _) => "pipe_chain",
+  LFanOut(_, _, _) => "fan_out",
+  LCompose(_, _) => "compose",
+  LHandlerInstall(_, _, _) => "handler_install",
   _ => ""
 }
 

@@ -72,6 +72,10 @@ type LowExpr
   | LSuspend(Ty, Int, LowExpr, List)
   | LStateGet(Ty, Int)
   | LStateSet(Ty, Int, LowExpr)
+  | LPipeChain(Ty, LowExpr, List)
+  | LFanOut(Ty, LowExpr, List)
+  | LCompose(Ty, List)
+  | LHandlerInstall(Ty, LowExpr, LowExpr)
 
 // ─── Type Lookup — The Graph Is The Oracle ───────────────────
 // Every LowExpr carries its type. This is the ONLY way to query it.
@@ -102,6 +106,10 @@ fn lexpr_ty(e) = match e {
   LSuspend(t, _, _, _)  => t,
   LStateGet(t, _)       => t,
   LStateSet(t, _, _)    => t,
+  LPipeChain(t, _, _)   => t,
+  LFanOut(t, _, _)      => t,
+  LCompose(t, _)        => t,
+  LHandlerInstall(t, _, _) => t,
   _ => TUnit
 }
 
