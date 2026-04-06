@@ -306,6 +306,15 @@ fn emit_upvalue_descriptors(ctx, upvals) = {
   }
 }
 
+// Encode upvalue descriptors as data (for handler table entries)
+fn encode_upvalue_descs(upvals) = {
+  if len(upvals) == 0 { [] }
+  else {
+    let (is_local, index) = upvals[0]
+    [(if is_local { 1 } else { 0 }, index)] ++ encode_upvalue_descs(slice(upvals, 1, len(upvals)))
+  }
+}
+
 // ─── Expression Compilation ──────────────────────────────────
 
 fn compile_expr(ctx, sexpr) = {
@@ -840,8 +849,11 @@ fn compile_one_handler_proto(ctx, op_name, params, handler_body, state_names) = 
   // Intern op name and build handler table entry
   let (ctx3, op_name_idx) = intern_name(ctx2, op_name)
 
-  // Entry: (op_name_idx, proto_idx, param_count, tail_resumptive=false)
-  let entry = (op_name_idx, proto_idx, len(params), false)
+  // Entry: (op_name_idx, proto_idx, param_count, tail_resumptive, upvalue_descs)
+  // Upvalue descriptors: same format as MakeClosure — [(is_local, index), ...]
+  let upvals = ctx_upvalues(h_ctx7)
+  let upval_descs = encode_upvalue_descs(upvals)
+  let entry = (op_name_idx, proto_idx, len(params), false, upval_descs)
 
   (ctx3, entry)
 }

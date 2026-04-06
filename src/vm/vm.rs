@@ -1629,13 +1629,18 @@ impl Vm {
                             } else {
                                 false
                             };
+                            let upvalue_descs = if t.len() >= 5 {
+                                Self::extract_upvalue_descs(&t[4])
+                            } else {
+                                Vec::new()
+                            };
                             table_entries.push(HandlerEntry {
                                 op_name_idx,
                                 proto_idx,
                                 param_count,
                                 tail_resumptive,
                                 evidence_eligible: false,
-                                upvalue_descs: Vec::new(),
+                                upvalue_descs,
                             });
                         }
                         _ => return Err("load_chunk: handler entry must be tuple".to_string()),
@@ -1646,6 +1651,31 @@ impl Vm {
                 })
             }
             _ => Err("load_chunk: handler table must be a list".to_string()),
+        }
+    }
+
+    /// Extract upvalue descriptors from a Lux list of (is_local, index) tuples.
+    fn extract_upvalue_descs(val: &VmValue) -> Vec<(bool, u16)> {
+        match val {
+            VmValue::List(descs) => descs
+                .iter()
+                .filter_map(|d| match d {
+                    VmValue::Tuple(t) if t.len() >= 2 => {
+                        let is_local = match &t[0] {
+                            VmValue::Int(n) => *n != 0,
+                            VmValue::Bool(b) => *b,
+                            _ => false,
+                        };
+                        let index = match &t[1] {
+                            VmValue::Int(n) => *n as u16,
+                            _ => 0,
+                        };
+                        Some((is_local, index))
+                    }
+                    _ => None,
+                })
+                .collect(),
+            _ => Vec::new(),
         }
     }
 
