@@ -453,15 +453,45 @@ fn parse_fn(tokens, pos) = {
   let (body, p10) =
     if at(tokens, p8, "Eq") {
       let p9 = skip_ws(tokens, p8 + 1);
-      if at(tokens, p9, "LBrace") { parse_block(tokens, p9 + 1) }
-      else { parse_expr(tokens, p9) }
+      if at(tokens, p9, "LBrace") { parse_brace(tokens, p9 + 1) }
+      else { parse_body_expr(tokens, p9) }
     } else { if at(tokens, p8, "LBrace") {
       parse_block(tokens, p8 + 1)
     } else {
       let p9 = expect(tokens, p8, "Eq");
-      parse_expr(tokens, skip_ws(tokens, p9))
+      parse_body_expr(tokens, skip_ws(tokens, p9))
     } };
   (FnStmt(name, params, body, effects, ret_type), p10)
+}
+
+// Parse a function body expression — handles implicit blocks
+// fn f(x) = let a = 1; a + x  →  wraps as BlockExpr([LetStmt(...)], a + x)
+fn parse_body_expr(tokens, pos) = {
+  let p = skip_ws(tokens, pos);
+  if at(tokens, p, "Let") || at(tokens, p, "Fn") {
+    // Implicit block: collect stmts until a final expression
+    let (stmts, final_e, p2) = implicit_block_loop(tokens, p, []);
+    (sp(BlockExpr(stmts, final_e), tokens, pos), p2)
+  } else {
+    parse_expr(tokens, p)
+  }
+}
+
+fn implicit_block_loop(tokens, pos, stmts) = {
+  let p = skip_ws(tokens, pos);
+  if at(tokens, p, "Let") {
+    let (s, p2) = parse_let(tokens, p + 1);
+    implicit_block_loop(tokens, skip_semi(tokens, p2), push(stmts, s))
+  }
+  else { if at(tokens, p, "Fn") {
+    let (d, p2) = parse_fn(tokens, p + 1);
+    implicit_block_loop(tokens, skip_semi(tokens, p2), push(stmts, d))
+  }
+  else {
+    // Final expression
+    let (e, p2) = parse_expr(tokens, p);
+    (stmts, e, p2)
+  } }
 }
 
 // Parse effect annotations: comma-separated list of Name or !Name or Pure or E - F
@@ -813,7 +843,10 @@ fn parse_dispatch(tokens, p, typ) = {
 }
 
 fn parse_prefix(tokens, p, typ) = {
-  if typ == "Minus" {
+  if typ == "Continue" {
+    (sp(VarRef("__continue__"), tokens, p), p + 1)
+  }
+  else { if typ == "Minus" {
     let (op, p2) = parse_primary(tokens, p + 1);
     (sp(UnaryOp("Neg", op), tokens, p), p2)
   }
@@ -824,7 +857,7 @@ fn parse_prefix(tokens, p, typ) = {
   else {
     let sentinel = unexpected("expression", typ, tok_line(tokens, p), tok_col(tokens, p))
     (sp(sentinel, tokens, p), p + 1)
-  }}
+  }}}
 }
 
 // Postfix: calls, indexing, field access
