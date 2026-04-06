@@ -110,6 +110,7 @@ fn infer(sexpr) with Infer, Diagnostic = {
 
     JoinExpr(f, g) => {
       // f >< g = |x| g(f(x)) — f first, then g. Left to right.
+      // The composed function carries BOTH effects. The type doesn't lie.
       let tf = infer(f)
       let tg = infer(g)
       let a = fresh()
@@ -119,7 +120,8 @@ fn infer(sexpr) with Infer, Diagnostic = {
       let eg = fresh_eff()
       unify(tf, TFun([a], b, ef))
       unify(tg, TFun([b], c, eg))
-      TFun([resolve(a)], resolve(c), resolve(eg))
+      let merged = merge_effects(resolve(ef), resolve(eg))
+      TFun([resolve(a)], resolve(c), merged)
     },
 
     HandlePipeExpr(computation, strategy) => {

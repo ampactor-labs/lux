@@ -66,6 +66,14 @@ fn parse_source(source) = source |> frontend
 fn check_source(source) = source |> frontend |> check_program
 
 fn checked(source) = {
+  let ast = source |> with_prelude |> frontend
+  let env = ast |> check_program
+  validate(ast, env)
+  (ast, env)
+}
+
+// Raw checked — no prelude prepend. Used by compile_wasm which prepends its own.
+fn checked_raw(source) = {
   let ast = source |> frontend
   let env = ast |> check_program
   validate(ast, env)
@@ -259,7 +267,7 @@ fn compile_wasm(source) = {
   let prelude = read_file("std/prelude.lux")
   let (imports, _) = source |> resolve_imports_tracked([])
   let full_source = runtime ++ "\n" ++ prelude ++ "\n" ++ imports ++ "\n" ++ (source |> strip_imports)
-  let (ast, env) = full_source |> checked
+  let (ast, env) = full_source |> checked_raw
   let ctors = env |> extract_constructors
   let lowered = lower_program_typed(ast, ctors, env)
   // Pass the HM env as the type_map — the emitter uses it to determine
