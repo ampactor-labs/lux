@@ -395,9 +395,15 @@ fn parse_let(tokens, pos) = {
       let (val, p4) = parse_expr(tokens, skip_ws(tokens, p3));
       (LetPattern(pat, val), p4)
     } else {
-      let p2 = expect(tokens, skip_ws(tokens, p + 1), "Eq");
-      let (val, p3) = parse_expr(tokens, skip_ws(tokens, p2));
-      (LetStmt(name, val), p3)
+      let p2 = skip_ws(tokens, p + 1);
+      // Optional : Type annotation (parsed, gradient sees it)
+      let p3 = if at(tokens, p2, "Colon") {
+        let (_, p_ty) = parse_type_expr(tokens, skip_ws(tokens, p2 + 1));
+        skip_ws(tokens, p_ty)
+      } else { p2 };
+      let p4 = expect(tokens, p3, "Eq");
+      let (val, p5) = parse_expr(tokens, skip_ws(tokens, p4));
+      (LetStmt(name, val), p5)
     }
   }
 }
@@ -436,8 +442,9 @@ fn parse_fn(tokens, pos) = {
   (FnStmt(name, params, body, effects, ret_type), p10)
 }
 
-// Parse effect annotations: comma-separated list of Name or !Name or Pure
+// Parse effect annotations: comma-separated list of Name or !Name or Pure or E - F
 // Returns list of (name, negated) tuples
+// E - F is equivalent to E, !F — subtraction becomes negation
 fn parse_effect_annotations(tokens, pos) = {
   let p = skip_ws(tokens, pos);
   // Check for ! (negation)
@@ -448,9 +455,30 @@ fn parse_effect_annotations(tokens, pos) = {
   if at(tokens, p3, "Comma") {
     let (rest, p4) = parse_effect_annotations(tokens, p3 + 1);
     ([entry] ++ rest, p4)
+  } else { if at(tokens, p3, "Minus") {
+    // E - F — subtraction syntax: F becomes negated
+    let (rest, p4) = parse_effect_annotations_negated(tokens, p3 + 1);
+    ([entry] ++ rest, p4)
   } else {
     ([entry], p3)
-  }
+  } }
+}
+
+// After seeing -, all subsequent names are negated until , or end
+fn parse_effect_annotations_negated(tokens, pos) = {
+  let p = skip_ws(tokens, pos);
+  let name = tok_val(tokens, p);
+  let entry = (name, true);
+  let p2 = skip_ws(tokens, p + 1);
+  if at(tokens, p2, "Minus") {
+    let (rest, p3) = parse_effect_annotations_negated(tokens, p2 + 1);
+    ([entry] ++ rest, p3)
+  } else { if at(tokens, p2, "Comma") {
+    let (rest, p3) = parse_effect_annotations(tokens, p2 + 1);
+    ([entry] ++ rest, p3)
+  } else {
+    ([entry], p2)
+  } }
 }
 
 // Block { stmts; final_expr } → Expr

@@ -103,14 +103,18 @@ fn infer(sexpr) with Infer, Diagnostic = {
     FanOutExpr(data, branches) => {
       let S(branches_expr, bl, bc) = branches
       match branches_expr {
-        TupleExpr(fns) => TTuple(fan_out(fns, data, bl, bc)),
+        TupleExpr(fns) => {
+          let result_types = fan_out(fns, data, bl, bc)
+          // Gradient: the types carry the proof — report purity for each branch
+          gradient_fan_out(fns, rl, rc)
+          TTuple(result_types)
+        },
         _ => infer(S(Call(branches, [data]), bl, bc))
       }
     },
 
     JoinExpr(f, g) => {
-      // f >< g = |x| g(f(x)) — f first, then g. Left to right.
-      // The composed function carries BOTH effects. The type doesn't lie.
+      // f >< g — both effects merged. The type doesn't lie.
       let tf = infer(f)
       let tg = infer(g)
       let a = fresh()
@@ -121,12 +125,15 @@ fn infer(sexpr) with Infer, Diagnostic = {
       unify(tf, TFun([a], b, ef))
       unify(tg, TFun([b], c, eg))
       let merged = merge_effects(resolve(ef), resolve(eg))
+      // Gradient: report composition purity
+      gradient_compose(merged, rl, rc)
       TFun([resolve(a)], resolve(c), merged)
     },
 
     HandlePipeExpr(computation, strategy) => {
-      // computation ~> strategy desugars to strategy(|| computation)
-      infer(S(Call(strategy, [S(LambdaExpr([], computation), 0, 0)]), 0, 0))
+      // computation ~> strategy
+      let result = infer(S(Call(strategy, [S(LambdaExpr([], computation), 0, 0)]), 0, 0))
+      result
     },
 
     MatchExpr(scrutinee, arms) => {
@@ -266,6 +273,45 @@ fn infer_unify_list(elems, expected) with Infer, Diagnostic = {
     unify(infer(elems[0]), expected)
     infer_unify_list(slice(elems, 1, len(elems)), expected)
   } else { () }
+}
+
+// ─── Gradient: The Verbs Teach ──────────────────────────────
+// Same Diagnostic effect. Different kind. One mechanism.
+// The types carry the proofs. The gradient reads them.
+
+fn gradient_fan_out(fns, line, col) with Infer, Diagnostic = {
+  let n = len(fns)
+  if n > 0 {
+    let pure_n = count_pure_branches(fns, 0)
+    if pure_n == n {
+      report("", "gradient", "<| all " ++ to_string(n) ++ " branches pure — parallel eligible", line, col)
+    } else { if pure_n > 0 {
+      report("", "gradient", "<| " ++ to_string(pure_n) ++ "/" ++ to_string(n) ++ " pure — add Pure to rest for parallelism", line, col)
+    } else { () } }
+  } else { () }
+}
+
+fn count_pure_branches(fns, idx) with Infer = {
+  if idx >= len(fns) { 0 }
+  else {
+    let fn_ty = resolve(infer(fns[idx]))
+    let is_pure = match fn_ty {
+      TFun(_, _, eff) => match eff { EfPure => true, EfClosed(es) => len(es) == 0, _ => false },
+      _ => false
+    }
+    let rest = count_pure_branches(fns, idx + 1)
+    if is_pure { 1 + rest } else { rest }
+  }
+}
+
+fn gradient_compose(merged_eff, line, col) with Diagnostic = {
+  match merged_eff {
+    EfPure => report("", "gradient", ">< fully pure — compile-time evaluation eligible", line, col),
+    EfClosed(es) => if len(es) == 0 {
+      report("", "gradient", ">< fully pure — compile-time evaluation eligible", line, col)
+    } else { () },
+    _ => ()
+  }
 }
 
 fn fan_out(fns, input, rl, rc) with Infer, Diagnostic = {
