@@ -26,21 +26,23 @@ effect Diagnostic {
 fn env_empty() = []
 fn env_extend(env, name, ty, reason) = [(name, ty, reason)] ++ env
 fn env_with_source(env, source) = [("__source__", TUnit, Declared(source))] ++ env
-fn env_source(env) = {
-  if len(env) == 0 { "" }
+fn env_source(env) = env_source_at(env, 0)
+fn env_source_at(env, i) = {
+  if i >= len(env) { "" }
   else {
-    let (name, _, reason) = env[0];
+    let (name, _, reason) = env[i];
     if name == "__source__" { match reason { Declared(s) => s, _ => "" } }
-    else { env_source(slice(env, 1, len(env))) }
+    else { env_source_at(env, i + 1) }
   }
 }
-fn env_lookup(env, name) = {
-  if len(env) == 0 {
+fn env_lookup(env, name) = env_lookup_at(env, name, 0)
+fn env_lookup_at(env, name, i) = {
+  if i >= len(env) {
     ("not_found", TUnit, Inferred("unknown"))
   } else {
-    let (k, v, r) = env[0]
+    let (k, v, r) = env[i]
     if k == name { (k, v, r) }
-    else { env_lookup(slice(env, 1, len(env)), name) }
+    else { env_lookup_at(env, name, i + 1) }
   }
 }
 
