@@ -124,7 +124,14 @@ fn infer(sexpr) with Infer, Diagnostic = {
       let eg = fresh_eff()
       unify(tf, TFun([a], b, ef))
       unify(tg, TFun([b], c, eg))
-      let merged = merge_effects(resolve(ef), resolve(eg))
+      // Effects resolve through the effect substitution, not the type
+      // substitution. Use the unification result directly — after
+      // unify(tf, TFun([a], b, ef)), ef is bound in the eff_subst.
+      // merge_effects on the RAW effect vars works because unification
+      // already unified ef/eg with the actual effects from tf/tg.
+      // The merged result flows into TFun and gets resolved when the
+      // checker's resolve_type applies apply_eff_subst.
+      let merged = merge_effects(ef, eg)
       gradient_compose(merged, line, col)
       TFun([resolve(a)], resolve(c), merged)
     },

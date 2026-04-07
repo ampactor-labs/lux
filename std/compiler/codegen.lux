@@ -453,12 +453,28 @@ fn compile_expr(ctx, sexpr) = {
   },
 
   ComposeExpr(f, g) => {
-    // f >< g => |x| g(f(x))
-    let ref_x = S(VarRef("__jx"), 0, 0)
-    let call_f = S(Call(f, [ref_x]), 0, 0)
-    let call_g = S(Call(g, [call_f]), 0, 0)
-    let lambda = S(LambdaExpr(["__jx"], call_g), 0, 0)
-    compile_expr(ctx, lambda)
+    // f >< g => closure that calls g(f(x))
+    // Build bytecode directly — no synthetic AST.
+    // The child context resolves f and g as globals/upvalues.
+    let fn_ctx = ctx_child(ctx)
+    let fn_ctx2 = begin_scope(fn_ctx)
+    let (fn_ctx3, param_slot) = declare_local(fn_ctx2, "__cx")
+    // Emit: load g, load f, load __cx, call f(1), call g(1), return
+    let fn_ctx4 = compile_expr(fn_ctx3, g)
+    let fn_ctx5 = compile_expr(fn_ctx4, f)
+    let fn_ctx6 = emit_u16(emit_op(fn_ctx5, OP_LOAD_LOCAL), param_slot)
+    let fn_ctx7 = emit_u8(emit_op(fn_ctx6, OP_CALL), 1)
+    let fn_ctx8 = emit_u8(emit_op(fn_ctx7, OP_CALL), 1)
+    let fn_ctx9 = emit_op(fn_ctx8, OP_RETURN)
+    // Build proto from child, emit MakeClosure in parent
+    let upvals = ctx_upvalues(fn_ctx9)
+    let proto = ("fn_proto", "<compose>", 1,
+      ctx_code(fn_ctx9), ctx_constants(fn_ctx9),
+      ctx_names(fn_ctx9), ctx_next_slot(fn_ctx9),
+      len(upvals))
+    let (ctx2, proto_idx) = add_constant(ctx, proto)
+    let ctx3 = emit_u16(emit_op(ctx2, OP_MAKE_CLOSURE), proto_idx)
+    emit_upvalue_descriptors(ctx3, upvals)
   },
 
 

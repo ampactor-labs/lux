@@ -1,5 +1,12 @@
+// Compose >< — the BUILD verb builds
 fn double(x) = x * 2
 fn add_one(x) = x + 1
+fn negate(x) = 0 - x
+
+// Single compose
 let h = double >< add_one
-let result = h(3)
-println("compose: " ++ to_string(result))
+println("double >< add_one at 3: " ++ to_string(h(3)))
+
+// Chained compose
+let chain = double >< add_one >< negate
+println("double >< add_one >< negate at 3: " ++ to_string(chain(3)))

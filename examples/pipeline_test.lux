@@ -13,9 +13,7 @@ fn step_a(x) = x ++ "!"
 fn step_b(x) = x ++ "?"
 
 // BUILD — no data, pure potential
-// Note: >< compose has a pre-existing runtime bug.
-// Using manual compose until fixed.
-let frontend = |x| step_b(step_a(x))
+let frontend = step_a >< step_b
 
 // Pure analysis functions (prism branches)
 fn count(s) = len(s)

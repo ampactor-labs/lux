@@ -675,7 +675,8 @@ impl Vm {
                         }
                         _ => {
                             let line = self.frames[frame_idx].current_line();
-                            eprintln!("CRITICAL VM ERROR: Cannot index into {:?} at line {}", list, line);
+                            let file = self.frames[frame_idx].proto.chunk.name.as_str();
+                            eprintln!("CRITICAL VM ERROR: Cannot index into {:?} in {} at line {}", list, file, line);
                             return Err(VmError::new("type error: cannot index", line));
                         }
                     }
