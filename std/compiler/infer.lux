@@ -152,12 +152,21 @@ fn infer(sexpr) with Infer, Diagnostic = {
       result
     },
 
-    HandleExpr(body, arms, state_bindings) => {
+    HandleExpr(body, handler_expr, state_bindings) => {
       push_scope()
       let body_ty = infer(body)
       let body_effs = pop_scope()
-      infer_handler_arms(arms, state_bindings)
-      let absorbed = collect_absorbed(arms)
+      
+      push_scope()
+      bind_state_vars(state_bindings)
+      let handler_ty = resolve(infer(handler_expr))
+      let arm_effs = pop_scope()
+      track_effect(arm_effs)
+      
+      let absorbed = match handler_ty {
+        TRecord(fields) => collect_absorbed_from_names(extract_record_field_names(fields)),
+        _ => []
+      }
       track_effect(subtract_effects(body_effs, absorbed))
       resolve(body_ty)
     },
@@ -402,11 +411,6 @@ fn infer_stmt(stmt) with Infer, Diagnostic = match stmt {
     bind(name, base_ty, Declared("type alias " ++ name))
   },
 
-  HandlerDeclStmt(name, parent, arms) => {
-    // Handler declarations: bind name for bare handler references
-    bind(name, TUnit, Declared("handler " ++ name))
-  },
-
   _ => ()
 }
 
@@ -480,19 +484,6 @@ fn infer_match_arms(arms, scr_ty, result_ty) with Infer, Diagnostic = {
 
 // ─── Handler Arms ───────────────────────────────────────────
 
-fn infer_handler_arms(arms, state_bindings) with Infer, Diagnostic = {
-  if len(arms) > 0 {
-    let (op_name, params, body) = arms[0]
-    push_scope()
-    map(|p| bind(p, fresh(), Inferred("handler param")), params)
-    bind_state_vars(state_bindings)
-    infer(body)
-    let arm_effs = pop_scope()
-    track_effect(arm_effs)
-    infer_handler_arms(slice(arms, 1, len(arms)), state_bindings)
-  } else { () }
-}
-
 fn bind_state_vars(bindings) with Infer, Diagnostic = {
   if len(bindings) > 0 {
     let (name, value) = bindings[0]
@@ -511,10 +502,10 @@ fn infer_updates(updates) with Infer, Diagnostic = {
 
 // ─── Effect Absorption ──────────────────────────────────────
 
-fn collect_absorbed(arms) with Infer = {
-  if len(arms) == 0 { [] }
+fn collect_absorbed_from_names(names) with Infer = {
+  if len(names) == 0 { [] }
   else {
-    let (op_name, _, _) = arms[0]
+    let op_name = names[0]
     let op_type = lookup(op_name)
     let eff_name = match op_type {
       TFun(_, _, eff) => match eff {
@@ -523,9 +514,17 @@ fn collect_absorbed(arms) with Infer = {
       },
       _ => ""
     }
-    let rest = collect_absorbed(slice(arms, 1, len(arms)))
+    let rest = collect_absorbed_from_names(slice(names, 1, len(names)))
     if eff_name == "" { rest }
     else { if list_contains(rest, eff_name) { rest } else { [eff_name] ++ rest } }
+  }
+}
+
+fn extract_record_field_names(fields) = {
+  if len(fields) == 0 { [] }
+  else {
+    let (name, _) = fields[0]
+    [name] ++ extract_record_field_names(slice(fields, 1, len(fields)))
   }
 }
 

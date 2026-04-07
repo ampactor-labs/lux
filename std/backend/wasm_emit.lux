@@ -126,9 +126,26 @@ fn emit_fn(fn_def, ctx)= {
   let result_ty = match ret_ty { TFloat => "f32", _ => "i32" }
   // Effect annotation: the checker's proof, visible in generated WAT
   let eff_annotation = emit_eff_annotation(fn_eff)
+  let body_wat = emit_local_decls(with_temps, 0, body, env) ++ emit_fn_body(body, params, with_temps, ctx)
+  
+  // ── !Alloc Enforcement ──
+  // If the checker proved this function does not allocate, we enforce it structurally at the backend.
+  // We scan the raw output for `$alloc` calls or inline bump allocations.
+  let eff_implies_no_alloc = match fn_eff {
+    EfPure => true,
+    EfClosed(effs) => not(string_in(effs, "Alloc", 0)),
+    _ => false
+  }
+  let final_body = if eff_implies_no_alloc {
+    if index_of(body_wat, "call $alloc") >= 0 {
+      "    ;; FATAL COMPILE ERROR: !Alloc violation (call $alloc) detected in backend!" ++ NL ++ body_wat
+    } else { if index_of(body_wat, "i32.add" ++ NL ++ "    global.set $heap_ptr") >= 0 {
+      "    ;; FATAL COMPILE ERROR: !Alloc violation (inline alloc) detected in backend!" ++ NL ++ body_wat
+    } else { body_wat } }
+  } else { body_wat }
+
   "  (func $" ++ name ++ " (param $__closure i32)" ++ emit_params(params, param_types, 0) ++ " (result " ++ result_ty ++ ")" ++ eff_annotation ++ NL
-    ++ emit_local_decls(with_temps, 0, body, env)
-    ++ emit_fn_body(body, params, with_temps, ctx)
+    ++ final_body
     ++ "  )" ++ NL
 }
 

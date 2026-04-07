@@ -39,7 +39,7 @@ type Expr
   | BlockExpr(List, Expr)
   | ListExpr(List)
   | TupleExpr(List)
-  | HandleExpr(Expr, List, List)
+  | HandleExpr(Expr, Expr, List)
   | ResumeExpr(Expr, List)
   | RecordExpr(List)
   | StringInterp(List)
@@ -62,7 +62,6 @@ type Stmt
   | TypeStmt(String, List)
   | TypeAliasStmt(String, String, Expr)
   | EffectDeclStmt(String, List)
-  | HandlerDeclStmt(String, String, List)
   | ExprStmt(Expr)
   | ImportStmt(String)
 
@@ -965,9 +964,7 @@ fn parse_import_path(tokens, pos) = {
 // ─── Handle expression ───────────────────────────────────────
 // handle { body } [with name = init, ...] { op(params) => body, ... }
 //
-// HandleExpr(body, handler_arms, state_bindings)
-//   handler_arms: [(op_name, params, body), ...]
-//   state_bindings: [(name, init_expr), ...]
+// HandleExpr(body, handler_expr, state_bindings)
 
 fn parse_handle(tokens, pos) = {
   let p = skip_ws(tokens, pos);
@@ -980,69 +977,54 @@ fn parse_handle(tokens, pos) = {
   let p4 = skip_ws(tokens, p3);
 
   // Parse optional "with ..."
-  let (state_bindings, handler_ref, p5) = if at(tokens, p4, "With") {
-    let pw = skip_ws(tokens, p4 + 1);
-    // Could be: state bindings (name = expr), or bare handler reference (name)
-    let maybe_name = tok_val(tokens, pw);
-    let pw2 = skip_ws(tokens, pw + 1);
-    if at(tokens, pw2, "Eq") {
-      // State binding: with state = init, ...
-      let (bindings, pb) = parse_state_bindings(tokens, pw);
-      (bindings, "", pb)
-    } else { if at(tokens, pw2, "LBrace") || at(tokens, pw2, "Comma") || at(tokens, pw2, "Newline") || at(tokens, pw2, "Eof") || at(tokens, pw2, "RBrace") || at(tokens, pw2, "RParen") {
-      // Bare handler reference: with handler_name
-      ([], maybe_name, pw + 1)
-    } else {
-      // State binding: with state_expr ...
-      let (bindings, pb) = parse_state_bindings(tokens, pw);
-      (bindings, "", pb)
-    } }
-  } else { ([], "", p4) };
+  let (state_bindings, p5) = if at(tokens, p4, "With") {
+    parse_state_bindings_loop(tokens, p4 + 1)
+  } else { ([], p4) };
 
   let p6 = skip_ws(tokens, p5);
-
-  if handler_ref != "" {
-    // Bare handler reference — handler arms come from the named handler
-    // Check for optional inline override clauses
-    if at(tokens, p6, "LBrace") {
-      let (arms, p7) = parse_handler_clauses(tokens, p6 + 1);
-      (sp(HandleExpr(body, [("__use", [], sp(VarRef(handler_ref), tokens, pos))] ++ arms, state_bindings), tokens, pos), p7)
-    } else {
-      (sp(HandleExpr(body, [("__use", [], sp(VarRef(handler_ref), tokens, pos))], state_bindings), tokens, pos), p6)
-    }
+  let (handler_expr, p7) = if at(tokens, p6, "LBrace") {
+    let (arms, p_end) = parse_handler_clauses(tokens, p6 + 1);
+    let record_fields = map_arms_to_record_fields(arms, tokens, pos);
+    (sp(RecordExpr(record_fields), tokens, pos), p_end)
   } else {
-    // Standard handler clauses
-    let p7 = expect(tokens, p6, "LBrace");
-    let (arms, p8) = parse_handler_clauses(tokens, p7);
-    (sp(HandleExpr(body, arms, state_bindings), tokens, pos), p8)
-  }
+    if p6 == p4 {
+       // NO "with" at all: standard block with no handler
+       (sp(RecordExpr([]), tokens, pos), p6)
+    } else {
+       // Parse the expression representing the handler record
+       let (expr, p_end) = parse_expr(tokens, p6);
+       let p_after = skip_ws(tokens, p_end);
+       if at(tokens, p_after, "LBrace") {
+          // Handler override! `handle {} with my_handler { op() => ... }`
+          let (arms, p_end2) = parse_handler_clauses(tokens, p_after + 1);
+          let record_fields = map_arms_to_record_fields(arms, tokens, pos);
+          let override_rec = sp(RecordExpr(record_fields), tokens, pos);
+          (sp(BinOp("Merge", expr, override_rec), tokens, pos), p_end2)
+       } else {
+          (expr, p_after)
+       }
+    }
+  };
+
+  (sp(HandleExpr(body, handler_expr, state_bindings), tokens, pos), p7)
 }
 
-fn parse_state_bindings(tokens, pos) = {
+fn parse_state_bindings_loop(tokens, pos) = {
   let p = skip_ws(tokens, pos);
-  let name = tok_val(tokens, p);
-  let p2 = expect(tokens, skip_ws(tokens, p + 1), "Eq");
-  let (init, p3) = parse_expr(tokens, skip_ws(tokens, p2));
-  let p4 = skip_ws(tokens, p3);
-  if at(tokens, p4, "Comma") {
-    // Check if next is another state binding (name = expr)
-    // or if we've hit a handler clause / LBrace
-    let p5 = skip_ws(tokens, p4 + 1);
-    let next_typ = tok_type(tokens, p5);
-    if next_typ == "LBrace" || next_typ == "Ident" {
-      // Look ahead: is it "name =" (another state binding)?
-      let p6 = skip_ws(tokens, p5 + 1);
-      if at(tokens, p6, "Eq") {
-        let (rest, p7) = parse_state_bindings(tokens, p5);
-        ([(name, init)] ++ rest, p7)
-      } else {
-        ([(name, init)], p4 + 1)
-      }
-    } else {
-      ([(name, init)], p4 + 1)
-    }
+  if at(tokens, p, "LBrace") || at(tokens, p, "Eof") {
+     ([], p)
   } else {
-    ([(name, init)], p4)
+     let p_next = skip_ws(tokens, p + 1);
+     if at(tokens, p_next, "Eq") {
+        let name = tok_val(tokens, p);
+        let (init, p2) = parse_expr(tokens, skip_ws(tokens, p_next + 1));
+        let p3 = skip_ws(tokens, p2);
+        let p4 = if at(tokens, p3, "Comma") { p3 + 1 } else { p3 };
+        let (rest_bindings, p_end) = parse_state_bindings_loop(tokens, p4);
+        ([(name, init)] ++ rest_bindings, p_end)
+     } else {
+        ([], p)
+     }
   }
 }
 
@@ -1184,7 +1166,19 @@ fn parse_handler_decl(tokens, pos) = {
   } else { ("", p2) };
   let p4 = expect(tokens, p3, "LBrace");
   let (arms, p5) = parse_handler_clauses(tokens, p4);
-  (HandlerDeclStmt(name, parent, arms), p5)
+  let record_fields = map_arms_to_record_fields(arms, tokens, pos);
+  let record_expr = sp(RecordExpr(record_fields), tokens, pos);
+  (LetStmt(name, record_expr), p5)
+}
+
+fn map_arms_to_record_fields(arms, tokens, pos) = {
+  if len(arms) == 0 { [] }
+  else {
+    let (op_name, params, hbody) = arms[0]
+    // params are already plain strings from parse_handler_clauses
+    let lambda_expr = sp(LambdaExpr(params, hbody), tokens, pos)
+    [(op_name, lambda_expr)] ++ map_arms_to_record_fields(slice(arms, 1, len(arms)), tokens, pos)
+  }
 }
 
 // ─── Assert ──────────────────────────────────────────────────

@@ -753,10 +753,13 @@ fn ctx_add_handler_table(ctx, table) = {
 }
 
 // Compile handle expression:
-//   HandleExpr(body, handler_arms, state_bindings)
-//   handler_arms: [(op_name, params, handler_body), ...]
+//   HandleExpr(body, handler_expr, state_bindings)
+//   handler_expr: RecordExpr([(name, LambdaExpr), ...]) or dynamic expr
 //   state_bindings: [(name, init_expr), ...]
-fn compile_handle_expr(ctx, body, handler_arms, state_bindings) = {
+fn compile_handle_expr(ctx, body, handler_expr, state_bindings) = {
+  // Extract static arms from RecordExpr
+  let handler_arms = extract_codegen_arms(handler_expr)
+
   // 1. Compile state init expressions (left on stack for PushHandler)
   let ctx2 = compile_state_inits(ctx, state_bindings)
   let state_count = len(state_bindings)
@@ -778,6 +781,29 @@ fn compile_handle_expr(ctx, body, handler_arms, state_bindings) = {
 
   // 6. Emit PopHandler
   emit_op(ctx8, OP_POP_HANDLER)
+}
+
+// Extract handler arms from RecordExpr back into
+// [(op_name, param_names, body), ...]
+fn extract_codegen_arms(handler_expr) = match handler_expr {
+  S(RecordExpr(fields), _, _) => convert_codegen_fields(fields),
+  RecordExpr(fields) => convert_codegen_fields(fields),
+  _ => []
+}
+
+fn convert_codegen_fields(fields) = {
+  if len(fields) == 0 { [] }
+  else {
+    let (name, expr) = fields[0]
+    let (params, body) = extract_lambda_parts(expr)
+    [(name, params, body)] ++ convert_codegen_fields(slice(fields, 1, len(fields)))
+  }
+}
+
+fn extract_lambda_parts(expr) = match expr {
+  S(LambdaExpr(params, body), _, _) => (params, body),
+  LambdaExpr(params, body) => (params, body),
+  _ => ([], expr)
 }
 
 fn compile_state_inits(ctx, bindings) = {
@@ -1084,12 +1110,6 @@ fn compile_stmt(ctx, stmt) = match stmt {
     // Register effect operations for Perform dispatch
     // ops = [(op_name, param_names), ...]
     ctx_add_effect_ops(ctx, name, ops)
-  },
-
-  HandlerDeclStmt(name, parent, arms) => {
-    // Handler declarations are stored as named handlers for the Rust compiler
-    // Self-hosted: store as a global with handler metadata
-    ctx
   },
 
   TypeAliasStmt(_, _, _) => ctx,  // type aliases are compile-time only

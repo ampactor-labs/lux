@@ -273,8 +273,8 @@ fn lower_expr(sexpr, env) = {
 
     LambdaExpr(params, body) => lower_lambda_inner("lambda_" ++ to_string(fresh_id()), params, body, env),
 
-    HandleExpr(body, arms, state_bindings) =>
-      lower_handle(body, arms, state_bindings, env),
+    HandleExpr(body, handler_expr, state_bindings) =>
+      lower_handle(body, handler_expr, state_bindings, env),
 
     ResumeExpr(value, _) => lower_expr(value, env),
 
@@ -536,17 +536,55 @@ fn is_region_safe_ty(ty) = match ty {
   _ => false
 }
 
-fn lower_handle(body, arms, state_bindings, env) = {
-  let rw_map = build_rewrite_map(arms)
+// ─── Extract field names from handler AST ───
+// We need field names at compile time for save/restore of evidence globals.
+// This reads the AST structure, not the lowered IR.
+fn extract_handler_field_names(expr) = match expr {
+  S(RecordExpr(fields), _, _) => extract_field_name_list(fields),
+  RecordExpr(fields) => extract_field_name_list(fields),
+  _ => []
+}
 
-  // ─── Evidence Passing: effects flow through global bindings ───
+fn extract_field_name_list(fields) = {
+  if len(fields) == 0 { [] }
+  else {
+    let (name, _) = fields[0]
+    [name] ++ extract_field_name_list(slice(fields, 1, len(fields)))
+  }
+}
+
+fn lower_handle(body, handler_expr, state_bindings, env) = {
+  let op_names = extract_handler_field_names(handler_expr)
+
+  // ─── State: heap cells for handler-local state ───
   let state_names = gen_state_names(state_bindings)
   let state_inits = init_state_globals(state_bindings, state_names, env)
-  let op_names = extract_arm_op_names(arms)
+
+  // ─── Save current evidence (for nesting) ───
   let op_saves = save_op_bindings(op_names)
-  let ev_closures = build_evidence_installs(arms, state_names, env)
+
+  // ─── Lower the handler record as a first-class value ───
+  // The RecordExpr flows through lower_expr unchanged.
+  // Each field (a LambdaExpr) becomes a closure in the lowered record.
+  let lowered_handler = lower_expr(handler_expr, env)
+  let handler_name = "__handler_rec_" ++ to_string(fresh_id())
+  let handler_store = [LLet(TUnit, handler_name, lowered_handler)]
+
+  // ─── Install evidence: index into the record ───
+  // Each field at position i becomes __ev_op_NAME = record[i]
+  let ev_installs = if len(state_names) > 0 {
+    // Stateful handler: wrap each field closure with state cell substitution
+    install_stateful_evidence(handler_name, op_names, state_names, 0, env)
+  } else {
+    // Pure handler: index directly into the record — zero extraction
+    install_evidence_from_record(handler_name, op_names, 0)
+  }
+
+  // ─── Build rewrite map for state (resume with state = ...) ───
+  let rw_map = build_rewrite_map_from_names(op_names, handler_expr)
   let rw_map_cells = remap_rewrites_to_cells(rw_map, state_names, env)
 
+  // ─── Lower the body ───
   let lowered_body = handle {
     lower_expr(body, env)
   } {
@@ -560,11 +598,7 @@ fn lower_handle(body, arms, state_bindings, env) = {
   let op_restores = restore_op_bindings(op_names)
   let state_restores = restore_state_globals(state_names)
 
-  // Capture body result before restoring, then return it as last expression.
-  // Region optimization: if the result type is non-heap (Int, Bool, Float, Unit),
-  // wrap in LRegion — the emitter saves/restores $heap_ptr around handler scopes,
-  // giving O(1) deallocation for all intermediate allocations.
-  let stmts = state_inits ++ op_saves ++ ev_closures
+  let stmts = state_inits ++ op_saves ++ handler_store ++ ev_installs
          ++ [LLet(body_ty, "__ev_result", lowered_body)]
          ++ op_restores ++ state_restores
          ++ [LGlobal(body_ty, "__ev_result")]
@@ -575,55 +609,72 @@ fn lower_handle(body, arms, state_bindings, env) = {
   }
 }
 
-fn build_user_effect_dicts(arms, env) = {
-  if len(arms) == 0 { [] }
+// Pure evidence install: directly index into the record
+fn install_evidence_from_record(handler_name, op_names, idx) = {
+  if idx >= len(op_names) { [] }
   else {
-    let op_name = arms[0][0]
-    let (is_op, eff_name, _) = get_op_info(op_name, env)
-    if is_op {
-      let tuple_elements = build_tuple_elements(arms, env, 0)
-      let tuple_ty = TTuple(lty_tuple_elems(tuple_elements))
-      [LLet(tuple_ty, "__dict_" ++ eff_name, LMakeTuple(tuple_ty, tuple_elements))]
+    let ev_name = "__ev_op_" ++ op_names[idx]
+    let index_expr = LIndex(TUnit, LGlobal(TUnit, handler_name), LConst(TInt, LInt(idx)))
+    [LLet(TUnit, ev_name, index_expr)]
+    ++ install_evidence_from_record(handler_name, op_names, idx + 1)
+  }
+}
+
+// Stateful evidence install: index into record, then wrap with state cell access
+fn install_stateful_evidence(handler_name, op_names, state_names, idx, env) = {
+  if idx >= len(op_names) { [] }
+  else {
+    let ev_name = "__ev_op_" ++ op_names[idx]
+    let index_expr = LIndex(TUnit, LGlobal(TUnit, handler_name), LConst(TInt, LInt(idx)))
+    // For stateful handlers, the closure from the record already captures
+    // the state variable names. We substitute those names to heap cells.
+    let substituted = subst_state_to_cells(index_expr, state_names)
+    [LLet(TUnit, ev_name, substituted)]
+    ++ install_stateful_evidence(handler_name, op_names, state_names, idx + 1, env)
+  }
+}
+
+// Build rewrite map from field names and handler AST
+fn build_rewrite_map_from_names(op_names, handler_expr) = match handler_expr {
+  S(RecordExpr(fields), _, _) => build_rewrite_map_from_fields(fields),
+  RecordExpr(fields) => build_rewrite_map_from_fields(fields),
+  _ => []
+}
+
+fn build_rewrite_map_from_fields(fields) = {
+  if len(fields) == 0 { [] }
+  else {
+    let (name, expr) = fields[0]
+    let entry = extract_rewrite_from_lambda(name, expr)
+    entry ++ build_rewrite_map_from_fields(slice(fields, 1, len(fields)))
+  }
+}
+
+fn extract_rewrite_from_lambda(name, expr) = {
+  let body = match expr {
+    S(LambdaExpr(_, b), _, _) => b,
+    LambdaExpr(_, b) => b,
+    _ => expr
+  }
+  extract_rewrite_from_body(name, body)
+}
+
+fn extract_rewrite_from_body(name, body) = match body {
+  S(inner, _, _) => extract_rewrite_from_body(name, inner),
+  ResumeExpr(_, updates) => {
+    if len(updates) > 0 {
+      [[name, updates]]
     } else { [] }
-  }
+  },
+  BlockExpr(_, last) => extract_rewrite_from_body(name, last),
+  IfExpr(_, then_b, else_b) => {
+    let t = extract_rewrite_from_body(name, then_b)
+    let e = extract_rewrite_from_body(name, else_b)
+    t ++ e
+  },
+  _ => []
 }
 
-fn build_tuple_elements(arms, env, target_idx) = {
-  if target_idx >= 10 { [] }
-  else {
-    let (found, arm) = find_arm_by_idx(arms, env, target_idx)
-    if found {
-      [build_dict_arm(arm, env)] ++ build_tuple_elements(arms, env, target_idx + 1)
-    } else { [] }
-  }
-}
-
-fn find_arm_by_idx(arms, env, target_idx) = {
-  if len(arms) == 0 { (false, []) }
-  else {
-    let arm = arms[0]
-    let op_name = arm[0]
-    let (is_op, _, op_idx) = get_op_info(op_name, env)
-    if is_op && op_idx == target_idx { (true, arm) }
-    else { find_arm_by_idx(slice(arms, 1, len(arms)), env, target_idx) }
-  }
-}
-
-fn build_dict_arm(arm, env) = {
-  let op_name = arm[0]
-  let param_names = arm[1]
-  let pre_stmts = arm[2]
-  let resume_value = arm[3]
-  let updates = arm[4]
-  let lowered_pre = lower_stmts_pure(pre_stmts, env)
-  let lowered_updates = lower_state_updates(updates, env)
-  let lowered_value = lower_expr_pure(resume_value, env)
-  let body_ty = lexpr_ty(lowered_value)
-  let body = LBlock(body_ty, lowered_pre ++ lowered_updates ++ [lowered_value])
-  let fn_def = LFn("dict_arm_" ++ op_name, len(param_names), param_names, [body], EfPure)
-  let closure_ty = TFun([], body_ty, EfPure)
-  LMakeClosure(closure_ty, fn_def, [])
-}
 
 // ─── Evidence Passing Infrastructure ────────────────────────
 // Effect ops are global bindings. Handlers install closures.
@@ -665,14 +716,7 @@ fn restore_state_globals(state_names) = {
   }
 }
 
-// Extract op names from handler arms
-fn extract_arm_op_names(arms) = {
-  if len(arms) == 0 { [] }
-  else {
-    let (op_name, _, _) = arms[0]
-    [op_name] ++ extract_arm_op_names(slice(arms, 1, len(arms)))
-  }
-}
+
 
 // Save current op globals: let __save___ev_op_yield = __ev_op_yield
 fn save_op_bindings(op_names) = {
@@ -707,48 +751,7 @@ fn flatten_blocks(stmts) = {
   }
 }
 
-// Build evidence closures and install them: let __ev_op_yield = <closure>
-fn build_evidence_installs(arms, cell_names, env) = {
-  if len(arms) == 0 { [] }
-  else {
-    let (op_name, params, handler_body) = arms[0]
-    let entry = extract_handler_entry(op_name, params, handler_body)
-    let closure = build_evidence_closure(entry, cell_names, env)
-    [LLet(lexpr_ty(closure), "__ev_op_" ++ op_name, closure)]
-    ++ build_evidence_installs(slice(arms, 1, len(arms)), cell_names, env)
-  }
-}
 
-// Build a single evidence closure for a handler arm
-// The closure reads/writes state through heap cells
-fn build_evidence_closure(entry, cell_names, env) = {
-  let op_name = entry[0]
-  let params = entry[1]
-  let pre_stmts = entry[2]
-  let resume_value = entry[3]
-  let updates = entry[4]
-  let lowered_pre = flatten_blocks(lower_stmts(pre_stmts, env))
-  let lowered_value = lower_expr(resume_value, env)
-  let lowered_updates = lower_state_updates(updates, env)
-  let value_ty = lexpr_ty(lowered_value)
-  let body_raw = if len(lowered_pre) == 0 && len(lowered_updates) == 0 {
-    lowered_value
-  } else {
-    LBlock(value_ty, lowered_pre ++ lowered_updates ++ [lowered_value])
-  }
-  let body = subst_state_to_cells(body_raw, cell_names)
-  let free_names = collect_free_lowir(body, params)
-  let captures = filter_out_hs_names(filter_real_captures_no_self(free_names))
-  let fname = "__ev_" ++ op_name ++ "_" ++ to_string(fresh_id())
-  let closure_ty = TFun([], value_ty, EfPure)
-  if len(captures) == 0 {
-    LMakeClosure(closure_ty, LFn(fname, len(params), params, [body], EfPure), [])
-  } else {
-    let rewritten = rewrite_captures(body, captures)
-    let capture_exprs = map_to_globals_typed(captures, env, 0)
-    LMakeClosure(closure_ty, LFn(fname, len(params), params, [rewritten], EfPure), capture_exprs)
-  }
-}
 
 // Handler state globals are NOT captures — they're shared mutable globals
 fn filter_out_hs_names(names) = {
@@ -944,33 +947,7 @@ fn lower_exprs_pure(sexprs, env) = {
   else { [lower_expr_pure(sexprs[0], env)] ++ lower_exprs_pure(slice(sexprs, 1, len(sexprs)), env) }
 }
 
-// ─── Rewrite Map ────────────────────────────────────────────
 
-fn build_rewrite_map(arms) = {
-  if len(arms) == 0 { [] }
-  else {
-    let (op_name, params, handler_body) = arms[0]
-    let entry = extract_handler_entry(op_name, params, handler_body)
-    [entry] ++ build_rewrite_map(slice(arms, 1, len(arms)))
-  }
-}
-
-fn extract_handler_entry(op_name, params, handler_body_sexpr) = {
-  let S(body, _, _) = handler_body_sexpr
-  match body {
-    ResumeExpr(value, updates) =>
-      [op_name, params, [], value, updates],
-    BlockExpr(stmts, final_sexpr) => {
-      let S(final_expr, _, _) = final_sexpr
-      match final_expr {
-        ResumeExpr(value, updates) =>
-          [op_name, params, stmts, value, updates],
-        _ => [op_name, params, stmts, final_sexpr, []]
-      }
-    },
-    _ => [op_name, params, [], handler_body_sexpr, []]
-  }
-}
 
 fn lookup_rewrite(rw_map, name, idx) = {
   if idx >= len(rw_map) { [] }
