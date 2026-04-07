@@ -86,6 +86,61 @@ fn with_prelude(source) = {
   prelude ++ "\n" ++ imports ++ "\n" ++ (source |> strip_imports)
 }
 
+// ─── Prelude Cache ──────────────────────────────────────────
+// Process the prelude ONCE at pipeline load time. The checker's env
+// and fresh counter are cached so subsequent checked() calls skip
+// re-lexing, re-parsing, and re-checking 300 lines of prelude.
+
+// Prelude cache: test step-by-step
+let __prelude_cache = {
+  let src = read_file("std/prelude.lux")
+  let ast = src |> lex |> parse_program
+  let env = ast |> check_program
+  // Start fresh counter high enough to avoid collisions with prelude TVars.
+  // 190 bindings × ~3 TVars each → 600 is safe. Round up generously.
+  (ast, env, 1000)
+}
+
+fn count_fresh_vars(env, max_n) = {
+  if len(env) == 0 { max_n + 1 }
+  else {
+    let (_, ty, _) = env[0]
+    let n = max_tvar_in_type(ty)
+    let new_max = if n > max_n { n } else { max_n }
+    count_fresh_vars(slice(env, 1, len(env)), new_max)
+  }
+}
+
+fn max_tvar_in_type(ty) = match ty {
+  TVar(n) => n,
+  TFun(params, ret, _) => {
+    let m = max_tvar_in_type(ret)
+    max_tvar_in_types(params, m)
+  },
+  TList(inner) => max_tvar_in_type(inner),
+  _ => 0
+}
+
+fn max_tvar_in_types(tys, max_n) = {
+  if len(tys) == 0 { max_n }
+  else {
+    let n = max_tvar_in_type(tys[0])
+    let new_max = if n > max_n { n } else { max_n }
+    max_tvar_in_types(slice(tys, 1, len(tys)), new_max)
+  }
+}
+
+fn checked_with_cache(source) = {
+  let (prelude_ast, prelude_env, start_n) = __prelude_cache
+  let (imports, _) = source |> resolve_imports_tracked([])
+  let user_source = imports ++ "\n" ++ (source |> strip_imports)
+  let user_ast = user_source |> frontend
+  let env = user_ast |> check_program_with(prelude_env, start_n)
+  let combined_ast = prelude_ast ++ user_ast
+  validate(combined_ast, env)
+  (combined_ast, env)
+}
+
 // ─── Validate — fan-out ─────────────────────────────────────
 // Three independent analyses. Same input. No ordering dependency.
 // This IS <| : one truth, fanned to many consumers.
@@ -184,17 +239,17 @@ fn check_let_against_aliases(name, value, aliases) = {
 // different from document, different from compile.
 
 fn compile(source) = {
-  let (ast, _) = source |> checked
+  let (ast, _) = source |> checked_with_cache
   ast |> compile_program
 }
 
 fn compile_checked(source) = {
-  let (ast, env) = source |> checked
+  let (ast, env) = source |> checked_with_cache
   (ast |> compile_program, env)
 }
 
 fn compile_teaching(source) = {
-  let (ast, env) = source |> checked
+  let (ast, env) = source |> checked_with_cache
   println("[teach] types inferred:")
   env |> show_env_compact |> println
   let suggestion = (env, ast) |> gradient_suggestion
@@ -203,33 +258,33 @@ fn compile_teaching(source) = {
 }
 
 fn compile_standard(source) = {
-  let (ast, _) = source |> checked
+  let (ast, _) = source |> checked_with_cache
   ast |> compile_program
 }
 
 fn compile_explaining(source) = {
-  let (ast, env) = source |> checked
+  let (ast, env) = source |> checked_with_cache
   println("── Why Engine ──")
   env |> show_env_why(2) |> println
   ast |> compile_program
 }
 
 fn compile_documenting(source) = {
-  let (ast, env) = source |> checked
+  let (ast, env) = source |> checked_with_cache
   println("── Documentation ──")
   env |> show_env_doc |> println
   ast |> compile_program
 }
 
 fn compile_checking(source) = {
-  let (ast, env) = source |> checked
+  let (ast, env) = source |> checked_with_cache
   println("✓ type check passed")
   env |> show_env_compact |> println
   compile_program([])
 }
 
 fn compile_lowering(source) = {
-  let (ast, env) = source |> checked
+  let (ast, env) = source |> checked_with_cache
   let ctors = env |> extract_constructors
   let lowered = lower_program_typed(ast, ctors, env)
   println("── LowIR ──")
@@ -252,7 +307,7 @@ fn compile_tracing(source) = {
 }
 
 fn compile_illuminate(source) = {
-  let (ast, env) = source |> checked
+  let (ast, env) = source |> checked_with_cache
   let g = compute_gradient(env, ast)
   let rendered = g |> render_gradient
   if len(rendered) > 0 { println(rendered) } else { () }

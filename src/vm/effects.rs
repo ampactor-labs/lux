@@ -27,8 +27,14 @@ impl Vm {
         let start = self.stack.len() - state_count;
         let state: Vec<VmValue> = self.stack.drain(start..).collect();
 
-        // Resolve handler entries from the current chunk's handler table.
-        let entries = self.resolve_handler_entries(frame_idx, table_idx)?;
+        // Resolve handler entries: static (from handler table) or dynamic (from record on stack).
+        let entries = if table_idx == 0xFFFF {
+            // Dynamic handler: pop record value from stack and build entries from its fields.
+            let record = self.stack.pop().unwrap_or(VmValue::Unit);
+            self.build_dynamic_handler_entries(record, frame_idx)?
+        } else {
+            self.resolve_handler_entries(frame_idx, table_idx)?
+        };
 
         // Record body start IP (current position after reading PushHandler operands).
         let body_start_ip = self.frames[frame_idx].ip;
@@ -312,6 +318,71 @@ impl Vm {
                 param_count: entry.param_count,
                 tail_resumptive: entry.tail_resumptive,
                 evidence_eligible: entry.evidence_eligible,
+                upvalues,
+            });
+        }
+
+        Ok(entries)
+    }
+
+    /// Build handler entries from a dynamic record value.
+    ///
+    /// Parses the record's `#record:field1,field2,...` tag to get operation names,
+    /// then extracts closures from the fields to create handler entries. This enables
+    /// `computation ~> handler_variable` where the handler is returned from a function.
+    fn build_dynamic_handler_entries(
+        &self,
+        record: VmValue,
+        frame_idx: usize,
+    ) -> Result<Vec<VmHandlerEntry>, VmError> {
+        let (tag, fields) = match record {
+            VmValue::Variant { name, fields } => (name, fields),
+            _ => {
+                let line = self.frames[frame_idx].current_line();
+                return Err(VmError::new(
+                    "dynamic handler: expected record value",
+                    line,
+                ));
+            }
+        };
+
+        let tag_str = tag.as_str();
+        if !tag_str.starts_with("#record:") {
+            let line = self.frames[frame_idx].current_line();
+            return Err(VmError::new(
+                format!("dynamic handler: expected record, got variant '{tag_str}'"),
+                line,
+            ));
+        }
+
+        let field_part = &tag_str["#record:".len()..];
+        let field_names: Vec<&str> = field_part.split(',').collect();
+
+        let mut entries = Vec::with_capacity(field_names.len());
+        for (i, name) in field_names.iter().enumerate() {
+            let value = fields.get(i).cloned().unwrap_or(VmValue::Unit);
+            let (proto, upvalues) = match value {
+                VmValue::Closure(c) => (c.proto.clone(), c.upvalues.clone()),
+                VmValue::BundledClosure { closure, evidence } => {
+                    let mut ups = closure.upvalues.clone();
+                    ups.extend((*evidence).iter().cloned());
+                    (closure.proto.clone(), ups)
+                }
+                _ => {
+                    let line = self.frames[frame_idx].current_line();
+                    return Err(VmError::new(
+                        format!("dynamic handler field '{name}': expected closure"),
+                        line,
+                    ));
+                }
+            };
+
+            entries.push(VmHandlerEntry {
+                op_name: name.to_string(),
+                proto: proto.clone(),
+                param_count: proto.arity as u8,
+                tail_resumptive: true,
+                evidence_eligible: false,
                 upvalues,
             });
         }

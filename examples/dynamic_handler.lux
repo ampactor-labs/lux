@@ -1,0 +1,40 @@
+// Test for dynamic handler dispatch
+// A handler instantiated elsewhere, returned from a function,
+// and applied dynamically to a computation.
+
+effect Db { query(sql: String) -> String }
+effect Log { info(msg: String) -> () }
+
+fn make_logger(prefix: String) = {
+  {
+    info: |msg| {
+      println("[{prefix}] {msg}")
+      resume(())
+    }
+  }
+}
+
+fn worker() with Db, Log = {
+  info("Starting query")
+  let res = query("SELECT * FROM users")
+  info("Query result: {res}")
+}
+
+fn main() = {
+  let prod_logger = make_logger("PROD")
+  let dev_logger = make_logger("DEV")
+
+  let mock_db = {
+    query: |sql| {
+      resume("stub_data_for: " ++ sql)
+    }
+  }
+
+  println("=== Dynamic Dev Mode ===")
+  worker() ~> dev_logger ~> mock_db
+
+  println("=== Dynamic Prod Mode ===")
+  worker() ~> prod_logger ~> mock_db
+}
+
+main()

@@ -727,30 +727,48 @@ fn ctx_add_handler_table(ctx, table) = {
 //   handler_expr: RecordExpr([(name, LambdaExpr), ...]) or dynamic expr
 //   state_bindings: [(name, init_expr), ...]
 fn compile_handle_expr(ctx, body, handler_expr, state_bindings) = {
-  // Extract static arms from RecordExpr
+  // Check if handler is a literal RecordExpr (static) or a dynamic expression
   let handler_arms = extract_codegen_arms(handler_expr)
+  let is_dynamic = if len(handler_arms) == 0 { is_not_record_expr(handler_expr) } else { false }
 
-  // 1. Compile state init expressions (left on stack for PushHandler)
-  let ctx2 = compile_state_inits(ctx, state_bindings)
-  let state_count = len(state_bindings)
-  let state_names = get_state_names(state_bindings)
+  if is_dynamic {
+    // Dynamic handler: compile the handler expression (pushes record onto stack),
+    // then emit PushHandler with sentinel table_idx=0xFFFF so the VM builds
+    // handler entries from the record's fields at runtime.
+    let ctx2 = compile_expr(ctx, handler_expr)
+    let ctx3 = compile_state_inits(ctx2, state_bindings)
+    let state_count = len(state_bindings)
+    let ctx4 = emit_u16(emit_op(ctx3, OP_PUSH_HANDLER), 65535)
+    let ctx5 = emit_u16(ctx4, 0)
+    let ctx6 = emit_u8(ctx5, state_count)
+    let ctx7 = compile_expr(ctx6, body)
+    emit_op(ctx7, OP_POP_HANDLER)
+  } else {
+    // Static handler: compile handler protos and build table at compile time
+    let ctx2 = compile_state_inits(ctx, state_bindings)
+    let state_count = len(state_bindings)
+    let state_names = get_state_names(state_bindings)
+    let (ctx3, table_entries) = compile_handler_protos(ctx2, handler_arms, state_names, [])
+    let (ctx4, table_idx) = ctx_add_handler_table(ctx3, table_entries)
+    let ctx5 = emit_u16(emit_op(ctx4, OP_PUSH_HANDLER), table_idx)
+    let ctx6 = emit_u16(ctx5, 0)
+    let ctx7 = emit_u8(ctx6, state_count)
+    let ctx8 = compile_expr(ctx7, body)
+    emit_op(ctx8, OP_POP_HANDLER)
+  }
+}
 
-  // 2. Compile each handler body as separate FnProto
-  let (ctx3, table_entries) = compile_handler_protos(ctx2, handler_arms, state_names, [])
-
-  // 3. Build handler table and register it
-  let (ctx4, table_idx) = ctx_add_handler_table(ctx3, table_entries)
-
-  // 4. Emit PushHandler: table_idx, state_slot_base(unused=0), state_count
-  let ctx5 = emit_u16(emit_op(ctx4, OP_PUSH_HANDLER), table_idx)
-  let ctx6 = emit_u16(ctx5, 0)  // state_slot_base (unused)
-  let ctx7 = emit_u8(ctx6, state_count)
-
-  // 5. Compile handle body
-  let ctx8 = compile_expr(ctx7, body)
-
-  // 6. Emit PopHandler
-  emit_op(ctx8, OP_POP_HANDLER)
+fn is_not_record_expr(expr) = {
+  // Unwrap span wrapper
+  let inner = match expr {
+    S(e, _, _) => e,
+    _ => expr
+  }
+  // Check if inner is a RecordExpr
+  match inner {
+    RecordExpr(_) => false,
+    _ => true
+  }
 }
 
 // Extract handler arms from RecordExpr back into

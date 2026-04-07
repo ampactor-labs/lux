@@ -226,13 +226,14 @@ fn resolve_env(env, subst, eff_subst) = {
 // Returns: env — fully resolved. No dangling type or effect variables.
 // Substitutions are internal. The truth exits clean.
 
-fn check_program(stmts) = {
-  let init_env = env_with_primitives(env_empty())
+fn check_program(stmts) = check_program_with(stmts, env_with_primitives(env_empty()), 0)
+
+fn check_program_with(stmts, init_env, start_n) = {
   handle {
     prescan_fns(stmts)
     infer_stmts(stmts)
     get_env()
-  } with state = (0, [], init_env, EfPure, [], eff_subst_empty()) {
+  } with state = (start_n, [], init_env, EfPure, [], eff_subst_empty()) {
     fresh() => {
       let (n, s, e, ef, sc, es) = state
       resume(TVar(n)) with state = (n + 1, s, e, ef, sc, es)

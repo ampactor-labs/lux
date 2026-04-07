@@ -53,6 +53,8 @@ pub struct Vm {
     /// Target frame depth for evidence dispatch mini-loop. When set, the
     /// `Return` opcode stops nested execution when frames drop to this count.
     pub(super) evidence_return_depth: Option<usize>,
+    /// Builtin ID for `push` — used for COW fast-path in CallBuiltin.
+    push_builtin_id: u16,
 }
 
 impl Default for Vm {
@@ -78,8 +80,10 @@ impl Vm {
             replay_pos: 0,
             stop_at_handler_depth: None,
             evidence_return_depth: None,
+            push_builtin_id: u16::MAX,
         };
         vm.register_builtins();
+        vm.push_builtin_id = vm.builtin_map.get("push").map(|id| id.0).unwrap_or(u16::MAX);
         vm
     }
 
@@ -295,15 +299,15 @@ impl Vm {
                     let b = self.stack.pop().unwrap_or(VmValue::Unit);
                     let a = self.stack.pop().unwrap_or(VmValue::Unit);
                     match (a, b) {
-                        (VmValue::String(a), VmValue::String(b)) => {
-                            let mut s = Arc::unwrap_or_clone(a);
-                            s.push_str(&b);
-                            self.stack.push(VmValue::String(Arc::new(s)));
+                        (VmValue::String(mut a), VmValue::String(b)) => {
+                            self.cow_drop_string_aliases(&a, frame_idx);
+                            Arc::make_mut(&mut a).push_str(&b);
+                            self.stack.push(VmValue::String(a));
                         }
-                        (VmValue::List(a), VmValue::List(b)) => {
-                            let mut v = Arc::unwrap_or_clone(a);
-                            v.extend((*b).iter().cloned());
-                            self.stack.push(VmValue::List(Arc::new(v)));
+                        (VmValue::List(mut a), VmValue::List(b)) => {
+                            self.cow_drop_list_aliases(&a, frame_idx);
+                            Arc::make_mut(&mut a).extend((*b).iter().cloned());
+                            self.stack.push(VmValue::List(a));
                         }
                         _ => {
                             let line = self.frames[frame_idx].current_line();
@@ -482,9 +486,23 @@ impl Vm {
                 OpCode::CallBuiltin => {
                     let id = self.frames[frame_idx].read_u16();
                     let argc = self.frames[frame_idx].read_byte() as usize;
-                    let start = self.stack.len() - argc;
-                    let args: Vec<VmValue> = self.stack.drain(start..).collect();
-                    self.call_builtin_with_args(BuiltinId(id), args)?;
+                    // COW fast-path: push(list, elem) — inline to avoid closure indirection
+                    // and enable alias clearing for in-place mutation.
+                    if id == self.push_builtin_id && argc == 2 {
+                        let elem = self.stack.pop().unwrap_or(VmValue::Unit);
+                        let list = self.stack.pop().unwrap_or(VmValue::Unit);
+                        if let VmValue::List(mut arc) = list {
+                            self.cow_drop_list_aliases(&arc, frame_idx);
+                            Arc::make_mut(&mut arc).push(elem);
+                            self.stack.push(VmValue::List(arc));
+                        } else {
+                            self.stack.push(VmValue::Unit);
+                        }
+                    } else {
+                        let start = self.stack.len() - argc;
+                        let args: Vec<VmValue> = self.stack.drain(start..).collect();
+                        self.call_builtin_with_args(BuiltinId(id), args)?;
+                    }
                 }
 
                 // ── Collections ───────────────────────────────────
@@ -1045,6 +1063,102 @@ impl Vm {
             let line = self.frames.last().map(|f| f.current_line()).unwrap_or(0);
             Err(VmError::new(format!("unknown builtin: {}", id.0), line))
         }
+    }
+
+    // ── COW alias clearing ─────────────────────────────────────
+    //
+    // When mutating a List or String via Concat/push, the Arc is typically
+    // shared by 2-3 references: the value we're about to mutate (popped
+    // from the stack), the local slot it was cloned from (LoadLocal), and
+    // the handler state it was dispatched from.  Clearing SAFE aliases
+    // drops the Arc strong_count to 1, enabling Arc::make_mut to mutate
+    // in place — turning O(N) per append into O(1) amortized.
+    //
+    // SAFETY: Only clear aliases that are guaranteed to be overwritten:
+    // 1. Handler frame state entries (always overwritten by Resume)
+    // 2. Handler body state parameter locals (the specific slots that
+    //    hold handler state — always overwritten when Resume updates state)
+    // Regular locals are NEVER cleared (they might be read again).
+
+    /// Drop handler-state aliases to a list Arc.
+    fn cow_drop_list_aliases(&mut self, target: &Arc<Vec<VmValue>>, frame_idx: usize) {
+        if let Some(&(h_idx, body_frame_idx)) = self.handler_dispatch_stack.last() {
+            if h_idx < self.handler_stack.len() {
+                let handler = &mut self.handler_stack[h_idx];
+                // Clear matching handler frame state entries.
+                for s in handler.state.iter_mut() {
+                    if let VmValue::List(arc) = &*s {
+                        if Arc::ptr_eq(target, arc) {
+                            *s = VmValue::Unit;
+                        }
+                    }
+                }
+                // Clear state parameter locals in the handler body frame.
+                // State params are at: base + effect_param_count .. base + effect_param_count + state_count
+                if body_frame_idx == frame_idx {
+                    let state_count = handler.state.len();
+                    if state_count > 0 {
+                        // Find the effect param_count for the active handler entry.
+                        let param_count = self.active_handler_param_count(h_idx) as usize;
+                        let base = self.frames[frame_idx].stack_base;
+                        let start = base + param_count;
+                        let end = start + state_count;
+                        for i in start..end.min(self.stack.len()) {
+                            if let VmValue::List(ref arc) = self.stack[i] {
+                                if Arc::ptr_eq(target, arc) {
+                                    self.stack[i] = VmValue::Unit;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Drop handler-state aliases to a string Arc.
+    fn cow_drop_string_aliases(&mut self, target: &Arc<String>, frame_idx: usize) {
+        if let Some(&(h_idx, body_frame_idx)) = self.handler_dispatch_stack.last() {
+            if h_idx < self.handler_stack.len() {
+                let handler = &mut self.handler_stack[h_idx];
+                for s in handler.state.iter_mut() {
+                    if let VmValue::String(arc) = &*s {
+                        if Arc::ptr_eq(target, arc) {
+                            *s = VmValue::Unit;
+                        }
+                    }
+                }
+                if body_frame_idx == frame_idx {
+                    let state_count = handler.state.len();
+                    if state_count > 0 {
+                        let param_count = self.active_handler_param_count(h_idx) as usize;
+                        let base = self.frames[frame_idx].stack_base;
+                        let start = base + param_count;
+                        let end = start + state_count;
+                        for i in start..end.min(self.stack.len()) {
+                            if let VmValue::String(ref arc) = self.stack[i] {
+                                if Arc::ptr_eq(target, arc) {
+                                    self.stack[i] = VmValue::Unit;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Get the effect param_count for the currently dispatching handler entry.
+    fn active_handler_param_count(&self, h_idx: usize) -> u8 {
+        // The last dispatched entry's param_count. We search handler_dispatch_stack
+        // for the matching h_idx and find which entry was dispatched.
+        // Fallback: check all entries and use the first non-zero param_count.
+        let handler = &self.handler_stack[h_idx];
+        if handler.entries.len() == 1 {
+            return handler.entries[0].param_count;
+        }
+        // Default: assume effect args = 1 (most common case: single effect arg).
+        handler.entries.first().map(|e| e.param_count).unwrap_or(1)
     }
 
     // ── Builtin registration ──────────────────────────────────

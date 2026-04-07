@@ -624,10 +624,13 @@ fn install_stateful_evidence(handler_name, op_names, state_names, idx, env) = {
 }
 
 // Build rewrite map from field names and handler AST
-fn build_rewrite_map_from_names(op_names, handler_expr) = match handler_expr {
-  S(RecordExpr(fields), _, _) => build_rewrite_map_from_fields(fields),
-  RecordExpr(fields) => build_rewrite_map_from_fields(fields),
-  _ => []
+fn build_rewrite_map_from_names(op_names, handler_expr) = {
+  // Unwrap span — nested variant matching in S(RecordExpr(_), _, _) is unsound
+  let inner = match handler_expr { S(e, _, _) => e, _ => handler_expr }
+  match inner {
+    RecordExpr(fields) => build_rewrite_map_from_fields(fields),
+    _ => []
+  }
 }
 
 fn build_rewrite_map_from_fields(fields) = {
@@ -640,28 +643,32 @@ fn build_rewrite_map_from_fields(fields) = {
 }
 
 fn extract_rewrite_from_lambda(name, expr) = {
-  let body = match expr {
-    S(LambdaExpr(_, b), _, _) => b,
-    LambdaExpr(_, b) => b,
-    _ => expr
+  // Unwrap span — nested variant matching is unsound in Rust VM
+  let inner = match expr { S(e, _, _) => e, _ => expr }
+  let (params, body) = match inner {
+    LambdaExpr(p, b) => (p, b),
+    _ => ([], expr)
   }
-  extract_rewrite_from_body(name, body)
+  // Extract full rewrite entry: [name, params, pre_stmts, resume_value, updates]
+  extract_full_rewrite(name, params, body, [])
 }
 
-fn extract_rewrite_from_body(name, body) = match body {
-  S(inner, _, _) => extract_rewrite_from_body(name, inner),
-  ResumeExpr(_, updates) => {
-    if len(updates) > 0 {
-      [[name, updates]]
-    } else { [] }
-  },
-  BlockExpr(_, last) => extract_rewrite_from_body(name, last),
-  IfExpr(_, then_b, else_b) => {
-    let t = extract_rewrite_from_body(name, then_b)
-    let e = extract_rewrite_from_body(name, else_b)
-    t ++ e
-  },
-  _ => []
+// Recursively find the ResumeExpr in a handler body, collecting pre-statements.
+// Returns a list of entries (0 or 1 for simple bodies, 2 for if/else branches).
+fn extract_full_rewrite(name, params, body, pre_stmts) = {
+  let inner = match body { S(e, _, _) => e, _ => body }
+  match inner {
+    ResumeExpr(value, updates) =>
+      [[name, params, pre_stmts, value, updates]],
+    BlockExpr(stmts, last) =>
+      extract_full_rewrite(name, params, last, pre_stmts ++ stmts),
+    IfExpr(_, then_b, else_b) => {
+      let t = extract_full_rewrite(name, params, then_b, pre_stmts)
+      let e = extract_full_rewrite(name, params, else_b, pre_stmts)
+      t ++ e
+    },
+    _ => []
+  }
 }
 
 
