@@ -106,7 +106,7 @@ fn infer(sexpr) with Infer, Diagnostic = {
         TupleExpr(fns) => {
           let result_types = fan_out(fns, data, bl, bc)
           // Gradient: the types carry the proof — report purity for each branch
-          gradient_fan_out(fns, rl, rc)
+          gradient_fan_out(fns, bl, bc)
           TTuple(result_types)
         },
         _ => infer(S(Call(branches, [data]), bl, bc))
@@ -376,6 +376,8 @@ fn infer_stmt(stmt) with Infer, Diagnostic = match stmt {
     let body_ty = infer(body)
     let body_effs = pop_scope()
     unify(ret, body_ty)
+    let constraint_result = check_effect_constraints(name, body_effs, declared_effects, eff_subst_empty())
+    report_effect_violations(constraint_result)
     let final_effs = resolve_declared_effs(declared_effects, body_effs)
     bind(name, TFun(map(resolve, param_types), resolve(ret), final_effs), Declared("fn " ++ name))
   },
@@ -537,4 +539,29 @@ fn extract_positive_names(effects) = {
     let rest = extract_positive_names(slice(effects, 1, len(effects)))
     if negated { rest } else { [name] ++ rest }
   }
+}
+
+fn report_effect_violations(result) = {
+  let violations = result[1]
+  report_violations_loop(violations)
+}
+
+fn report_violations_loop(violations) = {
+  if len(violations) == 0 { () }
+  else {
+    let v = violations[0]
+    let msg = format_violation(v)
+    report("", "Error", msg, 0, 0)
+    report_violations_loop(slice(violations, 1, len(violations)))
+  }
+}
+
+fn format_violation(v) = match v {
+  EffNegationViolated(fn_name, eff_name) =>
+    "effect violation in '" ++ fn_name ++ "': declared !" ++ eff_name ++ " but body performs " ++ eff_name,
+  EffOpenRowNegation(fn_name, eff_name) =>
+    "effect warning in '" ++ fn_name ++ "': declared !" ++ eff_name ++ " but effect row is open",
+  EffPurityViolated(fn_name, effs) =>
+    "effect violation in '" ++ fn_name ++ "': declared Pure but body has effects",
+  _ => "effect violation: unknown"
 }
