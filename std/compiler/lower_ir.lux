@@ -144,8 +144,13 @@ type HandlerTier
   | Linear
   | MultiShot
 
-fn classify_handler(arm) = {
-  let (_, _, body_sexpr) = arm
+fn classify_handler(field) = {
+  let (name, expr) = field
+  let body_sexpr = match expr {
+    S(LambdaExpr(_, body), _, _) => body,
+    LambdaExpr(_, body) => body,
+    _ => expr
+  }
   if ends_with_resume(body_sexpr) {
     let has_state = has_state_updates(body_sexpr)
     let has_side_effects = has_pre_resume_stmts(body_sexpr)
