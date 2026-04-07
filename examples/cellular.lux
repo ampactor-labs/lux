@@ -4,7 +4,7 @@
 // Each generation is a function from state to state.
 //
 //   state |> rule    = one step
-//   rule <> rule     = two steps composed
+//   rule >< rule     = two steps composed
 //   state <| (r110, r30, r90) = same state, three different physics
 //
 // Conway proved Rule 110 is Turing-complete.
@@ -114,14 +114,14 @@ println("   90: " ++ render(state_90))
 // ═══════════════════════════════════════════════════════════════
 
 println("")
-println("── <> Composed Rules ──")
+println("── >< Composed Rules ──")
 
 // step IS a function from state to state. Compose them!
 let step_110 = |state| step(r110, state)
 let step_30  = |state| step(r30, state)
 
 // Apply rule 110, then rule 30 — alternating physics!
-let hybrid_step = step_110 <> step_30
+let hybrid_step = step_110 >< step_30
 
 // Run the hybrid
 println("Hybrid (alternating 110 then 30):")

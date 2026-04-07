@@ -270,7 +270,13 @@ pub enum Expr {
     },
 
     /// Fan-out `expr <| (f, g, h)`
-    FanOut {
+    Prism {
+        left: Box<Expr>,
+        right: Box<Expr>,
+        span: Span,
+    },
+    /// Compose `f >< g` — creates `|x| g(f(x))`
+    Compose {
         left: Box<Expr>,
         right: Box<Expr>,
         span: Span,
@@ -374,7 +380,8 @@ impl Expr {
             | Expr::Match { span, .. }
             | Expr::Let { span, .. }
             | Expr::Pipe { span, .. }
-            | Expr::FanOut { span, .. }
+            | Expr::Prism { span, .. }
+            | Expr::Compose { span, .. }
             | Expr::StringInterp { span, .. }
             | Expr::Handle { span, .. }
             | Expr::Resume { span, .. }

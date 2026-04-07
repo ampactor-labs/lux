@@ -435,7 +435,7 @@ fn compile_expr(ctx, sexpr) = {
     }
   },
 
-  FanOutExpr(data, branches) => {
+  PrismExpr(data, branches) => {
     // data <| (f, g, h) => (f(data), g(data), h(data))
     let S(branches_expr, _, _) = branches;
     match branches_expr {
@@ -452,8 +452,8 @@ fn compile_expr(ctx, sexpr) = {
     }
   },
 
-  JoinExpr(f, g) => {
-    // f >< g => |x| g(f(x)) 
+  ComposeExpr(f, g) => {
+    // f >< g => |x| g(f(x))
     let ref_x = S(VarRef("__jx"), 0, 0)
     let call_f = S(Call(f, [ref_x]), 0, 0)
     let call_g = S(Call(g, [call_f]), 0, 0)

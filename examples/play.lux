@@ -7,7 +7,7 @@ let square = |x| x * x
 let stringify = to_string
 
 // Build a pipeline. Nothing runs.
-let describe_number = double <> square <> stringify
+let describe_number = double >< square >< stringify
 
 // Now run it.
 println("describe 3: " ++ describe_number(3))
@@ -104,15 +104,15 @@ println("word count: " ++ to_string(word_count))
 // 42 <| to_string = to_string(42) = "42"
 // That means <| generalizes function application.
 // And |> also generalizes application.
-// And <> generalizes lambda creation.
+// And >< generalizes lambda creation.
 //
 // Three operators. Three generalizations of the lambda calculus:
 //   |> = apply (eager, left to right)
 //   <| = apply-many (broadcast)
-//   <> = abstract (build a function)
+//   >< = abstract (build a function)
 //
 // The lambda calculus has two operations: abstraction and application.
-// Lux has three: abstraction (<>), application (|>), and broadcast (<|).
+// Lux has three: abstraction (><), application (|>), and broadcast (<|).
 // The third one is what makes parallelism expressible.
 
 println("--- play complete ---")

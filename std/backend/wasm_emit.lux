@@ -60,57 +60,17 @@ fn emit_module(defs, type_map) = {
     out(emit_string_segments(string_map, 0))
     out(emit_alloc())
 
-    // Functions — each emitted and printed individually
-    emit_fns_streaming(fns, 0, ctx)
+    // Functions — each emitted and streamed directly via out()
+    emit_fn_list(fns, 0, ctx)
 
     // Footer
     out(emit_fn_table(fn_table))
-    emit_start_streaming(top_stmts, ctx)
+    emit_start(top_stmts, ctx)
     out(")" ++ NL)
   } {
     out(s) => { print(s ++ ""); resume(()) }
   }
   ""
-}
-
-// Direct string output — avoids type dispatch ambiguity.
-fn emit_print(s) = print(s ++ "")
-
-// ─── Streaming Emitters (use WasmOut effect) ────────────────
-// These emit functions are called inside the WasmOut handler.
-// Each function's output is printed immediately — no accumulation.
-
-fn emit_fns_streaming(fns, idx, ctx) = {
-  if idx < len(fns) {
-    out(emit_fn(fns[idx], ctx))
-    emit_fns_streaming(fns, idx + 1, ctx)
-  } else { () }
-}
-
-fn emit_start_streaming(stmts, ctx) = {
-  let locals = filter_out_globals(collect_locals(stmts, 0), ctx_globals(ctx), 0)
-  let with_temps = add_emitter_temps(locals, ctx)
-  let env = ctx_type_env(ctx)
-  out("  (func $_start (export " ++ DQ ++ "_start" ++ DQ ++ ")" ++ NL)
-  out(emit_local_decls(with_temps, 0, stmts, env))
-  emit_stmts_void_streaming(stmts, 0, [], with_temps, ctx)
-  out("  )" ++ NL)
-}
-
-fn emit_stmts_void_streaming(stmts, idx, params, locals, ctx) = {
-  if idx >= len(stmts) { () }
-  else {
-    out(emit_stmt_void(stmts[idx], params, locals, ctx))
-    emit_stmts_void_streaming(stmts, idx + 1, params, locals, ctx)
-  }
-}
-
-// Legacy streaming (used by old path, kept for compatibility)
-fn emit_print_fn_list(fns, idx, ctx) = {
-  if idx < len(fns) {
-    emit_print(emit_fn(fns[idx], ctx))
-    emit_print_fn_list(fns, idx + 1, ctx)
-  } else { () }
 }
 
 fn emit_global_decls(names, idx, env)= {
@@ -146,49 +106,50 @@ fn emit_wasi_imports()=
 
 // ─── Function Emission ──────────────────────────────────────
 
-fn emit_fn_list(fns, idx, ctx)= {
-  if idx >= len(fns) { "" }
-  else { emit_fn(fns[idx], ctx) ++ emit_fn_list(fns, idx + 1, ctx) }
+fn emit_fn_list(fns, idx, ctx) = {
+  if idx >= len(fns) { () }
+  else { emit_fn(fns[idx], ctx); emit_fn_list(fns, idx + 1, ctx) }
 }
 
 // Uniform calling convention: ALL table functions get $__closure as first param.
 // Direct calls pass i32.const 0. Closures pass the closure pointer.
-fn emit_fn(fn_def, ctx)= {
+fn emit_fn(fn_def, ctx) = {
   let LFn(name, arity, params, body, fn_eff) = fn_def
   let fn_locals = collect_locals(body, 0)
   let no_params = filter_out_names(fn_locals, params, 0)
   let no_hs = filter_handler_locals(no_params, 0)
   let with_temps = add_emitter_temps(no_hs, ctx)
-  // Direct calls support per-function signatures. Inspect this function's
-  // type in the HM env to determine param and return WAT types.
   let env = ctx_type_env(ctx)
   let (_, fn_ty, _) = env_lookup(env, name)
   let param_types = match fn_ty { TFun(pts, _, _) => pts, _ => [] }
   let ret_ty = match fn_ty { TFun(_, rt, _) => rt, _ => TUnit }
   let result_ty = match ret_ty { TFloat => "f32", _ => "i32" }
-  // Effect annotation: the checker's proof, visible in generated WAT
   let eff_annotation = emit_eff_annotation(fn_eff)
-  let body_wat = emit_local_decls(with_temps, 0, body, env) ++ emit_fn_body(body, params, with_temps, ctx)
-  
-  // ── !Alloc Enforcement ──
-  // If the checker proved this function does not allocate, we enforce it structurally at the backend.
-  // We scan the raw output for `$alloc` calls or inline bump allocations.
+
+  // !Alloc enforcement: if pure/no-alloc, capture body output and check
   let eff_implies_no_alloc = match fn_eff {
     EfPure => true,
     EfClosed(effs) => not(string_in(effs, "Alloc", 0)),
     _ => false
   }
-  let final_body = if eff_implies_no_alloc {
-    if index_of(body_wat, "call $alloc") >= 0 {
-      "    ;; FATAL COMPILE ERROR: !Alloc violation (call $alloc) detected in backend!" ++ NL ++ body_wat
-    } else { if index_of(body_wat, "i32.add" ++ NL ++ "    global.set $heap_ptr") >= 0 {
-      "    ;; FATAL COMPILE ERROR: !Alloc violation (inline alloc) detected in backend!" ++ NL ++ body_wat
-    } else { body_wat } }
-  } else { body_wat }
 
-  "  (func $" ++ name ++ " (param $__closure i32)" ++ emit_params(params, param_types, 0) ++ " (result " ++ result_ty ++ ")" ++ eff_annotation ++ NL
-    ++ final_body
-    ++ "  )" ++ NL
+  out("  (func $" ++ name ++ " (param $__closure i32)" ++ emit_params(params, param_types, 0) ++ " (result " ++ result_ty ++ ")" ++ eff_annotation ++ NL)
+  out(emit_local_decls(with_temps, 0, body, env))
+
+  if eff_implies_no_alloc {
+    // Nested handler: capture body WAT to check for $alloc
+    let body_wat = handle { emit_fn_body(body, params, with_temps, ctx); acc } with acc = "" {
+      out(s) => resume(()) with acc = acc ++ s
+    }
+    if index_of(body_wat, "call $alloc") >= 0 {
+      out("    ;; FATAL COMPILE ERROR: !Alloc violation detected in backend!" ++ NL)
+    } else { () }
+    out(body_wat)
+  } else {
+    emit_fn_body(body, params, with_temps, ctx)
+  }
+
+  out("  )" ++ NL)
 }
 
 // Emit effect annotation as WAT comment: ;; PURE, ;; effects: IO, State, etc.
@@ -217,152 +178,133 @@ fn emit_params(params, param_types, idx)= {
   }
 }
 
-fn emit_fn_body(stmts, params, locals, ctx)= {
-  if len(stmts) == 0 { "    i32.const 0" ++ NL }
+fn emit_fn_body(stmts, params, locals, ctx) = {
+  if len(stmts) == 0 { out("    i32.const 0" ++ NL) }
   else { emit_stmts_value(stmts, 0, params, locals, ctx) }
 }
 
 // ─── Expression Emission (unified) ──────────────────────────
 // Used by both function bodies (params from fn def) and _start (params = []).
 
-fn emit_expr(e, params, locals, ctx)= match e {
-  LConst(ty, v) => emit_const(ty, v, ctx),
+fn emit_expr(e, params, locals, ctx) = match e {
+  LConst(ty, v) => out(emit_const(ty, v, ctx)),
   LMakeTuple(_, elems) => {
-    if len(elems) == 0 { "    i32.const 0" ++ NL }
+    if len(elems) == 0 { out("    i32.const 0" ++ NL) }
     else { emit_make_tuple(elems, params, locals, ctx) }
   },
   LMakeList(_, elems) => {
     if len(elems) == 0 {
-      // Empty list: allocate [0:i32]
-      "    i32.const 4" ++ NL ++ "    call $alloc" ++ NL
+      out("    i32.const 4" ++ NL ++ "    call $alloc" ++ NL
       ++ "    local.tee $__vptr" ++ NL
       ++ "    i32.const 0" ++ NL ++ "    i32.store" ++ NL
-      ++ "    local.get $__vptr" ++ NL
+      ++ "    local.get $__vptr" ++ NL)
     }
     else { emit_make_tuple(elems, params, locals, ctx) }
   },
   LGlobal(_, name) => {
-    if string_in(locals, name, 0) { "    local.get $" ++ name ++ NL }
-    else { if find_param_idx(params, name, 0) >= 0 { "    local.get $" ++ name ++ NL }
-    else { if string_in(ctx_globals(ctx), name, 0) { "    global.get $" ++ name ++ NL }
+    if string_in(locals, name, 0) { out("    local.get $" ++ name ++ NL) }
+    else { if find_param_idx(params, name, 0) >= 0 { out("    local.get $" ++ name ++ NL) }
+    else { if string_in(ctx_globals(ctx), name, 0) { out("    global.get $" ++ name ++ NL) }
     else { if string_in(ctx_tags(ctx), name, 0) {
-      // Zero-field constructor in value position → alloc variant with just tag
       let tag_id = find_tag_id(ctx_tags(ctx), name, 0)
-      "    i32.const 4" ++ NL ++ "    call $alloc" ++ NL
+      out("    i32.const 4" ++ NL ++ "    call $alloc" ++ NL
       ++ "    local.tee $__vptr" ++ NL
       ++ "    i32.const " ++ to_string(tag_id) ++ NL ++ "    i32.store" ++ NL
-      ++ "    local.get $__vptr" ++ NL
+      ++ "    local.get $__vptr" ++ NL)
     }
     else {
-      // Function reference in value position → minimal closure [fn_idx, 0]
-      // Every function value is a closure. i32.load always works.
       let fn_idx = find_fn_index(ctx_fns(ctx), name, 0)
       if fn_idx >= 0 {
-        "    i32.const 8" ++ NL ++ "    call $alloc" ++ NL
+        out("    i32.const 8" ++ NL ++ "    call $alloc" ++ NL
         ++ "    local.tee $__vptr" ++ NL
         ++ "    i32.const " ++ to_string(fn_idx) ++ NL ++ "    i32.store" ++ NL
         ++ "    local.get $__vptr" ++ NL
         ++ "    i32.const 4" ++ NL ++ "    i32.add" ++ NL
         ++ "    i32.const 0" ++ NL ++ "    i32.store" ++ NL
-        ++ "    local.get $__vptr" ++ NL
+        ++ "    local.get $__vptr" ++ NL)
       }
       else {
-        // Last resort: check if __ev_op_ prefixed version exists as a global
-        // (effect op used as a value outside its handler scope)
         let ev_name = "__ev_op_" ++ name
-        if string_in(ctx_globals(ctx), ev_name, 0) { "    global.get $" ++ ev_name ++ NL }
-        else { "    ;; UNRESOLVED: " ++ name ++ NL ++ "    i32.const 0" ++ NL }
+        if string_in(ctx_globals(ctx), ev_name, 0) { out("    global.get $" ++ ev_name ++ NL) }
+        else { out("    ;; UNRESOLVED: " ++ name ++ NL ++ "    i32.const 0" ++ NL) }
       }
     } } } }
   },
   LUpval(ty, idx) => {
-    // Load captured value from closure object: closure_ptr + 8 + idx*4.
-    // Type-directed load: f32.load for TFloat captures, i32.load otherwise.
     let load_op = match ty { TFloat => "f32.load", _ => "i32.load" }
-    "    local.get $__closure" ++ NL
+    out("    local.get $__closure" ++ NL
     ++ "    i32.const " ++ to_string(8 + idx * 4) ++ NL
     ++ "    i32.add" ++ NL
-    ++ "    " ++ load_op ++ NL
+    ++ "    " ++ load_op ++ NL)
   },
-  LLet(_, name, value) => emit_expr(value, params, locals, ctx) ++ "    local.set $" ++ name ++ NL,
+  LLet(_, name, value) => { emit_expr(value, params, locals, ctx); out("    local.set $" ++ name ++ NL) },
   LBlock(_, stmts) => emit_stmts_value(stmts, 0, params, locals, ctx),
   LRegion(_, stmts) => {
-    // Handler-scoped region: save heap, run body, restore heap.
-    // The result type is non-heap (Int/Bool/Float/Unit) so it stays
-    // on the WASM stack unaffected. All intermediates freed in O(1).
-    "    global.get $heap_ptr" ++ NL
-    ++ "    local.set $__region_mark" ++ NL
-    ++ emit_stmts_value(stmts, 0, params, locals, ctx)
-    ++ "    local.set $__region_result" ++ NL
+    out("    global.get $heap_ptr" ++ NL ++ "    local.set $__region_mark" ++ NL)
+    emit_stmts_value(stmts, 0, params, locals, ctx)
+    out("    local.set $__region_result" ++ NL
     ++ "    local.get $__region_mark" ++ NL
     ++ "    global.set $heap_ptr" ++ NL
-    ++ "    local.get $__region_result" ++ NL
+    ++ "    local.get $__region_result" ++ NL)
   },
   LBinOp(ty, op, l, r) => {
-    // ── Constant folding: the compiler proved these are constants. ──
-    // If both operands are int literals, compute at compile time.
-    // 3 + 4 → i32.const 7. No runtime instruction.
     let folded = try_const_fold(op, l, r)
-    if len(folded) > 0 { folded }
+    if len(folded) > 0 { out(folded) }
     else {
-      // Normal emission: dispatch on operand type (TFloat → f32, else i32)
-      emit_expr(l, params, locals, ctx) ++ emit_expr(r, params, locals, ctx) ++ emit_binop(lexpr_ty(l), op)
+      emit_expr(l, params, locals, ctx)
+      emit_expr(r, params, locals, ctx)
+      out(emit_binop(lexpr_ty(l), op))
     }
   },
   LUnaryOp(ty, op, inner) => match op {
     "Neg" => match ty {
-      TFloat => "    f32.const 0" ++ NL ++ emit_expr(inner, params, locals, ctx) ++ "    f32.sub" ++ NL,
-      _ => "    i32.const 0" ++ NL ++ emit_expr(inner, params, locals, ctx) ++ "    i32.sub" ++ NL
+      TFloat => { out("    f32.const 0" ++ NL); emit_expr(inner, params, locals, ctx); out("    f32.sub" ++ NL) },
+      _ => { out("    i32.const 0" ++ NL); emit_expr(inner, params, locals, ctx); out("    i32.sub" ++ NL) }
     },
-    "Not" => emit_expr(inner, params, locals, ctx) ++ "    i32.eqz" ++ NL,
+    "Not" => { emit_expr(inner, params, locals, ctx); out("    i32.eqz" ++ NL) },
     _ => emit_expr(inner, params, locals, ctx)
   },
   LCall(_, func, args) => emit_call_expr(func, args, params, locals, ctx),
   LIf(ty, cond, then_b, else_b) => {
     let result_wt = ty_to_wasm(ty)
     emit_expr(cond, params, locals, ctx)
-    ++ "    (if (result " ++ result_wt ++ ")" ++ NL
-    ++ "      (then" ++ NL ++ emit_stmts_value(then_b, 0, params, locals, ctx) ++ "      )" ++ NL
-    ++ "      (else" ++ NL ++ emit_stmts_value(else_b, 0, params, locals, ctx) ++ "      )" ++ NL
-    ++ "    )" ++ NL
+    out("    (if (result " ++ result_wt ++ ")" ++ NL ++ "      (then" ++ NL)
+    emit_stmts_value(then_b, 0, params, locals, ctx)
+    out("      )" ++ NL ++ "      (else" ++ NL)
+    emit_stmts_value(else_b, 0, params, locals, ctx)
+    out("      )" ++ NL ++ "    )" ++ NL)
   },
   LMakeVariant(_, tag, fields) => emit_make_variant(tag, fields, params, locals, ctx),
   LMatch(_, scrutinee, arms) => emit_match(scrutinee, arms, params, locals, ctx),
   LLoop(ty, body_stmts) => emit_loop(ty, body_stmts, params, locals, ctx),
-  LBreak(_, value) => emit_expr(value, params, locals, ctx) ++ "    br $break" ++ NL,
+  LBreak(_, value) => { emit_expr(value, params, locals, ctx); out("    br $break" ++ NL) },
   LTailCall(ty, func, args) => emit_call_expr(func, args, params, locals, ctx),
-  LReturn(_, value) => emit_expr(value, params, locals, ctx) ++ "    return" ++ NL,
+  LReturn(_, value) => { emit_expr(value, params, locals, ctx); out("    return" ++ NL) },
   LIndex(_, coll, idx_expr) => {
-    // collection[idx] → i32.load(collection + 4 + idx * 4)
     emit_expr(coll, params, locals, ctx)
-    ++ emit_expr(idx_expr, params, locals, ctx)
-    ++ "    i32.const 4" ++ NL ++ "    i32.mul" ++ NL
+    emit_expr(idx_expr, params, locals, ctx)
+    out("    i32.const 4" ++ NL ++ "    i32.mul" ++ NL
     ++ "    i32.add" ++ NL
     ++ "    i32.const 4" ++ NL ++ "    i32.add" ++ NL
-    ++ "    i32.load" ++ NL
+    ++ "    i32.load" ++ NL)
   },
   LMakeClosure(_, fn_def, captures) => {
     let LFn(fname, _, _, _, _) = fn_def
     let fn_idx = find_fn_index(ctx_fns(ctx), fname, 0)
     if len(captures) == 0 {
-      // Zero captures: alloc [fn_idx, 0]. No nesting risk (no field eval).
-      "    i32.const 8" ++ NL ++ "    call $alloc" ++ NL
+      out("    i32.const 8" ++ NL ++ "    call $alloc" ++ NL
       ++ "    local.tee $__vptr" ++ NL
       ++ "    i32.const " ++ to_string(fn_idx) ++ NL ++ "    i32.store" ++ NL
       ++ "    local.get $__vptr" ++ NL
       ++ "    i32.const 4" ++ NL ++ "    i32.add" ++ NL
       ++ "    i32.const 0" ++ NL ++ "    i32.store" ++ NL
-      ++ "    local.get $__vptr" ++ NL
+      ++ "    local.get $__vptr" ++ NL)
     } else {
-      // Closure object: [fn_idx:i32][upval_count:i32][upvals...]
-      // Uses variant pointer stack (same as emit_make_variant) so
-      // nested allocations in capture expressions can't clobber the base.
       let n_caps = len(captures)
       let total_size = (2 + n_caps) * 4
-      "    i32.const " ++ to_string(total_size) ++ NL
+      out("    i32.const " ++ to_string(total_size) ++ NL
       ++ "    call $alloc" ++ NL
       ++ "    local.set $__vptr" ++ NL
-      // Push onto variant stack
       ++ "    global.get $__vsp" ++ NL
       ++ "    i32.const 4" ++ NL ++ "    i32.mul" ++ NL
       ++ "    i32.const 400" ++ NL ++ "    i32.add" ++ NL
@@ -370,93 +312,95 @@ fn emit_expr(e, params, locals, ctx)= match e {
       ++ "    i32.store" ++ NL
       ++ "    global.get $__vsp" ++ NL ++ "    i32.const 1" ++ NL ++ "    i32.add" ++ NL
       ++ "    global.set $__vsp" ++ NL
-      // Store fn table index
       ++ "    local.get $__vptr" ++ NL
       ++ "    i32.const " ++ to_string(fn_idx) ++ NL
       ++ "    i32.store" ++ NL
-      // Store upval count
       ++ "    local.get $__vptr" ++ NL
       ++ "    i32.const 4" ++ NL ++ "    i32.add" ++ NL
       ++ "    i32.const " ++ to_string(n_caps) ++ NL
-      ++ "    i32.store" ++ NL
-      // Store captures — reload base from stack each time
-      ++ emit_closure_captures_stacked(captures, 0, params, locals, ctx)
-      // Pop variant stack
-      ++ "    global.get $__vsp" ++ NL ++ "    i32.const 1" ++ NL ++ "    i32.sub" ++ NL
+      ++ "    i32.store" ++ NL)
+      emit_closure_captures_stacked(captures, 0, params, locals, ctx)
+      out("    global.get $__vsp" ++ NL ++ "    i32.const 1" ++ NL ++ "    i32.sub" ++ NL
       ++ "    global.set $__vsp" ++ NL
       ++ "    global.get $__vsp" ++ NL
       ++ "    i32.const 4" ++ NL ++ "    i32.mul" ++ NL
       ++ "    i32.const 400" ++ NL ++ "    i32.add" ++ NL
-      ++ "    i32.load" ++ NL
+      ++ "    i32.load" ++ NL)
     }
   },
-  _ => "    i32.const 0 ;; unhandled" ++ NL
+  _ => out("    i32.const 0 ;; unhandled" ++ NL)
 }
 
+
+
 // Value context: last stmt produces a value (stays on stack). Non-last are void.
-fn emit_stmts_value(stmts, idx, params, locals, ctx)= {
-  if idx >= len(stmts) { "" }
+fn emit_stmts_value(stmts, idx, params, locals, ctx) = {
+  if idx >= len(stmts) { () }
   else {
     if idx == len(stmts) - 1 {
       emit_expr(stmts[idx], params, locals, ctx)
     } else {
       emit_stmt(stmts[idx], params, locals, ctx)
-        ++ emit_stmts_value(stmts, idx + 1, params, locals, ctx)
+      emit_stmts_value(stmts, idx + 1, params, locals, ctx)
     }
   }
 }
 
 // Void context: all stmts are void (values dropped). Used by _start.
-fn emit_stmts_void(stmts, idx, params, locals, ctx)= {
-  if idx >= len(stmts) { "" }
-  else { emit_stmt(stmts[idx], params, locals, ctx) ++ emit_stmts_void(stmts, idx + 1, params, locals, ctx) }
+fn emit_stmts_void(stmts, idx, params, locals, ctx) = {
+  if idx >= len(stmts) { () }
+  else {
+    emit_stmt(stmts[idx], params, locals, ctx)
+    emit_stmts_void(stmts, idx + 1, params, locals, ctx)
+  }
 }
 
-fn emit_stmt(stmt, params, locals, ctx)= match stmt {
+fn emit_stmt(stmt, params, locals, ctx) = match stmt {
   LLet(_, name, value) => {
     let is_local = string_in(locals, name, 0) || find_param_idx(params, name, 0) >= 0
     let setter = if is_local { "    local.set $" } else { if string_in(ctx_globals(ctx), name, 0) { "    global.set $" } else { "    local.set $" } }
     let getter = if is_local { "    local.get $" } else { if string_in(ctx_globals(ctx), name, 0) { "    global.get $" } else { "    local.get $" } }
-    let base = emit_expr(value, params, locals, ctx) ++ setter ++ name ++ NL
-    // Patch self-referential closures: after storing the closure ptr,
-    // write it back into the capture slot that holds self
-    let patch = match value {
+    emit_expr(value, params, locals, ctx)
+    out(setter ++ name ++ NL)
+    // Patch self-referential closures
+    match value {
       LMakeClosure(_, fn_def, captures) => {
         let self_idx = find_self_capture(captures, name, 0)
         if self_idx >= 0 {
           let offset = (2 + self_idx) * 4
-          getter ++ name ++ NL
+          out(getter ++ name ++ NL
           ++ "    i32.const " ++ to_string(offset) ++ NL
           ++ "    i32.add" ++ NL
           ++ getter ++ name ++ NL
-          ++ "    i32.store" ++ NL
-        } else { "" }
+          ++ "    i32.store" ++ NL)
+        } else { () }
       },
-      _ => ""
+      _ => ()
     }
-    base ++ patch
   },
-  LConst(_, _) => "",
-  LMakeTuple(_, _) => "",
+  LConst(_, _) => (),
+  LMakeTuple(_, _) => (),
   LBlock(_, stmts) => emit_stmts_void(stmts, 0, params, locals, ctx),
   LRegion(_, stmts) => {
-    "    global.get $heap_ptr" ++ NL
-    ++ "    local.set $__region_mark" ++ NL
-    ++ emit_stmts_void(stmts, 0, params, locals, ctx)
-    ++ "    local.get $__region_mark" ++ NL
-    ++ "    global.set $heap_ptr" ++ NL
+    out("    global.get $heap_ptr" ++ NL
+    ++ "    local.set $__region_mark" ++ NL)
+    emit_stmts_void(stmts, 0, params, locals, ctx)
+    out("    local.get $__region_mark" ++ NL
+    ++ "    global.set $heap_ptr" ++ NL)
   },
-  // ── Dead code elimination: Pure calls with unused results vanish ──
   LCall(_, func, args) => {
     let func_eff = match lexpr_ty(func) { TFun(_, _, eff) => eff, _ => EfClosed(["unknown"]) }
     if is_pure_eff(func_eff) && all_trivial_args(args, 0) {
-      ";; DCE: pure call eliminated (result unused)" ++ NL
+      out(";; DCE: pure call eliminated (result unused)" ++ NL)
     } else {
-      emit_expr(stmt, params, locals, ctx) ++ "    drop" ++ NL
+      emit_expr(stmt, params, locals, ctx)
+      out("    drop" ++ NL)
     }
   },
-  // Everything else produces a value — drop it in void context
-  _ => emit_expr(stmt, params, locals, ctx) ++ "    drop" ++ NL
+  _ => {
+    emit_expr(stmt, params, locals, ctx)
+    out("    drop" ++ NL)
+  }
 }
 
 // emit_const reads Ty off the node — TFloat → f32.const, else i32.const
@@ -474,79 +418,74 @@ fn emit_const(ty, v, ctx)= match v {
   _ => "    i32.const 0" ++ NL
 }
 
-fn emit_builtin(name, args, params, locals, ctx)= {
-  // Memory effect → raw WASM instructions. The handler IS the backend.
+fn emit_builtin(name, args, params, locals, ctx) = {
   if name == "load_i32" {
-    emit_args(args, 0, params, locals, ctx) ++ "    i32.load" ++ NL
+    emit_args(args, 0, params, locals, ctx); out("    i32.load" ++ NL); true
   } else { if name == "store_i32" {
-    emit_args(args, 0, params, locals, ctx) ++ "    i32.store" ++ NL ++ "    i32.const 0" ++ NL
+    emit_args(args, 0, params, locals, ctx); out("    i32.store" ++ NL ++ "    i32.const 0" ++ NL); true
   } else { if name == "load_i8" {
-    emit_args(args, 0, params, locals, ctx) ++ "    i32.load8_u" ++ NL
+    emit_args(args, 0, params, locals, ctx); out("    i32.load8_u" ++ NL); true
   } else { if name == "store_i8" {
-    emit_args(args, 0, params, locals, ctx) ++ "    i32.store8" ++ NL ++ "    i32.const 0" ++ NL
+    emit_args(args, 0, params, locals, ctx); out("    i32.store8" ++ NL ++ "    i32.const 0" ++ NL); true
   } else { if name == "mem_copy" {
-    emit_args(args, 0, params, locals, ctx) ++ "    memory.copy" ++ NL ++ "    i32.const 0" ++ NL
-  // byte_at(s, i) → load_i8(s + 4 + i) — string byte access, UTF-8 safe
+    emit_args(args, 0, params, locals, ctx); out("    memory.copy" ++ NL ++ "    i32.const 0" ++ NL); true
   } else { if name == "byte_at" {
     emit_args(args, 0, params, locals, ctx)
-    ++ "    i32.const 4" ++ NL ++ "    i32.add" ++ NL ++ "    i32.add" ++ NL
-    ++ "    i32.load8_u" ++ NL
-  // byte_len(s) → load_i32(s) — string byte length (same as len for strings)
+    out("    i32.const 4" ++ NL ++ "    i32.add" ++ NL ++ "    i32.add" ++ NL ++ "    i32.load8_u" ++ NL); true
   } else { if name == "byte_len" {
-    emit_args(args, 0, params, locals, ctx) ++ "    i32.load" ++ NL
-  // Alloc effect → bump allocator (the one true WAT primitive)
+    emit_args(args, 0, params, locals, ctx); out("    i32.load" ++ NL); true
   } else { if name == "alloc" {
-    emit_args(args, 0, params, locals, ctx) ++ "    call $alloc" ++ NL
-  // Console effect → fd_write (WASI boundary)
+    emit_args(args, 0, params, locals, ctx); out("    call $alloc" ++ NL); true
   } else { if name == "fd_write" {
-    emit_args(args, 0, params, locals, ctx) ++ "    call $fd_write" ++ NL
+    emit_args(args, 0, params, locals, ctx); out("    call $fd_write" ++ NL); true
   } else { if name == "fd_read" {
-    emit_args(args, 0, params, locals, ctx) ++ "    call $fd_read" ++ NL
+    emit_args(args, 0, params, locals, ctx); out("    call $fd_read" ++ NL); true
   } else {
-    "" // Not a primitive — compiled Lux handles it
+    false
   } } } } } } } } } }
 }
 
-fn emit_call_expr(func, args, params, locals, ctx)= {
+fn emit_call_expr(func, args, params, locals, ctx) = {
   match func {
     LGlobal(_, name) => {
-      let builtin = emit_builtin(name, args, params, locals, ctx)
-      if builtin != "" { builtin } else {
+      let handled = emit_builtin(name, args, params, locals, ctx)
+      if handled { () } else {
         if string_in(ctx_tags(ctx), name, 0) {
           emit_make_variant(name, args, params, locals, ctx)
         } else {
-          // Is callee a param/local/global (function ref)? → indirect call
           let is_param = find_param_idx(params, name, 0) >= 0
           let is_local = string_in(locals, name, 0)
           let is_global = string_in(ctx_globals(ctx), name, 0)
           if is_param || is_local {
-            "    local.get $" ++ name ++ NL
-            ++ emit_args(args, 0, params, locals, ctx)
-            ++ "    local.get $" ++ name ++ NL
+            out("    local.get $" ++ name ++ NL)
+            emit_args(args, 0, params, locals, ctx)
+            out("    local.get $" ++ name ++ NL
             ++ "    i32.load" ++ NL
-            ++ "    call_indirect (type $fn" ++ to_string(len(args)) ++ ")" ++ NL
+            ++ "    call_indirect (type $fn" ++ to_string(len(args)) ++ ")" ++ NL)
           } else { if is_global {
-            "    global.get $" ++ name ++ NL
-            ++ emit_args(args, 0, params, locals, ctx)
-            ++ "    global.get $" ++ name ++ NL
+            out("    global.get $" ++ name ++ NL)
+            emit_args(args, 0, params, locals, ctx)
+            out("    global.get $" ++ name ++ NL
             ++ "    i32.load" ++ NL
-            ++ "    call_indirect (type $fn" ++ to_string(len(args)) ++ ")" ++ NL
+            ++ "    call_indirect (type $fn" ++ to_string(len(args)) ++ ")" ++ NL)
           } else {
-            // Direct function in fn_table? Use direct call.
             let fn_idx = find_fn_index(ctx_fns(ctx), name, 0)
             if fn_idx >= 0 {
-              "    i32.const 0" ++ NL ++ emit_args(args, 0, params, locals, ctx) ++ "    call $" ++ name ++ NL
+              out("    i32.const 0" ++ NL)
+              emit_args(args, 0, params, locals, ctx)
+              out("    call $" ++ name ++ NL)
             } else {
-              // Last resort: check __ev_op_ prefixed global (effect op outside handler)
               let ev_name = "__ev_op_" ++ name
               if string_in(ctx_globals(ctx), ev_name, 0) {
-                "    global.get $" ++ ev_name ++ NL
-                ++ emit_args(args, 0, params, locals, ctx)
-                ++ "    global.get $" ++ ev_name ++ NL
+                out("    global.get $" ++ ev_name ++ NL)
+                emit_args(args, 0, params, locals, ctx)
+                out("    global.get $" ++ ev_name ++ NL
                 ++ "    i32.load" ++ NL
-                ++ "    call_indirect (type $fn" ++ to_string(len(args)) ++ ")" ++ NL
+                ++ "    call_indirect (type $fn" ++ to_string(len(args)) ++ ")" ++ NL)
               } else {
-                "    i32.const 0" ++ NL ++ emit_args(args, 0, params, locals, ctx) ++ "    call $" ++ name ++ NL
+                out("    i32.const 0" ++ NL)
+                emit_args(args, 0, params, locals, ctx)
+                out("    call $" ++ name ++ NL)
               }
             }
           } }
@@ -554,31 +493,30 @@ fn emit_call_expr(func, args, params, locals, ctx)= {
       }
     },
     _ => {
-      // Indirect call: func expr is a closure pointer (upval, local, etc.)
-      emit_expr(func, params, locals, ctx)  // push closure ptr (first arg)
-      ++ emit_args(args, 0, params, locals, ctx)  // push user args
-      ++ emit_expr(func, params, locals, ctx)  // push closure ptr again to load fn_idx
-      ++ "    i32.load" ++ NL
-      ++ "    call_indirect (type $fn" ++ to_string(len(args)) ++ ")" ++ NL
+      emit_expr(func, params, locals, ctx)
+      emit_args(args, 0, params, locals, ctx)
+      emit_expr(func, params, locals, ctx)
+      out("    i32.load" ++ NL
+      ++ "    call_indirect (type $fn" ++ to_string(len(args)) ++ ")" ++ NL)
     }
   }
 }
 
-fn emit_args(args, idx, params, locals, ctx)= {
-  if idx >= len(args) { "" }
-  else { emit_expr(args[idx], params, locals, ctx) ++ emit_args(args, idx + 1, params, locals, ctx) }
+fn emit_args(args, idx, params, locals, ctx) = {
+  if idx >= len(args) { () }
+  else { emit_expr(args[idx], params, locals, ctx); emit_args(args, idx + 1, params, locals, ctx) }
 }
 
 // ─── _start Function ────────────────────────────────────────
 
-fn emit_start(stmts, ctx)= {
+fn emit_start(stmts, ctx) = {
   let locals = filter_out_globals(collect_locals(stmts, 0), ctx_globals(ctx), 0)
   let with_temps = add_emitter_temps(locals, ctx)
   let env = ctx_type_env(ctx)
-  "  (func $_start (export " ++ DQ ++ "_start" ++ DQ ++ ")" ++ NL
-    ++ emit_local_decls(with_temps, 0, stmts, env)
-    ++ emit_stmts_void(stmts, 0, [], with_temps, ctx)
-    ++ "  )" ++ NL
+  out("  (func $_start (export " ++ DQ ++ "_start" ++ DQ ++ ")" ++ NL)
+  out(emit_local_decls(with_temps, 0, stmts, env))
+  emit_stmts_void(stmts, 0, [], with_temps, ctx)
+  out("  )" ++ NL)
 }
 
 // ─── Local Collection ───────────────────────────────────────
@@ -780,14 +718,14 @@ fn emit_binop_f32(op)= match op {
 // LLoop(ty, body) → block $break (loop $loop ... br $loop)
 // LBreak(ty, value) → emit value, br $break
 
-fn emit_loop(ty, body_stmts, params, locals, ctx)= {
+fn emit_loop(ty, body_stmts, params, locals, ctx) = {
   let result_wt = ty_to_wasm(ty)
-  "    (block $break (result " ++ result_wt ++ ")" ++ NL
-  ++ "      (loop $loop" ++ NL
-  ++ emit_stmts_void(body_stmts, 0, params, locals, ctx)
-  ++ "        br $loop" ++ NL
+  out("    (block $break (result " ++ result_wt ++ ")" ++ NL
+  ++ "      (loop $loop" ++ NL)
+  emit_stmts_void(body_stmts, 0, params, locals, ctx)
+  out("        br $loop" ++ NL
   ++ "      )" ++ NL
-  ++ "    )" ++ NL
+  ++ "    )" ++ NL)
 }
 
 // ─── Phase 3: Purity-Driven Optimizations ───────────────────

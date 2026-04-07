@@ -1,0 +1,90 @@
+// LowIRVisit Walker — lowir_walk.lux
+//
+// One walk. Many observers. The LowIR tree structure lives in ONE place.
+// Adding a new LowExpr variant means updating ONE function (walk_lowir).
+// All 5+ traversals automatically handle it.
+//
+// This makes H1, H2 structurally impossible.
+
+import compiler/lower_ir
+
+// ─── The LowIR Visitor Effect ───────────────────────────────
+// Each LowIR traversal is a handler on this walker.
+
+effect LowIRVisit {
+  visit_lowir(node: LowExpr) -> LowExpr
+}
+
+// ─── State Extraction Effect ────────────────────────────────
+// Same pattern as TypeFound / LowVisit.get_collected().
+
+effect LowIRAccum {
+  get_lowir_accum() -> List
+}
+
+// ─── The Walker ─────────────────────────────────────────────
+// Recurse into every LowExpr substructure, calling visit_lowir at each node.
+
+fn walk_lowir(node) with LowIRVisit = match node {
+  LGlobal(_, _) => visit_lowir(node),
+  LConst(_, _) => visit_lowir(node),
+  LUpval(_, _) => visit_lowir(node),
+  LLocal(_, _) => visit_lowir(node),
+  LBinOp(ty, op, l, r) =>
+    visit_lowir(LBinOp(ty, op, walk_lowir(l), walk_lowir(r))),
+  LUnaryOp(ty, op, inner) =>
+    visit_lowir(LUnaryOp(ty, op, walk_lowir(inner))),
+  LCall(ty, func, args) =>
+    visit_lowir(LCall(ty, walk_lowir(func), walk_lowir_list(args))),
+  LTailCall(ty, func, args) =>
+    visit_lowir(LTailCall(ty, walk_lowir(func), walk_lowir_list(args))),
+  LIf(ty, c, t, e) =>
+    visit_lowir(LIf(ty, walk_lowir(c), walk_lowir_list(t), walk_lowir_list(e))),
+  LBlock(ty, stmts) =>
+    visit_lowir(LBlock(ty, walk_lowir_list(stmts))),
+  LLet(ty, name, value) =>
+    visit_lowir(LLet(ty, name, walk_lowir(value))),
+  LMakeTuple(ty, elems) =>
+    visit_lowir(LMakeTuple(ty, walk_lowir_list(elems))),
+  LMakeList(ty, elems) =>
+    visit_lowir(LMakeList(ty, walk_lowir_list(elems))),
+  LMakeVariant(ty, tag, fields) =>
+    visit_lowir(LMakeVariant(ty, tag, walk_lowir_list(fields))),
+  LMakeClosure(ty, fn_def, captures) =>
+    visit_lowir(LMakeClosure(ty, fn_def, walk_lowir_list(captures))),
+  LMatch(ty, scrutinee, arms) =>
+    visit_lowir(LMatch(ty, walk_lowir(scrutinee), walk_lowir_arms(arms))),
+  LIndex(ty, coll, idx) =>
+    visit_lowir(LIndex(ty, walk_lowir(coll), walk_lowir(idx))),
+  LReturn(ty, value) =>
+    visit_lowir(LReturn(ty, walk_lowir(value))),
+  LLoop(ty, body) =>
+    visit_lowir(LLoop(ty, walk_lowir_list(body))),
+  LBreak(ty, value) =>
+    visit_lowir(LBreak(ty, walk_lowir(value))),
+  LRegion(ty, stmts) =>
+    visit_lowir(LRegion(ty, walk_lowir_list(stmts))),
+  LStore(ty, slot, value) =>
+    visit_lowir(LStore(ty, slot, walk_lowir(value))),
+  LSwitch(ty, scrutinee, arms) =>
+    visit_lowir(LSwitch(ty, walk_lowir(scrutinee), walk_lowir_arms(arms))),
+  LSuspend(ty, id, value, args) =>
+    visit_lowir(LSuspend(ty, id, walk_lowir(value), walk_lowir_list(args))),
+  LStateGet(_, _) => visit_lowir(node),
+  LStateSet(ty, idx, value) =>
+    visit_lowir(LStateSet(ty, idx, walk_lowir(value))),
+  _ => visit_lowir(node)
+}
+
+fn walk_lowir_list(nodes) = {
+  if len(nodes) == 0 { [] }
+  else { [walk_lowir(nodes[0])] ++ walk_lowir_list(slice(nodes, 1, len(nodes))) }
+}
+
+fn walk_lowir_arms(arms) = {
+  if len(arms) == 0 { [] }
+  else {
+    let (pat, body) = arms[0]
+    [(pat, walk_lowir(body))] ++ walk_lowir_arms(slice(arms, 1, len(arms)))
+  }
+}

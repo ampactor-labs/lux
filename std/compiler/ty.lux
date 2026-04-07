@@ -11,6 +11,7 @@
 
 import compiler/types
 import compiler/eff
+import compiler/type_walk
 
 // ─── Diagnostic Effect ──────────────────────────────────────
 // All checker output flows through this single effect.
@@ -93,29 +94,29 @@ fn env_with_primitives(env) = {
     // fd_write is declared as a WASI effect in std/runtime/memory.lux
 }
 
-fn instantiate_type(ty, counter, mapping) = match ty {
-  TVar(id) => {
-    let existing = find_inst_mapping(mapping, id)
-    if existing >= 0 { (TVar(existing), counter, mapping) }
-    else {
-      let (fresh, c2) = fresh_var(counter)
-      let (c2_id, _) = c2
-      (fresh, c2, [(id, c2_id - 1)] ++ mapping)
-    }
-  },
-  TFun(params, ret, eff) => {
-    let (new_params, c2, m2) = instantiate_types(params, counter, mapping)
-    let (new_ret, c3, m3) = instantiate_type(ret, c2, m2)
-    let new_eff = instantiate_eff(eff, c3, m3)
-    let (inst_eff, c4, m4) = new_eff
-    (TFun(new_params, new_ret, inst_eff), c4, m4)
-  },
-  TList(elem) => {
-    let (new_elem, c2, m2) = instantiate_type(elem, counter, mapping)
-    (TList(new_elem), c2, m2)
-  },
-  _ => (ty, counter, mapping)
-}
+// InstState and TypeFound effects are in type_walk.lux
+
+fn instantiate_type(ty, counter, mapping) =
+  handle {
+    let res_ty = walk_type(ty)
+    let state_tuple = get_inst_state()
+    let (n, m) = state_tuple
+    (res_ty, n, m)
+  } with n = counter, m = mapping {
+    visit_type(t) => match t {
+      TVar(id) => {
+        let existing = find_inst_mapping(m, id)
+        if existing >= 0 { resume(TVar(existing)) }
+        else {
+          let (fresh, c2) = fresh_var(n)
+          let (c2_id, _) = c2
+          resume(TVar(c2_id - 1)) with n = c2, m = [(id, c2_id - 1)] ++ m
+        }
+      },
+      _ => resume(t)
+    },
+    get_inst_state() => resume((n, m))
+  }
 
 fn instantiate_types(tys, counter, mapping) = {
   if len(tys) == 0 { ([], counter, mapping) }
@@ -148,17 +149,14 @@ fn find_inst_mapping(mapping, id) = {
   }
 }
 
-fn has_negative_tvars(ty) = match ty {
-  TVar(id) => id < 0,
-  TFun(params, ret, _) => has_negative_tvars_list(params) || has_negative_tvars(ret),
-  TList(elem) => has_negative_tvars(elem),
-  _ => false
-}
-
-fn has_negative_tvars_list(tys) = {
-  if len(tys) == 0 { false }
-  else { has_negative_tvars(tys[0]) || has_negative_tvars_list(slice(tys, 1, len(tys))) }
-}
+fn has_negative_tvars(ty) =
+  handle { walk_type(ty); get_type_found() } with found = false {
+    visit_type(t) => match t {
+      TVar(id) => resume(t) with found = if id < 0 { true } else { found },
+      _ => resume(t)
+    },
+    get_type_found() => resume(found)
+  }
 
 // Check for ANY type variable (positive or negative).
 // Reserved for future let-generalization: when the checker tracks whether
@@ -167,17 +165,14 @@ fn has_negative_tvars_list(tys) = {
 // unused because instantiating during recursive self-reference breaks type
 // inference. The prelude workaround (str_slice for strings) avoids the
 // contamination without needing this.
-fn has_tvars(ty) with Pure = match ty {
-  TVar(_) => true,
-  TFun(params, ret, _) => has_tvars_list(params) || has_tvars(ret),
-  TList(elem) => has_tvars(elem),
-  _ => false
-}
-
-fn has_tvars_list(tys) with Pure = {
-  if len(tys) == 0 { false }
-  else { has_tvars(tys[0]) || has_tvars_list(slice(tys, 1, len(tys))) }
-}
+fn has_tvars(ty) with Pure =
+  handle { walk_type(ty); get_type_found() } with found = false {
+    visit_type(t) => match t {
+      TVar(_) => resume(t) with found = true,
+      _ => resume(t)
+    },
+    get_type_found() => resume(found)
+  }
 
 fn extract_builtin_names(env) = {
   if len(env) == 0 { [] }

@@ -1,0 +1,47 @@
+// Pipeline Expression — The Four Operators
+//
+// |>  Pipe     flow data through
+// <|  Prism    refract to observers
+// ><  Compose  build pipeline value
+// ~>  Handle   install strategy
+
+// ─── Effects ───────────────────────────────────────────────
+effect Log { log(msg: String) -> () }
+
+// ─── Pipeline stages ───────────────────────────────────────
+fn step_a(x) = x ++ "!"
+fn step_b(x) = x ++ "?"
+
+// BUILD — no data, pure potential
+// Note: >< compose has a pre-existing runtime bug.
+// Using manual compose until fixed.
+let frontend = |x| step_b(step_a(x))
+
+// Pure analysis functions (prism branches)
+fn count(s) = len(s)
+fn has_bang(s) = contains(s, "!")
+
+// ─── RUN — data flows ─────────────────────────────────────
+
+// Pipe through composed pipeline, handled by Log
+let result = "hello"
+  |> frontend ~> { log: |m| resume(()) }
+
+println("pipeline result: " ++ result)
+
+// Prism — one signal, many observers
+let (length, bang) = result <| (count, has_bang)
+println("length: " ++ to_string(length))
+println("has bang: " ++ to_string(bang))
+
+// The hourglass: converge → diverge → converge
+fn merge(results) = {
+  let (a, b) = results
+  to_string(a) ++ " / " ++ to_string(b)
+}
+
+let analysis = result
+  <| (count, has_bang)
+  |> merge
+
+println("merged: " ++ analysis)

@@ -5,7 +5,7 @@
 //
 //   |>  converge (apply one function)
 //   <|  diverge  (apply many functions)
-//   <>  compose  (build a function from functions)
+//   ><  compose  (build a function from functions)
 //
 // Thesis: any directed acyclic dataflow IS a sentence
 // in the three-operator algebra. Let's write some sentences.
@@ -21,7 +21,7 @@ fn is_positive(x) = x > 0
 fn is_small(x) = x < 100
 
 // AND: both must pass.
-// <>  feeds output to input, but we need BOTH predicates
+// ><  feeds output to input, but we need BOTH predicates
 // to see the SAME input. That's <|.
 fn both(p, q) = |x| {
   let (a, b) = x <| (p, q)
@@ -35,7 +35,7 @@ fn either(p, q) = |x| {
 }
 
 // NOT: invert.
-fn negate(p) = p <> not
+fn negate(p) = p >< not
 
 // Now build boolean expressions as VALUES
 let small_even = both(is_even, is_small)
@@ -109,7 +109,7 @@ for_each(|group| {
 //
 // A state machine is: state |> transition |> transition |> ...
 // A transition is just a function: State -> State.
-// <> lets you BUILD the machine before you RUN it.
+// >< lets you BUILD the machine before you RUN it.
 //
 // The machine IS a value. Pass it. Store it. Compose it.
 
@@ -125,8 +125,8 @@ fn next_light(state) = {
 }
 
 // Compose N transitions into one step
-let advance_3 = next_light <> next_light <> next_light
-let advance_6 = advance_3 <> advance_3
+let advance_3 = next_light >< next_light >< next_light
+let advance_6 = advance_3 >< advance_3
 
 println("red  + 1 = " ++ ("red" |> next_light))
 println("red  + 3 = " ++ ("red" |> advance_3))
@@ -139,7 +139,7 @@ println("green + 6 = " ++ ("green" |> advance_6))
 // ═══════════════════════════════════════════════════════════════
 //
 // A parser is: String -> (result, remaining_string)
-// Sequencing parsers: p1 <> p2  (feed remaining into next)
+// Sequencing parsers: p1 >< p2  (feed remaining into next)
 // Alternative parsers: input <| (p1, p2)  (try both, pick winner)
 //
 // The three operators ARE a parser combinator library.
@@ -227,7 +227,7 @@ println("parse 'hello' from 'hello world': " ++ to_string(r4))
 // A lens focuses on PART of a structure.
 // Get: structure |> lens_get
 // Set: (structure, value) |> lens_set
-// Compose lenses: lens1 <> lens2 (zoom in deeper!)
+// Compose lenses: lens1 >< lens2 (zoom in deeper!)
 
 println("")
 println("─── Lenses ───")
@@ -278,12 +278,12 @@ println("")
 println("Every pattern above is the SAME three operations:")
 println("  |> apply   — run a function on data")
 println("  <| fan-out — run many functions on one datum")
-println("  <> compose — build a function from functions")
+println("  >< compose — build a function from functions")
 println("")
 println("Boolean logic:      predicate |> both(p, q)")
 println("Split-apply-combine: data |> group <| (agg1, agg2)")
-println("State machines:     state |> t1 <> t2 <> t3")
+println("State machines:     state |> t1 >< t2 >< t3")
 println("Parsers:            input |> seq(p1, p2)")
-println("Lenses:             data |> view(l1 <> l2)")
+println("Lenses:             data |> view(l1 >< l2)")
 println("")
 println("Three operators. Everything else is a library.")

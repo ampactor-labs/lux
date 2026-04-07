@@ -30,8 +30,8 @@ type Expr
   | Index(Expr, Expr)
   | FieldAccess(Expr, String)
   | PipeExpr(Expr, Expr)
-  | FanOutExpr(Expr, Expr)
-  | JoinExpr(Expr, Expr)
+  | PrismExpr(Expr, Expr)
+  | ComposeExpr(Expr, Expr)
   | IfExpr(Expr, Expr, Expr)
   | MatchExpr(Expr, List)
   | LambdaExpr(List, Expr)
@@ -115,15 +115,16 @@ fn skip_semi(tokens, pos) = {
 // ─── Operator precedence ─────────────────────────────────────
 
 fn op_prec(t) =
-  if t == "HandlePipe" { 1 }
-  else { if t == "Or" { 2 }
-  else { if t == "And" { 3 }
-  else { if t == "EqEq" || t == "BangEq" { 4 }
-  else { if t == "Lt" || t == "Gt" || t == "LtEq" || t == "GtEq" { 5 }
-  else { if t == "PlusPlus" || t == "PipeGt" || t == "FanOut" || t == "Join" { 6 }
-  else { if t == "Plus" || t == "Minus" { 7 }
-  else { if t == "Star" || t == "Slash" || t == "Percent" { 8 }
-  else { 0 } } } } } } } }
+  if t == "Or" { 1 }
+  else { if t == "And" { 2 }
+  else { if t == "EqEq" || t == "BangEq" { 3 }
+  else { if t == "Lt" || t == "Gt" || t == "LtEq" || t == "GtEq" { 4 }
+  else { if t == "PlusPlus" || t == "PipeGt" || t == "Prism" { 5 }
+  else { if t == "Compose" { 6 }
+  else { if t == "HandlePipe" { 7 }
+  else { if t == "Plus" || t == "Minus" { 8 }
+  else { if t == "Star" || t == "Slash" || t == "Percent" { 9 }
+  else { 0 } } } } } } } } }
 
 fn to_arith_op(t) =
   if t == "Plus" { "Add" }
@@ -133,8 +134,8 @@ fn to_arith_op(t) =
   else { if t == "Percent" { "Mod" }
   else { if t == "PlusPlus" { "Concat" }
   else { if t == "PipeGt" { "Pipe" }
-  else { if t == "FanOut" { "FanOut" }
-  else { if t == "Join" { "Join" }
+  else { if t == "Prism" { "Prism" }
+  else { if t == "Compose" { "Compose" }
   else { if t == "HandlePipe" { "HandlePipe" }
   else { "" } } } } } } } } } }
 
@@ -354,7 +355,7 @@ fn parse_atom(tokens, p) = {
   else { if typ == "False" { (sp(BoolLit(false), tokens, p), p + 1) }
   else { if typ == "Ident" { (sp(VarRef(val), tokens, p), p + 1) }
   else { if typ == "InterpStart" { parse_string_interp(tokens, p + 1) }
-  else { (sp(NoneExpr, tokens, p), p) } } } } } } }
+  else { (sp(NoneExpr, tokens, p), p + 1) } } } } } } }
 }
 
 // Parse string interpolation: collect parts until InterpEnd
@@ -851,10 +852,14 @@ fn parse_prefix(tokens, p, typ) = {
     let (op, p2) = parse_primary(tokens, p + 1);
     (sp(UnaryOp("Not", op), tokens, p), p2)
   }
+  else { if typ == "While" || typ == "Loop" || typ == "Return" || typ == "Break" {
+    let sentinel = unexpected("expression (" ++ typ ++ " is not allowed here)", typ, tok_line(tokens, p), tok_col(tokens, p))
+    (sp(sentinel, tokens, p), p + 1)
+  }
   else {
     let sentinel = unexpected("expression", typ, tok_line(tokens, p), tok_col(tokens, p))
     (sp(sentinel, tokens, p), p + 1)
-  }}}
+  }}}}
 }
 
 // Postfix: calls, indexing, field access
@@ -894,8 +899,8 @@ fn binop_loop(tokens, left, pos, min_p) = {
     let op = to_op(t);
     let (right, p2) = parse_binop(tokens, p + 1, pr + 1);
     let node = if op == "Pipe" { sp(PipeExpr(left, right), tokens, p) }
-               else { if op == "FanOut" { sp(FanOutExpr(left, right), tokens, p) }
-               else { if op == "Join" { sp(JoinExpr(left, right), tokens, p) }
+               else { if op == "Prism" { sp(PrismExpr(left, right), tokens, p) }
+               else { if op == "Compose" { sp(ComposeExpr(left, right), tokens, p) }
                else { if op == "HandlePipe" { sp(HandleExpr(left, right, []), tokens, p) }
                else { sp(BinOp(op, left, right), tokens, p) } } } };
     binop_loop(tokens, node, p2, min_p)

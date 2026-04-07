@@ -7,7 +7,7 @@
 //          / \ / \
 //         f   g   h
 //          \ / \ /
-//           <>  <>
+//           ><  ><
 //            \ /
 //             |>
 //
@@ -16,7 +16,7 @@
 //
 // |>  is a line     ─ sequential
 // <|  is a fork     ─ parallel
-// <>  is a point    ─ latent
+// ><  is a point    ─ latent
 //
 // Together they make DIAMONDS: converge, diverge, converge.
 // Not pipelines. Not trees. Diamonds.
@@ -260,5 +260,5 @@ println("The internet is a diamond.")
 println("")
 println("|>  makes lines.")
 println("<|  makes forks.")
-println("<>  makes points.")
+println("><  makes points.")
 println("Together: DIAMONDS.")

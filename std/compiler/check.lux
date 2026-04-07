@@ -11,6 +11,7 @@
 import compiler/lexer
 import compiler/parser
 import compiler/ty
+import compiler/type_walk
 import compiler/eff
 import compiler/suggest
 import compiler/display
@@ -21,14 +22,14 @@ import compiler/infer
 // TVar handling once, up front. Structural matching below.
 // Counter = (fresh_id, eff_subst) — both threaded, nothing lost.
 
-fn occurs(subst, var_id, ty) = match apply(subst, ty) {
-  TVar(id2) => id2 == var_id,
-  TList(elem) => occurs(subst, var_id, elem),
-  TFun(params, ret, _) => any(|p| occurs(subst, var_id, p), params) || occurs(subst, var_id, ret),
-  TTuple(elems) => any(|e| occurs(subst, var_id, e), elems),
-  TName(_, args) => any(|a| occurs(subst, var_id, a), args),
-  _ => false
-}
+fn occurs(subst, var_id, ty) =
+  handle { walk_type(apply(subst, ty)); get_type_found() } with found = false {
+    visit_type(t) => match t {
+      TVar(id) => resume(t) with found = if id == var_id { true } else { found },
+      _ => resume(t)
+    },
+    get_type_found() => resume(found)
+  }
 
 fn unify_types(subst, counter, t1, t2, context) = {
   let a = apply(subst, t1)

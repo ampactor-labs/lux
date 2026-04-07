@@ -87,6 +87,39 @@ impl Vm {
         vm
     }
 
+    /// Call a closure with arguments in isolation. Used by parallel prism.
+    pub fn call_pure_isolated(
+        &mut self,
+        func: VmValue,
+        args: Vec<VmValue>,
+    ) -> Result<VmValue, VmError> {
+        match func {
+            VmValue::Closure(ref c) => {
+                let arg_count = args.len();
+                let base = self.stack.len();
+                self.stack.push(func.clone());
+                for arg in args {
+                    self.stack.push(arg);
+                }
+                // Allocate locals
+                let needed = c.proto.local_count.saturating_sub(1 + arg_count as u16);
+                for _ in 0..needed {
+                    self.stack.push(VmValue::Unit);
+                }
+                self.frames.push(CallFrame {
+                    proto: c.proto.clone(),
+                    upvalues: c.upvalues.clone(),
+                    ip: 0,
+                    stack_base: base,
+                    has_func_slot: true,
+                });
+                self.execute()?;
+                Ok(self.stack.pop().unwrap_or(VmValue::Unit))
+            }
+            _ => Err(VmError::new("prism: not a callable value", 0)),
+        }
+    }
+
     /// Run a compiled function prototype.
     pub fn run(&mut self, proto: Arc<FnProto>) -> Result<Option<VmValue>, VmError> {
         // Load field registry from the top-level proto.
@@ -320,20 +353,44 @@ impl Vm {
                 OpCode::Jump => {
                     let offset = self.frames[frame_idx].read_i16();
                     let ip = self.frames[frame_idx].ip;
-                    self.frames[frame_idx].ip = (ip as i32 + offset as i32) as usize;
+                    let new_ip = ip as i64 + offset as i64;
+                    if new_ip < 0 || new_ip as usize > self.frames[frame_idx].proto.chunk.code.len() {
+                        let line = self.frames[frame_idx].current_line();
+                        return Err(VmError::new(
+                            format!("jump offset out of bounds: ip={ip}, offset={offset}"),
+                            line,
+                        ));
+                    }
+                    self.frames[frame_idx].ip = new_ip as usize;
                 }
                 OpCode::JumpIfFalse => {
                     let offset = self.frames[frame_idx].read_i16();
                     if let Some(VmValue::Bool(false)) = self.stack.last() {
                         let ip = self.frames[frame_idx].ip;
-                        self.frames[frame_idx].ip = (ip as i32 + offset as i32) as usize;
+                        let new_ip = ip as i64 + offset as i64;
+                        if new_ip < 0 || new_ip as usize > self.frames[frame_idx].proto.chunk.code.len() {
+                            let line = self.frames[frame_idx].current_line();
+                            return Err(VmError::new(
+                                format!("jump offset out of bounds: ip={ip}, offset={offset}"),
+                                line,
+                            ));
+                        }
+                        self.frames[frame_idx].ip = new_ip as usize;
                     }
                 }
                 OpCode::JumpIfTrue => {
                     let offset = self.frames[frame_idx].read_i16();
                     if let Some(VmValue::Bool(true)) = self.stack.last() {
                         let ip = self.frames[frame_idx].ip;
-                        self.frames[frame_idx].ip = (ip as i32 + offset as i32) as usize;
+                        let new_ip = ip as i64 + offset as i64;
+                        if new_ip < 0 || new_ip as usize > self.frames[frame_idx].proto.chunk.code.len() {
+                            let line = self.frames[frame_idx].current_line();
+                            return Err(VmError::new(
+                                format!("jump offset out of bounds: ip={ip}, offset={offset}"),
+                                line,
+                            ));
+                        }
+                        self.frames[frame_idx].ip = new_ip as usize;
                     }
                 }
                 OpCode::Pop => {
@@ -376,8 +433,14 @@ impl Vm {
                     let func = self.stack.pop().unwrap_or(VmValue::Unit);
 
                     if let VmValue::Closure(closure) = func {
+                        // H12: Seal the closure — deep clone upvalues so mutations
+                        // to shared locals don't leak through the bundled evidence.
+                        let sealed = Arc::new(Closure {
+                            proto: closure.proto.clone(),
+                            upvalues: closure.upvalues.clone(),
+                        });
                         self.stack.push(VmValue::BundledClosure {
-                            closure,
+                            closure: sealed,
                             evidence: Arc::new(evidence),
                         });
                     } else if let VmValue::BundledClosure {
@@ -444,6 +507,14 @@ impl Vm {
 
                             // Pop the handler frame.
                             self.handler_stack.remove(h_idx);
+
+                            // H11: Fix up handler_dispatch_stack — indices > h_idx
+                            // are now stale after .remove() shifted elements down.
+                            for entry in self.handler_dispatch_stack.iter_mut() {
+                                if entry.0 > h_idx {
+                                    entry.0 -= 1;
+                                }
+                            }
 
                             // Push handler's return value as handle result.
                             // State is internal — not wrapped in the result.
@@ -518,6 +589,56 @@ impl Vm {
                     let elements: Vec<VmValue> = self.stack.drain(start..).collect();
                     self.stack.push(VmValue::Tuple(Arc::new(elements)));
                 }
+                OpCode::Prism => {
+                    // Parallel prism: the types proved these branches are independent.
+                    // Each branch runs in its own thread with an isolated VM.
+                    // Sequential prism uses Call+MakeTuple (old path, no OP_PRISM).
+                    let count = self.frames[frame_idx].read_byte() as usize;
+                    let _parallel_flag = self.frames[frame_idx].read_byte();
+                    let line = self.frames[frame_idx].current_line();
+
+                    // Pop input (evaluated once, shared across branches)
+                    let input = self.stack.pop().unwrap_or(VmValue::Unit);
+
+                    // Pop all branch functions
+                    let mut funcs = Vec::with_capacity(count);
+                    for _ in 0..count {
+                        funcs.push(self.stack.pop().unwrap_or(VmValue::Unit));
+                    }
+                    funcs.reverse();
+
+                    // Parallel execution: each branch gets an isolated VM
+                    let results: Result<Vec<VmValue>, VmError> =
+                        std::thread::scope(|s| {
+                            let handles: Vec<_> = funcs
+                                .into_iter()
+                                .map(|func| {
+                                    let inp = input.clone();
+                                    s.spawn(move || {
+                                        let mut vm = Vm::new();
+                                        vm.call_pure_isolated(func, vec![inp])
+                                    })
+                                })
+                                .collect();
+
+                            let mut results = Vec::with_capacity(count);
+                            for handle in handles {
+                                match handle.join() {
+                                    Ok(Ok(val)) => results.push(val),
+                                    Ok(Err(e)) => return Err(e),
+                                    Err(_) => {
+                                        return Err(VmError::new(
+                                            "prism branch panicked",
+                                            line,
+                                        ))
+                                    }
+                                }
+                            }
+                            Ok(results)
+                        });
+                    self.stack
+                        .push(VmValue::Tuple(Arc::new(results?)));
+                }
                 OpCode::ListIndex => {
                     let index = self.stack.pop().unwrap_or(VmValue::Unit);
                     let list = self.stack.pop().unwrap_or(VmValue::Unit);
@@ -528,6 +649,8 @@ impl Vm {
                                 self.stack.push(elems[idx].clone());
                             } else {
                                 let line = self.frames[frame_idx].current_line();
+                                let file = self.frames[frame_idx].proto.chunk.name.as_str();
+                                eprintln!("CRITICAL VM ERROR: list index out of bounds in {} at line {}. Expected index {}, len {}", file, line, idx, elems.len());
                                 return Err(VmError::new("index out of bounds", line));
                             }
                         }
@@ -545,11 +668,14 @@ impl Vm {
                                 self.stack.push(elems[idx].clone());
                             } else {
                                 let line = self.frames[frame_idx].current_line();
+                                let file = self.frames[frame_idx].proto.chunk.name.as_str();
+                                eprintln!("CRITICAL VM ERROR: tuple index out of bounds in {} at line {}. Expected index {}, len {}", file, line, idx, elems.len());
                                 return Err(VmError::new("tuple index out of bounds", line));
                             }
                         }
                         _ => {
                             let line = self.frames[frame_idx].current_line();
+                            eprintln!("CRITICAL VM ERROR: Cannot index into {:?} at line {}", list, line);
                             return Err(VmError::new("type error: cannot index", line));
                         }
                     }
@@ -844,6 +970,7 @@ impl Vm {
             | OpCode::StoreGlobal
             | OpCode::MakeList
             | OpCode::MakeTuple
+            | OpCode::Prism // u8 count + u8 parallel_flag
             | OpCode::FieldAccess
             | OpCode::MatchString
             | OpCode::MatchVariant

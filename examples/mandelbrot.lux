@@ -4,7 +4,7 @@
 // it can do anything.
 //
 // The three operators appear everywhere here:
-//   <> composes the iteration function
+//   >< composes the iteration function
 //   |> pipes coordinates through the math
 //   <| fans the computation across pixels
 

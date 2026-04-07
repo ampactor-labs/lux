@@ -4,7 +4,7 @@
 // Entities are IDs. Components are lists. Systems are functions.
 //
 //   System = Component -> Component (a function!)
-//   Pipeline = sys1 <> sys2 <> sys3  (compose systems!)
+//   Pipeline = sys1 >< sys2 >< sys3  (compose systems!)
 //   Query = world <| (sys_physics, sys_render, sys_ai)  (fan out!)
 //
 // ECS IS the three-operator algebra.
@@ -62,7 +62,7 @@ fn sys_reaper(entities) = filter(|e| e_hp(e) > 0, entities)
 
 // ─── COMPOSE systems into a game loop ───────────────────────
 
-let game_tick = sys_gravity <> sys_physics <> sys_poison <> sys_regen <> sys_reaper
+let game_tick = sys_gravity >< sys_physics >< sys_poison >< sys_regen >< sys_reaper
 
 // ─── Run the game ───────────────────────────────────────────
 
@@ -90,9 +90,9 @@ show_world("tick 2", t2)
 let t3 = t2 |> game_tick
 show_world("tick 3", t3)
 
-// Run 10 ticks at once — <> lets us BUILD the loop
-let ten_ticks = game_tick <> game_tick <> game_tick <> game_tick <> game_tick
-  <> game_tick <> game_tick <> game_tick <> game_tick <> game_tick
+// Run 10 ticks at once — >< lets us BUILD the loop
+let ten_ticks = game_tick >< game_tick >< game_tick >< game_tick >< game_tick
+  >< game_tick >< game_tick >< game_tick >< game_tick >< game_tick
 
 let t10 = world |> ten_ticks
 show_world("tick 10", t10)
@@ -115,5 +115,5 @@ println("  positions: " ++ to_string(positions))
 println("  enemies:  " ++ to_string(enemies_left))
 
 println("")
-println("Systems compose with <>. Queries fan out with <|.")
+println("Systems compose with ><. Queries fan out with <|.")
 println("The game loop IS a composed function. The ECS IS the algebra.")

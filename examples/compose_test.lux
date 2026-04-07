@@ -1,0 +1,5 @@
+fn double(x) = x * 2
+fn add_one(x) = x + 1
+let h = double >< add_one
+let result = h(3)
+println("compose: " ++ to_string(result))

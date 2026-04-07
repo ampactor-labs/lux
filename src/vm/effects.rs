@@ -231,6 +231,14 @@ impl Vm {
 
             // Set IP in the performing frame to continue from after Perform.
             if resume_frame_idx < self.frames.len() {
+                let code_len = self.frames[resume_frame_idx].proto.chunk.code.len();
+                if resume_ip > code_len {
+                    let line = self.frames[resume_frame_idx].current_line();
+                    return Err(VmError::new(
+                        format!("resume IP out of bounds: {resume_ip} > {code_len}"),
+                        line,
+                    ));
+                }
                 self.frames[resume_frame_idx].ip = resume_ip;
             }
 

@@ -893,12 +893,13 @@ impl Compiler {
                 }
             }
 
-            Expr::FanOut { left, right, span } => {
+            Expr::Prism { left, right, span } => {
                 let line = Self::current_line(span);
-                // a <| (f, g, h) compiles to (f(a), g(a), h(a))
-                // For now: desugar single function case a <| f → f(a)
+                // a <| (f, g, h) → sequential: Call each, MakeTuple
+                // The Rust compiler has no type info, so always sequential.
+                // The self-hosted codegen emits OP_PRISM with parallel=1
+                // when all branches are pure (type env available).
                 if let Expr::Tuple(elements, _) = right.as_ref() {
-                    // Fan-out: apply left to each function, collect into tuple
                     for func in elements {
                         self.compile_expr(func)?;
                         self.compile_expr(left)?;
@@ -914,6 +915,36 @@ impl Compiler {
                     self.emit_op(OpCode::Call, line);
                     self.emit_u8(1, line);
                 }
+            }
+
+            Expr::Compose { left, right, span } => {
+                // f >< g  desugars to  |__compose_x| g(f(__compose_x))
+                let param_span = span.clone();
+                let param = Param {
+                    name: "__compose_x".to_string(),
+                    ownership: Ownership::Inferred,
+                    type_ann: None,
+                    span: param_span.clone(),
+                };
+                let var_ref = Expr::Var("__compose_x".to_string(), param_span.clone());
+
+                let inner_call = Expr::Call {
+                    func: left.clone(),
+                    args: vec![var_ref.clone()],
+                    span: param_span.clone(),
+                };
+                let outer_call = Expr::Call {
+                    func: right.clone(),
+                    args: vec![inner_call],
+                    span: param_span.clone(),
+                };
+
+                let lambda = Expr::Lambda {
+                    params: vec![param],
+                    body: Box::new(outer_call),
+                    span: span.clone(),
+                };
+                self.compile_expr(&lambda)?;
             }
 
             Expr::Return { value, span } => {

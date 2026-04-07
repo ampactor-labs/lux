@@ -12,6 +12,7 @@
 // used by both closure lowering and the program lowering handlers.
 
 import compiler/lower_ir
+import compiler/lowir_walk
 
 // ─── Lambda / Closure Lowering ──────────────────────────────
 
@@ -125,8 +126,8 @@ fn collect_free(sexpr, bound) = {
       string_union(refs, collect_free(final_e, new_bound))
     },
     PipeExpr(data, step) => string_union(collect_free(data, bound), collect_free(step, bound)),
-    FanOutExpr(data, branches) => string_union(collect_free(data, bound), collect_free(branches, bound)),
-    JoinExpr(a, b) => string_union(collect_free(a, bound), collect_free(b, bound)),
+    PrismExpr(data, branches) => string_union(collect_free(data, bound), collect_free(branches, bound)),
+    ComposeExpr(a, b) => string_union(collect_free(a, bound), collect_free(b, bound)),
     Index(c, i) => string_union(collect_free(c, bound), collect_free(i, bound)),
     LambdaExpr(params, body) => {
       // Inner lambda: its params are bound inside, but free vars propagate up
@@ -234,28 +235,18 @@ fn filter_out(names, exclude, idx) = {
 
 // Rewrite captures: walk LowIR, replace LGlobal(captured) → LUpval(idx)
 // Preserves the Ty field on every node.
-fn rewrite_captures(e, free) = match e {
-  LGlobal(ty, name) => {
-    let idx = find_in_list(free, name, 0)
-    if idx >= 0 { LUpval(ty, idx) } else { LGlobal(ty, name) }
-  },
-  LBinOp(ty, op, l, r) => LBinOp(ty, op, rewrite_captures(l, free), rewrite_captures(r, free)),
-  LUnaryOp(ty, op, inner) => LUnaryOp(ty, op, rewrite_captures(inner, free)),
-  LCall(ty, func, args) => LCall(ty, rewrite_captures(func, free), rewrite_captures_list(args, free)),
-  LIf(ty, c, t, el) => LIf(ty, rewrite_captures(c, free),
-    rewrite_captures_list(t, free), rewrite_captures_list(el, free)),
-  LBlock(ty, stmts) => LBlock(ty, rewrite_captures_list(stmts, free)),
-  LLet(ty, name, value) => LLet(ty, name, rewrite_captures(value, free)),
-  LMakeTuple(ty, elems) => LMakeTuple(ty, rewrite_captures_list(elems, free)),
-  LMakeList(ty, elems) => LMakeList(ty, rewrite_captures_list(elems, free)),
-  LIndex(ty, c, i) => LIndex(ty, rewrite_captures(c, free), rewrite_captures(i, free)),
-  _ => e
-}
-
-fn rewrite_captures_list(exprs, free) = {
-  if len(exprs) == 0 { [] }
-  else { [rewrite_captures(exprs[0], free)] ++ rewrite_captures_list(slice(exprs, 1, len(exprs)), free) }
-}
+// Uses the LowIRVisit walker — structurally complete for ALL LowExpr variants.
+fn rewrite_captures(e, free) =
+  handle { walk_lowir(e) } {
+    visit_lowir(node) => match node {
+      LGlobal(ty, name) => {
+        let idx = find_in_list(free, name, 0)
+        if idx >= 0 { resume(LUpval(ty, idx)) }
+        else { resume(node) }
+      },
+      _ => resume(node)
+    }
+  }
 
 // Build capture list as LGlobal nodes. Looks up each name's real type in
 // env so that downstream (emitter) can emit f32/i32 type-directed stores.

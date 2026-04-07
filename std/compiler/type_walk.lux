@@ -1,0 +1,77 @@
+// TypeVisit Walker — type_walk.lux
+//
+// One walk. Many observers. The tree structure lives in ONE place.
+// Adding a new Ty variant means updating ONE function (walk_type).
+// All 7+ traversals automatically handle it.
+//
+// This makes C3, H3, H4, H5 structurally impossible.
+
+import compiler/types
+
+// ─── The Type Visitor Effect ────────────────────────────────
+// Each traversal is a handler on this walker.
+
+effect TypeVisit {
+  visit_type(ty: Ty) -> Ty
+}
+
+// ─── State Extraction Effects ───────────────────────────────
+// Handler-local state is NOT accessible in the body.
+// These effects let the body extract accumulated state.
+// Pattern: handle { walk_type(ty); get_type_found() } with ...
+
+effect TypeFound {
+  get_type_found() -> Bool
+}
+
+effect InstState {
+  get_inst_state() -> List
+}
+
+// ─── The Walker ─────────────────────────────────────────────
+// Recurse into every Ty substructure, calling visit_type at each node.
+// Handlers decide what to do at each leaf/branch.
+
+fn walk_type(ty) with TypeVisit = match ty {
+  TVar(_) => visit_type(ty),
+  TFun(params, ret, eff) =>
+    visit_type(TFun(walk_type_list(params), walk_type(ret), walk_eff(eff))),
+  TList(elem) => visit_type(TList(walk_type(elem))),
+  TTuple(elems) => visit_type(TTuple(walk_type_list(elems))),
+  TRecord(fields) =>
+    visit_type(TRecord(walk_type_fields(fields))),
+  TRecordOpen(fields, row) =>
+    visit_type(TRecordOpen(walk_type_fields(fields), walk_type(row))),
+  TName(name, args) => visit_type(TName(name, walk_type_list(args))),
+  _ => visit_type(ty)
+}
+
+// ─── Effect Row Walker ──────────────────────────────────────
+// Walks into EffRow to visit embedded type variables.
+// EfOpen(names, var) contains a type variable ID — the walker
+// visits it through walk_type(TVar(var)) so handlers can
+// observe/transform it (e.g., instantiate_type maps var IDs).
+
+fn walk_eff(eff) with TypeVisit = match eff {
+  EfOpen(names, var) => {
+    let walked = walk_type(TVar(var))
+    match walked {
+      TVar(new_var) => EfOpen(names, new_var),
+      _ => eff
+    }
+  },
+  _ => eff
+}
+
+fn walk_type_list(tys) = {
+  if len(tys) == 0 { [] }
+  else { [walk_type(tys[0])] ++ walk_type_list(slice(tys, 1, len(tys))) }
+}
+
+fn walk_type_fields(fields) = {
+  if len(fields) == 0 { [] }
+  else {
+    let (name, ty) = fields[0]
+    [(name, walk_type(ty))] ++ walk_type_fields(slice(fields, 1, len(fields)))
+  }
+}

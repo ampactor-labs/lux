@@ -35,7 +35,7 @@ impl Parser {
             }
 
             // Fan-out operator <| — same precedence as pipe
-            if self.at_exact(&TokenKind::FanOut) && Prec::Pipe > min_prec {
+            if self.at_exact(&TokenKind::Prism) && Prec::Pipe > min_prec {
                 self.advance();
                 let right = self.parse_pratt(Prec::Pipe)?;
                 let span = Span::new(
@@ -44,7 +44,25 @@ impl Parser {
                     left.span().line,
                     left.span().column,
                 );
-                left = Expr::FanOut {
+                left = Expr::Prism {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                    span,
+                };
+                continue;
+            }
+
+            // Compose operator >< — same precedence as pipe
+            if self.at_exact(&TokenKind::Compose) && Prec::Pipe > min_prec {
+                self.advance();
+                let right = self.parse_pratt(Prec::Pipe)?;
+                let span = Span::new(
+                    left.span().start,
+                    right.span().end,
+                    left.span().line,
+                    left.span().column,
+                );
+                left = Expr::Compose {
                     left: Box::new(left),
                     right: Box::new(right),
                     span,

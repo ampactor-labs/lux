@@ -5,6 +5,8 @@
 //   - Variant construction (emit_make_variant, emit_variant_fields)
 //   - Match compilation (emit_match, emit_match_arms, emit_bind_fields)
 //   - Closure captures (emit_closure_captures, find_self_capture)
+//
+// ALL functions use the WasmOut effect (out()) for streaming emission.
 
 import compiler/lower
 
@@ -20,113 +22,98 @@ fn find_self_capture(captures, fn_name, idx) = {
   }
 }
 
-fn emit_closure_captures(captures, idx, params, locals, ctx)= {
-  if idx >= len(captures) { "" }
+fn emit_closure_captures(captures, idx, params, locals, ctx) = {
+  if idx >= len(captures) { () }
   else {
     let offset = (2 + idx) * 4
-    "    local.get $__vptr" ++ NL
+    out("    local.get $__vptr" ++ NL
     ++ "    i32.const " ++ to_string(offset) ++ NL
-    ++ "    i32.add" ++ NL
-    ++ emit_expr(captures[idx], params, locals, ctx)
-    ++ "    i32.store" ++ NL
-    ++ emit_closure_captures(captures, idx + 1, params, locals, ctx)
+    ++ "    i32.add" ++ NL)
+    emit_expr(captures[idx], params, locals, ctx)
+    out("    i32.store" ++ NL)
+    emit_closure_captures(captures, idx + 1, params, locals, ctx)
   }
 }
 
 // Store captures using variant stack (reload base each time — survives nesting).
 // Type-directed store: f32 captures use f32.store, else i32.store.
-// The lowered capture node carries its Ty — read it via lexpr_ty, dispatch.
-fn emit_closure_captures_stacked(captures, idx, params, locals, ctx)= {
-  if idx >= len(captures) { "" }
+fn emit_closure_captures_stacked(captures, idx, params, locals, ctx) = {
+  if idx >= len(captures) { () }
   else {
     let offset = (2 + idx) * 4
     let cap = captures[idx]
     let store_op = match lexpr_ty(cap) { TFloat => "f32.store", _ => "i32.store" }
-    // Reload base from variant stack top
-    "    global.get $__vsp" ++ NL ++ "    i32.const 1" ++ NL ++ "    i32.sub" ++ NL
+    out("    global.get $__vsp" ++ NL ++ "    i32.const 1" ++ NL ++ "    i32.sub" ++ NL
     ++ "    i32.const 4" ++ NL ++ "    i32.mul" ++ NL
     ++ "    i32.const 400" ++ NL ++ "    i32.add" ++ NL
     ++ "    i32.load" ++ NL
     ++ "    i32.const " ++ to_string(offset) ++ NL
-    ++ "    i32.add" ++ NL
-    // Evaluate capture (may nest — stack handles it)
-    ++ emit_expr(cap, params, locals, ctx)
-    ++ "    " ++ store_op ++ NL
-    ++ emit_closure_captures_stacked(captures, idx + 1, params, locals, ctx)
+    ++ "    i32.add" ++ NL)
+    emit_expr(cap, params, locals, ctx)
+    out("    " ++ store_op ++ NL)
+    emit_closure_captures_stacked(captures, idx + 1, params, locals, ctx)
   }
 }
 
 // Store pre-evaluated captures from __f0, __f1, ... into closure
-fn emit_closure_capture_stores(n_caps, idx)= {
-  if idx >= n_caps { "" }
+fn emit_closure_capture_stores(n_caps, idx) = {
+  if idx >= n_caps { () }
   else {
     let offset = (2 + idx) * 4
-    "    local.get $__vptr" ++ NL
+    out("    local.get $__vptr" ++ NL
     ++ "    i32.const " ++ to_string(offset) ++ NL
     ++ "    i32.add" ++ NL
     ++ "    local.get $__f" ++ to_string(idx) ++ NL
-    ++ "    i32.store" ++ NL
-    ++ emit_closure_capture_stores(n_caps, idx + 1)
+    ++ "    i32.store" ++ NL)
+    emit_closure_capture_stores(n_caps, idx + 1)
   }
 }
 
 // ─── Tuple/List Construction ────────────────────────────────
-// Tuple/list construction: evaluate each element, call make_tuple runtime.
 
-fn emit_make_tuple(elems, params, locals, ctx)= {
+fn emit_make_tuple(elems, params, locals, ctx) = {
   let n = len(elems)
-  // Allocate tuple, then set each element. No shared temp locals.
-  "    i32.const 0" ++ NL  // closure
+  out("    i32.const 0" ++ NL
   ++ "    i32.const " ++ to_string(n) ++ NL
-  ++ "    call $make_tuple" ++ NL  // returns tuple ptr
-  // Set each element: tuple_set(tuple, idx, value) → returns tuple
-  ++ emit_tuple_sets(elems, 0, params, locals, ctx)
+  ++ "    call $make_tuple" ++ NL)
+  emit_tuple_sets(elems, 0, params, locals, ctx)
 }
 
-fn emit_tuple_sets(elems, idx, params, locals, ctx)= {
-  if idx >= len(elems) { "" }
+fn emit_tuple_sets(elems, idx, params, locals, ctx) = {
+  if idx >= len(elems) { () }
   else {
-    // Stack has tuple_ptr. Save to __match, build args, call tuple_set.
-    // tuple_set(closure, tuple, idx, val) → tuple
-    "    local.set $__match" ++ NL  // save tuple ptr
-    ++ "    i32.const 0" ++ NL      // closure
-    ++ "    local.get $__match" ++ NL  // tuple ptr
-    ++ "    i32.const " ++ to_string(idx) ++ NL  // idx
-    ++ emit_expr(elems[idx], params, locals, ctx)  // value (may do nested allocs — safe!)
-    ++ "    call $tuple_set" ++ NL  // returns tuple ptr
-    ++ emit_tuple_sets(elems, idx + 1, params, locals, ctx)
+    out("    local.set $__match" ++ NL
+    ++ "    i32.const 0" ++ NL
+    ++ "    local.get $__match" ++ NL
+    ++ "    i32.const " ++ to_string(idx) ++ NL)
+    emit_expr(elems[idx], params, locals, ctx)
+    out("    call $tuple_set" ++ NL)
+    emit_tuple_sets(elems, idx + 1, params, locals, ctx)
   }
 }
 
-fn emit_tuple_elems(elems, idx, params, locals, ctx)= {
-  if idx >= len(elems) { "" }
+fn emit_tuple_elems(elems, idx, params, locals, ctx) = {
+  if idx >= len(elems) { () }
   else {
     let offset = (1 + idx) * 4
-    "    local.get $__vptr" ++ NL
+    out("    local.get $__vptr" ++ NL
     ++ "    i32.const " ++ to_string(offset) ++ NL
-    ++ "    i32.add" ++ NL
-    ++ emit_expr(elems[idx], params, locals, ctx)
-    ++ "    i32.store" ++ NL
-    ++ emit_tuple_elems(elems, idx + 1, params, locals, ctx)
+    ++ "    i32.add" ++ NL)
+    emit_expr(elems[idx], params, locals, ctx)
+    out("    i32.store" ++ NL)
+    emit_tuple_elems(elems, idx + 1, params, locals, ctx)
   }
 }
 
 // ─── Variant Construction ───────────────────────────────────
-// LMakeVariant("Circle", [r]) → alloc [tag_id:i32][r:i32], return ptr
-//
-// Variant pointer stack in linear memory at addresses 200-260.
-// Global $__vsp tracks nesting depth. Survives arbitrary nesting
-// of variant constructions — each level pushes before, pops after.
 
-fn emit_make_variant(tag, fields, params, locals, ctx)= {
+fn emit_make_variant(tag, fields, params, locals, ctx) = {
   let tag_id = find_tag_id(ctx_tags(ctx), tag, 0)
   let n_fields = len(fields)
   let total_size = (1 + n_fields) * 4
-  // Allocate
-  "    i32.const " ++ to_string(total_size) ++ NL
+  out("    i32.const " ++ to_string(total_size) ++ NL
   ++ "    call $alloc" ++ NL
   ++ "    local.set $__vptr" ++ NL
-  // Push base pointer onto memory stack: mem[200 + __vsp*4] = ptr; __vsp++
   ++ "    global.get $__vsp" ++ NL
   ++ "    i32.const 4" ++ NL ++ "    i32.mul" ++ NL
   ++ "    i32.const 400" ++ NL ++ "    i32.add" ++ NL
@@ -134,88 +121,71 @@ fn emit_make_variant(tag, fields, params, locals, ctx)= {
   ++ "    i32.store" ++ NL
   ++ "    global.get $__vsp" ++ NL ++ "    i32.const 1" ++ NL ++ "    i32.add" ++ NL
   ++ "    global.set $__vsp" ++ NL
-  // Store tag
   ++ "    local.get $__vptr" ++ NL
   ++ "    i32.const " ++ to_string(tag_id) ++ NL
-  ++ "    i32.store" ++ NL
-  // Store fields — each reloads base from memory stack
-  ++ emit_variant_fields(fields, 0, params, locals, ctx)
-  // Pop stack: __vsp--; result = mem[200 + __vsp*4]
-  ++ "    global.get $__vsp" ++ NL ++ "    i32.const 1" ++ NL ++ "    i32.sub" ++ NL
+  ++ "    i32.store" ++ NL)
+  emit_variant_fields(fields, 0, params, locals, ctx)
+  out("    global.get $__vsp" ++ NL ++ "    i32.const 1" ++ NL ++ "    i32.sub" ++ NL
   ++ "    global.set $__vsp" ++ NL
   ++ "    global.get $__vsp" ++ NL
   ++ "    i32.const 4" ++ NL ++ "    i32.mul" ++ NL
   ++ "    i32.const 400" ++ NL ++ "    i32.add" ++ NL
-  ++ "    i32.load" ++ NL
+  ++ "    i32.load" ++ NL)
 }
 
-fn emit_variant_fields(fields, idx, params, locals, ctx)= {
-  if idx >= len(fields) { "" }
+fn emit_variant_fields(fields, idx, params, locals, ctx) = {
+  if idx >= len(fields) { () }
   else {
     let field_offset = (1 + idx) * 4
-    // Reload base from memory stack top (peek at __vsp - 1)
-    "    global.get $__vsp" ++ NL ++ "    i32.const 1" ++ NL ++ "    i32.sub" ++ NL
+    out("    global.get $__vsp" ++ NL ++ "    i32.const 1" ++ NL ++ "    i32.sub" ++ NL
     ++ "    i32.const 4" ++ NL ++ "    i32.mul" ++ NL
     ++ "    i32.const 400" ++ NL ++ "    i32.add" ++ NL
     ++ "    i32.load" ++ NL
-    // Compute field address (on WASM stack — survives nested eval)
     ++ "    i32.const " ++ to_string(field_offset) ++ NL
-    ++ "    i32.add" ++ NL
-    // Evaluate field (may nest — memory stack handles it)
-    ++ emit_expr(fields[idx], params, locals, ctx)
-    // Store
-    ++ "    i32.store" ++ NL
-    ++ emit_variant_fields(fields, idx + 1, params, locals, ctx)
+    ++ "    i32.add" ++ NL)
+    emit_expr(fields[idx], params, locals, ctx)
+    out("    i32.store" ++ NL)
+    emit_variant_fields(fields, idx + 1, params, locals, ctx)
   }
 }
 
 // ─── Match Compilation ──────────────────────────────────────
-// LMatch(scrutinee, [(LPCon("Circle", [LPVar("r")]), body), ...])
-// → evaluate scrutinee to local, chain if/else on tag.
-//
-// Nesting depth: $__match is depth 0. Nested sub-patterns that need
-// their own scrutinee use $__match_1, $__match_2, etc. The depth
-// parameter threads through bind_fields to track nesting.
 
 fn match_local(depth) =
   if depth == 0 { "$__match" } else { "$__match_" ++ to_string(depth) }
 
-fn emit_match(scrutinee, arms, params, locals, ctx)= {
-  // Evaluate scrutinee — leave ptr on stack
-  // We need to reference it multiple times, so store in a temp local
+fn emit_match(scrutinee, arms, params, locals, ctx) = {
   emit_expr(scrutinee, params, locals, ctx)
-  ++ "    local.set $__match" ++ NL
-  ++ emit_match_arms(arms, 0, params, locals, ctx)
+  out("    local.set $__match" ++ NL)
+  emit_match_arms(arms, 0, params, locals, ctx)
 }
 
-fn emit_match_arms(arms, idx, params, locals, ctx)= {
-  if idx >= len(arms) { "    i32.const 0 ;; match fallthrough" ++ NL }
+fn emit_match_arms(arms, idx, params, locals, ctx) = {
+  if idx >= len(arms) { out("    i32.const 0 ;; match fallthrough" ++ NL) }
   else {
     let (pat, body) = arms[idx]
     match pat {
       LPCon(name, sub_pats) => {
         let tag_id = find_tag_id(ctx_tags(ctx), name, 0)
-        // if tag matches, bind fields and execute body
-        "    local.get $__match" ++ NL
-        ++ "    i32.load" ++ NL  // load tag
+        out("    local.get $__match" ++ NL
+        ++ "    i32.load" ++ NL
         ++ "    i32.const " ++ to_string(tag_id) ++ NL
         ++ "    i32.eq" ++ NL
         ++ "    (if (result i32)" ++ NL
-        ++ "      (then" ++ NL
-        ++ emit_bind_fields(sub_pats, 0, 0, params, locals, ctx)
-        ++ emit_expr(body, params, locals, ctx)
-        ++ "      )" ++ NL
-        ++ "      (else" ++ NL
-        ++ emit_match_arms(arms, idx + 1, params, locals, ctx)
-        ++ "      )" ++ NL
-        ++ "    )" ++ NL
+        ++ "      (then" ++ NL)
+        emit_bind_fields(sub_pats, 0, 0, params, locals, ctx)
+        emit_expr(body, params, locals, ctx)
+        out("      )" ++ NL
+        ++ "      (else" ++ NL)
+        emit_match_arms(arms, idx + 1, params, locals, ctx)
+        out("      )" ++ NL
+        ++ "    )" ++ NL)
       },
       LPTuple(sub_pats) => emit_match_arm_tuple(sub_pats, body, arms, idx, params, locals, ctx),
       LPVar(name) => {
-        // Bind scrutinee to variable, execute body
-        "    local.get $__match" ++ NL
-        ++ "    local.set $" ++ name ++ NL
-        ++ emit_expr(body, params, locals, ctx)
+        out("    local.get $__match" ++ NL
+        ++ "    local.set $" ++ name ++ NL)
+        emit_expr(body, params, locals, ctx)
       },
       LPLit(_) => emit_expr(body, params, locals, ctx),
       LPWild => emit_expr(body, params, locals, ctx),
@@ -224,90 +194,82 @@ fn emit_match_arms(arms, idx, params, locals, ctx)= {
   }
 }
 
-// LPTuple at top level: no tag check, just bind fields by position.
-// Tuple memory layout: [count:i32][elem0:i32][elem1:i32]...
-// Element i is at offset 4 + i*4 (same as variant fields, count replaces tag).
-fn emit_match_arm_tuple(sub_pats, body, arms, idx, params, locals, ctx)= {
+fn emit_match_arm_tuple(sub_pats, body, arms, idx, params, locals, ctx) = {
   emit_bind_tuple_fields(sub_pats, 0, 0, params, locals, ctx)
-  ++ emit_expr(body, params, locals, ctx)
+  emit_expr(body, params, locals, ctx)
 }
 
-// Bind tuple sub-patterns at a given nesting depth.
-// Tuple element i is at offset 4 + i*4 from the tuple base pointer.
-fn emit_bind_tuple_fields(sub_pats, idx, depth, params, locals, ctx)= {
-  if idx >= len(sub_pats) { "" }
+fn emit_bind_tuple_fields(sub_pats, idx, depth, params, locals, ctx) = {
+  if idx >= len(sub_pats) { () }
   else {
     let field_offset = (1 + idx) * 4
     let base = match_local(depth)
     match sub_pats[idx] {
       LPVar(name) => {
-        "    local.get " ++ base ++ NL
+        out("    local.get " ++ base ++ NL
         ++ "    i32.const " ++ to_string(field_offset) ++ NL
         ++ "    i32.add" ++ NL
         ++ "    i32.load" ++ NL
-        ++ "    local.set $" ++ name ++ NL
-        ++ emit_bind_tuple_fields(sub_pats, idx + 1, depth, params, locals, ctx)
+        ++ "    local.set $" ++ name ++ NL)
+        emit_bind_tuple_fields(sub_pats, idx + 1, depth, params, locals, ctx)
       },
       LPWild => emit_bind_tuple_fields(sub_pats, idx + 1, depth, params, locals, ctx),
-      _ => emit_bind_sub_pattern(sub_pats[idx], base, field_offset, depth, params, locals, ctx)
-        ++ emit_bind_tuple_fields(sub_pats, idx + 1, depth, params, locals, ctx)
+      _ => {
+        emit_bind_sub_pattern(sub_pats[idx], base, field_offset, depth, params, locals, ctx)
+        emit_bind_tuple_fields(sub_pats, idx + 1, depth, params, locals, ctx)
+      }
     }
   }
 }
 
-fn emit_bind_fields(sub_pats, idx, depth, params, locals, ctx)= {
-  if idx >= len(sub_pats) { "" }
+fn emit_bind_fields(sub_pats, idx, depth, params, locals, ctx) = {
+  if idx >= len(sub_pats) { () }
   else {
     let field_offset = (1 + idx) * 4
     let base = match_local(depth)
     match sub_pats[idx] {
       LPVar(name) => {
-        "    local.get " ++ base ++ NL
+        out("    local.get " ++ base ++ NL
         ++ "    i32.const " ++ to_string(field_offset) ++ NL
         ++ "    i32.add" ++ NL
         ++ "    i32.load" ++ NL
-        ++ "    local.set $" ++ name ++ NL
-        ++ emit_bind_fields(sub_pats, idx + 1, depth, params, locals, ctx)
+        ++ "    local.set $" ++ name ++ NL)
+        emit_bind_fields(sub_pats, idx + 1, depth, params, locals, ctx)
       },
       LPWild => emit_bind_fields(sub_pats, idx + 1, depth, params, locals, ctx),
-      _ => emit_bind_sub_pattern(sub_pats[idx], base, field_offset, depth, params, locals, ctx)
-        ++ emit_bind_fields(sub_pats, idx + 1, depth, params, locals, ctx)
+      _ => {
+        emit_bind_sub_pattern(sub_pats[idx], base, field_offset, depth, params, locals, ctx)
+        emit_bind_fields(sub_pats, idx + 1, depth, params, locals, ctx)
+      }
     }
   }
 }
 
-// Handle nested LPCon / LPTuple sub-patterns.
-// Loads the field value into a deeper match local, then recurses.
-fn emit_bind_sub_pattern(pat, base, field_offset, depth, params, locals, ctx)= {
+fn emit_bind_sub_pattern(pat, base, field_offset, depth, params, locals, ctx) = {
   let next_depth = depth + 1
   let next_local = match_local(next_depth)
-  // Load field value into the next-depth match local
-  let load_field = "    local.get " ++ base ++ NL
-    ++ "    i32.const " ++ to_string(field_offset) ++ NL
-    ++ "    i32.add" ++ NL
-    ++ "    i32.load" ++ NL
-    ++ "    local.set " ++ next_local ++ NL
+  out("    local.get " ++ base ++ NL
+  ++ "    i32.const " ++ to_string(field_offset) ++ NL
+  ++ "    i32.add" ++ NL
+  ++ "    i32.load" ++ NL
+  ++ "    local.set " ++ next_local ++ NL)
   match pat {
     LPCon(tag, inner_pats) => {
       let tag_id = find_tag_id(ctx_tags(ctx), tag, 0)
-      // Load, check tag, bind inner fields if tag matches
-      load_field
-      ++ "    local.get " ++ next_local ++ NL
+      out("    local.get " ++ next_local ++ NL
       ++ "    i32.load" ++ NL
       ++ "    i32.const " ++ to_string(tag_id) ++ NL
       ++ "    i32.eq" ++ NL
       ++ "    (if" ++ NL
-      ++ "      (then" ++ NL
-      ++ emit_bind_fields(inner_pats, 0, next_depth, params, locals, ctx)
-      ++ "      )" ++ NL
-      ++ "    )" ++ NL
+      ++ "      (then" ++ NL)
+      emit_bind_fields(inner_pats, 0, next_depth, params, locals, ctx)
+      out("      )" ++ NL
+      ++ "    )" ++ NL)
     },
     LPTuple(inner_pats) => {
-      // Load, bind tuple elements (no tag check)
-      load_field
-      ++ emit_bind_tuple_fields(inner_pats, 0, next_depth, params, locals, ctx)
+      emit_bind_tuple_fields(inner_pats, 0, next_depth, params, locals, ctx)
     },
-    _ => ""
+    _ => ()
   }
 }
 
@@ -318,11 +280,11 @@ fn ctx_globals(ctx) = ctx[3]
 fn ctx_type_env(ctx) = ctx[4]
 
 // Evaluate expressions and save to __f0, __f1, etc. (for closure captures)
-fn emit_variant_field_exprs(fields, idx, params, locals, ctx)= {
-  if idx >= len(fields) { "" }
+fn emit_variant_field_exprs(fields, idx, params, locals, ctx) = {
+  if idx >= len(fields) { () }
   else {
     emit_expr(fields[idx], params, locals, ctx)
-    ++ "    local.set $__f" ++ to_string(idx) ++ NL
-    ++ emit_variant_field_exprs(fields, idx + 1, params, locals, ctx)
+    out("    local.set $__f" ++ to_string(idx) ++ NL)
+    emit_variant_field_exprs(fields, idx + 1, params, locals, ctx)
   }
 }

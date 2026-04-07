@@ -202,7 +202,7 @@ impl<'src> Lexer<'src> {
                     TokenKind::LtEq
                 } else if self.peek() == Some(b'|') {
                     self.advance();
-                    TokenKind::FanOut
+                    TokenKind::Prism
                 } else {
                     TokenKind::Lt
                 }
@@ -211,6 +211,9 @@ impl<'src> Lexer<'src> {
                 if self.peek() == Some(b'=') {
                     self.advance();
                     TokenKind::GtEq
+                } else if self.peek() == Some(b'<') {
+                    self.advance();
+                    TokenKind::Compose
                 } else {
                     TokenKind::Gt
                 }

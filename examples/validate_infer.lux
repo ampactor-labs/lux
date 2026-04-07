@@ -50,11 +50,11 @@ test_check("Lambda", "let f = |x| x + 1\nlet result = f(10)\n")
 // PipeExpr
 test_check("Pipe", "let r = 5 |> |x| x * 2\n")
 
-// FanOutExpr
+// PrismExpr
 test_check("Fan-out", "let (a, b) = 5 <| (|x| x + 1, |x| x * 2)\n")
 
 // ComposeExpr
-test_check("Compose", "let f = |x| x + 1\nlet g = |x| x * 2\nlet h = f <> g\n")
+test_check("Compose", "let f = |x| x + 1\nlet g = |x| x * 2\nlet h = f >< g\n")
 
 // MatchExpr  
 test_check("Match", "let r = match 42 { x => x + 1 }\n")

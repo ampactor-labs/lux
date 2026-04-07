@@ -41,6 +41,12 @@ pub enum VmValue {
     Evidence(Arc<VmEvidence>),
 }
 
+// Compile-time assertion: VmValue must be Send for parallel prism.
+const _: () = {
+    fn assert_send<T: Send>() {}
+    fn check() { assert_send::<VmValue>(); }
+};
+
 impl PartialEq for VmValue {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {

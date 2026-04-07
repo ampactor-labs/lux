@@ -108,7 +108,7 @@ let r5 = collect(|| stream_scan(0, |a, x| a + x, || from_list([1, 2, 3, 4, 5])))
 println("  running sums: " ++ to_string(r5))
 
 // ═══════════════════════════════════════════════════════════════
-// 6. COMPOSE stream transformers with <>
+// 6. COMPOSE stream transformers with ><
 // ═══════════════════════════════════════════════════════════════
 //
 // Here's where it gets wild.

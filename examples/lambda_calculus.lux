@@ -5,13 +5,13 @@
 //   f x      — application (run a function)
 //
 // Lux extends this to three:
-//   f <> g   — abstraction (build a function from functions)
+//   f >< g   — abstraction (build a function from functions)
 //   x |> f   — application (run a function on data)
 //   x <| fs  — broadcast  (run many functions on data)
 //
 // This is the minimal complete algebra of data flow.
 // Anything expressible as a directed graph of computation
-// is expressible as |> <| <>.
+// is expressible as |> <| ><.
 
 // ─── Church Numerals (just for fun) ─────────────────────────
 // A number N is "apply f N times"
@@ -28,9 +28,9 @@ let to_int_church = |n| n(|x| x + 1)(0)
 println("zero = " ++ to_string(to_int_church(zero)))
 println("three = " ++ to_string(to_int_church(three)))
 
-// ─── Church Numerals Meet <> ────────────────────────────────
-// succ IS composition: succ(n) = f <> n(f)
-// ... almost. Church encoding doesn't quite work with <>
+// ─── Church Numerals Meet >< ────────────────────────────────
+// succ IS composition: succ(n) = f >< n(f)
+// ... almost. Church encoding doesn't quite work with ><
 // because of the nested lambda structure. But the SPIRIT is:
 // "applying f one more time" IS composition.
 
@@ -91,7 +91,7 @@ println("fact(5) = " ++ to_string(fact(5)))
 // Lux extends it with ONE new primitive: broadcast (<|).
 //
 // |>  = β-reduction (apply)
-// <>  = λ-abstraction (compose)
+// ><  = λ-abstraction (compose)
 // <|  = NEW: parallel application
 //
 // This third operation is what makes concurrency EXPRESSIBLE

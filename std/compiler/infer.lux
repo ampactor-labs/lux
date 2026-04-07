@@ -100,20 +100,20 @@ fn infer(sexpr) with Infer, Diagnostic = {
       }
     },
 
-    FanOutExpr(data, branches) => {
+    PrismExpr(data, branches) => {
       let S(branches_expr, bl, bc) = branches
       match branches_expr {
         TupleExpr(fns) => {
-          let result_types = fan_out(fns, data, bl, bc)
+          let result_types = prism_branches(fns, data, bl, bc)
           // Gradient: the types carry the proof — report purity for each branch
-          gradient_fan_out(fns, bl, bc)
+          gradient_prism_branches(fns, bl, bc)
           TTuple(result_types)
         },
         _ => infer(S(Call(branches, [data]), bl, bc))
       }
     },
 
-    JoinExpr(f, g) => {
+    ComposeExpr(f, g) => {
       // f >< g — both effects merged. The type doesn't lie.
       let tf = infer(f)
       let tg = infer(g)
@@ -125,8 +125,7 @@ fn infer(sexpr) with Infer, Diagnostic = {
       unify(tf, TFun([a], b, ef))
       unify(tg, TFun([b], c, eg))
       let merged = merge_effects(resolve(ef), resolve(eg))
-      // Gradient: report composition purity
-      gradient_compose(merged, rl, rc)
+      gradient_compose(merged, line, col)
       TFun([resolve(a)], resolve(c), merged)
     },
 
@@ -271,12 +270,12 @@ fn infer_unify_list(elems, expected) with Infer, Diagnostic = {
 // Same Diagnostic effect. Different kind. One mechanism.
 // The types carry the proofs. The gradient reads them.
 
-fn gradient_fan_out(fns, line, col) with Infer, Diagnostic = {
+fn gradient_prism_branches(fns, line, col) with Infer, Diagnostic = {
   let n = len(fns)
   if n > 0 {
     let pure_n = count_pure_branches(fns, 0)
     if pure_n == n {
-      report("", "gradient", "<| all " ++ to_string(n) ++ " branches pure — parallel eligible", line, col)
+      report("", "gradient", "<| all " ++ to_string(n) ++ " branches pure — PARALLEL", line, col)
     } else { if pure_n > 0 {
       report("", "gradient", "<| " ++ to_string(pure_n) ++ "/" ++ to_string(n) ++ " pure — add Pure to rest for parallelism", line, col)
     } else { () } }
@@ -306,11 +305,11 @@ fn gradient_compose(merged_eff, line, col) with Diagnostic = {
   }
 }
 
-fn fan_out(fns, input, rl, rc) with Infer, Diagnostic = {
+fn prism_branches(fns, input, rl, rc) with Infer, Diagnostic = {
   if len(fns) == 0 { [] }
   else {
     let result = infer(S(Call(fns[0], [input]), rl, rc))
-    [result] ++ fan_out(slice(fns, 1, len(fns)), input, rl, rc)
+    [result] ++ prism_branches(slice(fns, 1, len(fns)), input, rl, rc)
   }
 }
 

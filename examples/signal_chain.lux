@@ -1,4 +1,4 @@
-// ─── Signal Processing with |> <| <> ────────────────────────
+// ─── Signal Processing with |> <| >< ────────────────────────
 //
 // DSP meets the three operators.
 // Signal chains are values. Parallel analysis is syntax.
@@ -16,10 +16,10 @@ fn normalize(xs) = {
 }
 fn amplify(gain) = |xs| map(|x| x * gain, xs)
 
-// ─── Build the chain with <> ────────────────────────────────
+// ─── Build the chain with >< ────────────────────────────────
 
-let clean = highpass(45) <> normalize
-let loud = clean <> amplify(2)
+let clean = highpass(45) >< normalize
+let loud = clean >< amplify(2)
 
 println("raw:    " ++ to_string(audio))
 println("clean:  " ++ to_string(audio |> clean))
@@ -61,10 +61,10 @@ println("dynamic: " ++ to_string(audio |> dynamic_chain))
 
 // ─── The Dream ──────────────────────────────────────────────
 //
-// let master = eq <> dynamics with !Alloc
+// let master = eq >< dynamics with !Alloc
 // audio |> master  -- proven real-time safe
 //
 // Not there yet. But the operators are ready.
 // The effect algebra is ready. The type system is ready.
-// When !Alloc composes through <>, real-time safety
+// When !Alloc composes through ><, real-time safety
 // is a compositional proof, not a code review.

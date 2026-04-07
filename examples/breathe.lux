@@ -16,12 +16,12 @@ show(a)
 show(b)
 
 // hold
-let transform = double <> square
+let transform = double >< square
 show(transform(4))
 
 // the full breath
 [1, 2, 3, 4, 5]
-  |> map(double <> square)
+  |> map(double >< square)
   <| (
     |xs| fold(xs, 0, |a, x| a + x),
     |xs| len(xs)

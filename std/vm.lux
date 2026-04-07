@@ -1007,7 +1007,7 @@ fn pop_n(s, n, acc) = {
   if n <= 0 { (s, acc) }
   else {
     let (s2, val) = spop(s)
-    pop_n(s2, n - 1, [val] ++ acc)
+    pop_n(s2, n - 1, push(acc, val))
   }
 }
 

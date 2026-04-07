@@ -1,7 +1,7 @@
 // ─── The Rosetta Stone ──────────────────────────────────────
 //
 // The same algorithm, expressed in seven paradigms.
-// All in Lux, using only |> <| <> and effects.
+// All in Lux, using only |> <| >< and effects.
 //
 // The algorithm: given a list of numbers, find the sum of
 // the squares of all odd numbers greater than 3.
@@ -61,10 +61,10 @@ let keep_big = |xs| filter(|x| x > 3, xs)
 let keep_odd = |xs| filter(|x| x % 2 != 0, xs)
 let square_all = |xs| map(|x| x * x, xs)
 
-let pipeline = keep_big <> keep_odd <> square_all <> sum
+let pipeline = keep_big >< keep_odd >< square_all >< sum
 let result_composed = data |> pipeline
 
-println("3. Composed (<> then |>):        " ++ to_string(result_composed))
+println("3. Composed (>< then |>):        " ++ to_string(result_composed))
 
 
 // ═══════════════════════════════════════════════════════════════
@@ -176,7 +176,7 @@ println("Seven paradigms. Same answer. Same language.")
 println("")
 println("Imperative:   effects ARE mutable state")
 println("Functional:   |> IS the pipeline")
-println("Compositional:<> IS deferred computation")
+println("Compositional:>< IS deferred computation")
 println("Reductive:    fold IS the universal consumer")
 println("Generative:   effects ARE lazy streams")
 println("Parallel:     <| IS fan-out")

@@ -1,9 +1,9 @@
-// Data Flow Operators — |> <| <>
+// Data Flow Operators — |> <| ><
 //
 // Three operators. One data flow. The language breathes.
 //   |> converges — data flows through functions
 //   <| diverges  — data fans to parallel consumers
-//   <> composes  — functions combine into functions
+//   >< composes  — functions combine into functions
 
 // ─── |> Pipe: Convergence ───────────────────────────────────
 
@@ -28,14 +28,14 @@ let (total, count, has_big) = data <| (
 println("fan-out: sum=" ++ to_string(total) ++ " count=" ++ to_string(count) ++ " has_big=" ++ to_string(has_big))
 // → sum=31 count=8 has_big=true
 
-// ─── <> Compose: Potential ──────────────────────────────────
+// ─── >< Compose: Potential ──────────────────────────────────
 
 let double = |x| x * 2
 let add_one = |x| x + 1
 let negate = |x| 0 - x
 
 // Build a pipeline — nothing runs yet
-let transform = double <> add_one <> negate
+let transform = double >< add_one >< negate
 // double first, then add_one, then negate: -(x*2 + 1)
 
 println("compose: " ++ to_string(transform(3)))
@@ -48,7 +48,7 @@ let numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 // Compose processing pipelines
 let double_all = |xs| map(|x| x * 2, xs)
 let keep_big = |xs| filter(|x| x > 10, xs)
-let process = double_all <> keep_big
+let process = double_all >< keep_big
 
 // Fan out to multiple analyses after processing
 let (processed, original_sum) = numbers <| (

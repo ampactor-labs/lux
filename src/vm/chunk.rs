@@ -240,6 +240,7 @@ impl Chunk {
                 | OpCode::StoreGlobal
                 | OpCode::MakeList
                 | OpCode::MakeTuple
+                | OpCode::Prism
                 | OpCode::FieldAccess
                 | OpCode::MatchString
                 | OpCode::MatchVariant

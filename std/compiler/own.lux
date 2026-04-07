@@ -147,13 +147,13 @@ fn walk_expr(sexpr, own_params, used) = {
     (u2, v1 ++ v2)
   },
 
-  FanOutExpr(data, branches) => {
+  PrismExpr(data, branches) => {
     let (u1, v1) = walk_expr(data, own_params, used)
     let (u2, v2) = walk_expr(branches, own_params, u1)
     (u2, v1 ++ v2)
   },
 
-  JoinExpr(f, g) => {
+  ComposeExpr(f, g) => {
     let (u1, v1) = walk_expr(f, own_params, used)
     let (u2, v2) = walk_expr(g, own_params, u1)
     (u2, v1 ++ v2)

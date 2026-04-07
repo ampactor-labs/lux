@@ -96,6 +96,10 @@ pub enum OpCode {
     FieldAccess = 83,
     /// Create ADT variant. Operand: u16 name index, u16 field count.
     MakeVariant = 84,
+    /// Prism (fan-out): evaluate N functions on one input, collect into tuple.
+    /// Stack: [func_1, ..., func_N, input] → (result_1, ..., result_N)
+    /// Operands: u8 branch_count, u8 parallel_flag (1 = pure branches, parallel exec)
+    Prism = 85,
 
     // ── Patterns ──────────────────────────────────────────
     /// Match integer. Operand: i64 via constant. Pushes bool.
@@ -195,6 +199,7 @@ impl OpCode {
             82 => Some(Self::ListIndex),
             83 => Some(Self::FieldAccess),
             84 => Some(Self::MakeVariant),
+            85 => Some(Self::Prism),
             90 => Some(Self::MatchInt),
             91 => Some(Self::MatchBool),
             92 => Some(Self::MatchString),

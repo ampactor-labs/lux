@@ -58,7 +58,7 @@ special cases, the architecture is wrong.
 > Full manifesto: `docs/DESIGN.md`
 > Full roadmap: `docs/ROADMAP.md`
 
-## STATE OF THE WORLD — Last Updated: 2026-04-06
+## STATE OF THE WORLD — Last Updated: 2026-04-07
 
 **THE COMPILER VERIFIES ITSELF.** 272 functions across 9 compiler modules
 proven pure. The Diagnostic effect makes the inference engine externally
@@ -112,18 +112,20 @@ algebra over capabilities:
 
 Koka has `+` via row polymorphism. Lux has the full algebra.
 
-**The data flow operators — The Four Verbs:**
+**The data flow operators — The Four Operators:**
 
 | Operator | Name | Meaning | Example |
 |----------|------|---------|---------|
-| `a \|> f(b)` | Pipe | Convergence | `source \|> lex \|> parse \|> check` |
-| `a <\| (f, g, h)` | Fan-out | Divergence | `signal <\| (fft, rms, peaks)` → `(A, B, C)` |
-| `f >< g` | Join | Composition (no data) | `normalize >< analyze >< classify` → `(A) -> D` |
-| `a ~> h` | HandlePipe | Strategy (handle-with postfix) | `pipeline ~> arena_alloc ~> logged` |
+| `a \|> f(b)` | Pipe | Flow data through | `source \|> lex \|> parse \|> check` |
+| `a <\| (f, g, h)` | Prism | Refract to many | `signal <\| (fft, rms, peaks)` → `(A, B, C)` |
+| `f >< g` | Compose | Build pipeline value | `normalize >< analyze >< classify` → `(A) -> D` |
+| `a ~> h` | Handle | Install strategy | `computation ~> arena_alloc ~> logged` |
 
-`|>` runs data through functions. `<|` broadcasts data to functions.
+`|>` runs data through functions. `<|` refracts data to many observers.
 `><` builds functions from functions — no data, just potential.
-`~>` installs handlers over whatever precedes it — binds loosest so it wraps entire pipelines.
+`~>` installs handlers on whatever immediately precedes it.
+Precedence: `|>`/`<|` (5) < `><` (6) < `~>` (7) — handle binds tightest, compose
+before pipe. To handle an entire pipeline, use parens or compose first.
 Four operators close the algebra: `|>`/`<|` = WHAT (data flow), `><` = BUILD (function composition), `~>` = HOW (effect resolution).
 
 ### Emergent Capabilities — Consequences, Not Features
@@ -137,9 +139,9 @@ effects, refinements, and ownership. This is the core insight:
   transitive callee allocates, the constraint fails at compile time.
 
 - **Auto-parallelization.** Pure functions can be executed in parallel —
-  the effect system proves it's safe. `signal <| (f, g, h)` fans out to
-  three independent computations; if all are `Pure`, the compiler
-  parallelizes. No annotations needed.
+  the effect system proves it's safe. `signal <| (f, g, h)` refracts to
+  three independent computations; if all are `Pure`, the runtime executes
+  them in parallel via `OP_PRISM`. No annotations needed.
 
 - **GPU compilation gate.** `!IO, !Alloc` functions can be offloaded to
   GPU. The compiler knows because the algebra proves it.
@@ -309,6 +311,8 @@ Standard library: `std/prelude.lux`, `std/test.lux`, `std/types.lux`, `std/vm.lu
 | `std/compiler/lower.lux` | AST→LowIR + evidence passing (inferred_type, handler rewrite, global dispatch) |
 | `std/compiler/lower_ir.lux` | LowIR ADT (26 variants) + LowerCtx effect |
 | `std/compiler/lower_closure.lux` | Closure/lambda lowering — capture detection, rewrite_captures |
+| `std/compiler/type_walk.lux` | Type walker — one walk, many observers (TypeVisit, TypeFound, InstState effects) |
+| `std/compiler/lowir_walk.lux` | LowIR walker — one walk, many observers (LowIRVisit, LowIRAccum effects) |
 | `std/compiler/lower_print.lux` | LowIR pretty-printer for `lux lower` output |
 | `std/backend/wasm_emit.lux` | WAT emitter — clean LowIR→WAT translator |
 | `std/backend/wasm_collect.lux` | String/fn/variant/handler-globals collection for WASM |
@@ -374,7 +378,7 @@ fn safe_v2(x: Float) -> Float with DSP - Network - Alloc { ... }  // subtraction
 
 // Data flow — converge, diverge, compose
 fn check(source) = source |> lex |> parse_program |> check_program  // pipe: converge
-signal <| (fft, rms, detect_peaks)  // fan-out: diverge → (A, B, C)
+signal <| (fft, rms, detect_peaks)  // prism: diverge → (A, B, C)
 let pipeline = normalize >< analyze >< classify  // compose: build potential
 
 // The hourglass — converge, diverge, converge
