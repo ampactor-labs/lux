@@ -18,6 +18,12 @@ let NL = from_char_code(10)
 let DQ = from_char_code(34)
 let BS = from_char_code(92)
 
+// ─── The Emit Effect ────────────────────────────────────────
+// WAT output flows through an effect. The handler decides what to do:
+// print directly (zero memory), accumulate (for testing), or transform.
+// This replaces O(N²) string concatenation with O(N) effect dispatch.
+effect WasmOut { out(String) -> () }
+
 // ─── Context helpers ────────────────────────────────────────
 // ctx = (string_map, tag_map, fn_table, top_globals)
 fn ctx_strings(ctx)= ctx[0]
@@ -38,32 +44,68 @@ fn emit_module(defs, type_map) = {
   let heap_start = string_heap_end(string_map, 0, 1024)
   let fn_table = collect_fn_names(fns, 0)
   let max_arity = max_fn_arity(fns, 0)
-  // type_map is the HM env from check_program — (name, type, reason) triples.
-  // The emitter uses it for type-directed local/param/signature emission.
   let ctx = (string_map, tag_map, fn_table, top_globals, type_map)
-  let header = "(module" ++ NL
-    ++ emit_wasi_imports()
-    ++ "  (memory (export " ++ DQ ++ "memory" ++ DQ ++ ") 16384)" ++ NL
-    ++ "  (global $heap_ptr (mut i32) (i32.const " ++ to_string(heap_start) ++ "))" ++ NL
-    ++ "  (global $__vsp (mut i32) (i32.const 0))" ++ NL
-    ++ emit_global_decls(top_globals, 0, type_map)
-    ++ emit_fn_type_sigs(max_arity, 0)
-    ++ emit_string_segments(string_map, 0)
-    ++ emit_alloc()
-  let footer = emit_fn_table(fn_table)
-    ++ emit_start(top_stmts, ctx)
-    ++ ")" ++ NL
-  // Stream: print header, each function, footer. No O(n²) concat.
-  emit_print(header)
-  emit_print_fn_list(fns, 0, ctx)
-  emit_print(footer)
+
+  // The WasmOut effect: every out() call prints immediately.
+  // Zero accumulation. Zero O(N²) concat. Constant memory.
+  handle {
+    // Header
+    out("(module" ++ NL)
+    out(emit_wasi_imports())
+    out("  (memory (export " ++ DQ ++ "memory" ++ DQ ++ ") 16384)" ++ NL)
+    out("  (global $heap_ptr (mut i32) (i32.const " ++ to_string(heap_start) ++ "))" ++ NL)
+    out("  (global $__vsp (mut i32) (i32.const 0))" ++ NL)
+    out(emit_global_decls(top_globals, 0, type_map))
+    out(emit_fn_type_sigs(max_arity, 0))
+    out(emit_string_segments(string_map, 0))
+    out(emit_alloc())
+
+    // Functions — each emitted and printed individually
+    emit_fns_streaming(fns, 0, ctx)
+
+    // Footer
+    out(emit_fn_table(fn_table))
+    emit_start_streaming(top_stmts, ctx)
+    out(")" ++ NL)
+  } {
+    out(s) => { print(s ++ ""); resume(()) }
+  }
   ""
 }
 
 // Direct string output — avoids type dispatch ambiguity.
-// In WASM: print_string. In Rust VM: print (generic).
 fn emit_print(s) = print(s ++ "")
 
+// ─── Streaming Emitters (use WasmOut effect) ────────────────
+// These emit functions are called inside the WasmOut handler.
+// Each function's output is printed immediately — no accumulation.
+
+fn emit_fns_streaming(fns, idx, ctx) = {
+  if idx < len(fns) {
+    out(emit_fn(fns[idx], ctx))
+    emit_fns_streaming(fns, idx + 1, ctx)
+  } else { () }
+}
+
+fn emit_start_streaming(stmts, ctx) = {
+  let locals = filter_out_globals(collect_locals(stmts, 0), ctx_globals(ctx), 0)
+  let with_temps = add_emitter_temps(locals, ctx)
+  let env = ctx_type_env(ctx)
+  out("  (func $_start (export " ++ DQ ++ "_start" ++ DQ ++ ")" ++ NL)
+  out(emit_local_decls(with_temps, 0, stmts, env))
+  emit_stmts_void_streaming(stmts, 0, [], with_temps, ctx)
+  out("  )" ++ NL)
+}
+
+fn emit_stmts_void_streaming(stmts, idx, params, locals, ctx) = {
+  if idx >= len(stmts) { () }
+  else {
+    out(emit_stmt_void(stmts[idx], params, locals, ctx))
+    emit_stmts_void_streaming(stmts, idx + 1, params, locals, ctx)
+  }
+}
+
+// Legacy streaming (used by old path, kept for compatibility)
 fn emit_print_fn_list(fns, idx, ctx) = {
   if idx < len(fns) {
     emit_print(emit_fn(fns[idx], ctx))
