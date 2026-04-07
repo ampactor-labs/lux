@@ -135,7 +135,6 @@ fn collect_free(sexpr, bound) = {
     },
     FieldAccess(obj, _) => collect_free(obj, bound),
     RecordExpr(fields) => collect_free_record(fields, bound),
-    ForExpr(var, iter, body) => string_union(collect_free(iter, bound), collect_free(body, bound ++ [var])),
     _ => []
   }
 }

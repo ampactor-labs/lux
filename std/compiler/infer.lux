@@ -201,17 +201,6 @@ fn infer(sexpr) with Infer, Diagnostic = {
       TRecord(field_types)
     },
 
-    ForExpr(var, iter, body) => {
-      let elem = fresh()
-      unify(infer(iter), TList(elem))
-      push_scope()
-      bind(var, resolve(elem), Inferred("for variable"))
-      infer(body)
-      let effs = pop_scope()
-      track_effect(effs)
-      TUnit
-    },
-
     _ => fresh()
   }
 }

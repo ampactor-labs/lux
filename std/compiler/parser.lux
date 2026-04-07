@@ -43,7 +43,6 @@ type Expr
   | ResumeExpr(Expr, List)
   | RecordExpr(List)
   | StringInterp(List)
-  | ForExpr(String, Expr, Expr)
   | NoneExpr
 
 // Match arm: (pattern, body)
@@ -1212,7 +1211,12 @@ fn parse_for(tokens, pos) = {
   let (body, p5) =
     if at(tokens, p4, "LBrace") { parse_block(tokens, p4 + 1) }
     else { parse_expr(tokens, p4) };
-  (sp(ForExpr(var, iter, body), tokens, pos), p5)
+  // Desugar: for var in iter { body } → for_each(|var| body, iter)
+  // for_each is the Iterate handler in the prelude.
+  // The developer writes intent. The prelude provides semantics.
+  let lambda = sp(LambdaExpr([var], body), tokens, pos)
+  let for_each_ref = sp(VarRef("for_each"), tokens, pos)
+  (sp(Call(for_each_ref, [lambda, iter]), tokens, pos), p5)
 }
 
 // ─── Program ─────────────────────────────────────────────────

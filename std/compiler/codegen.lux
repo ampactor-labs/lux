@@ -491,30 +491,6 @@ fn compile_expr(ctx, sexpr) = {
     emit_u16(emit_u16(emit_op(ctx3, OP_MAKE_VARIANT), tag_idx), len(sorted))
   },
 
-  ForExpr(var, iter, body) => {
-    // Compile: for_each(|var| body, iter)
-    // 1. Load "for_each" from prelude
-    let (ctx2, fn_idx) = intern_name(ctx, "for_each")
-    let ctx3 = emit_u16(emit_op(ctx2, OP_LOAD_GLOBAL), fn_idx)
-    // 2. Compile lambda |var| body (first arg)
-    let fn_ctx = ctx_child(ctx3)
-    let fn_ctx2 = begin_scope(fn_ctx)
-    let (fn_ctx3, _) = declare_local(fn_ctx2, var)
-    let fn_ctx4 = compile_expr(fn_ctx3, body)
-    let fn_ctx5 = emit_op(fn_ctx4, OP_RETURN)
-    let upvals = ctx_upvalues(fn_ctx5)
-    let proto = ("fn_proto", "<for>", 1, ctx_code(fn_ctx5),
-      ctx_constants(fn_ctx5), ctx_names(fn_ctx5),
-      ctx_next_slot(fn_ctx5), len(upvals))
-    let (ctx4, proto_idx) = add_constant(ctx3, proto)
-    let ctx5 = emit_u16(emit_op(ctx4, OP_MAKE_CLOSURE), proto_idx)
-    let ctx6 = emit_upvalue_descriptors(ctx5, upvals)
-    // 3. Compile iter (second arg)
-    let ctx7 = compile_expr(ctx6, iter)
-    // 4. Call for_each(lambda, iter) — 2 args
-    emit_u8(emit_op(ctx7, OP_CALL), 2)
-  },
-
   MatchExpr(scrutinee, arms) => {
     // Compile scrutinee and store as persistent local
     let ctx2 = begin_scope(compile_expr(ctx, scrutinee))

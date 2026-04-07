@@ -280,9 +280,6 @@ fn lower_expr(sexpr, env) = {
 
     StringInterp(parts) => lower_string_interp(parts, env),
 
-    ForExpr(var, iter, body) =>
-      lower_expr(iter, env),
-
     _ => LConst(TUnit, LUnit)
   }
 }
