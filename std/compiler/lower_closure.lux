@@ -237,7 +237,7 @@ fn filter_out(names, exclude, idx) = {
 // Preserves the Ty field on every node.
 // Uses the LowIRVisit walker — structurally complete for ALL LowExpr variants.
 fn rewrite_captures(e, free) =
-  handle { walk_lowir(e) } {
+  handle { walk_ir(e) } {
     visit_lowir(node) => match node {
       LGlobal(ty, name) => {
         let idx = find_in_list(free, name, 0)

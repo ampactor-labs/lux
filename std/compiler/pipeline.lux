@@ -316,13 +316,18 @@ fn compile_illuminate(source) = {
 // source |> frontend |> check |> lower |> emit
 
 fn compile_wasm(source) = {
+  // Use the prelude cache — don't re-check the prelude from scratch.
+  // Concatenate runtime + imports + user, check against cached prelude env.
+  let (prelude_ast, prelude_env, start_n) = __prelude_cache
   let runtime = read_file("std/runtime/memory.lux")
-  let prelude = read_file("std/prelude.lux")
   let (imports, _) = source |> resolve_imports_tracked([])
-  let full_source = runtime ++ "\n" ++ prelude ++ "\n" ++ imports ++ "\n" ++ (source |> strip_imports)
-  let (ast, env) = full_source |> checked_raw
+  let wasm_source = runtime ++ "\n" ++ imports ++ "\n" ++ (source |> strip_imports)
+  let wasm_ast = wasm_source |> frontend
+  let env = wasm_ast |> check_program_with(prelude_env, start_n)
+  let combined_ast = prelude_ast ++ wasm_ast
+  validate(combined_ast, env)
   let ctors = env |> extract_constructors
-  let lowered = lower_program_typed(ast, ctors, env)
+  let lowered = lower_program_typed(combined_ast, ctors, env)
   emit_module(lowered, env)
 }
 

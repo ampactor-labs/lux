@@ -764,7 +764,7 @@ fn filter_out_hs_names(names) = {
 // Collect free LGlobal names from LowIR (names not in bound set)
 // Uses the LowIRVisit walker — structurally complete for ALL LowExpr variants.
 fn collect_free_lowir(node, bound) =
-  handle { walk_lowir(node); get_lowir_accum() } with names = [] {
+  handle { walk_ir(node); get_lowir_accum() } with names = [] {
     visit_lowir(n) => match n {
       LGlobal(_, name) => {
         if not(string_in(bound, name, 0)) && not(string_in(names, name, 0)) {
@@ -773,7 +773,7 @@ fn collect_free_lowir(node, bound) =
       },
       LLet(_, name, _) => {
         // LLet binds a name — don't add it as free, but we let the walker
-        // recurse into the value (already done by walk_lowir)
+        // recurse into the value (already done by walk_ir)
         resume(n)
       },
       _ => resume(n)
@@ -808,7 +808,7 @@ fn subst_state_to_cells(node, state_names) = {
 //   LLet("acc", v)  → LLet("__hs_42", v)    (write state global)
 // Uses the LowIRVisit walker — structurally complete for ALL LowExpr variants.
 fn subst_one_state(node, orig, gname) =
-  handle { walk_lowir(node) } {
+  handle { walk_ir(node) } {
     visit_lowir(n) => match n {
       LGlobal(ty, name) =>
         if name == orig { resume(LGlobal(ty, gname)) }
