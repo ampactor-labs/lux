@@ -41,12 +41,12 @@ import backend/wasm_emit
 
 // Stage 1: Frontend — source to structure
 // The frontend IS the composition of lex and parse.
-// ParseError handler: report via Diagnostic, resume with NoneExpr sentinel.
+// ParseError handler: report and stop. No recovery. No sentinels.
 fn frontend(source) =
   handle { source |> lex |> parse_program } {
     unexpected(expected, got, line, col) => {
       println("Parse error [" ++ to_string(line) ++ ":" ++ to_string(col) ++ "]: expected " ++ expected ++ " got " ++ got)
-      resume(NoneExpr)
+      []
     }
   }
 
@@ -99,13 +99,15 @@ let __prelude_cache = {
   (ast, env, 1000)
 }
 
-fn count_fresh_vars(env, max_n) = {
-  if len(env) == 0 { max_n + 1 }
+fn count_fresh_vars(env, max_n) = count_fresh_vars_at(env, max_n, 0)
+
+fn count_fresh_vars_at(env, max_n, i) = {
+  if i >= len(env) { max_n + 1 }
   else {
-    let (_, ty, _) = env[0]
+    let (_, ty, _) = env[i]
     let n = max_tvar_in_type(ty)
     let new_max = if n > max_n { n } else { max_n }
-    count_fresh_vars(slice(env, 1, len(env)), new_max)
+    count_fresh_vars_at(env, new_max, i + 1)
   }
 }
 

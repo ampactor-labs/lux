@@ -150,7 +150,7 @@ fn collect_all(defs) =
   handle {
     walk_list(defs)
     get_collected()
-  } with strings = [], tags = [], hs_globals = [], closures = [] {
+  } with strings = [], tags = [], hs_globals = [], closures = [], max_call = 0 {
     visit_node(node) => {
       // Strings: extract from LConst(_, LString(s))
       let new_strings = match node {
@@ -179,7 +179,13 @@ fn collect_all(defs) =
         LMakeClosure(_, fn_def, _) => closures ++ [fn_def],
         _ => closures
       }
-      resume(()) with strings = new_strings, tags = new_tags, hs_globals = new_hs, closures = new_closures
+      // Max call arity: track highest arg count across all call sites
+      let new_max_call = match node {
+        LCall(_, _, args) => { let a = len(args); if a > max_call { a } else { max_call } },
+        LTailCall(_, _, args) => { let a = len(args); if a > max_call { a } else { max_call } },
+        _ => max_call
+      }
+      resume(()) with strings = new_strings, tags = new_tags, hs_globals = new_hs, closures = new_closures, max_call = new_max_call
     },
     visit_pat(pat) => {
       // Tags from patterns: extract from LPCon(name, _)
@@ -189,7 +195,7 @@ fn collect_all(defs) =
       }
       resume(()) with tags = new_tags
     },
-    get_collected() => resume((strings, tags, hs_globals, closures)),
+    get_collected() => resume((strings, tags, hs_globals, closures, max_call)),
   }
 
 // ─── String Utilities ───────────────────────────────────────

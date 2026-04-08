@@ -202,12 +202,14 @@ fn subst_empty() = []
 
 fn subst_set(subst, var_id, ty, reason) = [(var_id, ty, reason)] ++ subst
 
-fn subst_get(subst, var_id) = {
-  if len(subst) == 0 { (TVar(var_id), Fresh(var_id)) }
+fn subst_get(subst, var_id) = subst_get_at(subst, var_id, 0)
+
+fn subst_get_at(subst, var_id, i) = {
+  if i >= len(subst) { (TVar(var_id), Fresh(var_id)) }
   else {
-    let (k, v, r) = subst[0]
+    let (k, v, r) = subst[i]
     if k == var_id { (v, r) }
-    else { subst_get(slice(subst, 1, len(subst)), var_id) }
+    else { subst_get_at(subst, var_id, i + 1) }
   }
 }
 
@@ -233,17 +235,21 @@ fn apply(subst, ty) = match ty {
   TRecordOpen(fields, v) => TRecordOpen(apply_fields(subst, fields), v)
 }
 
-fn apply_fields(subst, fields) = {
-  if len(fields) == 0 { [] }
+fn apply_fields(subst, fields) = apply_fields_at(subst, fields, 0)
+
+fn apply_fields_at(subst, fields, i) = {
+  if i >= len(fields) { [] }
   else {
-    let (name, ty) = fields[0]
-    [(name, apply(subst, ty))] ++ apply_fields(subst, slice(fields, 1, len(fields)))
+    let (name, ty) = fields[i]
+    [(name, apply(subst, ty))] ++ apply_fields_at(subst, fields, i + 1)
   }
 }
 
-fn apply_list(subst, tys) = {
-  if len(tys) == 0 { [] }
-  else { [apply(subst, tys[0])] ++ apply_list(subst, slice(tys, 1, len(tys))) }
+fn apply_list(subst, tys) = apply_list_at(subst, tys, 0)
+
+fn apply_list_at(subst, tys, i) = {
+  if i >= len(tys) { [] }
+  else { [apply(subst, tys[i])] ++ apply_list_at(subst, tys, i + 1) }
 }
 
 // Get the reason WHY a type variable was bound to its current value

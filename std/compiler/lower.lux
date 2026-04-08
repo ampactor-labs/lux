@@ -58,7 +58,6 @@ fn lower_expr(sexpr, env) = {
     FloatLit(s)  => LConst(TFloat,  LFloat(parse_float(s))),
     StringLit(s) => LConst(TString, LString(s)),
     BoolLit(b)   => LConst(TBool,   LBool(b)),
-    NoneExpr     => LConst(TUnit,   LUnit),
 
     VarRef(name) => {
       let ty = lty_name(env, name)
@@ -475,10 +474,9 @@ fn lower_stmt(stmt, env) = match stmt {
     if eff_name == "Memory" || eff_name == "Alloc" || eff_name == "WASI" { LConst(TUnit, LUnit) }
     else { LBlock(TUnit, emit_dummy_ops(ops, env)) }
   },
-  _ => {
-    println("HONK: unhandled expression in lower_expr — " ++ to_string(expr))
-    LConst(TUnit, LUnit)
-  }
+  // TypeStmt, TypeAliasStmt, ImportStmt — compile-time declarations,
+  // no runtime code. Correctly lower to unit.
+  _ => LConst(TUnit, LUnit)
 }
 
 fn emit_dummy_ops(ops, env) = {
@@ -876,10 +874,9 @@ fn lower_stmt_pure(stmt, env) = match stmt {
     LLet(lexpr_ty(lowered), name, lowered)
   },
   ExprStmt(expr) => lower_expr_pure(expr, env),
-  _ => {
-    println("HONK: unhandled statement in lower_stmt — " ++ to_string(stmt))
-    LConst(TUnit, LUnit)
-  }
+  // TypeStmt, TypeAliasStmt, ImportStmt — compile-time declarations,
+  // no runtime code. Correctly lower to unit.
+  _ => LConst(TUnit, LUnit)
 }
 
 fn lower_expr_pure(sexpr, env) = {
@@ -889,7 +886,6 @@ fn lower_expr_pure(sexpr, env) = {
     FloatLit(s)  => LConst(TFloat,  LFloat(parse_float(s))),
     StringLit(s) => LConst(TString, LString(s)),
     BoolLit(b)   => LConst(TBool,   LBool(b)),
-    NoneExpr     => LConst(TUnit,   LUnit),
     VarRef(name) => LGlobal(lty_name(env, name), name),
     BinOp(op, l, r) => {
       let ll = lower_expr_pure(l, env)

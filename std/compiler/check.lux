@@ -117,12 +117,15 @@ fn unify_structure(subst, counter, a, b, context) = match a {
   _ => (false, subst, Because("type mismatch", context), counter)
 }
 
-fn unify_list(subst, counter, ts1, ts2, context) = {
-  if len(ts1) == 0 { (true, subst, context, counter) }
+fn unify_list(subst, counter, ts1, ts2, context) =
+  unify_list_at(subst, counter, ts1, ts2, context, 0)
+
+fn unify_list_at(subst, counter, ts1, ts2, context, i) = {
+  if i >= len(ts1) { (true, subst, context, counter) }
   else {
-    let (ok, s2, r, c2) = unify_types(subst, counter, ts1[0], ts2[0], context)
+    let (ok, s2, r, c2) = unify_types(subst, counter, ts1[i], ts2[i], context)
     if !ok { (false, s2, r, c2) }
-    else { unify_list(s2, c2, slice(ts1, 1, len(ts1)), slice(ts2, 1, len(ts2)), context) }
+    else { unify_list_at(s2, c2, ts1, ts2, context, i + 1) }
   }
 }
 
@@ -137,38 +140,45 @@ fn unify_record_fields(subst, counter, f1, f2, context) = {
   unify_sorted_fields(subst, counter, s1, s2, context)
 }
 
-fn unify_sorted_fields(subst, counter, f1, f2, context) = {
-  if len(f1) == 0 && len(f2) == 0 { (true, subst, context, counter) }
-  else { if len(f1) == 0 || len(f2) == 0 {
+fn unify_sorted_fields(subst, counter, f1, f2, context) =
+  unify_sorted_fields_at(subst, counter, f1, f2, context, 0)
+
+fn unify_sorted_fields_at(subst, counter, f1, f2, context, i) = {
+  if i >= len(f1) && i >= len(f2) { (true, subst, context, counter) }
+  else { if i >= len(f1) || i >= len(f2) {
     (false, subst, Because("record field count mismatch", context), counter)
   } else {
-    let (n1, t1) = f1[0]
-    let (n2, t2) = f2[0]
+    let (n1, t1) = f1[i]
+    let (n2, t2) = f2[i]
     if n1 == n2 {
       let (ok, s2, r, c2) = unify_types(subst, counter, t1, t2, Because("field '" ++ n1 ++ "'", context))
       if !ok { (false, s2, r, c2) }
-      else { unify_sorted_fields(s2, c2, slice(f1, 1, len(f1)), slice(f2, 1, len(f2)), context) }
+      else { unify_sorted_fields_at(s2, c2, f1, f2, context, i + 1) }
     } else {
       (false, subst, Because("record field mismatch: " ++ n1 ++ " vs " ++ n2, context), counter)
     }
   } }
 }
 
-fn sort_field_list(fields) = {
-  if len(fields) <= 1 { fields }
+fn sort_field_list(fields) = sort_field_list_from(fields, 0)
+
+fn sort_field_list_from(fields, i) = {
+  if i >= len(fields) { [] }
   else {
-    let rest = sort_field_list(slice(fields, 1, len(fields)))
-    insert_field_by_name(fields[0], rest)
+    let rest = sort_field_list_from(fields, i + 1)
+    insert_field_by_name(fields[i], rest)
   }
 }
 
-fn insert_field_by_name(field, sorted) = {
-  if len(sorted) == 0 { [field] }
+fn insert_field_by_name(field, sorted) = insert_field_at(field, sorted, 0)
+
+fn insert_field_at(field, sorted, i) = {
+  if i >= len(sorted) { [field] }
   else {
     let (fa, _) = field
-    let (fb, _) = sorted[0]
-    if fa < fb { [field] ++ sorted }
-    else { [sorted[0]] ++ insert_field_by_name(field, slice(sorted, 1, len(sorted))) }
+    let (fb, _) = sorted[i]
+    if fa < fb { [field] ++ slice(sorted, i, len(sorted)) }
+    else { [sorted[i]] ++ insert_field_at(field, sorted, i + 1) }
   }
 }
 
@@ -190,26 +200,35 @@ fn resolve_type(subst, eff_subst, ty) = match apply(subst, ty) {
   other => other
 }
 
-fn resolve_record_fields(subst, eff_subst, fields) = {
-  if len(fields) == 0 { [] }
+fn resolve_record_fields(subst, eff_subst, fields) =
+  resolve_record_fields_at(subst, eff_subst, fields, 0)
+
+fn resolve_record_fields_at(subst, eff_subst, fields, i) = {
+  if i >= len(fields) { [] }
   else {
-    let (name, ty) = fields[0]
+    let (name, ty) = fields[i]
     [(name, resolve_type(subst, eff_subst, ty))]
-      ++ resolve_record_fields(subst, eff_subst, slice(fields, 1, len(fields)))
+      ++ resolve_record_fields_at(subst, eff_subst, fields, i + 1)
   }
 }
 
-fn resolve_type_list(subst, eff_subst, tys) = {
-  if len(tys) == 0 { [] }
-  else { [resolve_type(subst, eff_subst, tys[0])] ++ resolve_type_list(subst, eff_subst, slice(tys, 1, len(tys))) }
+fn resolve_type_list(subst, eff_subst, tys) =
+  resolve_type_list_at(subst, eff_subst, tys, 0)
+
+fn resolve_type_list_at(subst, eff_subst, tys, i) = {
+  if i >= len(tys) { [] }
+  else { [resolve_type(subst, eff_subst, tys[i])] ++ resolve_type_list_at(subst, eff_subst, tys, i + 1) }
 }
 
-fn resolve_env(env, subst, eff_subst) = {
-  if len(env) == 0 { [] }
+fn resolve_env(env, subst, eff_subst) =
+  resolve_env_at(env, subst, eff_subst, 0)
+
+fn resolve_env_at(env, subst, eff_subst, i) = {
+  if i >= len(env) { [] }
   else {
-    let (name, ty, reason) = env[0]
+    let (name, ty, reason) = env[i]
     [(name, resolve_type(subst, eff_subst, ty), reason)]
-      ++ resolve_env(slice(env, 1, len(env)), subst, eff_subst)
+      ++ resolve_env_at(env, subst, eff_subst, i + 1)
   }
 }
 
@@ -343,14 +362,16 @@ fn needs_instantiation(ty, reason) = {
 // Forward-reference prescan: bind FnStmt names with fresh types
 // so functions can reference each other regardless of definition order.
 // Uses the same Infer effect — no separate mechanism.
-fn prescan_fns(stmts) with Infer = {
-  if len(stmts) > 0 {
-    let s = to_string(stmts[0])
+fn prescan_fns(stmts) with Infer = prescan_fns_at(stmts, 0)
+
+fn prescan_fns_at(stmts, i) with Infer = {
+  if i < len(stmts) {
+    let s = to_string(stmts[i])
     if starts_with(s, "FnStmt(") {
-      let name = stmts[0][0]
+      let name = stmts[i][0]
       bind(name, fresh(), Inferred("forward declaration"))
     } else { () }
-    prescan_fns(slice(stmts, 1, len(stmts)))
+    prescan_fns_at(stmts, i + 1)
   } else { () }
 }
 

@@ -42,7 +42,6 @@ type Expr
   | ResumeExpr(Expr, List)
   | RecordExpr(List)
   | StringInterp(List)
-  | NoneExpr
 
 // Match arm: (pattern, body)
 type Pat
@@ -355,7 +354,10 @@ fn parse_atom(tokens, p) = {
   else { if typ == "False" { (sp(BoolLit(false), tokens, p), p + 1) }
   else { if typ == "Ident" { (sp(VarRef(val), tokens, p), p + 1) }
   else { if typ == "InterpStart" { parse_string_interp(tokens, p + 1) }
-  else { (sp(NoneExpr, tokens, p), p + 1) } } } } } } }
+  else {
+    let sentinel = unexpected("atom", typ, tok_line(tokens, p), tok_col(tokens, p))
+    (sp(sentinel, tokens, p), p + 1)
+  } } } } } } }
 }
 
 // Parse string interpolation: collect parts until InterpEnd
@@ -672,7 +674,7 @@ fn parse_pattern(tokens, pos) = {
         let first = chars(val)[0]
         let code = char_code(first)
         if code >= 65 && code <= 90 {
-          (PCon(val, []), p2)  // bare constructor like NoneExpr, True, etc.
+          (PCon(val, []), p2)  // bare constructor like True, Some, etc.
         } else {
           (PVar(val), p2)
         }
@@ -760,16 +762,15 @@ fn wrap_destructure(patterns, body, tokens, pos) = {
 }
 
 // Primary expression → Expr
-// Dispatch on token type via helper to avoid deep nesting
+// Atoms (literals, identifiers) go to parse_atom.
+// Structured forms (braces, parens, if, match, etc.) go to parse_dispatch.
 fn parse_primary(tokens, pos) = {
   let p = skip_ws(tokens, pos);
   let typ = tok_type(tokens, p);
-  let (atom, ap) = parse_atom(tokens, p);
-  // Unwrap S to check for NoneExpr (Rust VM doesn't support nested patterns)
-  let S(inner, _, _) = atom;
-  match inner {
-    NoneExpr => parse_dispatch(tokens, p, typ),
-    _ => (atom, ap),
+  if typ == "Int" || typ == "Float" || typ == "String" || typ == "True" || typ == "False" || typ == "Ident" || typ == "InterpStart" {
+    parse_atom(tokens, p)
+  } else {
+    parse_dispatch(tokens, p, typ)
   }
 }
 

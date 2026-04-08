@@ -38,8 +38,6 @@ fn infer(sexpr) with Infer, Diagnostic = {
     FloatLit(_)  => TFloat,
     StringLit(_) => TString,
     BoolLit(_)   => TBool,
-    NoneExpr     => { report("", "warning", "unparsed expression treated as ()", line, col); TUnit },
-
     VarRef(name) => lookup(name),
 
     BinOp(op, left, right) => infer_binop(op, left, right),
@@ -167,7 +165,14 @@ fn infer(sexpr) with Infer, Diagnostic = {
         TRecord(fields) => collect_absorbed_from_names(extract_record_field_names(fields)),
         _ => []
       }
-      track_effect(subtract_effects(body_effs, absorbed))
+      let residual = subtract_effects(body_effs, absorbed)
+      // Effect cancellation: perform(E) + handle(E) = Pure.
+      // Only close when ALL named effects absorbed — row variable may carry unknowns otherwise.
+      let net = match residual {
+        EfOpen([], _) => EfPure,
+        _ => residual
+      }
+      track_effect(net)
       resolve(body_ty)
     },
 

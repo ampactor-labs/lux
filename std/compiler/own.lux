@@ -118,7 +118,6 @@ fn walk_expr(sexpr, own_params, used) = {
   FloatLit(_) => (used, []),
   StringLit(_) => (used, []),
   BoolLit(_) => (used, []),
-  NoneExpr => (used, []),
 
   BinOp(_, left, right) => {
     let (u1, v1) = walk_expr(left, own_params, used)

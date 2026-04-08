@@ -152,13 +152,33 @@ fn collect_free_list(sexprs, bound) = {
   else { string_union(collect_free(sexprs[0], bound), collect_free_list(slice(sexprs, 1, len(sexprs)), bound)) }
 }
 
-// Stmts: each let/fn binding extends the bound set for subsequent stmts
+// Stmts: each let/fn binding extends the bound set for subsequent stmts.
+// Inner functions can reference siblings defined later (mutual recursion).
+// These forward references are free from the inner function's perspective
+// (it needs them as captures) but NOT free from the enclosing scope
+// (they're defined here). Pre-scan FnStmt names and subtract them from
+// the returned free set so they don't propagate up.
 fn collect_free_stmts(stmts, bound) = {
-  if len(stmts) == 0 { ([], bound) }
+  let fn_names = prescan_fn_names(stmts, 0)
+  let (refs, final_bound) = collect_free_stmts_at(stmts, bound, 0)
+  (filter_out(refs, fn_names, 0), final_bound)
+}
+
+fn prescan_fn_names(stmts, i) = {
+  if i >= len(stmts) { [] }
   else {
-    let stmt = stmts[0]
-    let (here, new_bound) = collect_free_stmt(stmt, bound)
-    let (rest, final_bound) = collect_free_stmts(slice(stmts, 1, len(stmts)), new_bound)
+    let rest = prescan_fn_names(stmts, i + 1)
+    let s = to_string(stmts[i])
+    if starts_with(s, "FnStmt(") { [stmts[i][0]] ++ rest }
+    else { rest }
+  }
+}
+
+fn collect_free_stmts_at(stmts, bound, i) = {
+  if i >= len(stmts) { ([], bound) }
+  else {
+    let (here, new_bound) = collect_free_stmt(stmts[i], bound)
+    let (rest, final_bound) = collect_free_stmts_at(stmts, new_bound, i + 1)
     (string_union(here, rest), final_bound)
   }
 }

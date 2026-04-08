@@ -42,6 +42,7 @@ pub enum VmValue {
 }
 
 // Compile-time assertion: VmValue must be Send for parallel prism.
+#[allow(dead_code)]
 const _: () = {
     fn assert_send<T: Send>() {}
     fn check() {

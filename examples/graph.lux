@@ -1,0 +1,336 @@
+// ─── Graph as Effects, Handlers, and Structures ────────────────
+//
+// A graph is three things:
+//   topology  — what connects     → an effect (neighbors)
+//   traversal — what order        → handler-local state (visited)
+//   observation — what to compute → a handler (visit strategy)
+//
+// The compiler already does this. type_walk.lux IS graph traversal
+// via effects. This example makes the pattern explicit.
+
+// ═══════════════════════════════════════════════════════════════
+// Section 1: The Graph Effect
+// ═══════════════════════════════════════════════════════════════
+//
+// The topology is not a data structure. It's an effect.
+// "Who are my neighbors?" is a question the handler answers.
+
+effect Graph {
+  neighbors(node: Int) -> List
+}
+
+effect Visit {
+  enter(node: Int) -> Bool
+  get_visited() -> List
+}
+
+// ─── Helpers ─────────────────────────────────────────────────
+// Adjacency list lookup
+fn lookup_adj(adj, node) = {
+  fn go(i) = if i >= len(adj) { [] }
+    else { if adj[i][0] == node { adj[i][1] } else { go(i + 1) } }
+  go(0)
+}
+
+// Membership check
+fn member(x, xs) = any(|a| a == x, xs)
+
+// ═══════════════════════════════════════════════════════════════
+// Section 2: DFS — Traversal as Handler-Local State
+// ═══════════════════════════════════════════════════════════════
+//
+// The traversal logic is pure. It asks "neighbors?" and "visited?"
+// The handler answers both — and tracks state across resumes.
+//
+// Top-level mutually recursive functions: dfs_step visits a node,
+// dfs_walk iterates its neighbors.
+
+fn dfs_walk(ns, i) with Graph, Visit =
+  if i >= len(ns) { () }
+  else { dfs_step(ns[i]); dfs_walk(ns, i + 1) }
+
+fn dfs_step(node) with Graph, Visit = {
+  let seen = enter(node)
+  if seen { () }
+  else {
+    let ns = neighbors(node)
+    dfs_walk(ns, 0)
+  }
+}
+
+fn dfs(start) with Graph, Visit = {
+  dfs_step(start);
+  get_visited()
+}
+
+println("═══ Graph as Effects ═══")
+println("")
+println("── Section 2: DFS Traversal ──")
+
+// A small graph:
+//   0 → 1, 2
+//   1 → 3
+//   2 → 3, 4
+//   3 →
+//   4 →
+let adj = [(0, [1, 2]), (1, [3]), (2, [3, 4]), (3, []), (4, [])]
+
+let order = handle dfs(0) with visited = [] {
+  neighbors(node) => resume(lookup_adj(adj, node)),
+  enter(node) => {
+    if member(node, visited) { resume(true) }
+    else { resume(false) with visited = visited ++ [node] }
+  },
+  get_visited() => resume(visited)
+}
+
+println("  graph: 0→[1,2] 1→[3] 2→[3,4]")
+println("  DFS from 0: " ++ to_string(order))
+
+
+// ═══════════════════════════════════════════════════════════════
+// Section 3: Growing Graph — State Evolves Across Resumes
+// ═══════════════════════════════════════════════════════════════
+//
+// The graph itself grows through handler-local state.
+// add_edge is an effect. The handler's state IS the adjacency list.
+// resume(()) with edges = new_edges — the graph grows with each resume.
+//
+// This is exactly what the checker's substitution does:
+//   resume(()) with state = (n, new_subst, ...)
+// The substitution IS a growing graph of type variable bindings.
+
+println("")
+println("── Section 3: Growing Graph ──")
+
+effect Build {
+  add_edge(from: Int, to: Int) -> ()
+  get_graph() -> List
+}
+
+fn build_diamond() with Build = {
+  //   0
+  //  / \
+  // 1   2
+  //  \ /
+  //   3
+  add_edge(0, 1)
+  add_edge(0, 2)
+  add_edge(1, 3)
+  add_edge(2, 3)
+  get_graph()
+}
+
+let built = handle build_diamond() with edges = [] {
+  add_edge(from, to) => {
+    let existing = find(|e| e[0] == from, edges)
+    let new_edges = if len(existing) > 0 {
+      map(|e| if e[0] == from { (e[0], e[1] ++ [to]) } else { e }, edges)
+    } else {
+      edges ++ [(from, [to])]
+    }
+    resume(()) with edges = new_edges
+  },
+  get_graph() => resume(edges)
+}
+
+println("  built diamond: " ++ to_string(built))
+
+// Now traverse the graph we just built — same DFS, different topology
+let diamond_order = handle dfs(0) with visited = [] {
+  neighbors(node) => resume(lookup_adj(built, node)),
+  enter(node) => {
+    if member(node, visited) { resume(true) }
+    else { resume(false) with visited = visited ++ [node] }
+  },
+  get_visited() => resume(visited)
+}
+
+println("  DFS of built diamond: " ++ to_string(diamond_order))
+
+
+// ═══════════════════════════════════════════════════════════════
+// Section 4: Multiple Topologies — Same DFS, Different Handlers
+// ═══════════════════════════════════════════════════════════════
+//
+// The thesis: topology IS the handler. Same dfs(). Three handlers.
+// Three different graph shapes. Same traversal code.
+//
+// Same insight as: same apply(), three substitution backends.
+
+println("")
+println("── Section 4: Multiple Topologies ──")
+
+// Topology A: linear chain  0 → 1 → 2 → 3 → 4
+let chain = [(0, [1]), (1, [2]), (2, [3]), (3, [4]), (4, [])]
+
+// Topology B: star from center  0 → [1,2,3,4]
+let star = [(0, [1, 2, 3, 4]), (1, []), (2, []), (3, []), (4, [])]
+
+// Topology C: binary tree
+//       0
+//      / \
+//     1   2
+//    / \
+//   3   4
+let tree = [(0, [1, 2]), (1, [3, 4]), (2, []), (3, []), (4, [])]
+
+fn run_dfs(topology, start) =
+  handle dfs(start) with visited = [] {
+    neighbors(node) => resume(lookup_adj(topology, node)),
+    enter(node) => {
+      if member(node, visited) { resume(true) }
+      else { resume(false) with visited = visited ++ [node] }
+    },
+    get_visited() => resume(visited)
+  }
+
+let chain_order = run_dfs(chain, 0)
+let star_order = run_dfs(star, 0)
+let tree_order = run_dfs(tree, 0)
+
+println("  chain: " ++ to_string(chain_order))
+println("  star:  " ++ to_string(star_order))
+println("  tree:  " ++ to_string(tree_order))
+
+
+// ═══════════════════════════════════════════════════════════════
+// Section 5: Strategy Pipe ~> — Handlers as Values
+// ═══════════════════════════════════════════════════════════════
+//
+// ~> wires a handler onto a computation. The topology becomes
+// a pluggable strategy. The computation says WHAT (traverse),
+// the handler says HOW (what topology, what tracking).
+
+println("")
+println("── Section 5: Strategy Pipe ~> ──")
+
+// Topology handlers as values — plug in via ~>
+let chain_topo = { neighbors: |node| resume(lookup_adj(chain, node)) }
+let star_topo = { neighbors: |node| resume(lookup_adj(star, node)) }
+let tree_topo = { neighbors: |node| resume(lookup_adj(tree, node)) }
+
+// ~> handles Graph; outer handle{} tracks Visit state
+let chain_via_pipe = handle {
+  dfs(0) ~> chain_topo
+} with visited = [] {
+  enter(node) => {
+    if member(node, visited) { resume(true) }
+    else { resume(false) with visited = visited ++ [node] }
+  },
+  get_visited() => resume(visited)
+}
+
+let star_via_pipe = handle {
+  dfs(0) ~> star_topo
+} with visited = [] {
+  enter(node) => {
+    if member(node, visited) { resume(true) }
+    else { resume(false) with visited = visited ++ [node] }
+  },
+  get_visited() => resume(visited)
+}
+
+let tree_via_pipe = handle {
+  dfs(0) ~> tree_topo
+} with visited = [] {
+  enter(node) => {
+    if member(node, visited) { resume(true) }
+    else { resume(false) with visited = visited ++ [node] }
+  },
+  get_visited() => resume(visited)
+}
+
+println("  chain ~>: " ++ to_string(chain_via_pipe))
+println("  star  ~>: " ++ to_string(star_via_pipe))
+println("  tree  ~>: " ++ to_string(tree_via_pipe))
+
+
+// ═══════════════════════════════════════════════════════════════
+// Section 6: Fan-Out Analysis with <|
+// ═══════════════════════════════════════════════════════════════
+//
+// Same pattern as signal <| (fft, rms, peaks) in DSP.
+// One graph, multiple queries. Same as wasm_collect.lux's
+// supercollector — one walk, four results.
+
+println("")
+println("── Section 6: Fan-Out Analysis ──")
+
+fn reachable_count(topology, start) = len(run_dfs(topology, start))
+
+fn bfs_depth(topology, frontier, seen, depth) = {
+  let new_frontier = fold(frontier, [], |acc, node|
+    fold(lookup_adj(topology, node), acc, |a, neighbor|
+      if member(neighbor, seen) { a } else { a ++ [neighbor] }))
+  let new_seen = fold(new_frontier, seen, |s, n| s ++ [n])
+  if len(new_frontier) == 0 { depth }
+  else { bfs_depth(topology, new_frontier, new_seen, depth + 1) }
+}
+
+fn max_depth(topology, start) = bfs_depth(topology, [start], [start], 0)
+
+fn edge_count(topology) = fold(topology, 0, |acc, entry| acc + len(entry[1]))
+
+// One graph, three analyses — fan out
+let (reach, depth, edges) = tree <| (
+  |t| reachable_count(t, 0),
+  |t| max_depth(t, 0),
+  |t| edge_count(t)
+)
+
+println("  tree analysis:")
+println("    reachable from 0: " ++ to_string(reach))
+println("    max depth: " ++ to_string(depth))
+println("    edge count: " ++ to_string(edges))
+
+
+// ═══════════════════════════════════════════════════════════════
+// Section 7: The Reveal
+// ═══════════════════════════════════════════════════════════════
+//
+// Everything above already exists in the compiler. This example
+// made the implicit explicit.
+//
+// type_walk.lux — graph of types.
+//   TypeVisit = observation effect. walk_type = structure.
+//   Handler = what to compute (occurs check, substitution, etc.)
+//   THIS FILE IS graph.lux FOR TYPES.
+//
+// lowir_walk.lux — graph of IR nodes.
+//   LowIRVisit = observation effect. walk_lowir = structure.
+//   Same pattern. Different graph. Same mechanism.
+//
+// wasm_collect.lux — supercollector.
+//   One walk over the IR. Four results (strings, fns, variants,
+//   handler globals). One handler, four accumulators.
+//   That's Section 6's fan-out on a compiler data structure.
+//
+// check.lux — the substitution IS a growing graph.
+//   resume(()) with state = (n, new_subst, ...) IS add_edge.
+//   apply() IS DFS. subst_get() IS neighbors().
+//   occurs() IS cycle detection.
+//   Section 3's growing graph IS what the checker does.
+//
+// reactive_streams.lux — graph of events flowing through time.
+//   Stream.emit = edge. Handler = subscriber.
+//
+// kv_store.lux — graph of key-value relationships.
+//   Handler = storage backend.
+//
+// One mechanism. Everything is a graph.
+// Every graph is effects + handlers.
+
+println("")
+println("─── The Reveal ───")
+println("")
+println("This example already exists in the compiler.")
+println("type_walk.lux IS graph.lux for types.")
+println("lowir_walk.lux IS graph.lux for IR.")
+println("wasm_collect.lux IS Section 6 — one walk, four results.")
+println("check.lux's substitution IS Section 3 — a growing graph.")
+println("")
+println("The topology IS the handler.")
+println("The traversal IS handler-local state.")
+println("The observation IS the effect.")
+println("One mechanism. Every graph.")

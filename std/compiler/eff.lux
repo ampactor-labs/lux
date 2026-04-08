@@ -37,9 +37,11 @@ fn list_union(a, b) = {
   }
 }
 
-fn list_contains(lst, item) = {
-  if len(lst) == 0 { false }
-  else { if lst[0] == item { true } else { list_contains(slice(lst, 1, len(lst)), item) }
+fn list_contains(lst, item) = list_contains_at(lst, item, 0)
+
+fn list_contains_at(lst, item, i) = {
+  if i >= len(lst) { false }
+  else { if lst[i] == item { true } else { list_contains_at(lst, item, i + 1) }
   }
 }
 
@@ -55,12 +57,14 @@ fn eff_subst_empty() = []
 
 fn eff_subst_set(esubst, var_id, row) = [(var_id, row)] ++ esubst
 
-fn eff_subst_get(esubst, var_id) = {
-  if len(esubst) == 0 { EfOpen([], var_id) }
+fn eff_subst_get(esubst, var_id) = eff_subst_get_at(esubst, var_id, 0)
+
+fn eff_subst_get_at(esubst, var_id, i) = {
+  if i >= len(esubst) { EfOpen([], var_id) }
   else {
-    let (k, v) = esubst[0]
+    let (k, v) = esubst[i]
     if k == var_id { v }
-    else { eff_subst_get(slice(esubst, 1, len(esubst)), var_id) }
+    else { eff_subst_get_at(esubst, var_id, i + 1) }
   }
 }
 
@@ -153,19 +157,23 @@ fn unify_eff(esubst, e1, e2) = {
 }
 
 // Set operations for effect name lists
-fn list_subset(a, b) = {
-  if len(a) == 0 { true }
+fn list_subset(a, b) = list_subset_at(a, b, 0)
+
+fn list_subset_at(a, b, i) = {
+  if i >= len(a) { true }
   else {
-    if list_contains(b, a[0]) { list_subset(slice(a, 1, len(a)), b) }
+    if list_contains(b, a[i]) { list_subset_at(a, b, i + 1) }
     else { false }
   }
 }
 
-fn list_diff(a, b) = {
-  if len(a) == 0 { [] }
+fn list_diff(a, b) = list_diff_at(a, b, 0)
+
+fn list_diff_at(a, b, i) = {
+  if i >= len(a) { [] }
   else {
-    let item = a[0]
-    let rest = list_diff(slice(a, 1, len(a)), b)
+    let item = a[i]
+    let rest = list_diff_at(a, b, i + 1)
     if list_contains(b, item) { rest }
     else { [item] ++ rest }
   }
@@ -202,24 +210,26 @@ fn check_effect_constraints(fn_name, body_effs, declared, esubst) = {
   }
 }
 
-fn check_each_constraint(fn_name, body_effs, constraints) = {
-  if len(constraints) == 0 { [] }
+fn check_each_constraint(fn_name, body_effs, constraints) =
+  check_each_constraint_at(fn_name, body_effs, constraints, 0)
+
+fn check_each_constraint_at(fn_name, body_effs, constraints, i) = {
+  if i >= len(constraints) { [] }
   else {
-    let (eff_name, negated) = constraints[0]
-    let rest = slice(constraints, 1, len(constraints))
+    let (eff_name, negated) = constraints[i]
     if negated {
       let present = effect_in_row(eff_name, body_effs)
       if present {
-        [EffNegationViolated(fn_name, eff_name)] ++ check_each_constraint(fn_name, body_effs, rest)
+        [EffNegationViolated(fn_name, eff_name)] ++ check_each_constraint_at(fn_name, body_effs, constraints, i + 1)
       } else {
         match body_effs {
           EfOpen(_, _) =>
-            [EffOpenRowNegation(fn_name, eff_name)] ++ check_each_constraint(fn_name, body_effs, rest),
-          _ => check_each_constraint(fn_name, body_effs, rest)
+            [EffOpenRowNegation(fn_name, eff_name)] ++ check_each_constraint_at(fn_name, body_effs, constraints, i + 1),
+          _ => check_each_constraint_at(fn_name, body_effs, constraints, i + 1)
         }
       }
     } else {
-      check_each_constraint(fn_name, body_effs, rest)
+      check_each_constraint_at(fn_name, body_effs, constraints, i + 1)
     }
   }
 }
@@ -230,24 +240,27 @@ fn effect_in_row(name, row) = match row {
   EfOpen(effs, _) => list_contains(effs, name)
 }
 
-fn any_pure(declared) = {
-  if len(declared) == 0 { false }
+fn any_pure(declared) = any_pure_at(declared, 0)
+
+fn any_pure_at(declared, i) = {
+  if i >= len(declared) { false }
   else {
-    let (name, negated) = declared[0]
+    let (name, negated) = declared[i]
     if name == "Pure" { true }
-    else { any_pure(slice(declared, 1, len(declared))) }
+    else { any_pure_at(declared, i + 1) }
   }
 }
 
-fn apply_negations(effs, declared) = {
-  if len(declared) == 0 { effs }
+fn apply_negations(effs, declared) = apply_negations_at(effs, declared, 0)
+
+fn apply_negations_at(effs, declared, i) = {
+  if i >= len(declared) { effs }
   else {
-    let (name, negated) = declared[0]
-    let rest = slice(declared, 1, len(declared))
+    let (name, negated) = declared[i]
     if negated {
-      apply_negations(remove_effect(effs, name), rest)
+      apply_negations_at(remove_effect(effs, name), declared, i + 1)
     } else {
-      apply_negations(effs, rest)
+      apply_negations_at(effs, declared, i + 1)
     }
   }
 }
@@ -261,9 +274,11 @@ fn remove_effect(row, name) = match row {
 // Effect subtraction over a list: E - [F1, F2, ...] = ((E - F1) - F2) - ...
 // This IS the algebra applied sequentially. Handle absorption uses this:
 // handle { body with E } { arms for F } has effects (E - F).
-fn remove_effects(row, names) = {
-  if len(names) == 0 { row }
-  else { remove_effects(remove_effect(row, names[0]), slice(names, 1, len(names))) }
+fn remove_effects(row, names) = remove_effects_at(row, names, 0)
+
+fn remove_effects_at(row, names, i) = {
+  if i >= len(names) { row }
+  else { remove_effects_at(remove_effect(row, names[i]), names, i + 1) }
 }
 
 // Extract effect names present in a row (for display/teaching).
@@ -273,8 +288,4 @@ fn effect_names(row) = match row {
   EfOpen(es, _) => es
 }
 
-fn join(strs, sep) = {
-  if len(strs) == 0 { "" }
-  else { if len(strs) == 1 { strs[0] }
-  else { strs[0] ++ sep ++ join(slice(strs, 1, len(strs)), sep) }}
-}
+// join is in prelude — no duplicate needed

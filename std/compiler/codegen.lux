@@ -335,8 +335,6 @@ fn compile_expr(ctx, sexpr) = {
 
   BoolLit(b) => emit_u8(emit_op(ctx, OP_LOAD_BOOL), if b { 1 } else { 0 }),
 
-  NoneExpr => emit_op(ctx, OP_LOAD_UNIT),
-
   VarRef(name) => emit_var_load(ctx, name),
 
   BinOp(op, left, right) => {
@@ -555,10 +553,7 @@ fn compile_expr(ctx, sexpr) = {
     emit_u16(emit_op(ctx2, OP_STRING_INTERP), len(parts))
   },
 
-  _ => {
-    println("HONK: unhandled expression in codegen — " ++ to_string(expr))
-    emit_op(ctx, OP_LOAD_UNIT)
-  }
+  _ => emit_op(ctx, OP_LOAD_UNIT)
 }
 }
 

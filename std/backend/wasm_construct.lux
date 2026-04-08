@@ -73,6 +73,48 @@ fn emit_closure_capture_stores(n_caps, idx) = {
   }
 }
 
+// ─── Forward Sibling Closure Patching ───────────────────────
+// After a LLet(name, ...) is emitted, scan previous siblings for closures
+// that captured `name`. If found, patch their capture slot with the now-
+// defined value. Same mechanism as self-reference patching — generalized
+// to sibling forward references.
+
+fn emit_sibling_patches(current_stmt, all_stmts, current_idx, params, locals, ctx) = {
+  match current_stmt {
+    LLet(_, name, _) => patch_previous_siblings(name, all_stmts, current_idx, 0, params, locals, ctx),
+    _ => ()
+  }
+}
+
+fn patch_previous_siblings(name, stmts, current_idx, i, params, locals, ctx) = {
+  if i >= current_idx { () }
+  else {
+    match stmts[i] {
+      LLet(_, sibling_name, value) => {
+        match value {
+          LMakeClosure(_, _, captures) => {
+            let cap_idx = find_self_capture(captures, name, 0)
+            if cap_idx >= 0 {
+              let is_local = string_in(locals, sibling_name, 0) || find_param_idx(params, sibling_name, 0) >= 0
+              let sib_getter = if is_local { "    local.get $" } else { if string_in(ctx_globals(ctx), sibling_name, 0) { "    global.get $" } else { "    local.get $" } }
+              let val_getter = if string_in(locals, name, 0) || find_param_idx(params, name, 0) >= 0 { "    local.get $" } else { if string_in(ctx_globals(ctx), name, 0) { "    global.get $" } else { "    local.get $" } }
+              let offset = (2 + cap_idx) * 4
+              out(sib_getter ++ sibling_name ++ NL
+              ++ "    i32.const " ++ to_string(offset) ++ NL
+              ++ "    i32.add" ++ NL
+              ++ val_getter ++ name ++ NL
+              ++ "    i32.store" ++ NL)
+            } else { () }
+          },
+          _ => ()
+        }
+      },
+      _ => ()
+    }
+    patch_previous_siblings(name, stmts, current_idx, i + 1, params, locals, ctx)
+  }
+}
+
 // ─── Tuple/List Construction ────────────────────────────────
 
 fn emit_make_tuple(elems, params, locals, ctx) = {

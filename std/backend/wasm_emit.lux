@@ -36,15 +36,15 @@ fn ctx_type_env(ctx)= ctx[4]
 // ─── Module Structure ───────────────────────────────────────
 
 fn emit_module(defs, type_map) = {
-  // One walk. Four results. Zero repeated tree structure.
-  let (all_strings, tag_map, all_hs_globals, all_closures) = collect_all(defs)
+  // One walk. Five results. Zero repeated tree structure.
+  let (all_strings, tag_map, all_hs_globals, all_closures, call_max) = collect_all(defs)
   let fns = dedup_fns(all_closures)
   let top_stmts = collect_top_stmts(defs, 0)
   let top_globals = string_union(collect_top_let_names(top_stmts, 0), all_hs_globals)
   let string_map = assign_offsets(all_strings, 0, 1024)
   let heap_start = string_heap_end(string_map, 0, 1024)
   let fn_table = collect_fn_names(fns, 0)
-  let max_arity = max_fn_arity(fns, 0)
+  let max_arity = max(max_fn_arity(fns, 0), call_max)
   let ctx = (string_map, tag_map, fn_table, top_globals, type_map)
 
   // The WasmOut effect: every out() call prints immediately.
@@ -343,6 +343,7 @@ fn emit_stmts_value(stmts, idx, params, locals, ctx) = {
       emit_expr(stmts[idx], params, locals, ctx)
     } else {
       emit_stmt(stmts[idx], params, locals, ctx)
+      emit_sibling_patches(stmts[idx], stmts, idx, params, locals, ctx)
       emit_stmts_value(stmts, idx + 1, params, locals, ctx)
     }
   }
@@ -353,6 +354,7 @@ fn emit_stmts_void(stmts, idx, params, locals, ctx) = {
   if idx >= len(stmts) { () }
   else {
     emit_stmt(stmts[idx], params, locals, ctx)
+    emit_sibling_patches(stmts[idx], stmts, idx, params, locals, ctx)
     emit_stmts_void(stmts, idx + 1, params, locals, ctx)
   }
 }
