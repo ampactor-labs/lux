@@ -555,7 +555,10 @@ fn compile_expr(ctx, sexpr) = {
     emit_u16(emit_op(ctx2, OP_STRING_INTERP), len(parts))
   },
 
-  _ => emit_op(ctx, OP_LOAD_UNIT)
+  _ => {
+    println("HONK: unhandled expression in codegen — " ++ to_string(expr))
+    emit_op(ctx, OP_LOAD_UNIT)
+  }
 }
 }
 

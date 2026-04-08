@@ -475,7 +475,10 @@ fn lower_stmt(stmt, env) = match stmt {
     if eff_name == "Memory" || eff_name == "Alloc" || eff_name == "WASI" { LConst(TUnit, LUnit) }
     else { LBlock(TUnit, emit_dummy_ops(ops, env)) }
   },
-  _ => LConst(TUnit, LUnit)
+  _ => {
+    println("HONK: unhandled expression in lower_expr — " ++ to_string(expr))
+    LConst(TUnit, LUnit)
+  }
 }
 
 fn emit_dummy_ops(ops, env) = {
@@ -873,7 +876,10 @@ fn lower_stmt_pure(stmt, env) = match stmt {
     LLet(lexpr_ty(lowered), name, lowered)
   },
   ExprStmt(expr) => lower_expr_pure(expr, env),
-  _ => LConst(TUnit, LUnit)
+  _ => {
+    println("HONK: unhandled statement in lower_stmt — " ++ to_string(stmt))
+    LConst(TUnit, LUnit)
+  }
 }
 
 fn lower_expr_pure(sexpr, env) = {
