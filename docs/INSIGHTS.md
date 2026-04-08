@@ -286,6 +286,80 @@ purpose and was surpassed by the thing it helped create.
 
 ---
 
+## Examples, Not Tests
+
+Lux doesn't have tests. It has examples. An example that runs is a proof.
+An example that crashes is a bug report. There is no third thing.
+
+A test framework gives you setup, mock, assert, teardown. `handle` is all
+four: handler-local state is setup, the handler body is the mock, the return
+value is the assertion, `resume` is teardown. A test framework would be a
+second mechanism for something the language already does.
+
+*Example-Driven Development* is the gradient applied to creation itself.
+Writing an example IS feeding knowledge to the compiler. The example IS the
+specification. The filesystem IS the test suite:
+
+```bash
+for f in examples/*.lux; do lux "$f" && echo "OK" || echo "FAIL"; done
+```
+
+---
+
+## Records, Not Packages
+
+A handler is a record: `{ op: |args| resume(...), ... }`. A module exports
+functions. Functions are values. A "package" is a record you import by path.
+
+```lux
+import compiler/ty    // gives you a record of functions
+import dsp/filters    // gives you a record of functions
+```
+
+The effect signature IS the API contract. `!IO` is a proof, not a promise.
+`!Network` means provably no network access — enforced by the type system,
+not a sandbox, not a policy file. A module with `with Compute, Log`
+literally cannot perform IO. The compiler proves it.
+
+What a package manager solves, Lux solves with what it already has:
+- **Discovery** — the effect signature tells you what a module does
+- **Trust** — `!IO` is a proof, not a promise
+- **Versioning** — types match → it works; types don't → compile error
+- **Resolution** — `import` is a path; paths compose; no solver needed
+
+Distribution is `git clone`. Not a language feature.
+
+---
+
+## Incremental Compilation: Purity Enables Caching
+
+The checker is Pure — the Diagnostic effect makes it externally pure. Pure
+function, same input → same output. **Cache it.**
+
+If a module's source hasn't changed and its imports haven't changed, its
+checked environment is identical. A `Cache` handler wrapping `check_program`
+— same mechanism as everything else. Not file-timestamp heuristics. Not
+dependency graphs maintained by a build system. The compiler knows what's
+pure because it proves purity. Let it use that knowledge for its own build.
+
+```lux
+handler cached_check: CompilerPipeline {
+  infer(ast) => {
+    let key = hash(ast)
+    match cache_lookup(key) {
+      Some(env) => resume(env),
+      None => { let env = run_check(ast); cache_store(key, env); resume(env) }
+    }
+  }
+}
+```
+
+This isn't a build system feature bolted onto the side. It's a consequence
+of the effect algebra: `Pure` enables memoization. The compiler already
+proves purity. Caching falls out for free.
+
+---
+
 ## The Meta-Unification: The Toolchain IS the Language
 
 If `|>` unifies DSP, ML, and compilers in *user code*, then the same
