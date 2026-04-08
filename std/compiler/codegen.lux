@@ -296,22 +296,24 @@ fn find_upvalue(upvalues, is_local, index, pos) = {
 }
 
 // Emit upvalue descriptors after MakeClosure: u8(is_local) + u16(index) per upvalue
-fn emit_upvalue_descriptors(ctx, upvals) = {
-  if len(upvals) == 0 { ctx }
+fn emit_upvalue_descriptors(ctx, upvals) = emit_upvalue_descriptors_at(ctx, upvals, 0)
+fn emit_upvalue_descriptors_at(ctx, upvals, i) = {
+  if i >= len(upvals) { ctx }
   else {
-    let (is_local, index) = upvals[0]
+    let (is_local, index) = upvals[i]
     let ctx2 = emit_byte(ctx, if is_local { 1 } else { 0 })
     let ctx3 = emit_u16(ctx2, index)
-    emit_upvalue_descriptors(ctx3, slice(upvals, 1, len(upvals)))
+    emit_upvalue_descriptors_at(ctx3, upvals, i + 1)
   }
 }
 
 // Encode upvalue descriptors as data (for handler table entries)
-fn encode_upvalue_descs(upvals) = {
-  if len(upvals) == 0 { [] }
+fn encode_upvalue_descs(upvals) = encode_upvalue_descs_at(upvals, 0)
+fn encode_upvalue_descs_at(upvals, i) = {
+  if i >= len(upvals) { [] }
   else {
-    let (is_local, index) = upvals[0]
-    [(if is_local { 1 } else { 0 }, index)] ++ encode_upvalue_descs(slice(upvals, 1, len(upvals)))
+    let (is_local, index) = upvals[i]
+    [(if is_local { 1 } else { 0 }, index)] ++ encode_upvalue_descs_at(upvals, i + 1)
   }
 }
 
@@ -557,21 +559,23 @@ fn compile_expr(ctx, sexpr) = {
 }
 }
 
-fn compile_args(ctx, args) = {
-  if len(args) == 0 { ctx }
+fn compile_args(ctx, args) = compile_args_at(ctx, args, 0)
+fn compile_args_at(ctx, args, i) = {
+  if i >= len(args) { ctx }
   else {
-    let ctx2 = compile_expr(ctx, args[0])
-    compile_args(ctx2, slice(args, 1, len(args)))
+    let ctx2 = compile_expr(ctx, args[i])
+    compile_args_at(ctx2, args, i + 1)
   }
 }
 
-fn compile_fan_out(ctx, fns, input) = {
-  if len(fns) == 0 { ctx }
+fn compile_fan_out(ctx, fns, input) = compile_fan_out_at(ctx, fns, input, 0)
+fn compile_fan_out_at(ctx, fns, input, i) = {
+  if i >= len(fns) { ctx }
   else {
-    let ctx2 = compile_expr(ctx, fns[0])
+    let ctx2 = compile_expr(ctx, fns[i])
     let ctx3 = compile_expr(ctx2, input)
     let ctx4 = emit_u8(emit_op(ctx3, OP_CALL), 1)
-    compile_fan_out(ctx4, slice(fns, 1, len(fns)), input)
+    compile_fan_out_at(ctx4, fns, input, i + 1)
   }
 }
 
@@ -587,14 +591,14 @@ fn compile_interp_parts(ctx, parts, i) = {
 // For each arm: dup scrutinee, test pattern, jump-if-no-match,
 // pop scrutinee, execute body, jump-to-end.
 
-fn compile_match_arms(ctx, arms, end_patches, scr_slot) = {
-  if len(arms) == 0 {
+fn compile_match_arms(ctx, arms, end_patches, scr_slot) = compile_match_arms_at(ctx, arms, end_patches, scr_slot, 0)
+fn compile_match_arms_at(ctx, arms, end_patches, scr_slot, i) = {
+  if i >= len(arms) {
     // No arms matched — load unit as result
     let ctx2 = emit_op(ctx, OP_LOAD_UNIT)
     patch_all(ctx2, end_patches)
   } else {
-    let (pat, body) = arms[0]
-    let rest = slice(arms, 1, len(arms))
+    let (pat, body) = arms[i]
     let is_catch_all = match pat {
       PWild => true,
       PVar(_) => true,
@@ -638,7 +642,7 @@ fn compile_match_arms(ctx, arms, end_patches, scr_slot) = {
       let ctx12 = patch_jump(ctx11, next_patch)
       let ctx13 = emit_op(ctx12, OP_POP)  // pop false test result
       let ctx14 = emit_op(ctx13, OP_POP)  // pop test scrutinee copy
-      compile_match_arms(ctx14, rest, end_patches ++ [end_patch], scr_slot)
+      compile_match_arms_at(ctx14, arms, end_patches ++ [end_patch], scr_slot, i + 1)
     }
   }
 }
@@ -696,11 +700,12 @@ fn bind_pattern_fields(ctx, fields, i, scr_slot) = {
   }
 }
 
-fn patch_all(ctx, patches) = {
-  if len(patches) == 0 { ctx }
+fn patch_all(ctx, patches) = patch_all_at(ctx, patches, 0)
+fn patch_all_at(ctx, patches, i) = {
+  if i >= len(patches) { ctx }
   else {
-    let ctx2 = patch_jump(ctx, patches[0])
-    patch_all(ctx2, slice(patches, 1, len(patches)))
+    let ctx2 = patch_jump(ctx, patches[i])
+    patch_all_at(ctx2, patches, i + 1)
   }
 }
 
@@ -708,24 +713,26 @@ fn patch_all(ctx, patches) = {
 // Handle { body } [with state = init] { op(params) => handler_body }
 
 // Find effect operation in effect_ops list: [(op_name, effect_name), ...]
-fn find_effect_op(ops, name) = {
-  if len(ops) == 0 { "" }
+fn find_effect_op(ops, name) = find_effect_op_at(ops, name, 0)
+fn find_effect_op_at(ops, name, i) = {
+  if i >= len(ops) { "" }
   else {
-    let (op_name, eff_name) = ops[0]
+    let (op_name, eff_name) = ops[i]
     if op_name == name { eff_name }
-    else { find_effect_op(slice(ops, 1, len(ops)), name) }
+    else { find_effect_op_at(ops, name, i + 1) }
   }
 }
 
 // Add effect operations to context
-fn ctx_add_effect_ops(ctx, effect_name, ops) = {
-  if len(ops) == 0 { ctx }
+fn ctx_add_effect_ops(ctx, effect_name, ops) = ctx_add_effect_ops_at(ctx, effect_name, ops, 0)
+fn ctx_add_effect_ops_at(ctx, effect_name, ops, i) = {
+  if i >= len(ops) { ctx }
   else {
-    let (op_name, _params) = ops[0]
+    let (op_name, _params) = ops[i]
     let (code, co, na, lo, de, sl, uv, enc, eo, ht) = ctx
     let new_eo = push(eo, (op_name, effect_name))
     let ctx2 = (code, co, na, lo, de, sl, uv, enc, new_eo, ht)
-    ctx_add_effect_ops(ctx2, effect_name, slice(ops, 1, len(ops)))
+    ctx_add_effect_ops_at(ctx2, effect_name, ops, i + 1)
   }
 }
 
@@ -796,12 +803,13 @@ fn extract_codegen_arms(handler_expr) = match handler_expr {
   _ => []
 }
 
-fn convert_codegen_fields(fields) = {
-  if len(fields) == 0 { [] }
+fn convert_codegen_fields(fields) = convert_codegen_fields_at(fields, 0)
+fn convert_codegen_fields_at(fields, i) = {
+  if i >= len(fields) { [] }
   else {
-    let (name, expr) = fields[0]     // <--- THIS IS LINE 770
+    let (name, expr) = fields[i]
     let (params, body) = extract_lambda_parts(expr)
-    [(name, params, body)] ++ convert_codegen_fields(slice(fields, 1, len(fields)))
+    [(name, params, body)] ++ convert_codegen_fields_at(fields, i + 1)
   }
 }
 
@@ -811,30 +819,33 @@ fn extract_lambda_parts(expr) = match expr {
   _ => ([], expr)
 }
 
-fn compile_state_inits(ctx, bindings) = {
-  if len(bindings) == 0 { ctx }
+fn compile_state_inits(ctx, bindings) = compile_state_inits_at(ctx, bindings, 0)
+fn compile_state_inits_at(ctx, bindings, i) = {
+  if i >= len(bindings) { ctx }
   else {
-    let (_name, init_expr) = bindings[0]
+    let (_name, init_expr) = bindings[i]
     let ctx2 = compile_expr(ctx, init_expr)
-    compile_state_inits(ctx2, slice(bindings, 1, len(bindings)))
+    compile_state_inits_at(ctx2, bindings, i + 1)
   }
 }
 
-fn get_state_names(bindings) = {
-  if len(bindings) == 0 { [] }
+fn get_state_names(bindings) = get_state_names_at(bindings, 0)
+fn get_state_names_at(bindings, i) = {
+  if i >= len(bindings) { [] }
   else {
-    let (name, _) = bindings[0]
-    [name] ++ get_state_names(slice(bindings, 1, len(bindings)))
+    let (name, _) = bindings[i]
+    [name] ++ get_state_names_at(bindings, i + 1)
   }
 }
 
 // Compile all handler arm bodies as FnProtos, accumulate table entries
-fn compile_handler_protos(ctx, arms, state_names, entries) = {
-  if len(arms) == 0 { (ctx, entries) }
+fn compile_handler_protos(ctx, arms, state_names, entries) = compile_handler_protos_at(ctx, arms, state_names, entries, 0)
+fn compile_handler_protos_at(ctx, arms, state_names, entries, i) = {
+  if i >= len(arms) { (ctx, entries) }
   else {
-    let (op_name, params, handler_body) = arms[0]
+    let (op_name, params, handler_body) = arms[i]
     let (ctx2, entry) = compile_one_handler_proto(ctx, op_name, params, handler_body, state_names)
-    compile_handler_protos(ctx2, slice(arms, 1, len(arms)), state_names, push(entries, entry))
+    compile_handler_protos_at(ctx2, arms, state_names, push(entries, entry), i + 1)
   }
 }
 
@@ -905,12 +916,13 @@ fn compile_resume_expr(ctx, value, state_updates) = {
   }
 }
 
-fn compile_state_update_values(ctx, updates) = {
-  if len(updates) == 0 { ctx }
+fn compile_state_update_values(ctx, updates) = compile_state_update_values_at(ctx, updates, 0)
+fn compile_state_update_values_at(ctx, updates, i) = {
+  if i >= len(updates) { ctx }
   else {
-    let (_name, val) = updates[0]
+    let (_name, val) = updates[i]
     let ctx2 = compile_expr(ctx, val)
-    compile_state_update_values(ctx2, slice(updates, 1, len(updates)))
+    compile_state_update_values_at(ctx2, updates, i + 1)
   }
 }
 
@@ -1124,38 +1136,41 @@ fn compile_stmt(ctx, stmt) = match stmt {
   _ => ctx
 }
 
-fn declare_params(ctx, params) = {
-  if len(params) == 0 { ctx }
+fn declare_params(ctx, params) = declare_params_at(ctx, params, 0)
+fn declare_params_at(ctx, params, i) = {
+  if i >= len(params) { ctx }
   else {
     // Params are (name, tier, ty) triples or bare strings (lambda)
-    let name = match params[0] {
+    let name = match params[i] {
       (n, _, _) => n,
       (n, _) => n,
-      _ => params[0]
+      _ => params[i]
     };
     let (ctx2, _) = declare_local(ctx, name)
-    declare_params(ctx2, slice(params, 1, len(params)))
+    declare_params_at(ctx2, params, i + 1)
   }
 }
 
-fn compile_variants(ctx, variants) = {
-  if len(variants) == 0 { ctx }
+fn compile_variants(ctx, variants) = compile_variants_at(ctx, variants, 0)
+fn compile_variants_at(ctx, variants, i) = {
+  if i >= len(variants) { ctx }
   else {
-    let (var_name, _fields) = variants[0]
+    let (var_name, _fields) = variants[i]
     let (ctx2, name_idx) = intern_name(ctx, var_name)
     // MakeVariant name_idx 0 (zero fields — VM handles constructor calls)
     let ctx3 = emit_u16(emit_u16(emit_op(ctx2, OP_MAKE_VARIANT), name_idx), 0)
     // StoreGlobal
     let ctx4 = emit_u16(emit_op(ctx3, OP_STORE_GLOBAL), name_idx)
-    compile_variants(ctx4, slice(variants, 1, len(variants)))
+    compile_variants_at(ctx4, variants, i + 1)
   }
 }
 
-fn compile_block_stmts(ctx, stmts) = {
-  if len(stmts) == 0 { ctx }
+fn compile_block_stmts(ctx, stmts) = compile_block_stmts_at(ctx, stmts, 0)
+fn compile_block_stmts_at(ctx, stmts, i) = {
+  if i >= len(stmts) { ctx }
   else {
-    let ctx2 = compile_stmt(ctx, stmts[0])
-    compile_block_stmts(ctx2, slice(stmts, 1, len(stmts)))
+    let ctx2 = compile_stmt(ctx, stmts[i])
+    compile_block_stmts_at(ctx2, stmts, i + 1)
   }
 }
 
@@ -1174,11 +1189,12 @@ fn compile_program(stmts) = {
   }
 }
 
-fn compile_stmts(ctx, stmts) = {
-  if len(stmts) == 0 { ctx }
+fn compile_stmts(ctx, stmts) = compile_stmts_at(ctx, stmts, 0)
+fn compile_stmts_at(ctx, stmts, i) = {
+  if i >= len(stmts) { ctx }
   else {
-    let ctx2 = compile_stmt(ctx, stmts[0])
-    compile_stmts(ctx2, slice(stmts, 1, len(stmts)))
+    let ctx2 = compile_stmt(ctx, stmts[i])
+    compile_stmts_at(ctx2, stmts, i + 1)
   }
 }
 
@@ -1335,31 +1351,35 @@ fn pad_num(n, width) = {
 
 // ─── Record Helpers ──────────────────────────────────────────
 
-fn sort_record_fields(fields) = {
-  // Insertion sort by field name
-  if len(fields) <= 1 { fields }
+fn sort_record_fields(fields) = sort_record_fields_at(fields, 0)
+fn sort_record_fields_at(fields, i) = {
+  // Insertion sort by field name — build sorted list from index i onward
+  if i >= len(fields) { [] }
+  else { if i == len(fields) - 1 { [fields[i]] }
   else {
-    let sorted_rest = sort_record_fields(slice(fields, 1, len(fields)))
-    insert_field(fields[0], sorted_rest)
-  }
+    let sorted_rest = sort_record_fields_at(fields, i + 1)
+    insert_field(fields[i], sorted_rest)
+  }}
 }
 
-fn insert_field(field, sorted) = {
-  if len(sorted) == 0 { [field] }
+fn insert_field(field, sorted) = insert_field_at(field, sorted, 0)
+fn insert_field_at(field, sorted, i) = {
+  if i >= len(sorted) { [field] }
   else {
     let (fa, _) = field
-    let (fb, _) = sorted[0]
-    if fa < fb { [field] ++ sorted }
-    else { [sorted[0]] ++ insert_field(field, slice(sorted, 1, len(sorted))) }
+    let (fb, _) = sorted[i]
+    if fa < fb { slice(sorted, 0, i) ++ [field] ++ slice(sorted, i, len(sorted)) }
+    else { insert_field_at(field, sorted, i + 1) }
   }
 }
 
-fn compile_record_values(ctx, fields) = {
-  if len(fields) == 0 { ctx }
+fn compile_record_values(ctx, fields) = compile_record_values_at(ctx, fields, 0)
+fn compile_record_values_at(ctx, fields, i) = {
+  if i >= len(fields) { ctx }
   else {
-    let (_, val) = fields[0]
+    let (_, val) = fields[i]
     let ctx2 = compile_expr(ctx, val)
-    compile_record_values(ctx2, slice(fields, 1, len(fields)))
+    compile_record_values_at(ctx2, fields, i + 1)
   }
 }
 
@@ -1367,12 +1387,13 @@ fn record_schema_tag(sorted_fields) = {
   "#record:" ++ record_field_names(sorted_fields)
 }
 
-fn record_field_names(fields) = {
-  if len(fields) == 0 { "" }
+fn record_field_names(fields) = record_field_names_at(fields, 0)
+fn record_field_names_at(fields, i) = {
+  if i >= len(fields) { "" }
   else {
-    let (name, _) = fields[0]
-    if len(fields) == 1 { name }
-    else { name ++ "," ++ record_field_names(slice(fields, 1, len(fields))) }
+    let (name, _) = fields[i]
+    if i == len(fields) - 1 { name }
+    else { name ++ "," ++ record_field_names_at(fields, i + 1) }
   }
 }
 

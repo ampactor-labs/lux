@@ -12,7 +12,7 @@
 //
 // The gradient IS an effect. At every scale, the same shape:
 //   Effects converge → Handler decides → Resume radiates
-//   Knowledge converges → Illuminate decides → Suggestion radiates
+//   Knowledge converge → Illuminate decides → Suggestion radiates
 
 import compiler/lexer
 import compiler/parser
@@ -86,9 +86,11 @@ fn unlock_name(u) = match u {
   _ => "unknown"
 }
 
-fn total_weight(unlocks) = {
-  if len(unlocks) == 0 { 0 }
-  else { unlock_weight(unlocks[0]) + total_weight(slice(unlocks, 1, len(unlocks))) }
+fn total_weight(unlocks) = total_weight_at(unlocks, 0)
+
+fn total_weight_at(unlocks, i) = {
+  if i >= len(unlocks) { 0 }
+  else { unlock_weight(unlocks[i]) + total_weight_at(unlocks, i + 1) }
 }
 
 // ─── Compute Gradient ────────────────────────────────────────
@@ -105,32 +107,38 @@ fn compute_gradient(env, ast) = {
 }
 
 // Walk AST to find FnStmt nodes and their declared effects
-fn build_declared_map(ast) = {
-  if len(ast) == 0 { [] }
+fn build_declared_map(ast) = build_declared_map_at(ast, 0)
+
+fn build_declared_map_at(ast, i) = {
+  if i >= len(ast) { [] }
   else {
-    let entry = match ast[0] {
+    let entry = match ast[i] {
       FnStmt(name, params, body, effects, _) => [(name, effects)],
       _ => []
     }
-    entry ++ build_declared_map(slice(ast, 1, len(ast)))
+    entry ++ build_declared_map_at(ast, i + 1)
   }
 }
 
-fn lookup_declared(declared, name) = {
-  if len(declared) == 0 { [] }
+fn lookup_declared(declared, name) = lookup_declared_at(declared, name, 0)
+
+fn lookup_declared_at(declared, name, i) = {
+  if i >= len(declared) { [] }
   else {
-    let (n, effs) = declared[0]
+    let (n, effs) = declared[i]
     if n == name { effs }
-    else { lookup_declared(slice(declared, 1, len(declared)), name) }
+    else { lookup_declared_at(declared, name, i + 1) }
   }
 }
 
 // Analyze all functions in the environment
-fn analyze_all_fns(env, declared) = {
-  if len(env) == 0 { [] }
+fn analyze_all_fns(env, declared) = analyze_all_fns_at(env, declared, 0)
+
+fn analyze_all_fns_at(env, declared, i) = {
+  if i >= len(env) { [] }
   else {
-    let (name, ty, reason) = env[0]
-    let rest = analyze_all_fns(slice(env, 1, len(env)), declared)
+    let (name, ty, reason) = env[i]
+    let rest = analyze_all_fns_at(env, declared, i + 1)
     if is_internal_name(name) || is_builtin_reason(reason) { rest }
     else {
       let fg = analyze_fn(name, ty, reason, declared)
@@ -209,21 +217,25 @@ fn probe_effect_dim(name, eff_row, declared, has_annotations) = {
   }
 }
 
-fn has_pure_declared(declared) = {
-  if len(declared) == 0 { false }
+fn has_pure_declared(declared) = has_pure_declared_at(declared, 0)
+
+fn has_pure_declared_at(declared, i) = {
+  if i >= len(declared) { false }
   else {
-    let (name, negated) = declared[0]
+    let (name, negated) = declared[i]
     if name == "Pure" { true }
-    else { has_pure_declared(slice(declared, 1, len(declared))) }
+    else { has_pure_declared_at(declared, i + 1) }
   }
 }
 
-fn has_negation_declared(declared, eff_name) = {
-  if len(declared) == 0 { false }
+fn has_negation_declared(declared, eff_name) = has_negation_declared_at(declared, eff_name, 0)
+
+fn has_negation_declared_at(declared, eff_name, i) = {
+  if i >= len(declared) { false }
   else {
-    let (name, negated) = declared[0]
+    let (name, negated) = declared[i]
     if name == eff_name && negated { true }
-    else { has_negation_declared(slice(declared, 1, len(declared)), eff_name) }
+    else { has_negation_declared_at(declared, eff_name, i + 1) }
   }
 }
 
@@ -239,11 +251,13 @@ fn probe_handler_dim(name, eff_row, declared) = {
   collect_negation_steps(declared)
 }
 
-fn collect_negation_steps(declared) = {
-  if len(declared) == 0 { [] }
+fn collect_negation_steps(declared) = collect_negation_steps_at(declared, 0)
+
+fn collect_negation_steps_at(declared, i) = {
+  if i >= len(declared) { [] }
   else {
-    let (eff_name, negated) = declared[0]
-    let rest = collect_negation_steps(slice(declared, 1, len(declared)))
+    let (eff_name, negated) = declared[i]
+    let rest = collect_negation_steps_at(declared, i + 1)
     if negated && eff_name != "Pure" {
       [make_step(
         HandlerAbsorb(eff_name),
@@ -270,11 +284,14 @@ fn renumber_requires(handler_steps, effect_steps) = {
   }
 }
 
-fn link_effect_to_handler(effect_steps, handler_steps, offset) = {
-  if len(effect_steps) == 0 { [] }
+fn link_effect_to_handler(effect_steps, handler_steps, offset) =
+  link_effect_to_handler_at(effect_steps, handler_steps, offset, 0)
+
+fn link_effect_to_handler_at(effect_steps, handler_steps, offset, i) = {
+  if i >= len(effect_steps) { [] }
   else {
-    let step = effect_steps[0]
-    let rest = link_effect_to_handler(slice(effect_steps, 1, len(effect_steps)), handler_steps, offset)
+    let step = effect_steps[i]
+    let rest = link_effect_to_handler_at(effect_steps, handler_steps, offset, i + 1)
     // Check if this effect step's dimension matches any handler absorption
     let dep = find_handler_dep(step, handler_steps, 0)
     if dep >= 0 {
@@ -306,31 +323,37 @@ fn find_handler_dep(step, handler_steps, idx) = {
 
 // ─── Scoring ─────────────────────────────────────────────────
 
-fn score_steps(steps) = {
-  if len(steps) == 0 { 0 }
+fn score_steps(steps) = score_steps_at(steps, 0)
+
+fn score_steps_at(steps, i) = {
+  if i >= len(steps) { 0 }
   else {
-    let (_, _, unlocks, _) = steps[0]
-    total_weight(unlocks) + score_steps(slice(steps, 1, len(steps)))
+    let (_, _, unlocks, _) = steps[i]
+    total_weight(unlocks) + score_steps_at(steps, i + 1)
   }
 }
 
-fn sort_by_priority(fgs) = {
+fn sort_by_priority(fgs) = sort_by_priority_at(fgs, 0)
+
+fn sort_by_priority_at(fgs, i) = {
   // Simple insertion sort — gradient lists are small
-  if len(fgs) == 0 { [] }
+  if i >= len(fgs) { [] }
   else {
-    insert_by_priority(fgs[0], sort_by_priority(slice(fgs, 1, len(fgs))))
+    insert_by_priority(fgs[i], sort_by_priority_at(fgs, i + 1))
   }
 }
 
-fn insert_by_priority(fg, sorted) = {
-  if len(sorted) == 0 { [fg] }
+fn insert_by_priority(fg, sorted) = insert_by_priority_at(fg, sorted, 0)
+
+fn insert_by_priority_at(fg, sorted, i) = {
+  if i >= len(sorted) { [fg] }
   else {
     let (_, _, _, p1) = fg
-    let (_, _, _, p2) = sorted[0]
+    let (_, _, _, p2) = sorted[i]
     if p1 >= p2 {
-      [fg] ++ sorted
+      take(i, sorted) ++ [fg] ++ drop(i, sorted)
     } else {
-      [sorted[0]] ++ insert_by_priority(fg, slice(sorted, 1, len(sorted)))
+      insert_by_priority_at(fg, sorted, i + 1)
     }
   }
 }
@@ -360,11 +383,13 @@ fn render_fn_gradient(fg) = {
   }
 }
 
-fn render_steps(steps, idx) = {
-  if len(steps) == 0 { "" }
+fn render_steps(steps, idx) = render_steps_at(steps, idx, 0)
+
+fn render_steps_at(steps, idx, i) = {
+  if i >= len(steps) { "" }
   else {
-    let line = render_step(steps[0], idx)
-    let rest = render_steps(slice(steps, 1, len(steps)), idx + 1)
+    let line = render_step(steps[i], idx + i)
+    let rest = render_steps_at(steps, idx, i + 1)
     if len(rest) > 0 { line ++ "\n" ++ rest }
     else { line }
   }
@@ -387,11 +412,13 @@ fn dim_action(dim) = match dim {
   _ => "unknown action"
 }
 
-fn render_unlocks(unlocks) = {
-  if len(unlocks) == 0 { "" }
+fn render_unlocks(unlocks) = render_unlocks_at(unlocks, 0)
+
+fn render_unlocks_at(unlocks, i) = {
+  if i >= len(unlocks) { "" }
   else {
-    let first = unlock_name(unlocks[0])
-    let rest = render_unlocks(slice(unlocks, 1, len(unlocks)))
+    let first = unlock_name(unlocks[i])
+    let rest = render_unlocks_at(unlocks, i + 1)
     if len(rest) > 0 { first ++ ", " ++ rest }
     else { first }
   }

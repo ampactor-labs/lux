@@ -76,15 +76,19 @@ fn walk_ir(node) with LowIRVisit = match node {
   _ => visit_lowir(node)
 }
 
-fn walk_ir_list(nodes) = {
-  if len(nodes) == 0 { [] }
-  else { [walk_ir(nodes[0])] ++ walk_ir_list(slice(nodes, 1, len(nodes))) }
+fn walk_ir_list(nodes) = walk_ir_list_at(nodes, 0)
+
+fn walk_ir_list_at(nodes, i) = {
+  if i >= len(nodes) { [] }
+  else { [walk_ir(nodes[i])] ++ walk_ir_list_at(nodes, i + 1) }
 }
 
-fn walk_ir_arms(arms) = {
-  if len(arms) == 0 { [] }
+fn walk_ir_arms(arms) = walk_ir_arms_at(arms, 0)
+
+fn walk_ir_arms_at(arms, i) = {
+  if i >= len(arms) { [] }
   else {
-    let (pat, body) = arms[0]
-    [(pat, walk_ir(body))] ++ walk_ir_arms(slice(arms, 1, len(arms)))
+    let (pat, body) = arms[i]
+    [(pat, walk_ir(body))] ++ walk_ir_arms_at(arms, i + 1)
   }
 }

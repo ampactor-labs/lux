@@ -25,25 +25,25 @@ effect Diagnostic {
 // Stores (name, type, reason) triples. Source text rides as a sentinel entry.
 
 fn env_empty() = []
-fn env_extend(env, name, ty, reason) = [(name, ty, reason)] ++ env
-fn env_with_source(env, source) = [("__source__", TUnit, Declared(source))] ++ env
-fn env_source(env) = env_source_at(env, 0)
+fn env_extend(env, name, ty, reason) = push(env, (name, ty, reason))
+fn env_with_source(env, source) = push(env, ("__source__", TUnit, Declared(source)))
+fn env_source(env) = env_source_at(env, len(env) - 1)
 fn env_source_at(env, i) = {
-  if i >= len(env) { "" }
+  if i < 0 { "" }
   else {
     let (name, _, reason) = env[i];
     if name == "__source__" { match reason { Declared(s) => s, _ => "" } }
-    else { env_source_at(env, i + 1) }
+    else { env_source_at(env, i - 1) }
   }
 }
-fn env_lookup(env, name) = env_lookup_at(env, name, 0)
+fn env_lookup(env, name) = env_lookup_at(env, name, len(env) - 1)
 fn env_lookup_at(env, name, i) = {
-  if i >= len(env) {
+  if i < 0 {
     ("not_found", TUnit, Inferred("unknown"))
   } else {
     let (k, v, r) = env[i]
     if k == name { (k, v, r) }
-    else { env_lookup_at(env, name, i + 1) }
+    else { env_lookup_at(env, name, i - 1) }
   }
 }
 
@@ -118,12 +118,12 @@ fn instantiate_type(ty, counter, mapping) =
     get_inst_state() => resume((n, m))
   }
 
-fn instantiate_types(tys, counter, mapping) = {
-  if len(tys) == 0 { ([], counter, mapping) }
+fn instantiate_types(tys, counter, mapping) = instantiate_types_at(tys, counter, mapping, 0, [])
+fn instantiate_types_at(tys, counter, mapping, i, acc) = {
+  if i >= len(tys) { (acc, counter, mapping) }
   else {
-    let (new_head, c2, m2) = instantiate_type(tys[0], counter, mapping)
-    let (new_tail, c3, m3) = instantiate_types(slice(tys, 1, len(tys)), c2, m2)
-    ([new_head] ++ new_tail, c3, m3)
+    let (new_ty, c2, m2) = instantiate_type(tys[i], counter, mapping)
+    instantiate_types_at(tys, c2, m2, i + 1, acc ++ [new_ty])
   }
 }
 
@@ -140,12 +140,13 @@ fn instantiate_eff(eff, counter, mapping) = match eff {
   _ => (eff, counter, mapping)
 }
 
-fn find_inst_mapping(mapping, id) = {
-  if len(mapping) == 0 { -999 }
+fn find_inst_mapping(mapping, id) = find_inst_mapping_at(mapping, id, 0)
+fn find_inst_mapping_at(mapping, id, i) = {
+  if i >= len(mapping) { -999 }
   else {
-    let (k, v) = mapping[0]
+    let (k, v) = mapping[i]
     if k == id { v }
-    else { find_inst_mapping(slice(mapping, 1, len(mapping)), id) }
+    else { find_inst_mapping_at(mapping, id, i + 1) }
   }
 }
 
@@ -174,11 +175,12 @@ fn has_tvars(ty) with Pure =
     get_type_found() => resume(found)
   }
 
-fn extract_builtin_names(env) = {
-  if len(env) == 0 { [] }
+fn extract_builtin_names(env) = extract_builtin_names_at(env, 0)
+fn extract_builtin_names_at(env, i) = {
+  if i >= len(env) { [] }
   else {
-    let (name, _, reason) = env[0]
-    let rest = extract_builtin_names(slice(env, 1, len(env)))
+    let (name, _, reason) = env[i]
+    let rest = extract_builtin_names_at(env, i + 1)
     if to_string(reason) == "Declared(builtin)" { [name] ++ rest } else { rest }
   }
 }
@@ -200,16 +202,16 @@ fn is_builtin_reason(reason) = {
 
 fn subst_empty() = []
 
-fn subst_set(subst, var_id, ty, reason) = [(var_id, ty, reason)] ++ subst
+fn subst_set(subst, var_id, ty, reason) = push(subst, (var_id, ty, reason))
 
-fn subst_get(subst, var_id) = subst_get_at(subst, var_id, 0)
+fn subst_get(subst, var_id) = subst_get_at(subst, var_id, len(subst) - 1)
 
 fn subst_get_at(subst, var_id, i) = {
-  if i >= len(subst) { (TVar(var_id), Fresh(var_id)) }
+  if i < 0 { (TVar(var_id), Fresh(var_id)) }
   else {
     let (k, v, r) = subst[i]
     if k == var_id { (v, r) }
-    else { subst_get_at(subst, var_id, i + 1) }
+    else { subst_get_at(subst, var_id, i - 1) }
   }
 }
 

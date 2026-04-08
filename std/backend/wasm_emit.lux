@@ -572,11 +572,13 @@ fn collect_locals_pats(pats, idx)= {
 
 // Find the type of a named local by walking the body looking for its LLet.
 // The LLet already carries the resolved Ty — no re-inference, just a lookup.
-fn find_local_ty(name, body) = {
-  if len(body) == 0 { TUnit }
+fn find_local_ty(name, body) = find_local_ty_at(name, body, 0)
+
+fn find_local_ty_at(name, body, i) = {
+  if i >= len(body) { TUnit }
   else {
-    let t = find_local_ty_expr(name, body[0])
-    match t { TUnit => find_local_ty(name, slice(body, 1, len(body))), _ => t }
+    let t = find_local_ty_expr(name, body[i])
+    match t { TUnit => find_local_ty_at(name, body, i + 1), _ => t }
   }
 }
 

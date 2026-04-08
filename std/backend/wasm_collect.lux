@@ -105,19 +105,16 @@ fn walk_lowir(e) with LowVisit = {
   }
 }
 
-fn walk_list(nodes) with LowVisit = {
-  if len(nodes) > 0 {
-    walk_lowir(nodes[0])
-    walk_list(slice(nodes, 1, len(nodes)))
-  } else { () }
+fn walk_list(nodes) with LowVisit = walk_list_at(nodes, 0)
+fn walk_list_at(nodes, i) with LowVisit = {
+  if i < len(nodes) { walk_lowir(nodes[i]); walk_list_at(nodes, i + 1) } else { () }
 }
 
-fn walk_arms(arms) with LowVisit = {
-  if len(arms) > 0 {
-    let (pat, body) = arms[0]
-    walk_pat(pat)
-    walk_lowir(body)
-    walk_arms(slice(arms, 1, len(arms)))
+fn walk_arms(arms) with LowVisit = walk_arms_at(arms, 0)
+fn walk_arms_at(arms, i) with LowVisit = {
+  if i < len(arms) {
+    let (pat, body) = arms[i]
+    walk_pat(pat); walk_lowir(body); walk_arms_at(arms, i + 1)
   } else { () }
 }
 
@@ -130,11 +127,9 @@ fn walk_pat(pat) with LowVisit = {
   }
 }
 
-fn walk_pats(pats) with LowVisit = {
-  if len(pats) > 0 {
-    walk_pat(pats[0])
-    walk_pats(slice(pats, 1, len(pats)))
-  } else { () }
+fn walk_pats(pats) with LowVisit = walk_pats_at(pats, 0)
+fn walk_pats_at(pats, i) with LowVisit = {
+  if i < len(pats) { walk_pat(pats[i]); walk_pats_at(pats, i + 1) } else { () }
 }
 
 // ─── The Supercollector — One Walk, All Results ─────────────
@@ -265,10 +260,14 @@ fn escape_wat_chars(cs, idx)= {
 fn tag_union(a, b)= {
   if len(b) == 0 { a }
   else {
-    let head = b[0]
-    let rest = slice(b, 1, len(b))
-    if string_in(a, head, 0) { tag_union(a, rest) }
-    else { tag_union(a ++ [head], rest) }
+    tag_union_at(a, b, 0)
+  }
+}
+fn tag_union_at(a, b, i) = {
+  if i >= len(b) { a }
+  else {
+    if string_in(a, b[i], 0) { tag_union_at(a, b, i + 1) }
+    else { tag_union_at(a ++ [b[i]], b, i + 1) }
   }
 }
 
@@ -335,24 +334,24 @@ fn collect_top_stmts(defs, idx)= {
 
 // ─── Deduplication ──────────────────────────────────────────
 
-fn dedup_fns(fns) = {
-  if len(fns) == 0 { [] }
+fn dedup_fns(fns) = dedup_fns_at(fns, 0)
+fn dedup_fns_at(fns, i) = {
+  if i >= len(fns) { [] }
   else {
-    let LFn(name, _, _, _, _) = fns[0]
-    if fn_name_in_list(name, slice(fns, 1, len(fns))) {
-      // Overridden later, skip this one
-      dedup_fns(slice(fns, 1, len(fns)))
+    let LFn(name, _, _, _, _) = fns[i]
+    if fn_name_in_list(name, fns, i + 1) {
+      dedup_fns_at(fns, i + 1)
     } else {
-      [fns[0]] ++ dedup_fns(slice(fns, 1, len(fns)))
+      [fns[i]] ++ dedup_fns_at(fns, i + 1)
     }
   }
 }
 
-fn fn_name_in_list(name, fns) = {
-  if len(fns) == 0 { false }
+fn fn_name_in_list(name, fns, idx) = {
+  if idx >= len(fns) { false }
   else {
-    let LFn(n, _, _, _, _) = fns[0]
+    let LFn(n, _, _, _, _) = fns[idx]
     if n == name { true }
-    else { fn_name_in_list(name, slice(fns, 1, len(fns))) }
+    else { fn_name_in_list(name, fns, idx + 1) }
   }
 }

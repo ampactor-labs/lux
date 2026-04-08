@@ -29,24 +29,19 @@ fn env_with_params(env, fn_name, params) = {
   }
 }
 
-fn zip_params_to_env(param_names, param_tys, env) = {
-  if len(param_names) == 0 { env }
+fn zip_params_to_env(param_names, param_tys, env) = zip_params_at(param_names, param_tys, env, 0)
+fn zip_params_at(param_names, param_tys, env, i) = {
+  if i >= len(param_names) { env }
   else {
-    let name = param_names[0]
-    let ty = if len(param_tys) > 0 { param_tys[0] } else { TUnit }
-    let new_env = [(name, ty, Declared("param"))] ++ env
-    let rest_names = slice(param_names, 1, len(param_names))
-    let rest_tys = if len(param_tys) > 0 { slice(param_tys, 1, len(param_tys)) } else { [] }
-    zip_params_to_env(rest_names, rest_tys, new_env)
+    let ty = if i < len(param_tys) { param_tys[i] } else { TUnit }
+    zip_params_at(param_names, param_tys, push(env, (param_names[i], ty, Declared("param"))), i + 1)
   }
 }
 
-fn bind_params_unknown_ty(params, env) = {
-  if len(params) == 0 { env }
-  else {
-    bind_params_unknown_ty(slice(params, 1, len(params)),
-      [(params[0], TUnit, Declared("param"))] ++ env)
-  }
+fn bind_params_unknown_ty(params, env) = bind_params_unknown_at(params, env, 0)
+fn bind_params_unknown_at(params, env, i) = {
+  if i >= len(params) { env }
+  else { bind_params_unknown_at(params, push(env, (params[i], TUnit, Declared("param"))), i + 1) }
 }
 
 // Look up the return type of a named function in env.
@@ -81,24 +76,24 @@ fn lower_lambda_named(wasm_name, name, params, body, env) = {
 fn lower_lambda(name, params, body, env) = lower_lambda_named(name, name, params, body, env)
 fn lower_lambda_inner(name, params, body, env) = lower_lambda_named(name ++ "_" ++ to_string(fresh_id()), name, params, body, env)
 
-fn filter_real_captures_no_self(names) = {
-  if len(names) == 0 { [] }
+fn filter_real_captures_no_self(names) = filter_real_captures_no_self_at(names, 0)
+fn filter_real_captures_no_self_at(names, i) = {
+  if i >= len(names) { [] }
   else {
-    let n = names[0]
-    let rest = filter_real_captures_no_self(slice(names, 1, len(names)))
+    let n = names[i]
+    let rest = filter_real_captures_no_self_at(names, i + 1)
     if is_ctor(n) { rest }
     else { if is_global(n) { rest }
     else { [n] ++ rest } }
   }
 }
 
-// Filter: keep only names that are actual captures from enclosing scope.
-// Exclude: self-name, constructors, globals (via LowerCtx effects).
-fn filter_real_captures(names, self_name) = {
-  if len(names) == 0 { [] }
+fn filter_real_captures(names, self_name) = filter_real_captures_at(names, self_name, 0)
+fn filter_real_captures_at(names, self_name, i) = {
+  if i >= len(names) { [] }
   else {
-    let n = names[0]
-    let rest = filter_real_captures(slice(names, 1, len(names)), self_name)
+    let n = names[i]
+    let rest = filter_real_captures_at(names, self_name, i + 1)
     if n == self_name { rest }
     else { if is_ctor(n) { rest }
     else { if is_global(n) { rest }
@@ -139,17 +134,19 @@ fn collect_free(sexpr, bound) = {
   }
 }
 
-fn collect_free_record(fields, bound) = {
-  if len(fields) == 0 { [] }
+fn collect_free_record(fields, bound) = collect_free_record_at(fields, bound, 0)
+fn collect_free_record_at(fields, bound, i) = {
+  if i >= len(fields) { [] }
   else {
-    let (_, val) = fields[0]
-    string_union(collect_free(val, bound), collect_free_record(slice(fields, 1, len(fields)), bound))
+    let (_, val) = fields[i]
+    string_union(collect_free(val, bound), collect_free_record_at(fields, bound, i + 1))
   }
 }
 
-fn collect_free_list(sexprs, bound) = {
-  if len(sexprs) == 0 { [] }
-  else { string_union(collect_free(sexprs[0], bound), collect_free_list(slice(sexprs, 1, len(sexprs)), bound)) }
+fn collect_free_list(sexprs, bound) = collect_free_list_at(sexprs, bound, 0)
+fn collect_free_list_at(sexprs, bound, i) = {
+  if i >= len(sexprs) { [] }
+  else { string_union(collect_free(sexprs[i], bound), collect_free_list_at(sexprs, bound, i + 1)) }
 }
 
 // Stmts: each let/fn binding extends the bound set for subsequent stmts.
@@ -236,11 +233,12 @@ fn collect_pat_names_lower(pat) = {
   []
 }
 
-fn extract_param_names_pure(params) = {
-  if len(params) == 0 { [] }
+fn extract_param_names_pure(params) = extract_param_names_pure_at(params, 0)
+fn extract_param_names_pure_at(params, i) = {
+  if i >= len(params) { [] }
   else {
-    let name = match params[0] { (n, _, _) => n, (n, _) => n, _ => params[0] };
-    [name] ++ extract_param_names_pure(slice(params, 1, len(params)))
+    let name = match params[i] { (n, _, _) => n, (n, _) => n, _ => params[i] };
+    [name] ++ extract_param_names_pure_at(params, i + 1)
   }
 }
 
@@ -296,13 +294,12 @@ fn find_in_list(list, name, idx) = {
 // ─── String Set Utilities ────────────────────────────────────
 // Used by closure lowering (collect_free) and program lowering handlers.
 
-fn string_union(a, b) = {
-  if len(b) == 0 { a }
+fn string_union(a, b) = string_union_at(a, b, 0)
+fn string_union_at(a, b, i) = {
+  if i >= len(b) { a }
   else {
-    let head = b[0]
-    let rest = slice(b, 1, len(b))
-    if string_in(a, head, 0) { string_union(a, rest) }
-    else { string_union(a ++ [head], rest) }
+    if string_in(a, b[i], 0) { string_union_at(a, b, i + 1) }
+    else { string_union_at(a ++ [b[i]], b, i + 1) }
   }
 }
 

@@ -27,13 +27,12 @@ fn merge_effects(a, b) = match a {
   }
 }
 
-fn list_union(a, b) = {
-  if len(b) == 0 { a }
+fn list_union(a, b) = list_union_at(a, b, 0)
+fn list_union_at(a, b, i) = {
+  if i >= len(b) { a }
   else {
-    let item = b[0]
-    let rest = slice(b, 1, len(b))
-    if list_contains(a, item) { list_union(a, rest) }
-    else { list_union(a ++ [item], rest) }
+    if list_contains(a, b[i]) { list_union_at(a, b, i + 1) }
+    else { list_union_at(a ++ [b[i]], b, i + 1) }
   }
 }
 
@@ -55,16 +54,16 @@ fn list_contains_at(lst, item, i) = {
 
 fn eff_subst_empty() = []
 
-fn eff_subst_set(esubst, var_id, row) = [(var_id, row)] ++ esubst
+fn eff_subst_set(esubst, var_id, row) = push(esubst, (var_id, row))
 
-fn eff_subst_get(esubst, var_id) = eff_subst_get_at(esubst, var_id, 0)
+fn eff_subst_get(esubst, var_id) = eff_subst_get_at(esubst, var_id, len(esubst) - 1)
 
 fn eff_subst_get_at(esubst, var_id, i) = {
-  if i >= len(esubst) { EfOpen([], var_id) }
+  if i < 0 { EfOpen([], var_id) }
   else {
     let (k, v) = esubst[i]
     if k == var_id { v }
-    else { eff_subst_get_at(esubst, var_id, i + 1) }
+    else { eff_subst_get_at(esubst, var_id, i - 1) }
   }
 }
 

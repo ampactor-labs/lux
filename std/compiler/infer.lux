@@ -65,7 +65,7 @@ fn infer(sexpr) with Infer, Diagnostic = {
       if len(elems) == 0 { TList(fresh()) }
       else {
         let elem_ty = infer(elems[0])
-        infer_unify_list(slice(elems, 1, len(elems)), elem_ty)
+        infer_unify_list_at(elems, 1, elem_ty)
         TList(resolve(elem_ty))
       }
     },
@@ -246,36 +246,45 @@ fn infer_unaryop(op, inner) with Infer, Diagnostic = {
 
 // ─── Record Helpers ─────────────────────────────────────────
 
-fn record_field_type(fields, name) with Infer = {
-  if len(fields) == 0 { fresh() }
+fn record_field_type(fields, name) with Infer = record_field_type_at(fields, 0, name)
+
+fn record_field_type_at(fields, i, name) with Infer = {
+  if i >= len(fields) { fresh() }
   else {
-    let (fname, fty) = fields[0]
+    let (fname, fty) = fields[i]
     if fname == name { fty }
-    else { record_field_type(slice(fields, 1, len(fields)), name) }
+    else { record_field_type_at(fields, i + 1, name) }
   }
 }
 
-fn infer_record_fields(fields) with Infer, Diagnostic = {
-  if len(fields) == 0 { [] }
+fn infer_record_fields(fields) with Infer, Diagnostic = infer_record_fields_at(fields, 0)
+
+fn infer_record_fields_at(fields, i) with Infer, Diagnostic = {
+  if i >= len(fields) { [] }
   else {
-    let (name, expr) = fields[0]
+    let (name, expr) = fields[i]
     let ty = infer(expr)
-    [(name, ty)] ++ infer_record_fields(slice(fields, 1, len(fields)))
+    [(name, ty)] ++ infer_record_fields_at(fields, i + 1)
   }
 }
 
 // ─── Helpers ────────────────────────────────────────────────
 
-fn infer_list(sexprs) with Infer, Diagnostic = {
-  if len(sexprs) == 0 { [] }
-  else { [infer(sexprs[0])] ++ infer_list(slice(sexprs, 1, len(sexprs))) }
+fn infer_list(sexprs) with Infer, Diagnostic = infer_list_at(sexprs, 0)
+
+fn infer_list_at(sexprs, i) with Infer, Diagnostic = {
+  if i >= len(sexprs) { [] }
+  else { [infer(sexprs[i])] ++ infer_list_at(sexprs, i + 1) }
 }
 
-fn infer_unify_list(elems, expected) with Infer, Diagnostic = {
-  if len(elems) > 0 {
-    unify(infer(elems[0]), expected)
-    infer_unify_list(slice(elems, 1, len(elems)), expected)
-  } else { () }
+fn infer_unify_list(elems, expected) with Infer, Diagnostic = infer_unify_list_at(elems, 0, expected)
+
+fn infer_unify_list_at(elems, i, expected) with Infer, Diagnostic = {
+  if i >= len(elems) { () }
+  else {
+    unify(infer(elems[i]), expected)
+    infer_unify_list_at(elems, i + 1, expected)
+  }
 }
 
 // ─── Gradient: The Verbs Teach ──────────────────────────────
@@ -317,40 +326,49 @@ fn gradient_compose(merged_eff, line, col) with Diagnostic = {
   }
 }
 
-fn prism_branches(fns, input, rl, rc) with Infer, Diagnostic = {
-  if len(fns) == 0 { [] }
+fn prism_branches(fns, input, rl, rc) with Infer, Diagnostic = prism_branches_at(fns, 0, input, rl, rc)
+
+fn prism_branches_at(fns, i, input, rl, rc) with Infer, Diagnostic = {
+  if i >= len(fns) { [] }
   else {
-    let result = infer(S(Call(fns[0], [input]), rl, rc))
-    [result] ++ prism_branches(slice(fns, 1, len(fns)), input, rl, rc)
+    let result = infer(S(Call(fns[i], [input]), rl, rc))
+    [result] ++ prism_branches_at(fns, i + 1, input, rl, rc)
   }
 }
 
-fn bind_names(names, types) with Infer = {
-  if len(names) > 0 && len(types) > 0 {
-    bind(names[0], types[0], Inferred("parameter"))
-    bind_names(slice(names, 1, len(names)), slice(types, 1, len(types)))
+fn bind_names(names, types) with Infer = bind_names_at(names, types, 0)
+
+fn bind_names_at(names, types, i) with Infer = {
+  if i < len(names) && i < len(types) {
+    bind(names[i], types[i], Inferred("parameter"))
+    bind_names_at(names, types, i + 1)
   } else { () }
 }
 
 // Gradient-aware binding: Declared reason when type annotation present
-fn bind_names_gradient(names, types, params) with Infer = {
-  if len(names) > 0 && len(types) > 0 {
-    let reason = match params[0] {
+fn bind_names_gradient(names, types, params) with Infer = bind_names_gradient_at(names, types, params, 0)
+
+fn bind_names_gradient_at(names, types, params, i) with Infer = {
+  if i < len(names) && i < len(types) {
+    let reason = match params[i] {
       (_, _, ty) => match ty { TUnit => Inferred("parameter"), _ => Declared("annotation") },
       _ => Inferred("parameter")
     }
-    bind(names[0], types[0], reason)
-    bind_names_gradient(slice(names, 1, len(names)), slice(types, 1, len(types)), slice(params, 1, len(params)))
+    bind(names[i], types[i], reason)
+    bind_names_gradient_at(names, types, params, i + 1)
   } else { () }
 }
 
 // ─── Statement Inference ────────────────────────────────────
 
-fn infer_stmts(stmts) with Infer, Diagnostic = {
-  if len(stmts) > 0 {
-    infer_stmt(stmts[0])
-    infer_stmts(slice(stmts, 1, len(stmts)))
-  } else { () }
+fn infer_stmts(stmts) with Infer, Diagnostic = infer_stmts_at(stmts, 0)
+
+fn infer_stmts_at(stmts, i) with Infer, Diagnostic = {
+  if i >= len(stmts) { () }
+  else {
+    infer_stmt(stmts[i])
+    infer_stmts_at(stmts, i + 1)
+  }
 }
 
 fn infer_stmt(stmt) with Infer, Diagnostic = match stmt {
@@ -446,62 +464,79 @@ fn bind_sub_pats(pats, idx) with Infer = {
 
 // ─── Type & Effect Declarations ─────────────────────────────
 
-fn infer_effect_decl(name, ops) with Infer = {
-  if len(ops) > 0 {
-    let (op_name, params) = ops[0]
+fn infer_effect_decl(name, ops) with Infer = infer_effect_decl_at(name, ops, 0)
+
+fn infer_effect_decl_at(name, ops, i) with Infer = {
+  if i >= len(ops) { () }
+  else {
+    let (op_name, params) = ops[i]
     let param_types = map(|_| fresh(), params)
     let ret = fresh()
     bind(op_name, TFun(param_types, ret, EfClosed([name])), Declared("effect op"))
-    infer_effect_decl(name, slice(ops, 1, len(ops)))
-  } else { () }
+    infer_effect_decl_at(name, ops, i + 1)
+  }
 }
 
-fn infer_type_decl(name, variants) with Infer = {
-  if len(variants) > 0 {
-    let (v_name, _) = variants[0]
+fn infer_type_decl(name, variants) with Infer = infer_type_decl_at(name, variants, 0)
+
+fn infer_type_decl_at(name, variants, i) with Infer = {
+  if i >= len(variants) { () }
+  else {
+    let (v_name, _) = variants[i]
     bind(v_name, TName(name, []), Declared("constructor"))
-    infer_type_decl(name, slice(variants, 1, len(variants)))
-  } else { () }
+    infer_type_decl_at(name, variants, i + 1)
+  }
 }
 
 // ─── Match Arms ─────────────────────────────────────────────
 
-fn infer_match_arms(arms, scr_ty, result_ty) with Infer, Diagnostic = {
-  if len(arms) > 0 {
-    let (pat, body) = arms[0]
+fn infer_match_arms(arms, scr_ty, result_ty) with Infer, Diagnostic = infer_match_arms_at(arms, 0, scr_ty, result_ty)
+
+fn infer_match_arms_at(arms, i, scr_ty, result_ty) with Infer, Diagnostic = {
+  if i >= len(arms) { () }
+  else {
+    let (pat, body) = arms[i]
     push_scope()
     bind_pattern(pat, scr_ty)
     unify(infer(body), result_ty)
     let arm_effs = pop_scope()
     track_effect(arm_effs)
-    infer_match_arms(slice(arms, 1, len(arms)), scr_ty, result_ty)
-  } else { () }
+    infer_match_arms_at(arms, i + 1, scr_ty, result_ty)
+  }
 }
 
 // ─── Handler Arms ───────────────────────────────────────────
 
-fn bind_state_vars(bindings) with Infer, Diagnostic = {
-  if len(bindings) > 0 {
-    let (name, value) = bindings[0]
+fn bind_state_vars(bindings) with Infer, Diagnostic = bind_state_vars_at(bindings, 0)
+
+fn bind_state_vars_at(bindings, i) with Infer, Diagnostic = {
+  if i >= len(bindings) { () }
+  else {
+    let (name, value) = bindings[i]
     bind(name, infer(value), Inferred("handler state"))
-    bind_state_vars(slice(bindings, 1, len(bindings)))
-  } else { () }
+    bind_state_vars_at(bindings, i + 1)
+  }
 }
 
-fn infer_updates(updates) with Infer, Diagnostic = {
-  if len(updates) > 0 {
-    let (_, expr) = updates[0]
+fn infer_updates(updates) with Infer, Diagnostic = infer_updates_at(updates, 0)
+
+fn infer_updates_at(updates, i) with Infer, Diagnostic = {
+  if i >= len(updates) { () }
+  else {
+    let (_, expr) = updates[i]
     infer(expr)
-    infer_updates(slice(updates, 1, len(updates)))
-  } else { () }
+    infer_updates_at(updates, i + 1)
+  }
 }
 
 // ─── Effect Absorption ──────────────────────────────────────
 
-fn collect_absorbed_from_names(names) with Infer = {
-  if len(names) == 0 { [] }
+fn collect_absorbed_from_names(names) with Infer = collect_absorbed_from_names_at(names, 0)
+
+fn collect_absorbed_from_names_at(names, i) with Infer = {
+  if i >= len(names) { [] }
   else {
-    let op_name = names[0]
+    let op_name = names[i]
     let op_type = lookup(op_name)
     let eff_name = match op_type {
       TFun(_, _, eff) => match eff {
@@ -510,17 +545,19 @@ fn collect_absorbed_from_names(names) with Infer = {
       },
       _ => ""
     }
-    let rest = collect_absorbed_from_names(slice(names, 1, len(names)))
+    let rest = collect_absorbed_from_names_at(names, i + 1)
     if eff_name == "" { rest }
     else { if list_contains(rest, eff_name) { rest } else { [eff_name] ++ rest } }
   }
 }
 
-fn extract_record_field_names(fields) = {
-  if len(fields) == 0 { [] }
+fn extract_record_field_names(fields) = extract_record_field_names_at(fields, 0)
+
+fn extract_record_field_names_at(fields, i) = {
+  if i >= len(fields) { [] }
   else {
-    let (name, _) = fields[0]
-    [name] ++ extract_record_field_names(slice(fields, 1, len(fields)))
+    let (name, _) = fields[i]
+    [name] ++ extract_record_field_names_at(fields, i + 1)
   }
 }
 
@@ -543,11 +580,13 @@ fn resolve_declared_effs(declared, inferred) = {
   }
 }
 
-fn extract_positive_names(effects) = {
-  if len(effects) == 0 { [] }
+fn extract_positive_names(effects) = extract_positive_names_at(effects, 0)
+
+fn extract_positive_names_at(effects, i) = {
+  if i >= len(effects) { [] }
   else {
-    let (name, negated) = effects[0]
-    let rest = extract_positive_names(slice(effects, 1, len(effects)))
+    let (name, negated) = effects[i]
+    let rest = extract_positive_names_at(effects, i + 1)
     if negated { rest } else { [name] ++ rest }
   }
 }
@@ -557,13 +596,15 @@ fn report_effect_violations(result) = {
   report_violations_loop(violations)
 }
 
-fn report_violations_loop(violations) = {
-  if len(violations) == 0 { () }
+fn report_violations_loop(violations) = report_violations_loop_at(violations, 0)
+
+fn report_violations_loop_at(violations, i) = {
+  if i >= len(violations) { () }
   else {
-    let v = violations[0]
+    let v = violations[i]
     let msg = format_violation(v)
     report("", "Error", msg, 0, 0)
-    report_violations_loop(slice(violations, 1, len(violations)))
+    report_violations_loop_at(violations, i + 1)
   }
 }
 

@@ -15,48 +15,57 @@ type OwnershipViolation
 
 // ─── Helpers ───────────────────────────────────────────────
 
-fn is_own_param(name, own_params) = {
-  if len(own_params) == 0 { false }
+fn is_own_param(name, own_params) = is_own_param_at(name, own_params, 0)
+
+fn is_own_param_at(name, own_params, i) = {
+  if i >= len(own_params) { false }
   else {
-    let (n, _) = own_params[0];
+    let (n, _) = own_params[i];
     if n == name { true }
-    else { is_own_param(name, slice(own_params, 1, len(own_params))) }
+    else { is_own_param_at(name, own_params, i + 1) }
   }
 }
 
-fn is_ref_param(name, ref_params) = {
-  if len(ref_params) == 0 { false }
+fn is_ref_param(name, ref_params) = is_ref_param_at(name, ref_params, 0)
+
+fn is_ref_param_at(name, ref_params, i) = {
+  if i >= len(ref_params) { false }
   else {
-    let (n, _) = ref_params[0];
+    let (n, _) = ref_params[i];
     if n == name { true }
-    else { is_ref_param(name, slice(ref_params, 1, len(ref_params))) }
+    else { is_ref_param_at(name, ref_params, i + 1) }
   }
 }
 
 // used list is [(name, first_use_line)] pairs
-fn used_has(name, used) = {
-  if len(used) == 0 { false }
+fn used_has(name, used) = used_has_at(name, used, 0)
+
+fn used_has_at(name, used, i) = {
+  if i >= len(used) { false }
   else {
-    let (n, _) = used[0];
-    if n == name { true } else { used_has(name, slice(used, 1, len(used))) }
+    let (n, _) = used[i];
+    if n == name { true } else { used_has_at(name, used, i + 1) }
   }
 }
 
-fn used_line(name, used) = {
-  if len(used) == 0 { 0 }
+fn used_line(name, used) = used_line_at(name, used, 0)
+
+fn used_line_at(name, used, i) = {
+  if i >= len(used) { 0 }
   else {
-    let (n, line) = used[0];
-    if n == name { line } else { used_line(name, slice(used, 1, len(used))) }
+    let (n, line) = used[i];
+    if n == name { line } else { used_line_at(name, used, i + 1) }
   }
 }
 
-fn used_union(a, b) = {
-  if len(b) == 0 { a }
+fn used_union(a, b) = used_union_at(a, b, 0)
+
+fn used_union_at(a, b, i) = {
+  if i >= len(b) { a }
   else {
-    let (name, line) = b[0];
-    let rest = slice(b, 1, len(b));
-    if used_has(name, a) { used_union(a, rest) }
-    else { used_union(push(a, (name, line)), rest) }
+    let (name, line) = b[i];
+    if used_has(name, a) { used_union_at(a, b, i + 1) }
+    else { used_union_at(push(a, (name, line)), b, i + 1) }
   }
 }
 
@@ -77,20 +86,24 @@ fn check_ownership(params, body) = {
   }
 }
 
-fn filter_tier(params, tier) = {
-  if len(params) == 0 { [] }
+fn filter_tier(params, tier) = filter_tier_at(params, tier, 0)
+
+fn filter_tier_at(params, tier, i) = {
+  if i >= len(params) { [] }
   else {
-    let (name, t) = params[0];
-    let rest = filter_tier(slice(params, 1, len(params)), tier)
+    let (name, t) = params[i];
+    let rest = filter_tier_at(params, tier, i + 1)
     if t == tier { [(name, t)] ++ rest } else { rest }
   }
 }
 
-fn check_unused_own(own_params, used) = {
-  if len(own_params) == 0 { [] }
+fn check_unused_own(own_params, used) = check_unused_own_at(own_params, used, 0)
+
+fn check_unused_own_at(own_params, used, i) = {
+  if i >= len(own_params) { [] }
   else {
-    let (name, _) = own_params[0];
-    let rest = check_unused_own(slice(own_params, 1, len(own_params)), used)
+    let (name, _) = own_params[i];
+    let rest = check_unused_own_at(own_params, used, i + 1)
     if used_has(name, used) { rest }
     else { [OwnNeverConsumed(name)] ++ rest }
   }
@@ -190,19 +203,24 @@ fn walk_expr(sexpr, own_params, used) = {
 }
 }
 
-fn walk_list(exprs, own_params, used, violations) = {
-  if len(exprs) == 0 { (used, violations) }
+fn walk_list(exprs, own_params, used, violations) =
+  walk_list_at(exprs, own_params, used, violations, 0)
+
+fn walk_list_at(exprs, own_params, used, violations, i) = {
+  if i >= len(exprs) { (used, violations) }
   else {
-    let (u1, v1) = walk_expr(exprs[0], own_params, used)
-    walk_list(slice(exprs, 1, len(exprs)), own_params, u1, violations ++ v1)
+    let (u1, v1) = walk_expr(exprs[i], own_params, used)
+    walk_list_at(exprs, own_params, u1, violations ++ v1, i + 1)
   }
 }
 
-fn walk_stmts(stmts, own_params, used) = {
-  if len(stmts) == 0 { (used, []) }
+fn walk_stmts(stmts, own_params, used) = walk_stmts_at(stmts, own_params, used, 0)
+
+fn walk_stmts_at(stmts, own_params, used, i) = {
+  if i >= len(stmts) { (used, []) }
   else {
-    let (u1, v1) = walk_stmt(stmts[0], own_params, used)
-    let (u2, v2) = walk_stmts(slice(stmts, 1, len(stmts)), own_params, u1)
+    let (u1, v1) = walk_stmt(stmts[i], own_params, used)
+    let (u2, v2) = walk_stmts_at(stmts, own_params, u1, i + 1)
     (u2, v1 ++ v2)
   }
 }
@@ -213,12 +231,15 @@ fn walk_stmt(stmt, own_params, used) = match stmt {
   _ => (used, [])
 }
 
-fn walk_match_arms(arms, own_params, used, violations) = {
-  if len(arms) == 0 { (used, violations) }
+fn walk_match_arms(arms, own_params, used, violations) =
+  walk_match_arms_at(arms, own_params, used, violations, 0)
+
+fn walk_match_arms_at(arms, own_params, used, violations, i) = {
+  if i >= len(arms) { (used, violations) }
   else {
-    let (_, body) = arms[0];
+    let (_, body) = arms[i];
     let (u1, v1) = walk_expr(body, own_params, used)
-    walk_match_arms(slice(arms, 1, len(arms)), own_params, u1, violations ++ v1)
+    walk_match_arms_at(arms, own_params, u1, violations ++ v1, i + 1)
   }
 }
 
@@ -246,11 +267,13 @@ fn check_return_pos(sexpr, ref_params) = {
   }
 }
 
-fn check_return_arms(arms, ref_params) = {
-  if len(arms) == 0 { [] }
+fn check_return_arms(arms, ref_params) = check_return_arms_at(arms, ref_params, 0)
+
+fn check_return_arms_at(arms, ref_params, i) = {
+  if i >= len(arms) { [] }
   else {
-    let (_, body) = arms[0];
+    let (_, body) = arms[i];
     let v = check_return_pos(body, ref_params)
-    v ++ check_return_arms(slice(arms, 1, len(arms)), ref_params)
+    v ++ check_return_arms_at(arms, ref_params, i + 1)
   }
 }

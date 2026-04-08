@@ -751,11 +751,13 @@ fn parse_lambda_params(tokens, pos, idx) = {
 }
 
 // Wrap body with let-pattern destructuring for each pattern param
-fn wrap_destructure(patterns, body, tokens, pos) = {
-  if len(patterns) == 0 { body }
+fn wrap_destructure(patterns, body, tokens, pos) = wrap_destructure_at(patterns, body, tokens, pos, 0)
+
+fn wrap_destructure_at(patterns, body, tokens, pos, i) = {
+  if i >= len(patterns) { body }
   else {
-    let (param_name, pat) = patterns[0];
-    let inner = wrap_destructure(slice(patterns, 1, len(patterns)), body, tokens, pos);
+    let (param_name, pat) = patterns[i];
+    let inner = wrap_destructure_at(patterns, body, tokens, pos, i + 1);
     let desugar = LetPattern(pat, sp(VarRef(param_name), tokens, pos));
     sp(BlockExpr([desugar], inner), tokens, pos)
   }
@@ -1175,13 +1177,15 @@ fn parse_handler_decl(tokens, pos) = {
   (LetStmt(name, record_expr), p5)
 }
 
-fn map_arms_to_record_fields(arms, tokens, pos) = {
-  if len(arms) == 0 { [] }
+fn map_arms_to_record_fields(arms, tokens, pos) = map_arms_to_record_fields_at(arms, tokens, pos, 0)
+
+fn map_arms_to_record_fields_at(arms, tokens, pos, i) = {
+  if i >= len(arms) { [] }
   else {
-    let (op_name, params, hbody) = arms[0]
+    let (op_name, params, hbody) = arms[i]
     // params are already plain strings from parse_handler_clauses
     let lambda_expr = sp(LambdaExpr(params, hbody), tokens, pos)
-    [(op_name, lambda_expr)] ++ map_arms_to_record_fields(slice(arms, 1, len(arms)), tokens, pos)
+    [(op_name, lambda_expr)] ++ map_arms_to_record_fields_at(arms, tokens, pos, i + 1)
   }
 }
 

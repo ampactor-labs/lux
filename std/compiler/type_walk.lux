@@ -63,15 +63,19 @@ fn walk_eff(eff) with TypeVisit = match eff {
   _ => eff
 }
 
-fn walk_type_list(tys) = {
-  if len(tys) == 0 { [] }
-  else { [walk_type(tys[0])] ++ walk_type_list(slice(tys, 1, len(tys))) }
+fn walk_type_list(tys) = walk_type_list_at(tys, 0)
+
+fn walk_type_list_at(tys, i) = {
+  if i >= len(tys) { [] }
+  else { [walk_type(tys[i])] ++ walk_type_list_at(tys, i + 1) }
 }
 
-fn walk_type_fields(fields) = {
-  if len(fields) == 0 { [] }
+fn walk_type_fields(fields) = walk_type_fields_at(fields, 0)
+
+fn walk_type_fields_at(fields, i) = {
+  if i >= len(fields) { [] }
   else {
-    let (name, ty) = fields[0]
-    [(name, walk_type(ty))] ++ walk_type_fields(slice(fields, 1, len(fields)))
+    let (name, ty) = fields[i]
+    [(name, walk_type(ty))] ++ walk_type_fields_at(fields, i + 1)
   }
 }

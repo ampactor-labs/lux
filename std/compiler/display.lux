@@ -143,10 +143,12 @@ fn show_reason(reason, depth) = match reason {
   _ => "unknown reason"
 }
 
-fn show_reason_list(reasons, depth) = {
-  if len(reasons) == 0 { "(none)" }
-  else { if len(reasons) == 1 { show_reason(reasons[0], depth) }
-  else { show_reason(reasons[0], depth) ++ ", " ++ show_reason_list(slice(reasons, 1, len(reasons)), depth) }}
+fn show_reason_list(reasons, depth) = show_reason_list_at(reasons, depth, 0)
+
+fn show_reason_list_at(reasons, depth, i) = {
+  if i >= len(reasons) { "(none)" }
+  else { if i == len(reasons) - 1 { show_reason(reasons[i], depth) }
+  else { show_reason(reasons[i], depth) ++ ", " ++ show_reason_list_at(reasons, depth, i + 1) }}
 }
 
 // ─── Environment Display ────────────────────────────────────

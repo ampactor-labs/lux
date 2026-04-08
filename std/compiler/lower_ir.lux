@@ -189,15 +189,17 @@ fn has_pre_resume_stmts(sexpr) = {
   }
 }
 
-fn classify_all_arms(arms) = {
-  if len(arms) == 0 { TailResumptive }
+fn classify_all_arms(arms) = classify_all_arms_at(arms, 0)
+
+fn classify_all_arms_at(arms, i) = {
+  if i >= len(arms) { TailResumptive }
   else {
-    let tier = classify_handler(arms[0])
+    let tier = classify_handler(arms[i])
     match tier {
-      TailResumptive => classify_all_arms(slice(arms, 1, len(arms))),
+      TailResumptive => classify_all_arms_at(arms, i + 1),
       MultiShot => MultiShot,
       _ => {
-        let rest_tier = classify_all_arms(slice(arms, 1, len(arms)))
+        let rest_tier = classify_all_arms_at(arms, i + 1)
         match rest_tier { MultiShot => MultiShot, _ => Linear }
       }
     }

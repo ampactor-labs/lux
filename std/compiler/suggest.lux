@@ -62,11 +62,13 @@ fn levenshtein(a, b) = {
 
 // ─── Environment Name Collection ────────────────────────────
 
-fn collect_env_names(env) = {
-  if len(env) == 0 { [] }
+fn collect_env_names(env) = collect_env_names_at(env, 0)
+
+fn collect_env_names_at(env, i) = {
+  if i >= len(env) { [] }
   else {
-    let (name, _, _) = env[0]
-    let rest = collect_env_names(slice(env, 1, len(env)))
+    let (name, _, _) = env[i]
+    let rest = collect_env_names_at(env, i + 1)
     if len(name) == 0 { rest }
     else {
       let first = chars(name)[0]
@@ -105,11 +107,13 @@ fn collect_env_types(env) = {
   builtins ++ names
 }
 
-fn collect_type_names_from_env(env) = {
-  if len(env) == 0 { [] }
+fn collect_type_names_from_env(env) = collect_type_names_from_env_at(env, 0)
+
+fn collect_type_names_from_env_at(env, i) = {
+  if i >= len(env) { [] }
   else {
-    let (name, ty, _) = env[0]
-    let rest = collect_type_names_from_env(slice(env, 1, len(env)))
+    let (name, ty, _) = env[i]
+    let rest = collect_type_names_from_env_at(env, i + 1)
     match ty {
       TName(n, _) => if n == name { [name] ++ rest } else { rest },
       _ => rest
@@ -125,11 +129,13 @@ fn find_similar_type(env, name) = {
 
 // ─── Exhaustive Match Analysis ──────────────────────────────
 
-fn collect_constructors(env, type_name) = {
-  if len(env) == 0 { [] }
+fn collect_constructors(env, type_name) = collect_constructors_at(env, type_name, 0)
+
+fn collect_constructors_at(env, type_name, i) = {
+  if i >= len(env) { [] }
   else {
-    let (name, ty, _) = env[0]
-    let rest = collect_constructors(slice(env, 1, len(env)), type_name)
+    let (name, ty, _) = env[i]
+    let rest = collect_constructors_at(env, type_name, i + 1)
     match ty {
       TName(tn, _) => {
         if tn == type_name && name != type_name {

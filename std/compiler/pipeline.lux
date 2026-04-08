@@ -121,12 +121,14 @@ fn max_tvar_in_type(ty) = match ty {
   _ => 0
 }
 
-fn max_tvar_in_types(tys, max_n) = {
-  if len(tys) == 0 { max_n }
+fn max_tvar_in_types(tys, max_n) = max_tvar_in_types_at(tys, max_n, 0)
+
+fn max_tvar_in_types_at(tys, max_n, i) = {
+  if i >= len(tys) { max_n }
   else {
-    let n = max_tvar_in_type(tys[0])
+    let n = max_tvar_in_type(tys[i])
     let new_max = if n > max_n { n } else { max_n }
-    max_tvar_in_types(slice(tys, 1, len(tys)), new_max)
+    max_tvar_in_types_at(tys, new_max, i + 1)
   }
 }
 
@@ -151,24 +153,28 @@ fn validate(ast, env) = {
   ast |> validate_refinements
 }
 
-fn validate_ownership_fns(ast) = {
-  if len(ast) == 0 { () }
+fn validate_ownership_fns(ast) = validate_ownership_fns_at(ast, 0)
+
+fn validate_ownership_fns_at(ast, i) = {
+  if i >= len(ast) { () }
   else {
-    let s = to_string(ast[0])
+    let s = to_string(ast[i])
     if starts_with(s, "FnStmt(") {
-      let name = ast[0][0]
-      let params = ast[0][1]
-      let body = ast[0][2]
+      let name = ast[i][0]
+      let params = ast[i][1]
+      let body = ast[i][2]
       check_ownership(params, body) |> report_ownership(name)
     } else { () }
-    slice(ast, 1, len(ast)) |> validate_ownership_fns
+    validate_ownership_fns_at(ast, i + 1)
   }
 }
 
-fn report_ownership(violations, fn_name) = {
-  if len(violations) == 0 { () }
+fn report_ownership(violations, fn_name) = report_ownership_at(violations, fn_name, 0)
+
+fn report_ownership_at(violations, fn_name, i) = {
+  if i >= len(violations) { () }
   else {
-    match violations[0] {
+    match violations[i] {
       ConsumedTwice(name, first, second) =>
         println("ownership error: '" ++ name ++ "' is own in '" ++ fn_name ++ "' but used more than once"),
       RefEscaped(name, line) =>
@@ -177,16 +183,20 @@ fn report_ownership(violations, fn_name) = {
         println("  -> own '" ++ name ++ "' in '" ++ fn_name ++ "' is never used (will be dropped)"),
       _ => ()
     }
-    slice(violations, 1, len(violations)) |> report_ownership(fn_name)
+    report_ownership_at(violations, fn_name, i + 1)
   }
 }
 
 fn validate_exhaustive(pair) = {
   let (ast, env) = pair
-  if len(ast) == 0 { () }
+  validate_exhaustive_at(ast, env, 0)
+}
+
+fn validate_exhaustive_at(ast, env, i) = {
+  if i >= len(ast) { () }
   else {
-    ast[0] |> walk_for_matches(env)
-    (slice(ast, 1, len(ast)), env) |> validate_exhaustive
+    ast[i] |> walk_for_matches(env)
+    validate_exhaustive_at(ast, env, i + 1)
   }
 }
 
@@ -196,31 +206,34 @@ fn walk_for_matches(item, env) = {
   else { () }
 }
 
-fn validate_refinements(ast) = validate_refinements_loop(ast, [])
+fn validate_refinements(ast) = validate_refinements_loop(ast, [], 0)
 
-fn validate_refinements_loop(ast, aliases) = {
-  if len(ast) == 0 { () }
+fn validate_refinements_loop(ast, aliases, i) = {
+  if i >= len(ast) { () }
   else {
-    let s = to_string(ast[0])
+    let s = to_string(ast[i])
     let new_aliases = if starts_with(s, "TypeAliasStmt(") {
-      let name = ast[0][0]
-      let base = ast[0][1]
-      let pred = ast[0][2]
+      let name = ast[i][0]
+      let base = ast[i][1]
+      let pred = ast[i][2]
       aliases ++ [(name, base, pred)]
     } else { aliases }
     let _ = if starts_with(s, "LetStmt(") && len(new_aliases) > 0 {
-      let name = ast[0][0]
-      let value = ast[0][1]
+      let name = ast[i][0]
+      let value = ast[i][1]
       check_let_against_aliases(name, value, new_aliases)
     } else { () }
-    validate_refinements_loop(slice(ast, 1, len(ast)), new_aliases)
+    validate_refinements_loop(ast, new_aliases, i + 1)
   }
 }
 
-fn check_let_against_aliases(name, value, aliases) = {
-  if len(aliases) == 0 { () }
+fn check_let_against_aliases(name, value, aliases) =
+  check_let_against_aliases_at(name, value, aliases, 0)
+
+fn check_let_against_aliases_at(name, value, aliases, i) = {
+  if i >= len(aliases) { () }
   else {
-    let (alias_name, base_type, predicate) = aliases[0]
+    let (alias_name, base_type, predicate) = aliases[i]
     let result = check_refinement(predicate, value)
     let _ = match result {
       Disproven(reason) =>
@@ -229,7 +242,7 @@ fn check_let_against_aliases(name, value, aliases) = {
         println("[refinement] " ++ alias_name ++ " satisfied: " ++ name),
       _ => ()
     }
-    check_let_against_aliases(name, value, slice(aliases, 1, len(aliases)))
+    check_let_against_aliases_at(name, value, aliases, i + 1)
   }
 }
 
@@ -320,12 +333,17 @@ fn compile_illuminate(source) = {
 fn compile_wasm(source) = {
   // Use the prelude cache — don't re-check the prelude from scratch.
   let (prelude_ast, prelude_env, start_n) = __prelude_cache
-  let runtime = read_file("std/runtime/memory.lux")
+  // Check user code + imports FIRST — without runtime, so builtins (push, len,
+  // slice) are fast VM builtins, not the slow memory.lux Lux implementations.
   let (imports, _) = source |> resolve_imports_tracked([])
-  let wasm_source = runtime ++ "\n" ++ imports ++ "\n" ++ (source |> strip_imports)
-  let wasm_ast = wasm_source |> frontend
-  let env = wasm_ast |> check_program_with(prelude_env, start_n)
-  let combined_ast = prelude_ast ++ wasm_ast
+  let user_source = imports ++ "\n" ++ (source |> strip_imports)
+  let user_ast = user_source |> frontend
+  let env = user_ast |> check_program_with(prelude_env, start_n)
+  // Prepend runtime ONLY for lowering — it provides WASM Memory/Alloc primitives
+  // that the emitter needs, but should NOT be in the checker's execution path.
+  let runtime = read_file("std/runtime/memory.lux")
+  let runtime_ast = runtime |> frontend
+  let combined_ast = prelude_ast ++ runtime_ast ++ user_ast
   validate(combined_ast, env)
   let ctors = env |> extract_constructors
   let lowered = lower_program_typed(combined_ast, ctors, env)
@@ -394,18 +412,20 @@ fn find_imports(lines, idx) = {
   }
 }
 
-fn resolve_import_list(paths, seen) = {
-  if len(paths) == 0 { "" }
+fn resolve_import_list(paths, seen) = resolve_import_list_at(paths, seen, 0)
+
+fn resolve_import_list_at(paths, seen, i) = {
+  if i >= len(paths) { "" }
   else {
-    let path = paths[0]
+    let path = paths[i]
     if list_contains(seen, path) {
-      resolve_import_list(slice(paths, 1, len(paths)), seen)
+      resolve_import_list_at(paths, seen, i + 1)
     } else {
       let new_seen = seen ++ [path]
       let file_path = "std/" ++ replace(path, "/", "/") ++ ".lux"
       let file_source = read_file(file_path)
       let (trans_source, trans_seen) = resolve_imports_tracked(file_source, new_seen)
-      let rest = resolve_import_list(slice(paths, 1, len(paths)), trans_seen)
+      let rest = resolve_import_list_at(paths, trans_seen, i + 1)
       trans_source ++ "\n" ++ (file_source |> strip_imports) ++ "\n" ++ rest
     }
   }
@@ -416,18 +436,21 @@ fn resolve_imports_tracked(source, seen) = {
   resolve_import_list_tracked(import_lines, seen)
 }
 
-fn resolve_import_list_tracked(paths, seen) = {
-  if len(paths) == 0 { ("", seen) }
+fn resolve_import_list_tracked(paths, seen) =
+  resolve_import_list_tracked_at(paths, seen, 0)
+
+fn resolve_import_list_tracked_at(paths, seen, i) = {
+  if i >= len(paths) { ("", seen) }
   else {
-    let path = paths[0]
+    let path = paths[i]
     if list_contains(seen, path) {
-      resolve_import_list_tracked(slice(paths, 1, len(paths)), seen)
+      resolve_import_list_tracked_at(paths, seen, i + 1)
     } else {
       let new_seen = seen ++ [path]
       let file_path = "std/" ++ replace(path, "/", "/") ++ ".lux"
       let file_source = read_file(file_path)
       let (trans_source, trans_seen) = resolve_imports_tracked(file_source, new_seen)
-      let (rest_source, rest_seen) = resolve_import_list_tracked(slice(paths, 1, len(paths)), trans_seen)
+      let (rest_source, rest_seen) = resolve_import_list_tracked_at(paths, trans_seen, i + 1)
       (trans_source ++ "\n" ++ (file_source |> strip_imports) ++ "\n" ++ rest_source, rest_seen)
     }
   }
@@ -465,12 +488,12 @@ fn extract_ctors_iter(env, idx) = {
 
 fn main() = {
   let args = cli_args()
-  
+
   if len(args) < 2 {
     println("Usage: lux [check | why | run | bootstrap] [file]")
   } else {
     let cmd = args[1]
-    
+
     if cmd == "bootstrap" {
       println("[bootstrap] compiling self-hosted compiler...")
       let source = read_file("std/compiler/pipeline.lux")
@@ -484,7 +507,7 @@ fn main() = {
       } else {
         let file = args[2]
         let source = read_file(file)
-        
+
         if cmd == "check" {
           let _ = compile_checking(source)
           ()

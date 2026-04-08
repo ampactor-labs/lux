@@ -52,13 +52,15 @@ fn teach(env, name, ast) = {
   }
 }
 
-fn fn_has_annotations(stmts, name) = {
-  if len(stmts) == 0 { false }
+fn fn_has_annotations(stmts, name) = fn_has_annotations_at(stmts, name, 0)
+
+fn fn_has_annotations_at(stmts, name, i) = {
+  if i >= len(stmts) { false }
   else {
-    match stmts[0] {
+    match stmts[i] {
       FnStmt(n, _, _, effs, _) => if n == name { len(effs) > 0 }
-        else { fn_has_annotations(slice(stmts, 1, len(stmts)), name) },
-      _ => fn_has_annotations(slice(stmts, 1, len(stmts)), name)
+        else { fn_has_annotations_at(stmts, name, i + 1) },
+      _ => fn_has_annotations_at(stmts, name, i + 1)
     }
   }
 }

@@ -68,15 +68,19 @@ fn pe(e) = {
   else { "?" } }}}}
 }
 
-fn mp(es) = {
-  if len(es) == 0 { [] }
-  else { [pe(es[0])] ++ mp(slice(es, 1, len(es))) }
+fn mp(es) = mp_at(es, 0)
+
+fn mp_at(es, i) = {
+  if i >= len(es) { [] }
+  else { [pe(es[i])] ++ mp_at(es, i + 1) }
 }
 
-fn js(ss, sep) = {
-  if len(ss) == 0 { "" }
-  else { if len(ss) == 1 { ss[0] }
-  else { ss[0] ++ sep ++ js(slice(ss, 1, len(ss)), sep) }}
+fn js(ss, sep) = js_at(ss, sep, 0)
+
+fn js_at(ss, sep, i) = {
+  if i >= len(ss) { "" }
+  else { if i == len(ss) - 1 { ss[i] }
+  else { ss[i] ++ sep ++ js_at(ss, sep, i + 1) }}
 }
 
 fn print_lowered(stmts) = js(mp(stmts), NL)
