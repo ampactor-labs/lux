@@ -1,0 +1,17 @@
+// Mutual recursion between sibling inner functions.
+// Proves: forward closure references are correctly patched in WASM.
+// If this runs on wasmtime, sibling closures with different arities
+// can reference each other regardless of definition order.
+
+fn outer(xs) = {
+  let n = len(xs)
+  fn helper(x) = x * 10
+  fn a(i, acc) = if i >= n { acc } else { b(i + 1, acc + helper(xs[i])) }
+  fn b(i, acc) = if i >= n { acc } else { a(i + 1, acc + xs[i]) }
+  fn go(i) = a(i, 0)
+  go(0)
+}
+
+println(to_string(outer([1, 2, 3, 4])))
+// Expected: 46
+// a(0,0) → b(1, 0+10) → a(2, 10+2) → b(3, 12+30) → a(4, 42+4) → 46

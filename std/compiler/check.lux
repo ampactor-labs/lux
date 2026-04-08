@@ -188,10 +188,19 @@ fn insert_field_at(field, sorted, i) = {
 // picture — no dangling effect variables in the output.
 
 fn resolve_type(subst, eff_subst, ty) = match apply(subst, ty) {
-  TFun(params, ret, eff) =>
+  TFun(params, ret, eff) => {
+    let resolved_eff = apply_eff_subst(eff_subst, eff)
+    // Close unconstrained effect rows: if the variable has no binding,
+    // the function has no more effects than what's named.
+    let closed_eff = match resolved_eff {
+      EfOpen([], _) => EfPure,
+      EfOpen(names, _) => EfClosed(names),
+      _ => resolved_eff
+    }
     TFun(resolve_type_list(subst, eff_subst, params),
          resolve_type(subst, eff_subst, ret),
-         apply_eff_subst(eff_subst, eff)),
+         closed_eff)
+  },
   TList(elem) => TList(resolve_type(subst, eff_subst, elem)),
   TTuple(elems) => TTuple(resolve_type_list(subst, eff_subst, elems)),
   TName(name, args) => TName(name, resolve_type_list(subst, eff_subst, args)),
