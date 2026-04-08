@@ -38,7 +38,7 @@ fn infer(sexpr) with Infer, Diagnostic = {
     FloatLit(_)  => TFloat,
     StringLit(_) => TString,
     BoolLit(_)   => TBool,
-    NoneExpr     => TUnit,
+    NoneExpr     => { report("", "warning", "unparsed expression treated as ()", line, col); TUnit },
 
     VarRef(name) => lookup(name),
 
