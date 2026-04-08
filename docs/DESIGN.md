@@ -228,28 +228,28 @@ to the handler (pinch point), and `resume(result)` radiates the result back
 out. The hourglass is not a metaphor — it's the structural pattern that
 every Lux program follows.
 
-### `<>` — Composition (Potential)
+### `><` — Composition (Potential)
 
 Functions combine into functions. No data. Just potential.
 
 ```lux
-let process = normalize <> analyze <> classify
+let process = normalize >< analyze >< classify
 // process: (RawSignal) -> Label — nothing ran yet
 
 // Dynamic pipeline from a list of functions
-let chain = fold(effects, id, |acc, fx| fx <> acc)
+let chain = fold(effects, id, |acc, fx| fx >< acc)
 
 // Apply when ready
 audio |> process
 ```
 
-Effects compose through `<>`: if `f` has `Console` and `g` is `Pure`,
-`f <> g` has `Console`. If both are `!Alloc`, the composition is `!Alloc`.
+Effects compose through `><`: if `f` has `Console` and `g` is `Pure`,
+`f >< g` has `Console`. If both are `!Alloc`, the composition is `!Alloc`.
 Real-time safety IS compositional.
 
-DSP: `let master = eq <> dynamics with !Alloc` — mastering chain as a value.
-ML: `let model = encoder <> head` — neural network as a value.
-Middleware: `let stack = auth <> rate_limit <> log` — handler chain as a value.
+DSP: `let master = eq >< dynamics with !Alloc` — mastering chain as a value.
+ML: `let model = encoder >< head` — neural network as a value.
+Middleware: `let stack = auth >< rate_limit >< log` — handler chain as a value.
 
 ### The Closed Algebra
 
@@ -257,7 +257,7 @@ Middleware: `let stack = auth <> rate_limit <> log` — handler chain as a value
 |----|-------------|----------|------|
 | `\|>` | value, function | value | Data flows NOW |
 | `<\|` | value, functions | values | Data fans NOW |
-| `<>` | function, function | function | Nothing runs. Potential. |
+| `><` | function, function | function | Nothing runs. Potential. |
 
 Any data flow graph — sequential, parallel, diamond, hourglass — is
 expressible as a combination of these three. They close the algebra.
@@ -267,7 +267,7 @@ expressible as a combination of these three. They close the algebra.
 All three operators desugar to function application or construction:
 - `a |> f(b)` → `f(a, b)` — Call with prepended argument
 - `a <| (f, g, h)` → `(f(a), g(a), h(a))` — Tuple of applications
-- `f <> g` → `|x| g(f(x))` — Forward composition (f first, then g, like `|>`)
+- `f >< g` → `|x| g(f(x))` — Forward composition (f first, then g, like `|>`)
 
 The type rules are pure. No special mechanism. Application IS the mechanism.
 
@@ -726,13 +726,13 @@ fn soft_clip(x: Float) -> Sample =
 
 ### Signal Chains as Values
 
-`<>` makes signal chains first-class. Build them, name them, pass them, reuse them:
+`><` makes signal chains first-class. Build them, name them, pass them, reuse them:
 
 ```lux
-// Build processing stages with <>
-let eq = highpass(80.0) <> lowshelf(200.0, 3.0) <> highshelf(8000.0, -2.0)
-let dynamics = compress(4.0) <> limit(-0.1)
-let master = eq <> dynamics  // with !Alloc — real-time safety composes
+// Build processing stages with ><
+let eq = highpass(80.0) >< lowshelf(200.0, 3.0) >< highshelf(8000.0, -2.0)
+let dynamics = compress(4.0) >< limit(-0.1)
+let master = eq >< dynamics  // with !Alloc — real-time safety composes
 
 // Apply with |>
 audio |> master
@@ -742,7 +742,7 @@ audio <| (fft, rms, peak_detect)
 // → (spectrum, loudness, transients)
 ```
 
-`|>` runs the chain. `<>` builds it. `<|` fans out. Same operators everywhere.
+`|>` runs the chain. `><` builds it. `<|` fans out. Same operators everywhere.
 
 ### The Pipe Operator IS a Signal Chain
 
@@ -798,7 +798,7 @@ it the ideal stress test for the language thesis.
 | Effect algebra | `!Random` deterministic inference, `!Alloc` embedded deployment |
 | Refinement types | Compile-time shape checking, parameter constraints |
 | Ownership | Zero-copy data pipelines, deterministic memory |
-| Pipes `\|>` `<\|` `<>` | Model = composition, fan-out = multi-head, pipe = inference |
+| Pipes `\|>` `<\|` `><` | Model = composition, fan-out = multi-head, pipe = inference |
 | Multi-shot | Hyperparameter search as handler strategy |
 | Row polymorphism | Effect-generic model combinators |
 | Evidence-passing | Zero-overhead autodiff at compile time |
@@ -806,12 +806,12 @@ it the ideal stress test for the language thesis.
 
 ### Models as Composition
 
-Neural networks ARE `<>`. Each layer is a function. `<>` builds the network:
+Neural networks ARE `><`. Each layer is a function. `><` builds the network:
 
 ```lux
-let encoder = conv1d(32, 3) <> relu <> conv1d(64, 3) <> relu <> flatten
-let head = dense(128) <> relu <> dense(10) <> softmax
-let model = encoder <> head
+let encoder = conv1d(32, 3) >< relu >< conv1d(64, 3) >< relu >< flatten
+let head = dense(128) >< relu >< dense(10) >< softmax
+let model = encoder >< head
 
 // Train with a handler:
 handle { data |> model } with training_handler
@@ -822,7 +822,7 @@ data |> model
 Multi-head attention IS `<|`:
 ```lux
 let attention = |x| x <| (q_proj, k_proj, v_proj) |> merge_heads
-let layer = attention <> ffn <> layer_norm
+let layer = attention >< ffn >< layer_norm
 let transformer = build_pipeline(repeat(12, layer))
 ```
 
