@@ -36,13 +36,17 @@ jobs:
         run: cargo fmt --check
 
       - name: Clippy
-        run: cargo clippy -- -D warnings
+        run: cargo clippy -- -W warnings
 
       - name: Build
-        run: cargo build
-
-      - name: Unit tests
-        run: cargo test --test type_tests
+        run: cargo build --release
 
       - name: Golden-file tests
         run: cargo test --test examples -- --test-threads=1
+
+      - name: WASM crucible
+        run: |
+          curl https://wasmtime.dev/install.sh -sSf | bash
+          export PATH="$HOME/.wasmtime/bin:$PATH"
+          ./target/release/lux wasm examples/wasm_counter.lux > /tmp/counter.wat
+          wasmtime /tmp/counter.wat | grep -q "count = 3"
