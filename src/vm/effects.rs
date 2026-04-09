@@ -590,12 +590,21 @@ impl Vm {
         };
 
         // Process result: unpack state tuple if stateful.
+        // Tuple format: (resume_value, bitmask, state_0, ..., state_N)
+        // The bitmask encodes which state variables were explicitly updated.
+        // Only those slots are overwritten — unchanged slots keep their current
+        // value (which may have been updated by nested dispatches).
         if state_count > 0 {
             if let VmValue::Tuple(elts) = &handler_result {
-                // Update handler state on the handler stack.
+                let bitmask = match elts.get(1) {
+                    Some(VmValue::Int(n)) => *n as u64,
+                    _ => u64::MAX,
+                };
                 for i in 0..state_count {
-                    if let Some(val) = elts.get(i + 1) {
-                        self.handler_stack[h_idx].state[i] = val.clone();
+                    if bitmask & (1 << i) != 0 {
+                        if let Some(val) = elts.get(i + 2) {
+                            self.handler_stack[h_idx].state[i] = val.clone();
+                        }
                     }
                 }
                 // Push resume value.
