@@ -227,7 +227,7 @@ impl Compiler {
         self.chunk.emit_u16(val, line);
     }
 
-    fn emit_constant(&mut self, constant: Constant, line: u32) -> u16 {
+    pub(super) fn emit_constant(&mut self, constant: Constant, line: u32) -> u16 {
         let idx = self.chunk.add_constant(constant);
         self.emit_op(OpCode::LoadConst, line);
         self.emit_u16(idx, line);
