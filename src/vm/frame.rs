@@ -96,12 +96,6 @@ pub struct VmHandlerFrame {
     pub stack_height: usize,
     /// Handler-local state values (updated by `Resume`).
     pub state: Vec<VmValue>,
-    /// IP in the performing frame to resume at (set by `Perform`).
-    pub resume_ip: usize,
-    /// Frame index where `Perform` happened (set by `Perform`).
-    pub resume_frame_idx: usize,
-    /// Stack height at the `Perform` site after popping args (set by `Perform`).
-    pub resume_stack_height: usize,
     /// IP of the handle body start (right after PushHandler operands).
     /// Used for multi-shot continuation replay.
     pub body_start_ip: usize,
@@ -110,4 +104,23 @@ pub struct VmHandlerFrame {
     pub stack_snapshot: Vec<VmValue>,
     /// Initial state values (snapshot at PushHandler time, for replay).
     pub initial_state: Vec<VmValue>,
+}
+
+/// A dispatch entry on the handler dispatch stack.
+///
+/// Pushed by `Perform`, popped by `Resume`. Each entry carries its own
+/// resume metadata so re-entrant dispatch on the same handler works
+/// correctly — nested Performs don't clobber each other's resume points.
+#[derive(Debug, Clone)]
+pub struct HandlerDispatchEntry {
+    /// Index into `handler_stack` for the dispatched handler.
+    pub handler_idx: usize,
+    /// Call frame index of the handler body being executed.
+    pub body_frame_idx: usize,
+    /// IP in the performing frame to resume at.
+    pub resume_ip: usize,
+    /// Frame index where `Perform` happened.
+    pub resume_frame_idx: usize,
+    /// Stack height at the `Perform` site after popping args.
+    pub resume_stack_height: usize,
 }

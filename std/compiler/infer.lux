@@ -26,6 +26,8 @@ effect Infer {
   pop_scope() -> EffRow
   get_env() -> List
   get_subst() -> List
+  subst_bind(id: Int, ty: Ty, reason: Reason) -> ()
+  subst_apply(ty: Ty) -> Ty
 }
 
 // ─── Expression Inference ───────────────────────────────────

@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use super::chunk::{Constant, FnProto};
 use super::error::VmError;
-use super::frame::{CallFrame, VmHandlerEntry, VmHandlerFrame};
+use super::frame::{CallFrame, HandlerDispatchEntry, VmHandlerEntry, VmHandlerFrame};
 use super::value::{VmContinuation, VmEvidence, VmEvidenceEntry, VmValue};
 use super::vm::Vm;
 
@@ -51,9 +51,6 @@ impl Vm {
             stack_height: self.stack.len(),
             initial_state: state.clone(),
             state,
-            resume_ip: 0,
-            resume_frame_idx: 0,
-            resume_stack_height: 0,
             body_start_ip,
             stack_snapshot,
         });
@@ -103,16 +100,9 @@ impl Vm {
         let found = self.find_handler(&op_name);
 
         if let Some((handler_idx, entry_idx)) = found {
-            // Save resume state on the handler frame.
+            // Save resume state for the dispatch stack entry.
             let resume_ip = self.frames[frame_idx].ip;
             let resume_stack_height = self.stack.len();
-
-            {
-                let handler = &mut self.handler_stack[handler_idx];
-                handler.resume_ip = resume_ip;
-                handler.resume_frame_idx = frame_idx;
-                handler.resume_stack_height = resume_stack_height;
-            }
 
             // Determine if this handler is stateless (multi-shot capable).
             let is_stateless = self.handler_stack[handler_idx].state.is_empty();
@@ -136,8 +126,6 @@ impl Vm {
                     body_start_ip: self.handler_stack[handler_idx].body_start_ip,
                     handler_entries: self.handler_stack[handler_idx].entries.clone(),
                     initial_state: self.handler_stack[handler_idx].initial_state.clone(),
-                    // Use the snapshot captured at PushHandler time (clean state
-                    // before the body modified locals via block-scoped lets).
                     stack_snapshot: self.handler_stack[handler_idx].stack_snapshot.clone(),
                     upvalues: self.frames[h_frame_idx].upvalues.clone(),
                     outer_handler_stack: self.handler_stack[..handler_idx].to_vec(),
@@ -164,9 +152,16 @@ impl Vm {
                 self.dispatch_handler_body(proto, &args, &state, upvalues)?;
             }
 
-            // Track that we're in a handler dispatch (stack for nesting).
-            self.handler_dispatch_stack
-                .push((handler_idx, self.frames.len() - 1));
+            // Track dispatch with per-entry resume metadata.
+            // Each entry carries its own resume point so re-entrant
+            // dispatch on the same handler works correctly.
+            self.handler_dispatch_stack.push(HandlerDispatchEntry {
+                handler_idx,
+                body_frame_idx: self.frames.len() - 1,
+                resume_ip,
+                resume_frame_idx: frame_idx,
+                resume_stack_height,
+            });
 
             Ok(())
         } else {
@@ -202,7 +197,10 @@ impl Vm {
         // Pop resume value.
         let resume_value = self.stack.pop().unwrap_or(VmValue::Unit);
 
-        if let Some((h_idx, body_frame_idx)) = self.handler_dispatch_stack.pop() {
+        if let Some(dispatch) = self.handler_dispatch_stack.pop() {
+            let h_idx = dispatch.handler_idx;
+            let body_frame_idx = dispatch.body_frame_idx;
+
             // Apply state updates to the handler frame.
             let handler = &mut self.handler_stack[h_idx];
             for (offset, value) in state_offsets.iter().zip(update_values.into_iter()) {
@@ -212,9 +210,11 @@ impl Vm {
                 }
             }
 
-            let resume_ip = handler.resume_ip;
-            let resume_frame_idx = handler.resume_frame_idx;
-            let resume_stack_height = handler.resume_stack_height;
+            // Resume metadata comes from the dispatch entry, not the handler
+            // frame. This enables re-entrant dispatch on the same handler.
+            let resume_ip = dispatch.resume_ip;
+            let resume_frame_idx = dispatch.resume_frame_idx;
+            let resume_stack_height = dispatch.resume_stack_height;
 
             // Unwind all frames above and including the handler body frame.
             while self.frames.len() > body_frame_idx {
@@ -546,16 +546,18 @@ impl Vm {
         let args: Vec<VmValue> = self.stack.drain(args_start..).collect();
 
         // Get handler state from the handler stack (shared with normal Perform path).
-        let state = self.handler_stack[h_idx].state.clone();
-        let state_count = state.len();
+        // Clone state, push onto stack, then DROP the clone so it doesn't hold
+        // Arc references that prevent COW in-place mutation during the body.
+        let state_count = self.handler_stack[h_idx].state.len();
 
         // Build call frame for evidence handler body: [args..., state...].
         let call_base = self.stack.len();
-        for arg in &args {
-            self.stack.push(arg.clone());
+        // Move args onto stack (not clone) to avoid holding extra Arc refs.
+        for arg in args {
+            self.stack.push(arg);
         }
-        for s in &state {
-            self.stack.push(s.clone());
+        for i in 0..state_count {
+            self.stack.push(self.handler_stack[h_idx].state[i].clone());
         }
 
         // Push extra locals (beyond params).
@@ -669,9 +671,6 @@ impl Vm {
             stack_height: self.stack.len(),
             initial_state: cont.initial_state.clone(),
             state: cont.initial_state.clone(),
-            resume_ip: 0,
-            resume_frame_idx: 0,
-            resume_stack_height: 0,
             body_start_ip: cont.body_start_ip,
             stack_snapshot: cont.stack_snapshot.clone(),
         });

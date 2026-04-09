@@ -1,0 +1,27 @@
+// Bootstrap Compiler — Lux compiles Lux to WASM.
+// With the COW fix, this runs in ~60MB instead of 14GB.
+
+import compiler/lexer
+import compiler/parser
+import compiler/check
+import compiler/ty
+import compiler/eff
+import compiler/infer
+import compiler/suggest
+import compiler/display
+import compiler/type_walk
+import compiler/lower
+import compiler/lower_closure
+import compiler/lower_ir
+import compiler/lowir_walk
+import backend/wasm_emit
+import backend/wasm_collect
+import backend/wasm_construct
+import backend/wasm_runtime
+
+let source = read_stdin()
+let ast = source |> lex |> parse_program
+let env = ast |> check_program
+let ctors = env |> extract_constructors
+let lowered = lower_program_typed(ast, ctors, env)
+emit_module(lowered, env)

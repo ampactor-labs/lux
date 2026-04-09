@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use super::chunk::{Chunk, Constant, FnProto, HandlerEntry, HandlerTable};
 use super::error::VmError;
-use super::frame::{CallFrame, VmHandlerFrame};
+use super::frame::{CallFrame, HandlerDispatchEntry, VmHandlerFrame};
 use super::opcode::OpCode;
 use super::value::{BuiltinId, Closure, VmValue};
 
@@ -36,10 +36,10 @@ pub struct Vm {
     builtin_map: HashMap<String, BuiltinId>,
     /// Output buffer (for WASM compatibility — captures print output).
     pub output: String,
-    /// Active handler dispatch stack: `(handler_stack_idx, body_frame_idx)`.
+    /// Active handler dispatch stack.
     /// Pushed by Perform, popped by Resume. A stack (not scalar) so nested
-    /// effects don't clobber outer dispatch state.
-    pub(super) handler_dispatch_stack: Vec<(usize, usize)>,
+    /// and re-entrant effects don't clobber each other's resume points.
+    pub(super) handler_dispatch_stack: Vec<HandlerDispatchEntry>,
     /// Variant name → ordered field names (for named field access).
     field_registry: FieldRegistry,
     /// Replay log for multi-shot continuation re-evaluation. `None` = normal mode.
@@ -337,12 +337,12 @@ impl Vm {
                     let a = self.stack.pop().unwrap_or(VmValue::Unit);
                     match (a, b) {
                         (VmValue::String(mut a), VmValue::String(b)) => {
-                            self.cow_drop_string_aliases(&a, frame_idx);
+                            self.cow_drop_string_aliases(&a, frame_idx, false);
                             Arc::make_mut(&mut a).push_str(&b);
                             self.stack.push(VmValue::String(a));
                         }
                         (VmValue::List(mut a), VmValue::List(b)) => {
-                            self.cow_drop_list_aliases(&a, frame_idx);
+                            self.cow_drop_list_aliases(&a, frame_idx, false);
                             Arc::make_mut(&mut a).extend((*b).iter().cloned());
                             self.stack.push(VmValue::List(a));
                         }
@@ -488,8 +488,9 @@ impl Vm {
                     // Check if this is a handler body returning without Resume
                     // (HandleDone). The handler's return value becomes the handle
                     // expression's result.
-                    if let Some(&(h_idx, body_idx)) = self.handler_dispatch_stack.last() {
-                        if frame_idx == body_idx {
+                    if let Some(dispatch) = self.handler_dispatch_stack.last() {
+                        if frame_idx == dispatch.body_frame_idx {
+                            let h_idx = dispatch.handler_idx;
                             self.handler_dispatch_stack.pop();
                             let handler_frame = self.handler_stack[h_idx].frame_idx;
                             let stack_height = self.handler_stack[h_idx].stack_height;
@@ -520,8 +521,8 @@ impl Vm {
                             // H11: Fix up handler_dispatch_stack — indices > h_idx
                             // are now stale after .remove() shifted elements down.
                             for entry in self.handler_dispatch_stack.iter_mut() {
-                                if entry.0 > h_idx {
-                                    entry.0 -= 1;
+                                if entry.handler_idx > h_idx {
+                                    entry.handler_idx -= 1;
                                 }
                             }
 
@@ -572,7 +573,7 @@ impl Vm {
                         let elem = self.stack.pop().unwrap_or(VmValue::Unit);
                         let list = self.stack.pop().unwrap_or(VmValue::Unit);
                         if let VmValue::List(mut arc) = list {
-                            self.cow_drop_list_aliases(&arc, frame_idx);
+                            self.cow_drop_list_aliases(&arc, frame_idx, true);
                             Arc::make_mut(&mut arc).push(elem);
                             self.stack.push(VmValue::List(arc));
                         } else {
@@ -1159,10 +1160,27 @@ impl Vm {
                 Ok(())
             }
             VmValue::Builtin(id) => {
-                let start = self.stack.len() - argc;
-                let args: Vec<VmValue> = self.stack.drain(start..).collect();
-                self.stack.pop(); // remove function value
-                self.call_builtin_with_args(id, args)?;
+                // COW fast-path: push(list, elem) — same optimization as CallBuiltin
+                // but triggered via the regular Call opcode path (which is what the
+                // Rust compiler actually emits for all builtins).
+                if id.0 == self.push_builtin_id && argc == 2 {
+                    let elem = self.stack.pop().unwrap_or(VmValue::Unit);
+                    let list = self.stack.pop().unwrap_or(VmValue::Unit);
+                    self.stack.pop(); // remove function value
+                    if let VmValue::List(mut arc) = list {
+                        let frame_idx = self.frames.len() - 1;
+                        self.cow_drop_list_aliases(&arc, frame_idx, true);
+                        Arc::make_mut(&mut arc).push(elem);
+                        self.stack.push(VmValue::List(arc));
+                    } else {
+                        self.stack.push(VmValue::Unit);
+                    }
+                } else {
+                    let start = self.stack.len() - argc;
+                    let args: Vec<VmValue> = self.stack.drain(start..).collect();
+                    self.stack.pop(); // remove function value
+                    self.call_builtin_with_args(id, args)?;
+                }
                 Ok(())
             }
             VmValue::Variant { name, fields } if fields.is_empty() => {
@@ -1220,99 +1238,98 @@ impl Vm {
 
     // ── COW alias clearing ─────────────────────────────────────
     //
-    // When mutating a List or String via Concat/push, the Arc is typically
-    // shared by 2-3 references: the value we're about to mutate (popped
-    // from the stack), the local slot it was cloned from (LoadLocal), and
-    // the handler state it was dispatched from.  Clearing SAFE aliases
-    // drops the Arc strong_count to 1, enabling Arc::make_mut to mutate
-    // in place — turning O(N) per append into O(1) amortized.
+    // When push(list, elem) fires, the list Arc has already been popped
+    // from the stack.  Every remaining ptr-equal Arc on the stack or in
+    // handler state is a stale alias — an intermediate function argument
+    // or handler-local copy that will be overwritten or dropped when its
+    // frame returns.  Clearing them drops the refcount to 1, enabling
+    // Arc::make_mut to mutate in place: O(1) amortized instead of O(N).
     //
-    // SAFETY: Only clear aliases that are guaranteed to be overwritten:
-    // 1. Handler frame state entries (always overwritten by Resume)
-    // 2. Handler body state parameter locals (the specific slots that
-    //    hold handler state — always overwritten when Resume updates state)
-    // Regular locals are NEVER cleared (they might be read again).
+    // Two modes:
+    // - AGGRESSIVE (push): scan handler state + stack slots from the
+    //   handler body frame onwards (intermediate call frames that are
+    //   passing handler state down the call chain to push).  These
+    //   intermediate copies are dead after push returns a new list.
+    //   This is what drops 11GB → MB.
+    // - CONSERVATIVE (Concat): only clear handler state.  Concat operands
+    //   might still be live in the caller's scope.
 
-    /// Drop handler-state aliases to a list Arc.
-    fn cow_drop_list_aliases(&mut self, target: &Arc<Vec<VmValue>>, frame_idx: usize) {
-        if let Some(&(h_idx, body_frame_idx)) = self.handler_dispatch_stack.last() {
-            if h_idx < self.handler_stack.len() {
-                let handler = &mut self.handler_stack[h_idx];
-                // Clear matching handler frame state entries.
-                for s in handler.state.iter_mut() {
-                    if let VmValue::List(arc) = &*s {
-                        if Arc::ptr_eq(target, arc) {
-                            *s = VmValue::Unit;
-                        }
-                    }
-                }
-                // Clear state parameter locals in the handler body frame.
-                // State params are at: base + effect_param_count .. base + effect_param_count + state_count
-                if body_frame_idx == frame_idx {
-                    let state_count = handler.state.len();
-                    if state_count > 0 {
-                        // Find the effect param_count for the active handler entry.
-                        let param_count = self.active_handler_param_count(h_idx) as usize;
-                        let base = self.frames[frame_idx].stack_base;
-                        let start = base + param_count;
-                        let end = start + state_count;
-                        for i in start..end.min(self.stack.len()) {
-                            if let VmValue::List(ref arc) = self.stack[i] {
-                                if Arc::ptr_eq(target, arc) {
-                                    self.stack[i] = VmValue::Unit;
-                                }
-                            }
-                        }
+    /// Drop aliases to a list Arc.
+    ///
+    /// `aggressive` (push): clear handler state + current frame locals.
+    /// Push is a builtin (no frame), so frame_idx IS the caller's frame.
+    /// The caller's local copy of the list is dead after push returns
+    /// (linear pattern: `let new = push(old, elem)`).
+    /// We only scan the CURRENT frame to avoid clearing live data in
+    /// parent frames (e.g. lowerer's env used in later `++` operations).
+    fn cow_drop_list_aliases(&mut self, target: &Arc<Vec<VmValue>>, frame_idx: usize, aggressive: bool) {
+        // Handler state entries (stored separately from the stack).
+        for handler in self.handler_stack.iter_mut() {
+            for s in handler.state.iter_mut() {
+                if let VmValue::List(ref arc) = *s {
+                    if Arc::ptr_eq(target, arc) {
+                        *s = VmValue::Unit;
                     }
                 }
             }
         }
-    }
-
-    /// Drop handler-state aliases to a string Arc.
-    fn cow_drop_string_aliases(&mut self, target: &Arc<String>, frame_idx: usize) {
-        if let Some(&(h_idx, body_frame_idx)) = self.handler_dispatch_stack.last() {
-            if h_idx < self.handler_stack.len() {
-                let handler = &mut self.handler_stack[h_idx];
-                for s in handler.state.iter_mut() {
-                    if let VmValue::String(arc) = &*s {
+        if aggressive {
+            // Scan frames from current downward until refcount reaches 1.
+            // Each frame scan clears locals that are dead aliases of the
+            // list being pushed to. We walk down the call stack because
+            // push's callers (and their callers) may hold copies.
+            let mut fi = frame_idx as isize;
+            while fi >= 0 && Arc::strong_count(target) > 1 {
+                let start = self.frames[fi as usize].stack_base;
+                let end = if (fi as usize + 1) < self.frames.len() {
+                    self.frames[fi as usize + 1].stack_base
+                } else {
+                    self.stack.len()
+                };
+                for slot in self.stack[start..end].iter_mut() {
+                    if let VmValue::List(ref arc) = *slot {
                         if Arc::ptr_eq(target, arc) {
-                            *s = VmValue::Unit;
+                            *slot = VmValue::Unit;
                         }
                     }
                 }
-                if body_frame_idx == frame_idx {
-                    let state_count = handler.state.len();
-                    if state_count > 0 {
-                        let param_count = self.active_handler_param_count(h_idx) as usize;
-                        let base = self.frames[frame_idx].stack_base;
-                        let start = base + param_count;
-                        let end = start + state_count;
-                        for i in start..end.min(self.stack.len()) {
-                            if let VmValue::String(ref arc) = self.stack[i] {
-                                if Arc::ptr_eq(target, arc) {
-                                    self.stack[i] = VmValue::Unit;
-                                }
-                            }
-                        }
-                    }
-                }
+                fi -= 1;
             }
         }
     }
 
-    /// Get the effect param_count for the currently dispatching handler entry.
-    fn active_handler_param_count(&self, h_idx: usize) -> u8 {
-        // The last dispatched entry's param_count. We search handler_dispatch_stack
-        // for the matching h_idx and find which entry was dispatched.
-        // Fallback: check all entries and use the first non-zero param_count.
-        let handler = &self.handler_stack[h_idx];
-        if handler.entries.len() == 1 {
-            return handler.entries[0].param_count;
+    /// Drop aliases to a string Arc.
+    fn cow_drop_string_aliases(&mut self, target: &Arc<String>, frame_idx: usize, aggressive: bool) {
+        for handler in self.handler_stack.iter_mut() {
+            for s in handler.state.iter_mut() {
+                if let VmValue::String(ref arc) = *s {
+                    if Arc::ptr_eq(target, arc) {
+                        *s = VmValue::Unit;
+                    }
+                }
+            }
         }
-        // Default: assume effect args = 1 (most common case: single effect arg).
-        handler.entries.first().map(|e| e.param_count).unwrap_or(1)
+        if aggressive {
+            let mut fi = frame_idx as isize;
+            while fi >= 0 && Arc::strong_count(target) > 1 {
+                let start = self.frames[fi as usize].stack_base;
+                let end = if (fi as usize + 1) < self.frames.len() {
+                    self.frames[fi as usize + 1].stack_base
+                } else {
+                    self.stack.len()
+                };
+                for slot in self.stack[start..end].iter_mut() {
+                    if let VmValue::String(ref arc) = *slot {
+                        if Arc::ptr_eq(target, arc) {
+                            *slot = VmValue::Unit;
+                        }
+                    }
+                }
+                fi -= 1;
+            }
+        }
     }
+
 
     // ── Builtin registration ──────────────────────────────────
 

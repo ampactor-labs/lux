@@ -434,7 +434,7 @@ fn lower_stmts_with_env_at(stmts, env, i) = {
 // the lowered node. For FnStmt, the checker already put the real TFun in
 // env — we don't shadow it.
 fn extend_env_from_stmt(stmt, lowered, env) = match stmt {
-  LetStmt(name, _) => [(name, lexpr_ty(lowered), Inferred("let"))] ++ env,
+  LetStmt(name, _) => push(env, (name, lexpr_ty(lowered), Inferred("let"))),
   FnStmt(_, _, _, _, _) => env,  // real TFun already in env from checker
   LetDestructure(names, _) => bind_names_unknown(names, env),
   _ => env
@@ -443,7 +443,7 @@ fn extend_env_from_stmt(stmt, lowered, env) = match stmt {
 fn bind_names_unknown(names, env) = bind_names_unknown_at(names, env, 0)
 fn bind_names_unknown_at(names, env, i) = {
   if i >= len(names) { env }
-  else { bind_names_unknown_at(names, [(names[i], TUnit, Inferred("destructured"))] ++ env, i + 1) }
+  else { bind_names_unknown_at(names, push(env, (names[i], TUnit, Inferred("destructured"))), i + 1) }
 }
 
 fn extract_param_names(params) = extract_param_names_at(params, 0)
