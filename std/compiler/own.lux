@@ -119,10 +119,12 @@ fn walk_expr(sexpr, own_params, used) = {
   VarRef(name) => {
     if is_own_param(name, own_params) {
       if used_has(name, used) {
-        let first = used_line(name, used);
-        (used, [ConsumedTwice(name, first, line)])
+        let first = used_line(name, used)
+        let violation = ConsumedTwice(name, first, line)
+        (used, [violation])
       } else {
-        (push(used, (name, line)), [])
+        let new_used = push(used, (name, line))
+        (new_used, [])
       }
     } else { (used, []) }
   },
