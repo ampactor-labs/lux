@@ -26,8 +26,6 @@ effect Infer {
   pop_scope() -> EffRow
   get_env() -> List
   get_subst() -> List
-  subst_bind(id: Int, ty: Ty, reason: Reason) -> ()
-  subst_apply(ty: Ty) -> Ty
 }
 
 // ─── Expression Inference ───────────────────────────────────
@@ -89,7 +87,7 @@ fn infer(sexpr) with Infer, Diagnostic = {
       bind_names(params, param_types)
       let ret = infer(body)
       let body_effs = pop_scope()
-      TFun(map(resolve, param_types), resolve(ret), body_effs)
+      TFun(map(|t| resolve(t), param_types), resolve(ret), body_effs)
     },
 
     PipeExpr(data, step) => {
@@ -410,7 +408,7 @@ fn infer_stmt(stmt) with Infer, Diagnostic = match stmt {
     let constraint_result = check_effect_constraints(name, body_effs, declared_effects, eff_subst_empty())
     report_effect_violations(constraint_result)
     let final_effs = resolve_declared_effs(declared_effects, body_effs)
-    bind(name, TFun(map(resolve, param_types), resolve(ret), final_effs), Declared("fn " ++ name))
+    bind(name, TFun(map(|t| resolve(t), param_types), resolve(ret), final_effs), Declared("fn " ++ name))
   },
 
   ExprStmt(expr) => { infer(expr); () },

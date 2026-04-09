@@ -1,5 +1,6 @@
 // Bootstrap Compiler — Lux compiles Lux to WASM.
-// With the COW fix, this runs in ~60MB instead of 14GB.
+// Direct pipeline: read prelude, check user source, lower, emit.
+// No import of pipeline.lux (avoids re-entrant compilation issues).
 
 import compiler/lexer
 import compiler/parser
@@ -19,9 +20,34 @@ import backend/wasm_collect
 import backend/wasm_construct
 import backend/wasm_runtime
 
+fn extract_constructors(env) = extract_ctors_at(env, 0)
+fn extract_ctors_at(env, i) = {
+  if i >= len(env) { [] }
+  else {
+    let (name, ty, _) = env[i]
+    let is_ctor = match ty { TName(_, _) => true, _ => false }
+    let rest = extract_ctors_at(env, i + 1)
+    if is_ctor { [name] ++ rest } else { rest }
+  }
+}
+
+// Step 1: Load and check the prelude
+let prelude_src = read_file("std/prelude.lux")
+let prelude_ast = prelude_src |> lex |> parse_program
+let prelude_env = prelude_ast |> check_program
+let start_n = 1000
+
+// Step 2: Load runtime (WASM memory primitives)
+let runtime_src = read_file("std/runtime/memory.lux")
+let runtime_ast = runtime_src |> lex |> parse_program
+
+// Step 3: Read and check user source with prelude env
 let source = read_stdin()
-let ast = source |> lex |> parse_program
-let env = ast |> check_program
-let ctors = env |> extract_constructors
-let lowered = lower_program_typed(ast, ctors, env)
+let user_ast = source |> lex |> parse_program
+let env = user_ast |> check_program_with(prelude_env, start_n)
+
+// Step 4: Combine, lower, emit
+let combined_ast = prelude_ast ++ runtime_ast ++ user_ast
+let ctors = extract_constructors(env)
+let lowered = lower_program_typed(combined_ast, ctors, env)
 emit_module(lowered, env)

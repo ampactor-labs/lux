@@ -18,13 +18,12 @@ import compiler/display
 import compiler/infer
 
 // ─── Unification ────────────────────────────────────────────
-// Effectful unification. Two types → unified through the Infer effect.
-// subst_apply replaces apply(subst, ty) — reads substitution via effect.
-// subst_bind replaces subst_set(subst, id, ty, reason) — writes via effect.
-// No substitution threaded as argument. Effects for context.
+// Pure functions. Two types + substitution → new substitution.
+// TVar handling once, up front. Structural matching below.
+// Counter = (fresh_id, eff_subst) — both threaded, nothing lost.
 
-fn occurs_eff(var_id, ty) with Infer =
-  handle { walk_type(subst_apply(ty)); get_type_found() } with found = false {
+fn occurs(subst, var_id, ty) =
+  handle { walk_type(apply(subst, ty)); get_type_found() } with found = false {
     visit_type(t) => match t {
       TVar(id) => resume(t) with found = if id == var_id { true } else { found },
       _ => resume(t)
@@ -32,130 +31,134 @@ fn occurs_eff(var_id, ty) with Infer =
     get_type_found() => resume(found)
   }
 
-fn unify_types_eff(t1, t2, context) with Infer = {
-  let a = subst_apply(t1)
-  let b = subst_apply(t2)
+fn unify_types(subst, counter, t1, t2, context) = {
+  let a = apply(subst, t1)
+  let b = apply(subst, t2)
+  // TVar on left: bind or occurs-check
   match a {
     TVar(id1) => match b {
-      TVar(id2) => if id1 == id2 { true }
-        else { subst_bind(id1, TVar(id2), context); true },
-      _ => if occurs_eff(id1, b) { false }
-        else { subst_bind(id1, b, context); true }
+      TVar(id2) => if id1 == id2 { (true, subst, context, counter) }
+        else { (true, subst_set(subst, id1, TVar(id2), context), context, counter) },
+      _ => if occurs(subst, id1, b) { (false, subst, Because("infinite type", context), counter) }
+        else { (true, subst_set(subst, id1, b, context), context, counter) }
     },
+    // TVar on right (non-TVar left): bind or occurs-check
     _ => match b {
-      TVar(id) => if occurs_eff(id, a) { false }
-        else { subst_bind(id, a, context); true },
-      _ => unify_structure_eff(a, b, context)
+      TVar(id) => if occurs(subst, id, a) { (false, subst, Because("infinite type", context), counter) }
+        else { (true, subst_set(subst, id, a, context), context, counter) },
+      // Neither side is TVar — structural match
+      _ => unify_structure(subst, counter, a, b, context)
     }
   }
 }
 
-fn unify_structure_eff(a, b, context) with Infer = match a {
-  TInt => match b { TInt => true, _ => false },
-  TFloat => match b { TFloat => true, _ => false },
-  TString => match b { TString => true, _ => false },
-  TBool => match b { TBool => true, _ => false },
-  TUnit => match b { TUnit => true, _ => false },
+fn unify_structure(subst, counter, a, b, context) = match a {
+  TInt => match b { TInt => (true, subst, context, counter),
+    _ => (false, subst, Because("expected Int, got " ++ type_to_string(subst, b), context), counter) },
+  TFloat => match b { TFloat => (true, subst, context, counter),
+    _ => (false, subst, Because("expected Float, got " ++ type_to_string(subst, b), context), counter) },
+  TString => match b { TString => (true, subst, context, counter),
+    _ => (false, subst, Because("expected String, got " ++ type_to_string(subst, b), context), counter) },
+  TBool => match b { TBool => (true, subst, context, counter),
+    _ => (false, subst, Because("expected Bool, got " ++ type_to_string(subst, b), context), counter) },
+  TUnit => match b { TUnit => (true, subst, context, counter),
+    _ => (false, subst, Because("expected (), got " ++ type_to_string(subst, b), context), counter) },
   TList(e1) => match b {
-    TList(e2) => unify_types_eff(e1, e2, Because("list element types", context)),
-    _ => false
+    TList(e2) => unify_types(subst, counter, e1, e2, Because("list element types", context)),
+    _ => (false, subst, Because("expected List, got " ++ type_to_string(subst, b), context), counter)
   },
   TFun(p1, r1, eff1) => match b {
     TFun(p2, r2, eff2) => {
-      if len(p1) != len(p2) { false }
-      else {
-        let ok = unify_list_eff(p1, p2, Because("parameter types", context))
-        if !ok { false }
+      if len(p1) != len(p2) {
+        (false, subst, Because("arity mismatch: " ++ to_string(len(p1)) ++ " vs " ++ to_string(len(p2)), context), counter)
+      } else {
+        let (ok, s2, reason, c2) = unify_list(subst, counter, p1, p2, Because("parameter types", context))
+        if !ok { (false, s2, reason, c2) }
         else {
-          let ok2 = unify_types_eff(r1, r2, Because("return types", context))
-          if !ok2 { false }
+          let (ok2, s3, r2_reason, c3) = unify_types(s2, c2, r1, r2, Because("return types", context))
+          if !ok2 { (false, s3, r2_reason, c3) }
           else {
-            unify_eff_from_handler(eff1, eff2)
-            true
+            let (c3_id, c3_esubst) = c3
+            let (_, new_esubst) = unify_eff(c3_esubst, eff1, eff2)
+            (true, s3, r2_reason, (c3_id, new_esubst))
           }
         }
       }
     },
-    _ => false
+    _ => (false, subst, Because("expected function, got " ++ type_to_string(subst, b), context), counter)
   },
   TTuple(e1) => match b {
     TTuple(e2) => {
-      if len(e1) != len(e2) { false }
-      else { unify_list_eff(e1, e2, Because("tuple elements", context)) }
+      if len(e1) != len(e2) {
+        (false, subst, Because("tuple size mismatch: " ++ to_string(len(e1)) ++ " vs " ++ to_string(len(e2)), context), counter)
+      } else { unify_list(subst, counter, e1, e2, Because("tuple elements", context)) }
     },
-    _ => false
+    _ => (false, subst, Because("expected tuple, got " ++ type_to_string(subst, b), context), counter)
   },
   TName(n1, a1) => match b {
     TName(n2, a2) => {
       if n1 == n2 {
-        if len(a1) == len(a2) { unify_list_eff(a1, a2, Because("type arguments of " ++ n1, context)) }
-        else { false }
-      } else { false }
+        if len(a1) == len(a2) { unify_list(subst, counter, a1, a2, Because("type arguments of " ++ n1, context)) }
+        else { (false, subst, Because("type argument count mismatch for " ++ n1, context), counter) }
+      } else { (false, subst, Because("expected " ++ n1 ++ ", got " ++ n2, context), counter) }
     },
-    _ => false
+    _ => (false, subst, Because("expected " ++ n1 ++ ", got " ++ type_to_string(subst, b), context), counter)
   },
   TRecord(f1) => match b {
-    TRecord(f2) => unify_record_fields_eff(f1, f2, context),
-    TRecordOpen(f2, _) => unify_record_fields_eff(f1, f2, context),
-    _ => false
+    TRecord(f2) => unify_record_fields(subst, counter, f1, f2, context),
+    TRecordOpen(f2, _) => unify_record_fields(subst, counter, f1, f2, context),
+    _ => (false, subst, Because("expected record, got " ++ type_to_string(subst, b), context), counter)
   },
   TRecordOpen(f1, _) => match b {
-    TRecord(f2) => unify_record_fields_eff(f1, f2, context),
-    TRecordOpen(f2, _) => unify_record_fields_eff(f1, f2, context),
-    _ => false
+    TRecord(f2) => unify_record_fields(subst, counter, f1, f2, context),
+    TRecordOpen(f2, _) => unify_record_fields(subst, counter, f1, f2, context),
+    _ => (false, subst, Because("expected record, got " ++ type_to_string(subst, b), context), counter)
   },
-  _ => false
+  _ => (false, subst, Because("type mismatch", context), counter)
 }
 
-fn unify_list_eff(ts1, ts2, context) with Infer =
-  unify_list_eff_at(ts1, ts2, context, 0)
+fn unify_list(subst, counter, ts1, ts2, context) =
+  unify_list_at(subst, counter, ts1, ts2, context, 0)
 
-fn unify_list_eff_at(ts1, ts2, context, i) with Infer = {
-  if i >= len(ts1) { true }
+fn unify_list_at(subst, counter, ts1, ts2, context, i) = {
+  if i >= len(ts1) { (true, subst, context, counter) }
   else {
-    let ok = unify_types_eff(ts1[i], ts2[i], context)
-    if !ok { false }
-    else { unify_list_eff_at(ts1, ts2, context, i + 1) }
+    let (ok, s2, r, c2) = unify_types(subst, counter, ts1[i], ts2[i], context)
+    if !ok { (false, s2, r, c2) }
+    else { unify_list_at(s2, c2, ts1, ts2, context, i + 1) }
   }
 }
 
 // ─── Record Unification ─────────────────────────────────────
+// Unify two record field lists. Both must be sorted by name.
+// Same field names → unify types. Missing fields → error.
 
-fn unify_record_fields_eff(f1, f2, context) with Infer = {
+fn unify_record_fields(subst, counter, f1, f2, context) = {
+  // Sort both by name for canonical comparison
   let s1 = sort_field_list(f1)
   let s2 = sort_field_list(f2)
-  unify_sorted_fields_eff(s1, s2, context)
+  unify_sorted_fields(subst, counter, s1, s2, context)
 }
 
-fn unify_sorted_fields_eff(f1, f2, context) with Infer =
-  unify_sorted_fields_eff_at(f1, f2, context, 0)
+fn unify_sorted_fields(subst, counter, f1, f2, context) =
+  unify_sorted_fields_at(subst, counter, f1, f2, context, 0)
 
-fn unify_sorted_fields_eff_at(f1, f2, context, i) with Infer = {
-  if i >= len(f1) && i >= len(f2) { true }
-  else { if i >= len(f1) || i >= len(f2) { false }
-  else {
+fn unify_sorted_fields_at(subst, counter, f1, f2, context, i) = {
+  if i >= len(f1) && i >= len(f2) { (true, subst, context, counter) }
+  else { if i >= len(f1) || i >= len(f2) {
+    (false, subst, Because("record field count mismatch", context), counter)
+  } else {
     let (n1, t1) = f1[i]
     let (n2, t2) = f2[i]
     if n1 == n2 {
-      let ok = unify_types_eff(t1, t2, Because("field '" ++ n1 ++ "'", context))
-      if !ok { false }
-      else { unify_sorted_fields_eff_at(f1, f2, context, i + 1) }
-    } else { false }
+      let (ok, s2, r, c2) = unify_types(subst, counter, t1, t2, Because("field '" ++ n1 ++ "'", context))
+      if !ok { (false, s2, r, c2) }
+      else { unify_sorted_fields_at(s2, c2, f1, f2, context, i + 1) }
+    } else {
+      (false, subst, Because("record field mismatch: " ++ n1 ++ " vs " ++ n2, context), counter)
+    }
   } }
-
 }
-
-// ─── Effect Unification via Handler ─────────────────────────
-// Called from within unify_structure_eff when unifying TFun effects.
-// Performs eff unification using the handler's effect substitution
-// via a dedicated Infer operation. We use fresh() to get the counter
-// and unify_eff directly since the es state is in the handler.
-
-effect InferEff {
-  unify_effs(e1: EffRow, e2: EffRow) -> ()
-}
-
-fn unify_eff_from_handler(eff1, eff2) with InferEff = unify_effs(eff1, eff2)
 
 fn sort_field_list(fields) = sort_field_list_from(fields, 0)
 
@@ -286,24 +289,10 @@ fn check_program_with(stmts, init_env, start_n) = {
       resume(()) with e = new_e
     },
     unify(a, b) => {
-      // Effectful unification — subst_bind/subst_apply handle the
-      // substitution via re-entrant dispatch. No subst aliasing.
-      unify_types_eff(a, b, Inferred("unification"))
-      resume(())
-    },
-    subst_bind(id, ty, reason) => {
-      // push() happens HERE, in the handler arm — COW fires.
-      // The substitution s is the ONLY reference, Arc::make_mut
-      // mutates in place. O(1) amortized.
-      resume(()) with s = push(s, (id, ty, reason))
-    },
-    subst_apply(ty) => {
-      // Reads s directly — no alias through function args.
-      resume(apply(s, ty))
-    },
-    unify_effs(e1, e2) => {
-      let (_, new_es) = unify_eff(es, e1, e2)
-      resume(()) with es = new_es
+      let (ok, new_s, _, new_c) = unify_types(s, (n, es), apply(s, a), apply(s, b), Inferred("unification"))
+      let (new_n, new_es) = new_c
+      if ok { resume(()) with n = new_n, s = new_s, es = new_es }
+      else { resume(()) with n = new_n, es = es }
     },
     resolve(ty) => {
       resume(resolve_type(s, es, ty))

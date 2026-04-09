@@ -832,7 +832,10 @@ impl Compiler {
                 .handler_ctx
                 .as_ref()
                 .and_then(|ctx| ctx.state_names.iter().position(|n| n == &update.name))
-                .unwrap_or(0);
+                .unwrap_or_else(|| {
+                    let names = self.handler_ctx.as_ref().map(|ctx| ctx.state_names.clone()).unwrap_or_default();
+                    panic!("resume state update '{}' not found in handler state names {:?}", update.name, names);
+                });
             self.emit_u16(offset as u16, line);
         }
 

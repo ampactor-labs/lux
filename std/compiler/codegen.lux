@@ -75,32 +75,33 @@ let OP_STRING_INTERP= 130
 // effect_ops: [(op_name, effect_name), ...] — maps effect operation names to their effects
 // handler_tables: [table, ...] where table = [(op_name_idx, proto_idx, param_count), ...]
 // enclosing is either [] (no parent) or [parent_ctx] (for lambda/fn bodies)
-fn ctx_new() = ([], [], [], [], 0, 0, [], [], [], [])
+fn ctx_new() = ([], [], [], [], 0, 0, [], [], [], [], [])
 
-fn ctx_child(parent) = ([], [], [], [], 0, 0, [], [parent], ctx_effect_ops(parent), [])
+fn ctx_child(parent) = ([], [], [], [], 0, 0, [], [parent], ctx_effect_ops(parent), [], [])
 
 // Accessors
-fn ctx_code(ctx) = { let (c,_,_,_,_,_,_,_,_,_) = ctx; c }
-fn ctx_constants(ctx) = { let (_,c,_,_,_,_,_,_,_,_) = ctx; c }
-fn ctx_names(ctx) = { let (_,_,n,_,_,_,_,_,_,_) = ctx; n }
-fn ctx_locals(ctx) = { let (_,_,_,l,_,_,_,_,_,_) = ctx; l }
-fn ctx_depth(ctx) = { let (_,_,_,_,d,_,_,_,_,_) = ctx; d }
-fn ctx_next_slot(ctx) = { let (_,_,_,_,_,s,_,_,_,_) = ctx; s }
-fn ctx_upvalues(ctx) = { let (_,_,_,_,_,_,u,_,_,_) = ctx; u }
-fn ctx_enclosing(ctx) = { let (_,_,_,_,_,_,_,e,_,_) = ctx; e }
-fn ctx_effect_ops(ctx) = { let (_,_,_,_,_,_,_,_,eo,_) = ctx; eo }
-fn ctx_handler_tables(ctx) = { let (_,_,_,_,_,_,_,_,_,ht) = ctx; ht }
+fn ctx_code(ctx) = { let (c,_,_,_,_,_,_,_,_,_,_) = ctx; c }
+fn ctx_constants(ctx) = { let (_,c,_,_,_,_,_,_,_,_,_) = ctx; c }
+fn ctx_names(ctx) = { let (_,_,n,_,_,_,_,_,_,_,_) = ctx; n }
+fn ctx_locals(ctx) = { let (_,_,_,l,_,_,_,_,_,_,_) = ctx; l }
+fn ctx_depth(ctx) = { let (_,_,_,_,d,_,_,_,_,_,_) = ctx; d }
+fn ctx_next_slot(ctx) = { let (_,_,_,_,_,s,_,_,_,_,_) = ctx; s }
+fn ctx_upvalues(ctx) = { let (_,_,_,_,_,_,u,_,_,_,_) = ctx; u }
+fn ctx_enclosing(ctx) = { let (_,_,_,_,_,_,_,e,_,_,_) = ctx; e }
+fn ctx_effect_ops(ctx) = { let (_,_,_,_,_,_,_,_,eo,_,_) = ctx; eo }
+fn ctx_handler_tables(ctx) = { let (_,_,_,_,_,_,_,_,_,ht,_) = ctx; ht }
+fn ctx_state_names(ctx) = { let (_,_,_,_,_,_,_,_,_,_,sn) = ctx; sn }
 
 fn ctx_set_code(ctx, code) = {
-  let (_,co,na,lo,de,sl,uv,enc,eo,ht) = ctx
-  (code, co, na, lo, de, sl, uv, enc, eo, ht)
+  let (_,co,na,lo,de,sl,uv,enc,eo,ht,sn) = ctx
+  (code, co, na, lo, de, sl, uv, enc, eo, ht, sn)
 }
 
 // ─── Emit Helpers ────────────────────────────────────────────
 
 fn emit_byte(ctx, byte) = {
-  let (code, co, na, lo, de, sl, uv, enc, eo, ht) = ctx
-  (push(code, byte), co, na, lo, de, sl, uv, enc, eo, ht)
+  let (code, co, na, lo, de, sl, uv, enc, eo, ht, sn) = ctx
+  (push(code, byte), co, na, lo, de, sl, uv, enc, eo, ht, sn)
 }
 
 fn emit_op(ctx, opcode) = emit_byte(ctx, opcode)
@@ -115,10 +116,10 @@ fn emit_u8(ctx, val) = emit_byte(ctx, val)
 
 // Add constant, return (ctx, index)
 fn add_constant(ctx, value) = {
-  let (code, co, na, lo, de, sl, uv, enc, eo, ht) = ctx
+  let (code, co, na, lo, de, sl, uv, enc, eo, ht, sn) = ctx
   let constants = co
   let idx = len(constants)
-  let new_ctx = (code, push(constants, value), na, lo, de, sl, uv, enc, eo, ht)
+  let new_ctx = (code, push(constants, value), na, lo, de, sl, uv, enc, eo, ht, sn)
   (new_ctx, idx)
 }
 
@@ -128,9 +129,9 @@ fn intern_name(ctx, name) = {
   let found = find_name(names, name, 0)
   if found >= 0 { (ctx, found) }
   else {
-    let (code, co, na, lo, de, sl, uv, enc, eo, ht) = ctx
+    let (code, co, na, lo, de, sl, uv, enc, eo, ht, sn) = ctx
     let idx = len(na)
-    ((code, co, push(na, name), lo, de, sl, uv, enc, eo, ht), idx)
+    ((code, co, push(na, name), lo, de, sl, uv, enc, eo, ht, sn), idx)
   }
 }
 
@@ -180,15 +181,15 @@ fn list_set(lst, idx, val) = {
 // ─── Scope Management ────────────────────────────────────────
 
 fn begin_scope(ctx) = {
-  let (code, co, na, lo, depth, sl, uv, enc, eo, ht) = ctx
-  (code, co, na, lo, depth + 1, sl, uv, enc, eo, ht)
+  let (code, co, na, lo, depth, sl, uv, enc, eo, ht, sn) = ctx
+  (code, co, na, lo, depth + 1, sl, uv, enc, eo, ht, sn)
 }
 
 fn end_scope(ctx) = {
-  let (code, co, na, locals, depth, sl, uv, enc, eo, ht) = ctx
+  let (code, co, na, locals, depth, sl, uv, enc, eo, ht, sn) = ctx
   let (new_locals, count) = pop_locals(locals, depth, 0)
   let new_sl = sl - count
-  ((code, co, na, new_locals, depth - 1, new_sl, uv, enc, eo, ht), count)
+  ((code, co, na, new_locals, depth - 1, new_sl, uv, enc, eo, ht, sn), count)
 }
 
 fn pop_locals(locals, depth, count) = {
@@ -204,9 +205,9 @@ fn pop_locals(locals, depth, count) = {
 }
 
 fn declare_local(ctx, name) = {
-  let (code, co, na, locals, depth, sl, uv, enc, eo, ht) = ctx
+  let (code, co, na, locals, depth, sl, uv, enc, eo, ht, sn) = ctx
   let new_locals = push(locals, (name, sl, depth))
-  ((code, co, na, new_locals, depth, sl + 1, uv, enc, eo, ht), sl)
+  ((code, co, na, new_locals, depth, sl + 1, uv, enc, eo, ht, sn), sl)
 }
 
 fn resolve_local(ctx, name) = {
@@ -279,10 +280,10 @@ fn add_upvalue(ctx, is_local, index) = {
   let existing = find_upvalue(upvalues, is_local, index, 0)
   if existing >= 0 { (existing, ctx) }
   else {
-    let (code, co, na, lo, de, sl, uv, enc, eo, ht) = ctx
+    let (code, co, na, lo, de, sl, uv, enc, eo, ht, sn) = ctx
     let idx = len(uv)
     let new_uv = push(uv, (is_local, index))
-    (idx, (code, co, na, lo, de, sl, new_uv, enc, eo, ht))
+    (idx, (code, co, na, lo, de, sl, new_uv, enc, eo, ht, sn))
   }
 }
 
@@ -729,18 +730,23 @@ fn ctx_add_effect_ops_at(ctx, effect_name, ops, i) = {
   if i >= len(ops) { ctx }
   else {
     let (op_name, _params) = ops[i]
-    let (code, co, na, lo, de, sl, uv, enc, eo, ht) = ctx
+    let (code, co, na, lo, de, sl, uv, enc, eo, ht, sn) = ctx
     let new_eo = push(eo, (op_name, effect_name))
-    let ctx2 = (code, co, na, lo, de, sl, uv, enc, new_eo, ht)
+    let ctx2 = (code, co, na, lo, de, sl, uv, enc, new_eo, ht, sn)
     ctx_add_effect_ops_at(ctx2, effect_name, ops, i + 1)
   }
 }
 
 // Add a handler table to context, return (ctx, table_idx)
 fn ctx_add_handler_table(ctx, table) = {
-  let (code, co, na, lo, de, sl, uv, enc, eo, ht) = ctx
+  let (code, co, na, lo, de, sl, uv, enc, eo, ht, sn) = ctx
   let idx = len(ht)
-  ((code, co, na, lo, de, sl, uv, enc, eo, push(ht, table)), idx)
+  ((code, co, na, lo, de, sl, uv, enc, eo, push(ht, table), sn), idx)
+}
+
+fn ctx_set_state_names(ctx, names) = {
+  let (code, co, na, lo, de, sl, uv, enc, eo, ht, _) = ctx
+  (code, co, na, lo, de, sl, uv, enc, eo, ht, names)
 }
 
 // Compile handle expression:
@@ -865,6 +871,9 @@ fn compile_one_handler_proto(ctx, op_name, params, handler_body, state_names) = 
   // Declare resume as local
   let (h_ctx5, _) = declare_local(h_ctx4, "resume")
 
+  // Store state_names so compile_resume_expr can resolve state update offsets.
+  let h_ctx5 = ctx_set_state_names(h_ctx5, state_names)
+
   // Compile handler body
   let h_ctx6 = compile_expr(h_ctx5, handler_body)
 
@@ -929,11 +938,18 @@ fn compile_state_update_values_at(ctx, updates, i) = {
 fn emit_state_offsets(ctx, updates, idx) = {
   if idx >= len(updates) { ctx }
   else {
-    // For now, emit offsets in order (0, 1, 2, ...)
-    // Full state name resolution would match update names to handler state names
-    let ctx2 = emit_u16(ctx, idx)
+    let (name, _) = updates[idx]
+    let offset = find_state_offset(ctx, name)
+    let ctx2 = emit_u16(ctx, offset)
     emit_state_offsets(ctx2, updates, idx + 1)
   }
+}
+
+fn find_state_offset(ctx, name) = find_state_offset_at(ctx_state_names(ctx), name, 0)
+fn find_state_offset_at(names, name, i) = {
+  if i >= len(names) { 0 - 1 }
+  else { if names[i] == name { i }
+  else { find_state_offset_at(names, name, i + 1) } }
 }
 
 fn pop_keeping_top(ctx, n) = {
@@ -965,7 +981,7 @@ fn binop_to_opcode(op) = {
   else { if op == "Gt"  { OP_GT }
   else { if op == "GtEq"  { OP_GTEQ }
   else { if op == "Concat" { OP_CONCAT }
-  else { OP_ADD }  // fallback
+  else { let _ = println("codegen: unknown binary operator '" ++ op ++ "'"); OP_ADD }
   }}}}}}}}}}}
 }
 
