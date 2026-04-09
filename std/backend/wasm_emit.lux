@@ -69,7 +69,7 @@ fn emit_module(defs, type_map) = {
     emit_start(top_stmts, ctx)
     out(")" ++ NL)
   } {
-    out(s) => { print(s ++ ""); resume(()) }
+    out(s) => { print(s); resume(()) }
   }
   ""
 }
