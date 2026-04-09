@@ -1263,26 +1263,29 @@ impl Vm {
     /// We only scan the CURRENT frame to avoid clearing live data in
     /// parent frames (e.g. lowerer's env used in later `++` operations).
     fn cow_drop_list_aliases(&mut self, target: &Arc<Vec<VmValue>>, frame_idx: usize, aggressive: bool) {
-        // Handler state entries (stored separately from the stack).
-        for handler in self.handler_stack.iter_mut() {
-            for s in handler.state.iter_mut() {
-                if let VmValue::List(ref arc) = *s {
-                    if Arc::ptr_eq(target, arc) {
-                        *s = VmValue::Unit;
+        // Clear handler state entries — ONLY for the currently dispatching
+        // handler. Multi-shot continuations share state across branches;
+        // clearing ALL handlers would break replay.
+        if let Some(dispatch) = self.handler_dispatch_stack.last() {
+            let h_idx = dispatch.handler_idx;
+            if h_idx < self.handler_stack.len() {
+                for s in self.handler_stack[h_idx].state.iter_mut() {
+                    if let VmValue::List(ref arc) = *s {
+                        if Arc::ptr_eq(target, arc) {
+                            *s = VmValue::Unit;
+                        }
                     }
                 }
             }
         }
         if aggressive {
-            // Scan frames from current downward until refcount reaches 1.
-            // Each frame scan clears locals that are dead aliases of the
-            // list being pushed to. We walk down the call stack because
-            // push's callers (and their callers) may hold copies.
-            let mut fi = frame_idx as isize;
-            while fi >= 0 && Arc::strong_count(target) > 1 {
-                let start = self.frames[fi as usize].stack_base;
-                let end = if (fi as usize + 1) < self.frames.len() {
-                    self.frames[fi as usize + 1].stack_base
+            // Scan the caller's frame locals (push is a builtin, no frame).
+            // Only scan ONE frame to avoid clearing list references that
+            // multi-shot continuations need across branches.
+            if let Some(frame) = self.frames.get(frame_idx) {
+                let start = frame.stack_base;
+                let end = if frame_idx + 1 < self.frames.len() {
+                    self.frames[frame_idx + 1].stack_base
                 } else {
                     self.stack.len()
                 };
@@ -1293,28 +1296,29 @@ impl Vm {
                         }
                     }
                 }
-                fi -= 1;
             }
         }
     }
 
     /// Drop aliases to a string Arc.
     fn cow_drop_string_aliases(&mut self, target: &Arc<String>, frame_idx: usize, aggressive: bool) {
-        for handler in self.handler_stack.iter_mut() {
-            for s in handler.state.iter_mut() {
-                if let VmValue::String(ref arc) = *s {
-                    if Arc::ptr_eq(target, arc) {
-                        *s = VmValue::Unit;
+        if let Some(dispatch) = self.handler_dispatch_stack.last() {
+            let h_idx = dispatch.handler_idx;
+            if h_idx < self.handler_stack.len() {
+                for s in self.handler_stack[h_idx].state.iter_mut() {
+                    if let VmValue::String(ref arc) = *s {
+                        if Arc::ptr_eq(target, arc) {
+                            *s = VmValue::Unit;
+                        }
                     }
                 }
             }
         }
         if aggressive {
-            let mut fi = frame_idx as isize;
-            while fi >= 0 && Arc::strong_count(target) > 1 {
-                let start = self.frames[fi as usize].stack_base;
-                let end = if (fi as usize + 1) < self.frames.len() {
-                    self.frames[fi as usize + 1].stack_base
+            if let Some(frame) = self.frames.get(frame_idx) {
+                let start = frame.stack_base;
+                let end = if frame_idx + 1 < self.frames.len() {
+                    self.frames[frame_idx + 1].stack_base
                 } else {
                     self.stack.len()
                 };
@@ -1325,7 +1329,6 @@ impl Vm {
                         }
                     }
                 }
-                fi -= 1;
             }
         }
     }
