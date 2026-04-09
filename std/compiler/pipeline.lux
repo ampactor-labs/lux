@@ -523,7 +523,13 @@ fn extract_ctors_iter(env, idx) = {
   if idx >= len(env) { [] }
   else {
     let (name, ty, _) = env[idx]
-    let is_ctor = match ty { TName(_, _) => true, _ => false }
+    // Constructors have TName type AND start with uppercase (A-Z).
+    // Without the case check, any variable of a named type (let r: Ty = ...)
+    // would be misidentified as a constructor, causing the lowerer to emit
+    // LMakeVariant instead of LGlobal — the variant-vs-variable confusion bug.
+    let first = char_code(name)
+    let is_upper = first >= 65 && first <= 90
+    let is_ctor = is_upper && match ty { TName(_, _) => true, _ => false }
     let rest = extract_ctors_iter(env, idx + 1)
     if is_ctor { [name] ++ rest } else { rest }
   }
