@@ -10,17 +10,7 @@
 
 import compiler/lower
 
-// WAT format constants — defined locally to avoid circular dependency on wasm_emit
-let NL = from_char_code(10)
-
-// WasmOut effect — declared in wasm_emit.lux, redeclared here
-// to avoid circular import. Same effect, same operation name.
-effect WasmOut { out(String) -> () }
-
-// ExprEmit effect — breaks the circular dependency.
-// wasm_construct needs to call emit_expr (defined in wasm_emit) but can't import it.
-// Instead it performs this effect; wasm_emit handles it with the real emit_expr.
-effect ExprEmit { do_emit_expr(e, params, locals, ctx) -> () }
+// NL, WasmOut, ExprEmit, ctx accessors, find_param_idx — all in wasm_collect.lux
 
 // ─── Self-Referencing Closure Detection ─────────────────────
 
@@ -57,7 +47,7 @@ fn emit_closure_captures_stacked(captures, idx, params, locals, ctx) = {
     let store_op = match lexpr_ty(cap) { TFloat => "f32.store", _ => "i32.store" }
     out("    global.get $__vsp" ++ NL ++ "    i32.const 1" ++ NL ++ "    i32.sub" ++ NL
     ++ "    i32.const 4" ++ NL ++ "    i32.mul" ++ NL
-    ++ "    i32.const " ++ to_string(ctx[5]) ++ NL ++ "    i32.add" ++ NL
+    ++ "    i32.const " ++ to_string(ctx_vstack_base(ctx)) ++ NL ++ "    i32.add" ++ NL
     ++ "    i32.load" ++ NL
     ++ "    i32.const " ++ to_string(offset) ++ NL
     ++ "    i32.add" ++ NL)
@@ -170,7 +160,7 @@ fn emit_make_variant(tag, fields, params, locals, ctx) = {
   ++ "    local.set $__vptr" ++ NL
   ++ "    global.get $__vsp" ++ NL
   ++ "    i32.const 4" ++ NL ++ "    i32.mul" ++ NL
-  ++ "    i32.const " ++ to_string(ctx[5]) ++ NL ++ "    i32.add" ++ NL
+  ++ "    i32.const " ++ to_string(ctx_vstack_base(ctx)) ++ NL ++ "    i32.add" ++ NL
   ++ "    local.get $__vptr" ++ NL
   ++ "    i32.store" ++ NL
   ++ "    global.get $__vsp" ++ NL ++ "    i32.const 1" ++ NL ++ "    i32.add" ++ NL
@@ -183,7 +173,7 @@ fn emit_make_variant(tag, fields, params, locals, ctx) = {
   ++ "    global.set $__vsp" ++ NL
   ++ "    global.get $__vsp" ++ NL
   ++ "    i32.const 4" ++ NL ++ "    i32.mul" ++ NL
-  ++ "    i32.const " ++ to_string(ctx[5]) ++ NL ++ "    i32.add" ++ NL
+  ++ "    i32.const " ++ to_string(ctx_vstack_base(ctx)) ++ NL ++ "    i32.add" ++ NL
   ++ "    i32.load" ++ NL)
 }
 
@@ -193,7 +183,7 @@ fn emit_variant_fields(fields, idx, params, locals, ctx) = {
     let field_offset = (1 + idx) * 4
     out("    global.get $__vsp" ++ NL ++ "    i32.const 1" ++ NL ++ "    i32.sub" ++ NL
     ++ "    i32.const 4" ++ NL ++ "    i32.mul" ++ NL
-    ++ "    i32.const " ++ to_string(ctx[5]) ++ NL ++ "    i32.add" ++ NL
+    ++ "    i32.const " ++ to_string(ctx_vstack_base(ctx)) ++ NL ++ "    i32.add" ++ NL
     ++ "    i32.load" ++ NL
     ++ "    i32.const " ++ to_string(field_offset) ++ NL
     ++ "    i32.add" ++ NL)
@@ -249,31 +239,8 @@ fn emit_match_arms(arms, idx, params, locals, ctx) = {
 }
 
 fn emit_match_arm_tuple(sub_pats, body, arms, idx, params, locals, ctx) = {
-  emit_bind_tuple_fields(sub_pats, 0, 0, params, locals, ctx)
+  emit_bind_fields(sub_pats, 0, 0, params, locals, ctx)
   do_emit_expr(body, params, locals, ctx)
-}
-
-fn emit_bind_tuple_fields(sub_pats, idx, depth, params, locals, ctx) = {
-  if idx >= len(sub_pats) { () }
-  else {
-    let field_offset = (1 + idx) * 4
-    let base = match_local(depth)
-    match sub_pats[idx] {
-      LPVar(name) => {
-        out("    local.get " ++ base ++ NL
-        ++ "    i32.const " ++ to_string(field_offset) ++ NL
-        ++ "    i32.add" ++ NL
-        ++ "    i32.load" ++ NL
-        ++ "    local.set $" ++ name ++ NL)
-        emit_bind_tuple_fields(sub_pats, idx + 1, depth, params, locals, ctx)
-      },
-      LPWild => emit_bind_tuple_fields(sub_pats, idx + 1, depth, params, locals, ctx),
-      _ => {
-        emit_bind_sub_pattern(sub_pats[idx], base, field_offset, depth, params, locals, ctx)
-        emit_bind_tuple_fields(sub_pats, idx + 1, depth, params, locals, ctx)
-      }
-    }
-  }
 }
 
 fn emit_bind_fields(sub_pats, idx, depth, params, locals, ctx) = {
@@ -321,17 +288,11 @@ fn emit_bind_sub_pattern(pat, base, field_offset, depth, params, locals, ctx) = 
       ++ "    )" ++ NL)
     },
     LPTuple(inner_pats) => {
-      emit_bind_tuple_fields(inner_pats, 0, next_depth, params, locals, ctx)
+      emit_bind_fields(inner_pats, 0, next_depth, params, locals, ctx)
     },
     _ => ()
   }
 }
-
-fn ctx_strings(ctx) = ctx[0]
-fn ctx_tags(ctx) = ctx[1]
-fn ctx_fns(ctx) = ctx[2]
-fn ctx_globals(ctx) = ctx[3]
-fn ctx_type_env(ctx) = ctx[4]
 
 // Evaluate expressions and save to __f0, __f1, etc. (for closure captures)
 fn emit_variant_field_exprs(fields, idx, params, locals, ctx) = {

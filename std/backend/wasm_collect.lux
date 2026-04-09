@@ -24,11 +24,40 @@
 
 import compiler/lower
 
-// WAT format constants — defined locally to avoid circular dependency on wasm_emit
+// ─── Shared Constants ───────────────────────────────────────
+// WAT format constants. Defined here (the shared module) so
+// wasm_construct, wasm_emit, and wasm_runtime all see them.
 let NL = from_char_code(10)
 let DQ = from_char_code(34)
 let BS = from_char_code(92)
 
+// ─── Shared Effects ─────────────────────────────────────────
+// Declared here so both wasm_construct (performer) and wasm_emit (handler) see them.
+effect WasmOut { out(String) -> () }
+effect ExprEmit { do_emit_expr(e, params, locals, ctx) -> () }
+
+// ─── Context Accessors ──────────────────────────────────────
+// ctx = (string_map, tag_map, fn_table, top_globals, type_env, vstack_base)
+fn ctx_strings(ctx) = ctx[0]
+fn ctx_tags(ctx) = ctx[1]
+fn ctx_fns(ctx) = ctx[2]
+fn ctx_globals(ctx) = ctx[3]
+fn ctx_type_env(ctx) = ctx[4]
+fn ctx_vstack_base(ctx) = ctx[5]
+
+fn find_param_idx(params, name, idx) = {
+  if idx >= len(params) { 0 - 1 }
+  else { if params[idx] == name { idx } else { find_param_idx(params, name, idx + 1) } }
+}
+
+fn is_handler_global(name) = {
+  let ns = to_string(name)
+  if len(ns) > 5 && string_slice(ns, 0, 5) == "__hs_" { true }
+  else { if len(ns) > 7 && string_slice(ns, 0, 7) == "__save_" { true }
+  else { if len(ns) > 8 && string_slice(ns, 0, 8) == "__ev_op_" { true }
+  else { if len(ns) >= 11 && string_slice(ns, 0, 11) == "__ev_result" { true }
+  else { false } } } }
+}
 
 // ─── Top-Level Name Collection (structural, not tree-walk) ──
 
@@ -152,38 +181,14 @@ fn collect_all(defs) =
     get_collected()
   } with strings = [], tags = [], hs_globals = [], closures = [], max_call = 0 {
     visit_node(node) => {
-      // Strings: extract from LConst(_, LString(s))
-      let new_strings = match node {
-        LConst(_, v) => match v { LString(s) => string_union(strings, [s]), _ => strings },
-        _ => strings
-      }
-      // Tags: extract from LMakeVariant(_, name, _)
-      let new_tags = match node {
-        LMakeVariant(_, name, _) => tag_union(tags, [name]),
-        _ => tags
-      }
-      // Handler globals: __hs_/__save_/__ev_op_/__ev_result from LLet names
-      let new_hs = match node {
-        LLet(_, name, _) => {
-          let ns = to_string(name)
-          if len(ns) > 5 && string_slice(ns, 0, 5) == "__hs_" { string_union(hs_globals, [name]) }
-          else { if len(ns) > 7 && string_slice(ns, 0, 7) == "__save_" { string_union(hs_globals, [name]) }
-          else { if len(ns) > 8 && string_slice(ns, 0, 8) == "__ev_op_" { string_union(hs_globals, [name]) }
-          else { if len(ns) >= 11 && string_slice(ns, 0, 11) == "__ev_result" { string_union(hs_globals, [name]) }
-          else { hs_globals } } } }
-        },
-        _ => hs_globals
-      }
-      // Closures: extract LFn from LMakeClosure
-      let new_closures = match node {
-        LMakeClosure(_, fn_def, _) => closures ++ [fn_def],
-        _ => closures
-      }
-      // Max call arity: track highest arg count across all call sites
-      let new_max_call = match node {
-        LCall(_, _, args) => { let a = len(args); if a > max_call { a } else { max_call } },
-        LTailCall(_, _, args) => { let a = len(args); if a > max_call { a } else { max_call } },
-        _ => max_call
+      let (new_strings, new_tags, new_hs, new_closures, new_max_call) = match node {
+        LConst(_, v) => (match v { LString(s) => string_union(strings, [s]), _ => strings }, tags, hs_globals, closures, max_call),
+        LMakeVariant(_, name, _) => (strings, tag_union(tags, [name]), hs_globals, closures, max_call),
+        LLet(_, name, _) => (strings, tags, if is_handler_global(name) { string_union(hs_globals, [name]) } else { hs_globals }, closures, max_call),
+        LMakeClosure(_, fn_def, _) => (strings, tags, hs_globals, closures ++ [fn_def], max_call),
+        LCall(_, _, args) => { let a = len(args); (strings, tags, hs_globals, closures, if a > max_call { a } else { max_call }) },
+        LTailCall(_, _, args) => { let a = len(args); (strings, tags, hs_globals, closures, if a > max_call { a } else { max_call }) },
+        _ => (strings, tags, hs_globals, closures, max_call)
       }
       resume(()) with strings = new_strings, tags = new_tags, hs_globals = new_hs, closures = new_closures, max_call = new_max_call
     },
@@ -218,12 +223,24 @@ fn find_string_offset(string_map, text, idx)= {
   else { let (s, offset, _) = string_map[idx]; if s == text { offset } else { find_string_offset(string_map, text, idx + 1) } }
 }
 
-fn emit_string_segments(string_map, idx)= {
-  if idx >= len(string_map) { "" }
+// Streaming emission — each segment streamed via out(), O(N) not O(N²).
+fn emit_string_segments(string_map, idx) with WasmOut = {
+  if idx >= len(string_map) { () }
   else {
     let (text, offset, slen) = string_map[idx]
-    "  (data (i32.const " ++ to_string(offset) ++ ") " ++ DQ ++ encode_i32_le(slen) ++ escape_wat_string(text, 0) ++ DQ ++ ")" ++ NL
-      ++ emit_string_segments(string_map, idx + 1)
+    out("  (data (i32.const " ++ to_string(offset) ++ ") " ++ DQ)
+    out(encode_i32_le(slen))
+    emit_escape_wat_bytes(text, 0, byte_len(text))
+    out(DQ ++ ")" ++ NL)
+    emit_string_segments(string_map, idx + 1)
+  }
+}
+
+fn emit_escape_wat_bytes(s, i, slen) with WasmOut = {
+  if i >= slen { () }
+  else {
+    out(hex_byte(byte_at(s, i)))
+    emit_escape_wat_bytes(s, i + 1, slen)
   }
 }
 
@@ -232,25 +249,6 @@ fn encode_i32_le(n)=
 
 fn hex_byte(b)= BS ++ hex_digit(b / 16) ++ hex_digit(b % 16)
 fn hex_digit(n)= if n < 10 { from_char_code(48 + n) } else { from_char_code(87 + n) }
-
-// Escape string for WAT data segments: control chars → \xx hex escapes
-fn escape_wat_string(s, idx)= {
-  // Iterate BYTES directly, not Unicode codepoints.
-  // The Rust VM's chars() splits by codepoint; multi-byte UTF-8 characters
-  // become single chars with huge codepoints, causing hex_byte to produce
-  // garbage (e.g., hex_digit(600) = from_char_code(687) = ʯ).
-  // byte_at/byte_len are Rust VM builtins that work on UTF-8 bytes directly.
-  // In WASM, they're emitted as load_i8 and load_i32 respectively.
-  escape_wat_bytes(s, 0, byte_len(s))
-}
-
-fn escape_wat_bytes(s, i, slen)= {
-  if i >= slen { "" }
-  else {
-    let b = byte_at(s, i)
-    hex_byte(b) ++ escape_wat_bytes(s, i + 1, slen)
-  }
-}
 
 // ─── Variant Tag Utilities ──────────────────────────────────
 
