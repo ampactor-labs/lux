@@ -56,7 +56,7 @@ fn emit_module(defs, type_map) = {
     out("  (memory (export " ++ DQ ++ "memory" ++ DQ ++ ") 65536)" ++ NL)
     out("  (global $heap_ptr (mut i32) (i32.const " ++ to_string(heap_start) ++ "))" ++ NL)
     out("  (global $__vsp (mut i32) (i32.const 0))" ++ NL)
-    out(emit_global_decls(top_globals, 0, type_map))
+    emit_global_decls(top_globals, 0, type_map)
     out(emit_fn_type_sigs(max_arity, 0))
     out(emit_string_segments(string_map, 0))
     out(emit_alloc())
@@ -75,22 +75,19 @@ fn emit_module(defs, type_map) = {
 }
 
 fn emit_global_decls(names, idx, env)= {
-  if idx >= len(names) { "" }
+  if idx >= len(names) { () }
   else {
     let name = names[idx]
     let is_dup = name_seen_before(names, name, 0, idx)
-    if is_dup { emit_global_decls(names, idx + 1, env) }
-    else {
-      // Read the global's type from env. Handler-state/save globals are
-      // untyped in the env (they're emitter bookkeeping) — default i32.
+    if is_dup { () } else {
       let (_, ty, _) = env_lookup(env, name)
       let (wtype, init) = match ty {
         TFloat => ("f32", "f32.const 0"),
         _ => ("i32", "i32.const 0")
       }
-      "  (global $" ++ name ++ " (mut " ++ wtype ++ ") (" ++ init ++ "))" ++ NL
-      ++ emit_global_decls(names, idx + 1, env)
+      out("  (global $" ++ name ++ " (mut " ++ wtype ++ ") (" ++ init ++ "))" ++ NL)
     }
+    emit_global_decls(names, idx + 1, env)
   }
 }
 
@@ -135,7 +132,7 @@ fn emit_fn(fn_def, ctx) = {
   }
 
   out("  (func $" ++ name ++ " (param $__closure i32)" ++ emit_params(params, param_types, 0) ++ " (result " ++ result_ty ++ ")" ++ eff_annotation ++ NL)
-  out(emit_local_decls(with_temps, 0, body, env))
+  emit_local_decls(with_temps, 0, body, env)
 
   if eff_implies_no_alloc {
     // Nested handler: capture body WAT to check for $alloc
@@ -513,7 +510,7 @@ fn emit_start(stmts, ctx) = {
   let with_temps = add_emitter_temps(locals, ctx)
   let env = ctx_type_env(ctx)
   out("  (func $_start (export " ++ DQ ++ "_start" ++ DQ ++ ")" ++ NL)
-  out(emit_local_decls(with_temps, 0, stmts, env))
+  emit_local_decls(with_temps, 0, stmts, env)
   emit_stmts_void(stmts, 0, [], with_temps, ctx)
   out("  )" ++ NL)
 }
@@ -601,16 +598,16 @@ fn find_local_ty_expr_inner(name, expr) = match expr {
 
 // emit_local_decls reads the Ty field of each LLet directly — no walk-and-tag.
 fn emit_local_decls(locals, idx, body, env)= {
-  if idx >= len(locals) { "" }
+  if idx >= len(locals) { () }
   else {
     let name = locals[idx]
-    // Emitter temps (__vptr, __match, __f0-__f7) are always i32
     let wtype = if len(name) >= 2 && string_slice(name, 0, 2) == "__" {
       "i32"
     } else {
       ty_to_wasm(find_local_ty(name, body))
     }
-    "    (local $" ++ name ++ " " ++ wtype ++ ")" ++ NL ++ emit_local_decls(locals, idx + 1, body, env)
+    out("    (local $" ++ name ++ " " ++ wtype ++ ")" ++ NL)
+    emit_local_decls(locals, idx + 1, body, env)
   }
 }
 
