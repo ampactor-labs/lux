@@ -124,10 +124,15 @@ fn lower_expr(sexpr, env) = {
             else { if (name == "println" || name == "print") && len(args) > 0 {
               let arg = args[0]
               let lowered_arg = lower_expr(arg, env)
-              // Known String → print_string. Everything else → print_int.
+              // Known String → print_string. Default → print_string.
+              // In WASM, all values are heap pointers (i32). print_string
+              // reads bytes from the pointer. print_int formats the integer.
+              // For heap pointers, print_string is always correct.
               let printer = match lexpr_ty(lowered_arg) {
-                TString => "print_string",
-                _       => "print_int"
+                TInt => "print_int",
+                TFloat => "print_int",
+                TBool => "print_int",
+                _     => "print_string"
               }
               let print_call = LCall(TUnit, LGlobal(TFun([lexpr_ty(lowered_arg)], TUnit, EfPure), printer), [lowered_arg])
               if name == "println" {
