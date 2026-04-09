@@ -10,9 +10,17 @@
 
 import compiler/lower
 
+// WAT format constants — defined locally to avoid circular dependency on wasm_emit
+let NL = from_char_code(10)
+
 // WasmOut effect — declared in wasm_emit.lux, redeclared here
 // to avoid circular import. Same effect, same operation name.
 effect WasmOut { out(String) -> () }
+
+// ExprEmit effect — breaks the circular dependency.
+// wasm_construct needs to call emit_expr (defined in wasm_emit) but can't import it.
+// Instead it performs this effect; wasm_emit handles it with the real emit_expr.
+effect ExprEmit { do_emit_expr(e, params, locals, ctx) -> () }
 
 // ─── Self-Referencing Closure Detection ─────────────────────
 
@@ -33,7 +41,7 @@ fn emit_closure_captures(captures, idx, params, locals, ctx) = {
     out("    local.get $__vptr" ++ NL
     ++ "    i32.const " ++ to_string(offset) ++ NL
     ++ "    i32.add" ++ NL)
-    emit_expr(captures[idx], params, locals, ctx)
+    do_emit_expr(captures[idx], params, locals, ctx)
     out("    i32.store" ++ NL)
     emit_closure_captures(captures, idx + 1, params, locals, ctx)
   }
@@ -53,7 +61,7 @@ fn emit_closure_captures_stacked(captures, idx, params, locals, ctx) = {
     ++ "    i32.load" ++ NL
     ++ "    i32.const " ++ to_string(offset) ++ NL
     ++ "    i32.add" ++ NL)
-    emit_expr(cap, params, locals, ctx)
+    do_emit_expr(cap, params, locals, ctx)
     out("    " ++ store_op ++ NL)
     emit_closure_captures_stacked(captures, idx + 1, params, locals, ctx)
   }
@@ -132,7 +140,7 @@ fn emit_tuple_sets(elems, idx, params, locals, ctx) = {
     ++ "    i32.const 0" ++ NL
     ++ "    local.get $__match" ++ NL
     ++ "    i32.const " ++ to_string(idx) ++ NL)
-    emit_expr(elems[idx], params, locals, ctx)
+    do_emit_expr(elems[idx], params, locals, ctx)
     out("    call $tuple_set" ++ NL)
     emit_tuple_sets(elems, idx + 1, params, locals, ctx)
   }
@@ -145,7 +153,7 @@ fn emit_tuple_elems(elems, idx, params, locals, ctx) = {
     out("    local.get $__vptr" ++ NL
     ++ "    i32.const " ++ to_string(offset) ++ NL
     ++ "    i32.add" ++ NL)
-    emit_expr(elems[idx], params, locals, ctx)
+    do_emit_expr(elems[idx], params, locals, ctx)
     out("    i32.store" ++ NL)
     emit_tuple_elems(elems, idx + 1, params, locals, ctx)
   }
@@ -189,7 +197,7 @@ fn emit_variant_fields(fields, idx, params, locals, ctx) = {
     ++ "    i32.load" ++ NL
     ++ "    i32.const " ++ to_string(field_offset) ++ NL
     ++ "    i32.add" ++ NL)
-    emit_expr(fields[idx], params, locals, ctx)
+    do_emit_expr(fields[idx], params, locals, ctx)
     out("    i32.store" ++ NL)
     emit_variant_fields(fields, idx + 1, params, locals, ctx)
   }
@@ -201,7 +209,7 @@ fn match_local(depth) =
   if depth == 0 { "$__match" } else { "$__match_" ++ to_string(depth) }
 
 fn emit_match(scrutinee, arms, params, locals, ctx) = {
-  emit_expr(scrutinee, params, locals, ctx)
+  do_emit_expr(scrutinee, params, locals, ctx)
   out("    local.set $__match" ++ NL)
   emit_match_arms(arms, 0, params, locals, ctx)
 }
@@ -220,7 +228,7 @@ fn emit_match_arms(arms, idx, params, locals, ctx) = {
         ++ "    (if (result i32)" ++ NL
         ++ "      (then" ++ NL)
         emit_bind_fields(sub_pats, 0, 0, params, locals, ctx)
-        emit_expr(body, params, locals, ctx)
+        do_emit_expr(body, params, locals, ctx)
         out("      )" ++ NL
         ++ "      (else" ++ NL)
         emit_match_arms(arms, idx + 1, params, locals, ctx)
@@ -231,10 +239,10 @@ fn emit_match_arms(arms, idx, params, locals, ctx) = {
       LPVar(name) => {
         out("    local.get $__match" ++ NL
         ++ "    local.set $" ++ name ++ NL)
-        emit_expr(body, params, locals, ctx)
+        do_emit_expr(body, params, locals, ctx)
       },
-      LPLit(_) => emit_expr(body, params, locals, ctx),
-      LPWild => emit_expr(body, params, locals, ctx),
+      LPLit(_) => do_emit_expr(body, params, locals, ctx),
+      LPWild => do_emit_expr(body, params, locals, ctx),
       _ => emit_match_arms(arms, idx + 1, params, locals, ctx)
     }
   }
@@ -242,7 +250,7 @@ fn emit_match_arms(arms, idx, params, locals, ctx) = {
 
 fn emit_match_arm_tuple(sub_pats, body, arms, idx, params, locals, ctx) = {
   emit_bind_tuple_fields(sub_pats, 0, 0, params, locals, ctx)
-  emit_expr(body, params, locals, ctx)
+  do_emit_expr(body, params, locals, ctx)
 }
 
 fn emit_bind_tuple_fields(sub_pats, idx, depth, params, locals, ctx) = {
@@ -329,7 +337,7 @@ fn ctx_type_env(ctx) = ctx[4]
 fn emit_variant_field_exprs(fields, idx, params, locals, ctx) = {
   if idx >= len(fields) { () }
   else {
-    emit_expr(fields[idx], params, locals, ctx)
+    do_emit_expr(fields[idx], params, locals, ctx)
     out("    local.set $__f" ++ to_string(idx) ++ NL)
     emit_variant_field_exprs(fields, idx + 1, params, locals, ctx)
   }

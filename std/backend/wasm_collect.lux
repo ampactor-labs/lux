@@ -24,6 +24,11 @@
 
 import compiler/lower
 
+// WAT format constants — defined locally to avoid circular dependency on wasm_emit
+let NL = from_char_code(10)
+let DQ = from_char_code(34)
+let BS = from_char_code(92)
+
 
 // ─── Top-Level Name Collection (structural, not tree-walk) ──
 

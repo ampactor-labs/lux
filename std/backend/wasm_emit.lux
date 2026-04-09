@@ -53,25 +53,34 @@ fn emit_module(defs, type_map) = {
   let ctx = (string_map, tag_map, fn_table, top_globals, type_map, vstack_base)
 
   handle {
-    out("(module" ++ NL)
-    out(emit_wasi_imports())
-    out("  (memory (export " ++ DQ ++ "memory" ++ DQ ++ ") 65536)" ++ NL)
-    out("  (global $heap_ptr (mut i32) (i32.const " ++ to_string(heap_start) ++ "))" ++ NL)
-    out("  (global $__vsp (mut i32) (i32.const 0))" ++ NL)
-    emit_global_decls(top_globals, 0, type_map)
-    out(emit_fn_type_sigs(max_arity, 0))
-    out(emit_string_segments(string_map, 0))
-    out(emit_alloc())
+    handle {
+      out("(module" ++ NL)
+      out(emit_wasi_imports())
+      out("  (memory (export " ++ DQ ++ "memory" ++ DQ ++ ") 256 65536)" ++ NL)
+      out("  (global $heap_ptr (mut i32) (i32.const " ++ to_string(heap_start) ++ "))" ++ NL)
+      out("  (global $__vsp (mut i32) (i32.const 0))" ++ NL)
+      emit_global_decls(top_globals, 0, type_map)
+      out(emit_fn_type_sigs(max_arity, 0))
+      out(emit_string_segments(string_map, 0))
+      out(emit_alloc())
 
-    // Functions — each emitted and streamed directly via out()
-    emit_fn_list(fns, 0, ctx)
+      // Functions — each emitted and streamed directly via out()
+      emit_fn_list(fns, 0, ctx)
 
-    // Footer
-    out(emit_fn_table(fn_table))
-    emit_start(top_stmts, ctx)
-    out(")" ++ NL)
+      // Footer
+      out(emit_fn_table(fn_table))
+      emit_start(top_stmts, ctx)
+      out(")" ++ NL)
+    } {
+      out(s) => { print(s); resume(()) }
+    }
   } {
-    out(s) => { print(s); resume(()) }
+    // ExprEmit handler — dispatches do_emit_expr from wasm_construct
+    // to the real emit_expr defined here in wasm_emit.
+    do_emit_expr(e, params, locals, inner_ctx) => {
+      emit_expr(e, params, locals, inner_ctx)
+      resume(())
+    }
   }
   ""
 }
@@ -103,6 +112,10 @@ fn emit_wasi_imports()=
     ++ " (func $fd_write (param i32 i32 i32 i32) (result i32)))" ++ NL
   ++ "  (import " ++ DQ ++ "wasi_snapshot_preview1" ++ DQ ++ " " ++ DQ ++ "fd_read" ++ DQ
     ++ " (func $fd_read (param i32 i32 i32 i32) (result i32)))" ++ NL
+  ++ "  (import " ++ DQ ++ "wasi_snapshot_preview1" ++ DQ ++ " " ++ DQ ++ "path_open" ++ DQ
+    ++ " (func $path_open (param i32 i32 i32 i32 i32 i64 i64 i32 i32) (result i32)))" ++ NL
+  ++ "  (import " ++ DQ ++ "wasi_snapshot_preview1" ++ DQ ++ " " ++ DQ ++ "fd_close" ++ DQ
+    ++ " (func $fd_close (param i32) (result i32)))" ++ NL
 
 // ─── Function Emission ──────────────────────────────────────
 
@@ -418,9 +431,21 @@ fn emit_builtin(name, args, params, locals, ctx) = {
     emit_args(args, 0, params, locals, ctx); out("    call $fd_write" ++ NL); true
   } else { if name == "fd_read" {
     emit_args(args, 0, params, locals, ctx); out("    call $fd_read" ++ NL); true
+  } else { if name == "path_open" {
+    // path_open(dirfd, dirflags, path, path_len, oflags, rights_base:i64, rights_inh:i64, fdflags, result_fd)
+    // Args 5 and 6 are i64 in WASI but i32 in Lux — extend them
+    emit_args_range(args, 0, 5, params, locals, ctx)
+    emit_expr(args[5], params, locals, ctx)
+    out("    i64.extend_i32_u" ++ NL)
+    emit_expr(args[6], params, locals, ctx)
+    out("    i64.extend_i32_u" ++ NL)
+    emit_args_range(args, 7, len(args), params, locals, ctx)
+    out("    call $path_open" ++ NL); true
+  } else { if name == "fd_close" {
+    emit_args(args, 0, params, locals, ctx); out("    call $fd_close" ++ NL); true
   } else {
     false
-  } } } } } } } } } }
+  } } } } } } } } } } } }
 }
 
 fn emit_call_expr(func, args, params, locals, ctx) = {
@@ -483,6 +508,11 @@ fn emit_call_expr(func, args, params, locals, ctx) = {
 fn emit_args(args, idx, params, locals, ctx) = {
   if idx >= len(args) { () }
   else { emit_expr(args[idx], params, locals, ctx); emit_args(args, idx + 1, params, locals, ctx) }
+}
+
+fn emit_args_range(args, start, end, params, locals, ctx) = {
+  if start >= end { () }
+  else { emit_expr(args[start], params, locals, ctx); emit_args_range(args, start + 1, end, params, locals, ctx) }
 }
 
 // ─── _start Function ────────────────────────────────────────

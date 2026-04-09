@@ -11,7 +11,16 @@
 fn emit_alloc() =
   "  (func $alloc (param $size i32) (result i32)" ++ NL
   ++ "    (local $ptr i32)" ++ NL
+  ++ "    (local $new_end i32)" ++ NL
+  ++ "    (local $mem_bytes i32)" ++ NL
   ++ "    (local.set $ptr (global.get $heap_ptr))" ++ NL
-  ++ "    (global.set $heap_ptr (i32.add (global.get $heap_ptr) (local.get $size)))" ++ NL
+  ++ "    (local.set $new_end (i32.add (local.get $ptr) (local.get $size)))" ++ NL
+  ++ "    (local.set $mem_bytes (i32.mul (memory.size) (i32.const 65536)))" ++ NL
+  ++ "    (if (i32.gt_u (local.get $new_end) (local.get $mem_bytes))" ++ NL
+  ++ "      (then" ++ NL
+  ++ "        (drop (memory.grow (i32.add (i32.shr_u (i32.sub (local.get $new_end) (local.get $mem_bytes)) (i32.const 16)) (i32.const 1))))" ++ NL
+  ++ "      )" ++ NL
+  ++ "    )" ++ NL
+  ++ "    (global.set $heap_ptr (local.get $new_end))" ++ NL
   ++ "    (local.get $ptr)" ++ NL
   ++ "  )" ++ NL
