@@ -26,10 +26,12 @@ fn emit_module(defs, type_map) = {
   let top_globals = string_union(collect_top_let_names(top_stmts, 0), all_hs_globals)
   let string_map = assign_offsets(all_strings, 0, 1024)
   let data_end = string_heap_end(string_map, 0, 1024)
-  // Memory layout: [scratch:0-7][data:1024-data_end][vstack:data_end+4096][heap:data_end+4096+]
-  // Variant stack gets 1024 slots (4096 bytes) — enough for deeply nested closures.
+  // Memory layout: [scratch:0-7][data:1024-data_end][vstack:data_end+1MB][heap:data_end+1MB+]
+  // Variant stack gets 256K slots (1 MB) — enough for the self-hosted
+  // compiler's deeply nested expressions. Overflow silently corrupts
+  // the heap, so this must be generous.
   let vstack_base = data_end
-  let heap_start = data_end + 4096
+  let heap_start = data_end + 1048576
   let fn_table = collect_fn_names(fns, 0)
   let max_arity = max(max_fn_arity(fns, 0), call_max)
   let ctx = (string_map, tag_map, fn_table, top_globals, type_map, vstack_base)
@@ -38,7 +40,7 @@ fn emit_module(defs, type_map) = {
     handle {
       out("(module" ++ NL)
       out(emit_wasi_imports())
-      out("  (memory (export " ++ DQ ++ "memory" ++ DQ ++ ") 256 65536)" ++ NL)
+      out("  (memory (export " ++ DQ ++ "memory" ++ DQ ++ ") 32768 65536)" ++ NL)
       out("  (global $heap_ptr (mut i32) (i32.const " ++ to_string(heap_start) ++ "))" ++ NL)
       out("  (global $__vsp (mut i32) (i32.const 0))" ++ NL)
       emit_global_decls(top_globals, 0, type_map)
@@ -71,14 +73,21 @@ fn emit_global_decls(names, idx, env)= {
   if idx >= len(names) { () }
   else {
     let name = names[idx]
-    let is_dup = name_seen_before(names, name, 0, idx)
-    if is_dup { () } else {
-      let (_, ty, _) = env_lookup(env, name)
-      let (wtype, init) = match ty {
-        TFloat => ("f32", "f32.const 0"),
-        _ => ("i32", "i32.const 0")
+    // SANITY: a global name should be a short identifier. If len > 100,
+    // the pointer is corrupt — bail with an explicit marker to stdout
+    // so debugging doesn't get a cryptic trap downstream.
+    if len(name) > 100 {
+      out(";; CORRUPT GLOBAL NAME at idx " ++ to_string(idx) ++ " len=" ++ to_string(len(name)) ++ " of " ++ to_string(len(names)) ++ NL)
+    } else {
+      let is_dup = name_seen_before(names, name, 0, idx)
+      if is_dup { () } else {
+        let (_, ty, _) = env_lookup(env, name)
+        let (wtype, init) = match ty {
+          TFloat => ("f32", "f32.const 0"),
+          _ => ("i32", "i32.const 0")
+        }
+        out("  (global $" ++ name ++ " (mut " ++ wtype ++ ") (" ++ init ++ "))" ++ NL)
       }
-      out("  (global $" ++ name ++ " (mut " ++ wtype ++ ") (" ++ init ++ "))" ++ NL)
     }
     emit_global_decls(names, idx + 1, env)
   }
