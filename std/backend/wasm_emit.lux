@@ -478,11 +478,13 @@ fn emit_call_expr(func, args, params, locals, ctx) = {
       }
     },
     _ => {
+      // Emit func TWICE: once for closure param, once for table index.
+      // Safe: computed func exprs are pure capture reads (__closure + N).
+      // Can't use a saved local — nested closure calls in args clobber ANY temp.
       emit_expr(func, params, locals, ctx)
-      out("    local.tee $__call_ptr" ++ NL)
       emit_args(args, 0, params, locals, ctx)
-      out("    local.get $__call_ptr" ++ NL
-      ++ "    i32.load" ++ NL
+      emit_expr(func, params, locals, ctx)
+      out("    i32.load" ++ NL
       ++ "    call_indirect (type $fn" ++ to_string(len(args)) ++ ")" ++ NL)
     }
   }
@@ -633,8 +635,9 @@ fn add_emitter_temps(locals, ctx)= {
   // __match: temp for match scrutinee (depth 0).
   // __match_1, __match_2, __match_3: nested match scrutinees (depth 1-3).
   // __f0-__f7: pre-evaluated closure captures.
-  // __call_ptr: saved closure pointer for indirect calls (can't use __vptr — clobbered by emit_args).
-  string_union(locals, ["__vptr", "__call_ptr", "__match", "__match_1", "__match_2", "__match_3", "__f0", "__f1", "__f2", "__f3", "__f4", "__f5", "__f6", "__f7"])
+  // Computed closure calls emit the func expr twice (pure capture read).
+  // No __call_ptr or __call_idx needed — nested calls can't clobber re-emission.
+  string_union(locals, ["__vptr", "__match", "__match_1", "__match_2", "__match_3", "__f0", "__f1", "__f2", "__f3", "__f4", "__f5", "__f6", "__f7"])
 }
 
 // Remove handler state globals from function locals — these must be WASM globals

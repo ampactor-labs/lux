@@ -84,7 +84,8 @@ fn filter_real_captures_no_self_at(names, i) = {
     let rest = filter_real_captures_no_self_at(names, i + 1)
     if is_ctor(n) { rest }
     else { if is_global(n) { rest }
-    else { [n] ++ rest } }
+    else { if is_state_var(n) { rest }
+    else { [n] ++ rest } } }
   }
 }
 
@@ -97,7 +98,8 @@ fn filter_real_captures_at(names, self_name, i) = {
     if n == self_name { rest }
     else { if is_ctor(n) { rest }
     else { if is_global(n) { rest }
-    else { [n] ++ rest } } }
+    else { if is_state_var(n) { rest }
+    else { [n] ++ rest } } } }
   }
 }
 
@@ -130,7 +132,49 @@ fn collect_free(sexpr, bound) = {
     },
     FieldAccess(obj, _) => collect_free(obj, bound),
     RecordExpr(fields) => collect_free_record(fields, bound),
+    TupleExpr(elems) => collect_free_list(elems, bound),
+    ListExpr(elems) => collect_free_list(elems, bound),
+    MatchExpr(scrutinee, arms) =>
+      string_union(collect_free(scrutinee, bound), collect_free_match_arms(arms, bound)),
+    ResumeExpr(value, updates) =>
+      string_union(collect_free(value, bound), collect_free_updates(updates, bound)),
+    HandleExpr(hbody, hhandler, state_bindings) => {
+      // State bindings bind names — extend bound. Handler arms and body both
+      // see them as "already bound" so they don't propagate as captures of
+      // the enclosing scope (handler state lives in globals, not captures).
+      let state_names = extract_state_binding_names(state_bindings, 0)
+      let inner_bound = bound ++ state_names
+      string_union(collect_free(hbody, inner_bound), collect_free(hhandler, inner_bound))
+    },
     _ => []
+  }
+}
+
+fn extract_state_binding_names(bindings, i) = {
+  if i >= len(bindings) { [] }
+  else {
+    let (name, _) = bindings[i]
+    [name] ++ extract_state_binding_names(bindings, i + 1)
+  }
+}
+
+fn collect_free_match_arms(arms, bound) = collect_free_match_arms_at(arms, bound, 0)
+fn collect_free_match_arms_at(arms, bound, i) = {
+  if i >= len(arms) { [] }
+  else {
+    let (pat, body) = arms[i]
+    // Pattern binds names — extend bound before walking body
+    let pat_names = extract_pat_names_safe(pat)
+    string_union(collect_free(body, bound ++ pat_names), collect_free_match_arms_at(arms, bound, i + 1))
+  }
+}
+
+fn collect_free_updates(updates, bound) = collect_free_updates_at(updates, bound, 0)
+fn collect_free_updates_at(updates, bound, i) = {
+  if i >= len(updates) { [] }
+  else {
+    let (_, val) = updates[i]
+    string_union(collect_free(val, bound), collect_free_updates_at(updates, bound, i + 1))
   }
 }
 

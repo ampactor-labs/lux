@@ -273,7 +273,26 @@ fn lower_expr(sexpr, env) = {
     HandleExpr(body, handler_expr, state_bindings) =>
       lower_handle(body, handler_expr, state_bindings, env),
 
-    ResumeExpr(value, _) => lower_expr(value, env),
+    ResumeExpr(value, updates) => {
+      // For indirect dispatch (handler arm closure body), state updates
+      // must be included. For direct dispatch, apply_rewrite handles them
+      // inline and replaces the ResumeExpr. This branch only runs in the
+      // indirect path. subst_state_to_cells on the handler record renames
+      // LLet("s", ..) → LLet("__hs_s_42", ..) so updates reach the globals.
+      //
+      // Order matters: resume(VALUE) with STATE = EXPR must compute VALUE
+      // using OLD state. Stash value in a temp, apply updates, return temp.
+      if len(updates) == 0 { lower_expr(value, env) }
+      else {
+        let lowered_value = lower_expr(value, env)
+        let value_ty = lexpr_ty(lowered_value)
+        let stash_name = "__resume_val_" ++ to_string(fresh_id())
+        let stash_stmt = LLet(value_ty, stash_name, lowered_value)
+        let update_stmts = lower_state_updates(updates, env)
+        let return_stmt = LGlobal(value_ty, stash_name)
+        LBlock(value_ty, [stash_stmt] ++ update_stmts ++ [return_stmt])
+      }
+    },
 
     StringInterp(parts) => lower_string_interp(parts, env),
 
@@ -574,43 +593,52 @@ fn extract_record_ty_names_at(fields, i) = {
 }
 
 fn lower_handle(body, handler_expr, state_bindings, env) = {
-  // ─── Lower the handler record as a first-class value ───
-  // Lower the handler first so we can extract its capabilities from its resolved type!
-  let lowered_handler = lower_expr(handler_expr, env)
+  // ─── State: heap cells for handler-local state — generate names FIRST ───
+  let state_names = gen_state_names(state_bindings)
+
+  // ─── Lower the handler record with is_state_var active ───
+  // State vars must NOT be captured by handler arm closures — they live in
+  // heap cells accessed via globals. is_state_var filters them from captures.
+  let lowered_handler = handle {
+    lower_expr(handler_expr, env)
+  } {
+    is_state_var(n) => resume(is_orig_state_name(state_names, n, 0))
+  }
   let op_names = extract_names_from_ty(lexpr_ty(lowered_handler))
 
-  // ─── State: heap cells for handler-local state ───
-  let state_names = gen_state_names(state_bindings)
   let state_inits = init_state_globals(state_bindings, state_names, env)
 
   // ─── Save current evidence (for nesting) ───
   let op_saves = save_op_bindings(op_names)
 
   let handler_name = "__handler_rec_" ++ to_string(fresh_id())
-  let handler_store = [LLet(TUnit, handler_name, lowered_handler)]
+  // Pure structural transform: substitute state names in handler closures.
+  // walk_ir now reaches into LMakeClosure fn_def bodies.
+  let final_handler = if len(state_names) > 0 {
+    subst_state_to_cells(lowered_handler, state_names)
+  } else { lowered_handler }
+  let handler_store = [LLet(TUnit, handler_name, final_handler)]
 
   // ─── Install evidence: index into the record ───
-  // Each field at position i becomes __ev_op_NAME = record[i]
-  let ev_installs = if len(state_names) > 0 {
-    // Stateful handler: wrap each field closure with state cell substitution
-    install_stateful_evidence(handler_name, op_names, state_names, 0, env)
-  } else {
-    // Pure handler: index directly into the record — zero extraction
-    install_evidence_from_record(handler_name, op_names, 0)
-  }
+  // State vars already substituted in the record — direct index suffices.
+  let ev_installs = install_evidence_from_record(handler_name, op_names, 0)
 
   // ─── Build rewrite map for state (resume with state = ...) ───
   let rw_map = build_rewrite_map_from_names(op_names, handler_expr)
   let rw_map_cells = remap_rewrites_to_cells(rw_map, state_names, env)
 
-  // ─── Lower the body ───
+  // ─── Lower the body with is_state_var + find_rewrite active ───
   let lowered_body = handle {
-    lower_expr(body, env)
-  } {
-    find_rewrite(name) => {
-      let entry = lookup_rewrite(rw_map_cells, name, 0)
-      resume(entry)
+    handle {
+      lower_expr(body, env)
+    } {
+      find_rewrite(name) => {
+        let entry = lookup_rewrite(rw_map_cells, name, 0)
+        resume(entry)
+      }
     }
+  } {
+    is_state_var(n) => resume(is_orig_state_name(state_names, n, 0))
   }
 
   let body_ty = lexpr_ty(lowered_body)
@@ -831,6 +859,14 @@ fn lower_state_updates_pure_at(updates, env, i) = {
 // Substitute state variable names in LowIR:
 //   LGlobal("acc") → LGlobal("__hs_42")    (read state global)
 //   LLet("acc", v)  → LLet("__hs_42", v)    (write state global)
+fn is_orig_state_name(state_names, n, i) = {
+  if i >= len(state_names) { false }
+  else {
+    let (orig, _) = state_names[i]
+    if orig == n { true } else { is_orig_state_name(state_names, n, i + 1) }
+  }
+}
+
 fn subst_state_to_cells(node, state_names) = subst_state_to_cells_at(node, state_names, 0)
 fn subst_state_to_cells_at(node, state_names, i) = {
   if i >= len(state_names) { node }
@@ -1121,6 +1157,7 @@ fn lower_program_typed(stmts, ctors, env) = {
     is_ctor(name) => resume(ctor_in(ctors, name, 0)),
     find_rewrite(name) => resume([]),
     is_global(name) => resume(name_in(globals, name, 0)),
+    is_state_var(name) => resume(false),
     fresh_id() => {
       resume(state) with state = state + 1
     }

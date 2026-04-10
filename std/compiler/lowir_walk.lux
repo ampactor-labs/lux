@@ -50,8 +50,10 @@ fn walk_ir(node) with LowIRVisit = match node {
     visit_lowir(LMakeList(ty, walk_ir_list(elems))),
   LMakeVariant(ty, tag, fields) =>
     visit_lowir(LMakeVariant(ty, tag, walk_ir_list(fields))),
-  LMakeClosure(ty, fn_def, captures) =>
-    visit_lowir(LMakeClosure(ty, fn_def, walk_ir_list(captures))),
+  LMakeClosure(ty, fn_def, captures) => {
+    let LFn(name, arity, params, body, eff) = fn_def
+    visit_lowir(LMakeClosure(ty, LFn(name, arity, params, walk_ir_list(body), eff), walk_ir_list(captures)))
+  },
   LMatch(ty, scrutinee, arms) =>
     visit_lowir(LMatch(ty, walk_ir(scrutinee), walk_ir_arms(arms))),
   LIndex(ty, coll, idx) =>
