@@ -92,18 +92,11 @@ So the primitives are fine. The bug is somewhere in how `lex_from` or `prog_loop
 
 **Methodology:** write a probe that calls `lex` on multi-line input inline (no imports), compile via bootstrap, inspect token count. If lex returns < 10 tokens, find where it stopped.
 
-### 2. `iterate`/`fold`/`map` trap with indirect call type mismatch — `fresh_id()` returns 0 forever in the bootstrap
+### 2. `fold(map(...), ...)` returns wrong value (not a crash)
 
-Symptom: `fold([1,2,3], 0, |a,b| a+b)` via the bootstrap traps in `iterate` with `indirect call type mismatch`. Root cause confirmed: the bootstrap's function table contains exactly ONE `$go_0` (from `parse_int`'s inner `go`, 3 params) and ONE `$lambda_*`. The Rust VM output has 2 `$go_N` and 25 `$lambda_N_M` — all distinct. So `fresh_id()` in the `LowerCtx` handler is always returning 0 when the bootstrap runs the lowerer, causing every inner function to be renamed to the same name. Name collisions → iterate's closure stores the fn_idx of parse_int's go (which expects a different arity) → call_indirect type mismatch at runtime.
+After commit `c2bfc6f` the `iterate`/`fold`/`map` type-mismatch crash is fixed — the root cause was `insert_field_sorted_at` silently dropping trailing fields from record literals, which meant `lower_program_typed`'s own handler was compiled without its `fresh_id` arm, `fresh_id()` returned 0 forever, and every inner function collapsed to `go_0`. With the sort fix, function names are distinct, the fn table is coherent, and `iterate/fold/map` runs without trapping.
 
-The handler source looks fine:
-```lux
-is_global(name) => resume(name_in(globals, name, 0)),
-is_state_var(name) => resume(false),
-fresh_id() => { resume(state) with state = state + 1 }
-```
-
-This is the SAME family as the state-vars-in-closures bugs from `d2e7ea7`. The handler's `state` isn't propagating across `resume` calls in the WASM-compiled handler. Check how `resume(state) with state = state + 1` lowers — compare `std/compiler/lower.lux` `ResumeExpr` handling + stash-then-update-then-return ordering. If the update happens before the stash, `state = state + 1` would be visible to `state` in the NEXT `fresh_id()` call, but the returned value would be the incremented one too — meaning fresh_id would return 1, 2, 3, ... (off by one). If the update never happens at all, fresh_id always returns 0. Instrument with a sentinel.
+What remains: the arithmetic is still wrong. `fold(map(dbl, [1,2,3]), 0, add)` returns 6 when it should return 12. The Rust VM path shows the same wrong answer, so it's NOT a bootstrap-only bug — it's a problem in how consecutive handlers share/leak state. Most likely `__hs_acc_N` globals: `map` installs its handler with an acc of type List, then fold installs its own with type Int, and something in the save/restore around the inner `iterate(xs)` call makes one handler see the other's state. Next step: `tools/probe.sh lower` on a two-handler probe, check the save/restore ordering of `__hs_acc_*` and whether the state-name generation is colliding across handlers in the same module.
 
 ### 3. Bootstrap-compiles-itself not yet verified
 
@@ -168,7 +161,10 @@ The workflow that works now:
 
 ## Recent commits (most relevant first)
 
-- `01a3cd4` **fix(lower): preserve literal pattern values — WASM bootstrap prints strings**
+- `c2bfc6f` **fix(lower): insert_field_sorted_at dropped trailing fields** — record literals with fields in the wrong source order silently lost entries, collapsing multi-arm handlers into single-arm ones. Unblocks iterate/fold/map from type-mismatch traps.
+- `066e028` docs: handoff diagnosis of the fresh_id symptom (superseded by c2bfc6f)
+- `213d295` docs: handoff reflects strings-working state
+- `01a3cd4` fix(lower): preserve literal pattern values — WASM bootstrap prints strings
 - `902b87d` docs: handoff for post-compaction context
 - `16885cf` fix(infer): defer Concat type until a side resolves — WASM bootstrap runs!
 - `ab2ed0d` wip(wasm): larger vstack, bigger initial memory, sanity checks
