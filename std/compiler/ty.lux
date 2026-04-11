@@ -181,16 +181,16 @@ fn extract_builtin_names_at(env, i) = {
   else {
     let (name, _, reason) = env[i]
     let rest = extract_builtin_names_at(env, i + 1)
-    if to_string(reason) == "Declared(builtin)" { [name] ++ rest } else { rest }
+    let is_builtin = match reason { Declared(s) => s == "builtin", _ => false }
+    if is_builtin { [name] ++ rest } else { rest }
   }
 }
 
 fn is_internal_name(name) = starts_with(name, "__") || contains(name, "__")
 
-fn is_builtin_reason(reason) = {
-  let s = to_string(reason)
-  let dq = from_char_code(34)
-  s == "Declared(" ++ dq ++ "builtin" ++ dq ++ ")"
+fn is_builtin_reason(reason) = match reason {
+  Declared(s) => s == "builtin",
+  _ => false
 }
 
 // ─── Substitution ────────────────────────────────────────────

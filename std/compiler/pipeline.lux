@@ -172,13 +172,11 @@ fn validate_ownership_fns(ast) = validate_ownership_fns_at(ast, 0)
 fn validate_ownership_fns_at(ast, i) = {
   if i >= len(ast) { () }
   else {
-    let s = to_string(ast[i])
-    if starts_with(s, "FnStmt(") {
-      let name = ast[i][0]
-      let params = ast[i][1]
-      let body = ast[i][2]
-      check_ownership(params, body) |> report_ownership(name)
-    } else { () }
+    match ast[i] {
+      FnStmt(name, params, body, _, _) =>
+        check_ownership(params, body) |> report_ownership(name),
+      _ => ()
+    }
     validate_ownership_fns_at(ast, i + 1)
   }
 }
@@ -214,10 +212,9 @@ fn validate_exhaustive_at(ast, env, i) = {
   }
 }
 
-fn walk_for_matches(item, env) = {
-  let s = to_string(item)
-  if starts_with(s, "FnStmt(") { item[2] |> walk_for_matches(env) }
-  else { () }
+fn walk_for_matches(item, env) = match item {
+  FnStmt(_, _, body, _, _) => body |> walk_for_matches(env),
+  _ => ()
 }
 
 fn validate_refinements(ast) with Diagnostic = validate_refinements_loop(ast, [], 0)
@@ -225,18 +222,15 @@ fn validate_refinements(ast) with Diagnostic = validate_refinements_loop(ast, []
 fn validate_refinements_loop(ast, aliases, i) with Diagnostic = {
   if i >= len(ast) { () }
   else {
-    let s = to_string(ast[i])
-    let new_aliases = if starts_with(s, "TypeAliasStmt(") {
-      let name = ast[i][0]
-      let base = ast[i][1]
-      let pred = ast[i][2]
-      aliases ++ [(name, base, pred)]
-    } else { aliases }
-    let _ = if starts_with(s, "LetStmt(") && len(new_aliases) > 0 {
-      let name = ast[i][0]
-      let value = ast[i][1]
-      check_let_against_aliases(name, value, new_aliases)
-    } else { () }
+    let new_aliases = match ast[i] {
+      TypeAliasStmt(name, base, pred) => aliases ++ [(name, base, pred)],
+      _ => aliases
+    }
+    match ast[i] {
+      LetStmt(name, value) =>
+        if len(new_aliases) > 0 { check_let_against_aliases(name, value, new_aliases) } else { () },
+      _ => ()
+    }
     validate_refinements_loop(ast, new_aliases, i + 1)
   }
 }

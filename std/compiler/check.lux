@@ -348,8 +348,10 @@ fn check_program_with(stmts, init_env, start_n) = {
 fn needs_instantiation(ty, reason) = {
   if has_negative_tvars(ty) { true }
   else {
-    let s = to_string(reason)
-    starts_with(s, "Declared(") && (contains(s, "effect op") || contains(s, "constructor"))
+    match reason {
+      Declared(s) => contains(s, "effect op") || contains(s, "constructor"),
+      _ => false
+    }
   }
 }
 
@@ -360,11 +362,10 @@ fn prescan_fns(stmts) with Infer = prescan_fns_at(stmts, 0)
 
 fn prescan_fns_at(stmts, i) with Infer = {
   if i < len(stmts) {
-    let s = to_string(stmts[i])
-    if starts_with(s, "FnStmt(") {
-      let name = stmts[i][0]
-      bind(name, fresh(), Inferred("forward declaration"))
-    } else { () }
+    match stmts[i] {
+      FnStmt(name, _, _, _, _) => bind(name, fresh(), Inferred("forward declaration")),
+      _ => ()
+    }
     prescan_fns_at(stmts, i + 1)
   } else { () }
 }

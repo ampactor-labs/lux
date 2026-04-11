@@ -237,9 +237,10 @@ fn prescan_fn_names(stmts, i) = {
   if i >= len(stmts) { [] }
   else {
     let rest = prescan_fn_names(stmts, i + 1)
-    let s = to_string(stmts[i])
-    if starts_with(s, "FnStmt(") { [stmts[i][0]] ++ rest }
-    else { rest }
+    match stmts[i] {
+      FnStmt(name, _, _, _, _) => [name] ++ rest,
+      _ => rest
+    }
   }
 }
 
