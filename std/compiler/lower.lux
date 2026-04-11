@@ -86,6 +86,14 @@ fn lower_expr(sexpr, env) = {
       } else { if op == "Concat" {
         // Dispatch: TString → str_concat, TList → list_concat. Read child's
         // type directly — no infer_concat_type walk.
+        // When BOTH sides are TVar (inference couldn't resolve), route
+        // through val_concat which dispatches at runtime via heuristic.
+        // The flat default to list_concat here was silently turning
+        // `acc ++ sep ++ x` in polymorphic helpers like prelude's `join`
+        // into list_concat, corrupting strings threaded through fold —
+        // which then corrupted the user source passed through
+        // strip_imports (split → filter → join), which broke lex on any
+        // multi-line input in the bootstrap.
         let rt = lexpr_ty(r)
         let (concat_fn, result_ty) = match lt {
           TString => ("str_concat", TString),
@@ -93,7 +101,7 @@ fn lower_expr(sexpr, env) = {
           _ => match rt {
             TString => ("str_concat", TString),
             TList(_) => ("list_concat", rt),
-            _ => ("list_concat", TList(TUnit))
+            _ => ("val_concat", TUnit)
           }
         }
         LCall(result_ty, LGlobal(TFun([lt, rt], result_ty, EfPure), concat_fn), [l, r])
