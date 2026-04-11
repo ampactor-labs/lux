@@ -231,7 +231,7 @@ fn emit_match_arms(arms, idx, params, locals, ctx) = {
         ++ "    local.set $" ++ name ++ NL)
         do_emit_expr(body, params, locals, ctx)
       },
-      LPLit(_) => do_emit_expr(body, params, locals, ctx),
+      LPLit(lit_val) => emit_match_arm_lit(lit_val, body, arms, idx, params, locals, ctx),
       LPWild => do_emit_expr(body, params, locals, ctx),
       _ => emit_match_arms(arms, idx + 1, params, locals, ctx)
     }
@@ -241,6 +241,56 @@ fn emit_match_arms(arms, idx, params, locals, ctx) = {
 fn emit_match_arm_tuple(sub_pats, body, arms, idx, params, locals, ctx) = {
   emit_bind_fields(sub_pats, 0, 0, params, locals, ctx)
   do_emit_expr(body, params, locals, ctx)
+}
+
+// Literal-pattern arm: compare $__match against the literal value, branch.
+// String literals call $str_eq (value equality across heap pointers).
+// Int/Bool literals use i32.eq. Unit/None always match (rare).
+fn emit_match_arm_lit(lit_val, body, arms, idx, params, locals, ctx) = {
+  match lit_val {
+    LString(s) => {
+      let s_offset = find_string_offset(ctx_strings(ctx), s, 0)
+      out("    i32.const 0" ++ NL
+      ++ "    local.get $__match" ++ NL
+      ++ "    i32.const " ++ to_string(s_offset) ++ NL
+      ++ "    call $str_eq" ++ NL
+      ++ "    (if (result i32)" ++ NL
+      ++ "      (then" ++ NL)
+      do_emit_expr(body, params, locals, ctx)
+      out("      )" ++ NL
+      ++ "      (else" ++ NL)
+      emit_match_arms(arms, idx + 1, params, locals, ctx)
+      out("      )" ++ NL
+      ++ "    )" ++ NL)
+    },
+    LInt(n) => {
+      out("    local.get $__match" ++ NL
+      ++ "    i32.const " ++ to_string(n) ++ NL
+      ++ "    i32.eq" ++ NL
+      ++ "    (if (result i32)" ++ NL
+      ++ "      (then" ++ NL)
+      do_emit_expr(body, params, locals, ctx)
+      out("      )" ++ NL
+      ++ "      (else" ++ NL)
+      emit_match_arms(arms, idx + 1, params, locals, ctx)
+      out("      )" ++ NL
+      ++ "    )" ++ NL)
+    },
+    LBool(b) => {
+      out("    local.get $__match" ++ NL
+      ++ "    i32.const " ++ to_string(if b { 1 } else { 0 }) ++ NL
+      ++ "    i32.eq" ++ NL
+      ++ "    (if (result i32)" ++ NL
+      ++ "      (then" ++ NL)
+      do_emit_expr(body, params, locals, ctx)
+      out("      )" ++ NL
+      ++ "      (else" ++ NL)
+      emit_match_arms(arms, idx + 1, params, locals, ctx)
+      out("      )" ++ NL
+      ++ "    )" ++ NL)
+    },
+    _ => do_emit_expr(body, params, locals, ctx)
+  }
 }
 
 fn emit_bind_fields(sub_pats, idx, depth, params, locals, ctx) = {

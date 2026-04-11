@@ -418,11 +418,24 @@ fn lower_match_arms_at(arms, env, i) = {
   }
 }
 
+fn lit_expr_to_lval(e) = match e {
+  IntLit(s)    => LInt(parse_int(s)),
+  FloatLit(s)  => LFloat(parse_float(s)),
+  StringLit(s) => LString(s),
+  BoolLit(b)   => LBool(b),
+  _ => LUnit
+}
+
+fn unspan_lit(sexpr) = {
+  let S(e, _, _) = sexpr
+  lit_expr_to_lval(e)
+}
+
 fn lower_pat(pat) = match pat {
   PVar(name) => LPVar(name),
   PWild => LPWild,
   PCon(name, sub) => LPCon(name, lower_pats(sub)),
-  PLit(e) => LPLit(LUnit),
+  PLit(sexpr) => LPLit(unspan_lit(sexpr)),
   PTuple(sub) => LPTuple(lower_pats(sub)),
   _ => LPWild
 }

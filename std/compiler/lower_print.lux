@@ -6,14 +6,27 @@ let NL = from_char_code(10)
 fn pv(v) = match v {
   LInt(n) => to_string(n),
   LBool(b) => if b { "true" } else { "false" },
+  LString(s) => '"' ++ s ++ '"',
+  LFloat(f) => to_string(f),
   LUnit => "()",
+  LNone => "None",
   _ => "?"
+}
+
+fn pp(p) = match p {
+  LPVar(n) => n,
+  LPWild => "_",
+  LPCon(n, _) => n ++ "(..)",
+  LPLit(v) => pv(v),
+  LPTuple(_) => "(..)",
+  _ => "?pat"
 }
 
 fn pe_atom(e) = match e {
   LConst(_, v) => pv(v),
   LLocal(_, s) => "$" ++ to_string(s),
   LGlobal(_, n) => n,
+  LUpval(_, i) => "upval[" ++ to_string(i) ++ "]",
   LLet(_, n, v) => "let " ++ n ++ " = " ++ pe(v),
   _ => ""
 }
@@ -28,8 +41,8 @@ fn pe_fn(e) = match e {
   LCall(_, f, args) => pe(f) ++ "(" ++ js(mp(args), ", ") ++ ")",
   LReturn(_, v) => "return " ++ pe(v),
   LMakeClosure(_, d, _) => {
-    let LFn(n, a, _, _, _) = d
-    "fn " ++ n ++ "/" ++ to_string(a)
+    let LFn(n, a, _, body, _) = d
+    "fn " ++ n ++ "/" ++ to_string(a) ++ ' = { ' ++ js(mp(body), "; ") ++ ' }'
   },
   _ => ""
 }
@@ -44,8 +57,16 @@ fn pe_coll(e) = match e {
 
 fn pe_ctrl(e) = match e {
   LBlock(_, ss) => '{ ' ++ js(mp(ss), "; ") ++ ' }',
-  LMatch(_, s, _) => "match " ++ pe(s) ++ ' { .. }',
+  LMatch(_, s, arms) => "match " ++ pe(s) ++ ' { ' ++ js(mp_arms(arms, 0), " | ") ++ ' }',
   _ => pe_state(e)
+}
+
+fn mp_arms(arms, i) = {
+  if i >= len(arms) { [] }
+  else {
+    let (pat, body) = arms[i]
+    [pp(pat) ++ " => " ++ pe(body)] ++ mp_arms(arms, i + 1)
+  }
 }
 
 fn pe_state(e) = match e {

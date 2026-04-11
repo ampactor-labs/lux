@@ -193,12 +193,14 @@ fn collect_all(defs) =
       resume(()) with strings = new_strings, tags = new_tags, hs_globals = new_hs, closures = new_closures, max_call = new_max_call
     },
     visit_pat(pat) => {
-      // Tags from patterns: extract from LPCon(name, _)
-      let new_tags = match pat {
-        LPCon(name, _) => tag_union(tags, [name]),
-        _ => tags
+      // Tags from LPCon(name, _); strings from LPLit(LString(s)) so the
+      // emitter can find an offset when it generates `call $str_eq`.
+      let (new_strings, new_tags) = match pat {
+        LPCon(name, _) => (strings, tag_union(tags, [name])),
+        LPLit(v) => (match v { LString(s) => string_union(strings, [s]), _ => strings }, tags),
+        _ => (strings, tags)
       }
-      resume(()) with tags = new_tags
+      resume(()) with strings = new_strings, tags = new_tags
     },
     get_collected() => resume((strings, tags, hs_globals, closures, max_call)),
   }
@@ -224,7 +226,7 @@ fn find_string_offset(string_map, text, idx)= {
 }
 
 // Streaming emission — each segment streamed via out(), O(N) not O(N²).
-fn emit_string_segments(string_map, idx) with WasmOut = {
+fn emit_string_segments(string_map, idx) with WasmOut, Memory = {
   if idx >= len(string_map) { () }
   else {
     let (text, offset, slen) = string_map[idx]
@@ -236,7 +238,7 @@ fn emit_string_segments(string_map, idx) with WasmOut = {
   }
 }
 
-fn emit_escape_wat_bytes(s, i, slen) with WasmOut = {
+fn emit_escape_wat_bytes(s, i, slen) with WasmOut, Memory = {
   if i >= slen { () }
   else {
     out(hex_byte(byte_at(s, i)))

@@ -23,7 +23,9 @@ effect Memory {
   store_i32(addr: Int, val: Int) -> (),
   load_i8(addr: Int) -> Int,
   store_i8(addr: Int, val: Int) -> (),
-  mem_copy(dst: Int, src: Int, size: Int) -> ()
+  mem_copy(dst: Int, src: Int, size: Int) -> (),
+  byte_at(s: Int, i: Int) -> Int,
+  byte_len(s: Int) -> Int
 }
 
 effect Alloc {

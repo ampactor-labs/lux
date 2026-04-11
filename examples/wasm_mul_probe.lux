@@ -1,0 +1,2 @@
+fn calc(a) = a * 4
+println(to_string(calc(3)))
