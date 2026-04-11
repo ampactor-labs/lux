@@ -92,11 +92,21 @@ So the primitives are fine. The bug is somewhere in how `lex_from` or `prog_loop
 
 **Methodology:** write a probe that calls `lex` on multi-line input inline (no imports), compile via bootstrap, inspect token count. If lex returns < 10 tokens, find where it stopped.
 
-### 2. `fold(map(...), ...)` returns wrong value (not a crash)
+### 2. Inner `let x` shadowing top-level `let x` (follow-up from fedb430)
 
-After commit `c2bfc6f` the `iterate`/`fold`/`map` type-mismatch crash is fixed — the root cause was `insert_field_sorted_at` silently dropping trailing fields from record literals, which meant `lower_program_typed`'s own handler was compiled without its `fresh_id` arm, `fresh_id()` returned 0 forever, and every inner function collapsed to `go_0`. With the sort fix, function names are distinct, the fn table is coherent, and `iterate/fold/map` runs without trapping.
+Commit `fedb430` fixed the param-shadow case: when an inner function references a name that's a parameter of an enclosing function AND also a top-level global, the capture detector now keeps the reference as a real capture (via `env_lookup`'s `Declared("param")` reason). That alone is what was making `fold(map(dbl, [1,2,3]), 0, add)` return 6 instead of 12 — iterate's `go_0` was reading global `$xs` (the user's `let xs = [1,2,3]`) instead of iterate's parameter (which at runtime pointed at the mapped `ys`).
 
-What remains: the arithmetic is still wrong. `fold(map(dbl, [1,2,3]), 0, add)` returns 6 when it should return 12. The Rust VM path shows the same wrong answer, so it's NOT a bootstrap-only bug — it's a problem in how consecutive handlers share/leak state. Most likely `__hs_acc_N` globals: `map` installs its handler with an acc of type List, then fold installs its own with type Int, and something in the save/restore around the inner `iterate(xs)` call makes one handler see the other's state. Next step: `tools/probe.sh lower` on a two-handler probe, check the save/restore ordering of `__hs_acc_*` and whether the state-name generation is colliding across handlers in the same module.
+Not yet handled: the parallel case where an **inner let** shadows a top-level `let`:
+```lux
+let x = 1
+fn f() = { let x = 2; fn g() = x; g() }  // returns 1, should return 2
+```
+Both bindings are `Inferred("let")` in env so the current fix can't distinguish them. Options:
+- give inner lets a different reason (e.g. `Inferred("local-let")`) in `extend_env_from_stmt`
+- track env extension positions so we can tell top-level from inner
+- do a count-based shadow check filtered to names that are actually in `top_globals` (the broad count-based check crashed the `check` crucible last time, but restricting it to top_globals-only names may work)
+
+Uncommon in idiomatic code but worth fixing for correctness.
 
 ### 3. Bootstrap-compiles-itself not yet verified
 
@@ -161,7 +171,8 @@ The workflow that works now:
 
 ## Recent commits (most relevant first)
 
-- `c2bfc6f` **fix(lower): insert_field_sorted_at dropped trailing fields** — record literals with fields in the wrong source order silently lost entries, collapsing multi-arm handlers into single-arm ones. Unblocks iterate/fold/map from type-mismatch traps.
+- `fedb430` **fix(lower): inner fns capture shadowed enclosing params** — when a top-level `let xs` collided with a fn parameter named `xs`, inner fns read the top-level global instead of capturing the parameter. `fold(map(dbl, [1,2,3]), 0, add)` went from 6 (wrong) to 12 (right). Also enhances `lower_print.lux` to show closure captures as `|[name1, name2]|` after the fn signature — so the bug pattern "empty captures on a nested fn that references outer scope" is visible at a glance.
+- `c2bfc6f` fix(lower): insert_field_sorted_at dropped trailing fields — record literals with fields in the wrong source order silently lost entries, collapsing multi-arm handlers into single-arm ones. Unblocks iterate/fold/map from type-mismatch traps.
 - `066e028` docs: handoff diagnosis of the fresh_id symptom (superseded by c2bfc6f)
 - `213d295` docs: handoff reflects strings-working state
 - `01a3cd4` fix(lower): preserve literal pattern values — WASM bootstrap prints strings
