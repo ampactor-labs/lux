@@ -40,9 +40,10 @@ fn pe_op(e) = match e {
 fn pe_fn(e) = match e {
   LCall(_, f, args) => pe(f) ++ "(" ++ js(mp(args), ", ") ++ ")",
   LReturn(_, v) => "return " ++ pe(v),
-  LMakeClosure(_, d, _) => {
+  LMakeClosure(_, d, caps) => {
     let LFn(n, a, _, body, _) = d
-    "fn " ++ n ++ "/" ++ to_string(a) ++ ' = { ' ++ js(mp(body), "; ") ++ ' }'
+    let cap_str = if len(caps) == 0 { "" } else { " |[" ++ js(mp(caps), ", ") ++ "]|" }
+    "fn " ++ n ++ "/" ++ to_string(a) ++ cap_str ++ ' = { ' ++ js(mp(body), "; ") ++ ' }'
   },
   _ => ""
 }

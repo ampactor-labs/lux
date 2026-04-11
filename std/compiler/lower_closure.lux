@@ -52,8 +52,8 @@ fn fn_return_ty(env, fn_name) = {
 
 fn lower_lambda_named(wasm_name, name, params, body, env) = {
   let all_free = collect_free_vars(body, params)
-  let free = if wasm_name == name { filter_real_captures(all_free, name) }
-             else { filter_real_captures_no_self(all_free) }
+  let free = if wasm_name == name { filter_real_captures(all_free, name, env) }
+             else { filter_real_captures_no_self(all_free, env) }
   // Critical: extend env with parameter types so the body's VarRefs resolve.
   let body_env = env_with_params(env, name, params)
   let lowered_body = lower_expr(body, body_env)
@@ -76,30 +76,55 @@ fn lower_lambda_named(wasm_name, name, params, body, env) = {
 fn lower_lambda(name, params, body, env) = lower_lambda_named(name, name, params, body, env)
 fn lower_lambda_inner(name, params, body, env) = lower_lambda_named(name ++ "_" ++ to_string(fresh_id()), name, params, body, env)
 
-fn filter_real_captures_no_self(names) = filter_real_captures_no_self_at(names, 0)
-fn filter_real_captures_no_self_at(names, i) = {
-  if i >= len(names) { [] }
-  else {
-    let n = names[i]
-    let rest = filter_real_captures_no_self_at(names, i + 1)
-    if is_ctor(n) { rest }
-    else { if is_global(n) { rest }
-    else { if is_state_var(n) { rest }
-    else { [n] ++ rest } } }
-  }
+// env_shadows(env, name): true if the most-recent env binding for `name` is
+// a parameter of an enclosing function. That binding shadows any top-level
+// global with the same name, so the capture detector must treat such a
+// reference as a REAL capture — not as a global-name fallthrough.
+//
+// Without this, user code like
+//   fn iter(xs) = { fn inner(i) = xs[i]; inner(0) }
+//   let xs = [1, 2, 3]
+// would see `inner` read the global $xs instead of iter's parameter, and
+// any user whose parameter name collided with a top-level name would get
+// silently-wrong results through the entire iterate/fold/map pipeline.
+//
+// Let-shadowing inside a function (where the inner `let x` should shadow a
+// top-level `let x`) is not yet handled — those bindings have the same
+// Inferred("let") reason as top-level lets, so we can't distinguish them
+// without tracking env extension positions. Flagged in HANDOFF as a
+// follow-up.
+fn env_shadows(env, name) = {
+  let (k, _, r) = env_lookup(env, name)
+  if k != name { false }
+  else { match r { Declared(s) => s == "param", _ => false } }
 }
 
-fn filter_real_captures(names, self_name) = filter_real_captures_at(names, self_name, 0)
-fn filter_real_captures_at(names, self_name, i) = {
+fn filter_real_captures_no_self(names, env) = filter_real_captures_no_self_at(names, env, 0)
+fn filter_real_captures_no_self_at(names, env, i) = {
   if i >= len(names) { [] }
   else {
     let n = names[i]
-    let rest = filter_real_captures_at(names, self_name, i + 1)
-    if n == self_name { rest }
+    let rest = filter_real_captures_no_self_at(names, env, i + 1)
+    if env_shadows(env, n) { [n] ++ rest }
     else { if is_ctor(n) { rest }
     else { if is_global(n) { rest }
     else { if is_state_var(n) { rest }
     else { [n] ++ rest } } } }
+  }
+}
+
+fn filter_real_captures(names, self_name, env) = filter_real_captures_at(names, self_name, env, 0)
+fn filter_real_captures_at(names, self_name, env, i) = {
+  if i >= len(names) { [] }
+  else {
+    let n = names[i]
+    let rest = filter_real_captures_at(names, self_name, env, i + 1)
+    if n == self_name { rest }
+    else { if env_shadows(env, n) { [n] ++ rest }
+    else { if is_ctor(n) { rest }
+    else { if is_global(n) { rest }
+    else { if is_state_var(n) { rest }
+    else { [n] ++ rest } } } } }
   }
 }
 
