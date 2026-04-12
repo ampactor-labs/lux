@@ -45,9 +45,12 @@ fn ctx_globals(ctx) = ctx[3]
 fn ctx_type_env(ctx) = ctx[4]
 fn ctx_vstack_base(ctx) = ctx[5]
 
-fn find_param_idx(params, name, idx) = {
-  if idx >= len(params) { 0 - 1 }
-  else { if params[idx] == name { idx } else { find_param_idx(params, name, idx + 1) } }
+fn find_param_idx(params, name) = {
+  if len(params) == 0 { 0 - 1 }
+  else {
+    let (rest, p) = list_pop(params)
+    if p == name { len(rest) } else { find_param_idx(rest, name) }
+  }
 }
 
 fn is_handler_global(name) = {
@@ -61,23 +64,24 @@ fn is_handler_global(name) = {
 
 // ─── Top-Level Name Collection (structural, not tree-walk) ──
 
-fn collect_top_let_names(stmts, idx)= {
-  if idx >= len(stmts) { [] }
+fn collect_top_let_names(stmts) = {
+  if len(stmts) == 0 { [] }
   else {
-    let rest = collect_top_let_names(stmts, idx + 1)
-    match stmts[idx] {
-      LLet(_, name, _) => [name] ++ rest,
-      LBlock(_, inner) => collect_top_let_names(inner, 0) ++ rest,
-      _ => rest
+    let stmt = list_head(stmts)
+    let rest_names = collect_top_let_names(list_tail(stmts))
+    match stmt {
+      LLet(_, name, _) => [name] ++ rest_names,
+      LBlock(_, inner) => collect_top_let_names(inner) ++ rest_names,
+      _ => rest_names
     }
   }
 }
 
-fn filter_out_globals(locals, globals, idx)= {
-  if idx >= len(locals) { [] }
+fn filter_out_globals(locals, globals) = {
+  if len(locals) == 0 { [] }
   else {
-    let name = locals[idx]
-    let rest = filter_out_globals(locals, globals, idx + 1)
+    let name = list_head(locals)
+    let rest = filter_out_globals(list_tail(locals), globals)
     if string_in(globals, name, 0) { rest } else { [name] ++ rest }
   }
 }
@@ -139,17 +143,17 @@ fn walk_lowir(e) with LowVisit = {
   }
 }
 
-fn walk_list(nodes) with LowVisit = walk_list_at(nodes, 0)
-fn walk_list_at(nodes, i) with LowVisit = {
-  if i < len(nodes) { walk_lowir(nodes[i]); walk_list_at(nodes, i + 1) } else { () }
+fn walk_list(nodes) with LowVisit = {
+  if len(nodes) == 0 { () }
+  else { walk_lowir(list_head(nodes)); walk_list(list_tail(nodes)) }
 }
 
-fn walk_arms(arms) with LowVisit = walk_arms_at(arms, 0)
-fn walk_arms_at(arms, i) with LowVisit = {
-  if i < len(arms) {
-    let (pat, body) = arms[i]
-    walk_pat(pat); walk_lowir(body); walk_arms_at(arms, i + 1)
-  } else { () }
+fn walk_arms(arms) with LowVisit = {
+  if len(arms) == 0 { () }
+  else {
+    let (pat, body) = list_head(arms)
+    walk_pat(pat); walk_lowir(body); walk_arms(list_tail(arms))
+  }
 }
 
 fn walk_pat(pat) with LowVisit = {
@@ -161,9 +165,9 @@ fn walk_pat(pat) with LowVisit = {
   }
 }
 
-fn walk_pats(pats) with LowVisit = walk_pats_at(pats, 0)
-fn walk_pats_at(pats, i) with LowVisit = {
-  if i < len(pats) { walk_pat(pats[i]); walk_pats_at(pats, i + 1) } else { () }
+fn walk_pats(pats) with LowVisit = {
+  if len(pats) == 0 { () }
+  else { walk_pat(list_head(pats)); walk_pats(list_tail(pats)) }
 }
 
 // ─── The Supercollector — One Walk, All Results ─────────────
@@ -207,11 +211,11 @@ fn collect_all(defs) =
 
 // ─── String Utilities ───────────────────────────────────────
 
-fn assign_offsets(strings, idx, offset)= {
-  if idx >= len(strings) { [] }
+fn assign_offsets(strings, offset) = {
+  if len(strings) == 0 { [] }
   else {
-    let s = strings[idx]
-    [(s, offset, len(s))] ++ assign_offsets(strings, idx + 1, offset + 4 + len(s))
+    let s = list_head(strings)
+    [(s, offset, len(s))] ++ assign_offsets(list_tail(strings), offset + 4 + len(s))
   }
 }
 
@@ -220,21 +224,25 @@ fn string_heap_end(string_map, idx, default)= {
   else { let (_, offset, slen) = string_map[len(string_map) - 1]; offset + 4 + slen }
 }
 
-fn find_string_offset(string_map, text, idx)= {
-  if idx >= len(string_map) { 0 - 1 }
-  else { let (s, offset, _) = string_map[idx]; if s == text { offset } else { find_string_offset(string_map, text, idx + 1) } }
+fn find_string_offset(string_map, text) = {
+  if len(string_map) == 0 { 0 - 1 }
+  else {
+    let (rest, last_elem) = list_pop(string_map)
+    let (s, offset, _) = last_elem
+    if s == text { offset } else { find_string_offset(rest, text) }
+  }
 }
 
 // Streaming emission — each segment streamed via out(), O(N) not O(N²).
-fn emit_string_segments(string_map, idx) with WasmOut, Memory = {
-  if idx >= len(string_map) { () }
+fn emit_string_segments(string_map) with WasmOut, Memory = {
+  if len(string_map) == 0 { () }
   else {
-    let (text, offset, slen) = string_map[idx]
+    let (text, offset, slen) = list_head(string_map)
     out("  (data (i32.const " ++ to_string(offset) ++ ") " ++ DQ)
     out(encode_i32_le(slen))
     emit_escape_wat_bytes(text, 0, byte_len(text))
     out(DQ ++ ")" ++ NL)
-    emit_string_segments(string_map, idx + 1)
+    emit_string_segments(list_tail(string_map))
   }
 }
 
@@ -254,40 +262,46 @@ fn hex_digit(n)= if n < 10 { from_char_code(48 + n) } else { from_char_code(87 +
 
 // ─── Variant Tag Utilities ──────────────────────────────────
 
-fn tag_union(a, b)= {
+fn tag_union(a, b) = {
   if len(b) == 0 { a }
   else {
-    tag_union_at(a, b, 0)
-  }
-}
-fn tag_union_at(a, b, i) = {
-  if i >= len(b) { a }
-  else {
-    if string_in(a, b[i], 0) { tag_union_at(a, b, i + 1) }
-    else { tag_union_at(a ++ [b[i]], b, i + 1) }
+    let head = list_head(b)
+    let rest = list_tail(b)
+    if string_in(a, head, 0) { tag_union(a, rest) }
+    else { tag_union(a ++ [head], rest) }
   }
 }
 
-fn find_tag_id(tag_map, name, idx)= {
-  if idx >= len(tag_map) { 0 }
-  else { if tag_map[idx] == name { idx } else { find_tag_id(tag_map, name, idx + 1) } }
+fn find_tag_id(tag_map, name) = {
+  if len(tag_map) == 0 { 0 }
+  else {
+    let (rest, n) = list_pop(tag_map)
+    if n == name { len(rest) } else { find_tag_id(rest, name) }
+  }
 }
 
 // ─── Function Table ──────────────────────────────────────────
 
-fn collect_fn_names(fns, idx)= {
-  if idx >= len(fns) { [] }
-  else { let LFn(name, _, _, _, _) = fns[idx]; [name] ++ collect_fn_names(fns, idx + 1) }
+fn collect_fn_names(fns) = {
+  if len(fns) == 0 { [] }
+  else { let LFn(name, _, _, _, _) = list_head(fns); [name] ++ collect_fn_names(list_tail(fns)) }
 }
 
-fn max_fn_arity(fns, idx)= {
-  if idx >= len(fns) { 0 }
-  else { let LFn(_, arity, _, _, _) = fns[idx]; let rest = max_fn_arity(fns, idx + 1); if arity > rest { arity } else { rest } }
+fn max_fn_arity(fns) = {
+  if len(fns) == 0 { 0 }
+  else {
+    let LFn(_, arity, _, _, _) = list_head(fns)
+    let rest = max_fn_arity(list_tail(fns))
+    if arity > rest { arity } else { rest }
+  }
 }
 
-fn find_fn_index(fn_table, name, idx)= {
-  if idx >= len(fn_table) { 0 - 1 }
-  else { if fn_table[idx] == name { idx } else { find_fn_index(fn_table, name, idx + 1) } }
+fn find_fn_index(fn_table, name) = {
+  if len(fn_table) == 0 { 0 - 1 }
+  else {
+    let (rest, n) = list_pop(fn_table)
+    if n == name { len(rest) } else { find_fn_index(rest, name) }
+  }
 }
 
 // Type sigs include $__closure (first param) + N actual params
@@ -310,49 +324,51 @@ fn emit_fn_table(fn_table) with WasmOut = {
   else {
     out("  (table " ++ to_string(len(fn_table)) ++ " funcref)" ++ NL)
     out("  (elem (i32.const 0)")
-    emit_fn_table_elems(fn_table, 0)
+    emit_fn_table_elems(fn_table)
     out(")" ++ NL)
   }
 }
 
-fn emit_fn_table_elems(fn_table, idx) with WasmOut = {
-  if idx >= len(fn_table) { () }
-  else { out(" $" ++ fn_table[idx]); emit_fn_table_elems(fn_table, idx + 1) }
+fn emit_fn_table_elems(fn_table) with WasmOut = {
+  if len(fn_table) == 0 { () }
+  else { out(" $" ++ list_head(fn_table)); emit_fn_table_elems(list_tail(fn_table)) }
 }
 
 // ─── Top-Level Structure ────────────────────────────────────
 
-fn collect_top_stmts(defs, idx)= {
-  if idx >= len(defs) { [] }
+fn collect_top_stmts(defs) = {
+  if len(defs) == 0 { [] }
   else {
-    let rest = collect_top_stmts(defs, idx + 1)
-    match defs[idx] {
-      LLet(_, name, value) => match value { LMakeClosure(_, _, _) => rest, _ => [defs[idx]] ++ rest },
-      _ => [defs[idx]] ++ rest
+    let head = list_head(defs)
+    let rest = collect_top_stmts(list_tail(defs))
+    match head {
+      LLet(_, name, value) => match value { LMakeClosure(_, _, _) => rest, _ => [head] ++ rest },
+      _ => [head] ++ rest
     }
   }
 }
 
 // ─── Deduplication ──────────────────────────────────────────
 
-fn dedup_fns(fns) = dedup_fns_at(fns, 0)
-fn dedup_fns_at(fns, i) = {
-  if i >= len(fns) { [] }
+fn dedup_fns(fns) = {
+  if len(fns) == 0 { [] }
   else {
-    let LFn(name, _, _, _, _) = fns[i]
-    if fn_name_in_list(name, fns, i + 1) {
-      dedup_fns_at(fns, i + 1)
+    let head = list_head(fns)
+    let LFn(name, _, _, _, _) = head
+    let rest = list_tail(fns)
+    if fn_name_in_list(name, rest) {
+      dedup_fns(rest)
     } else {
-      [fns[i]] ++ dedup_fns_at(fns, i + 1)
+      [head] ++ dedup_fns(rest)
     }
   }
 }
 
-fn fn_name_in_list(name, fns, idx) = {
-  if idx >= len(fns) { false }
+fn fn_name_in_list(name, fns) = {
+  if len(fns) == 0 { false }
   else {
-    let LFn(n, _, _, _, _) = fns[idx]
+    let LFn(n, _, _, _, _) = list_head(fns)
     if n == name { true }
-    else { fn_name_in_list(name, fns, idx + 1) }
+    else { fn_name_in_list(name, list_tail(fns)) }
   }
 }
