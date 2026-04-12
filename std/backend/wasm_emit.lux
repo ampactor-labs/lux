@@ -43,13 +43,13 @@ fn emit_module(defs, type_map) = {
       out("  (memory (export " ++ DQ ++ "memory" ++ DQ ++ ") 32768 65536)" ++ NL)
       out("  (global $heap_ptr (mut i32) (i32.const " ++ to_string(heap_start) ++ "))" ++ NL)
       out("  (global $__vsp (mut i32) (i32.const 0))" ++ NL)
-      emit_global_decls(top_globals, 0, type_map)
+      emit_global_decls(top_globals, type_map)
       emit_fn_type_sigs(max_arity, 0)
-      emit_string_segments(string_map, 0)
+      emit_string_segments(string_map)
       out(emit_alloc())
 
       // Functions — each emitted and streamed directly via out()
-      emit_fn_list(fns, 0, ctx)
+      emit_fn_list(fns, ctx)
 
       // Footer
       emit_fn_table(fn_table)
@@ -69,11 +69,12 @@ fn emit_module(defs, type_map) = {
   ""
 }
 
-fn emit_global_decls(names, idx, env)= {
-  if idx >= len(names) { () }
+fn emit_global_decls(names, env) = {
+  if len(names) == 0 { () }
   else {
-    let name = names[idx]
-    let is_dup = name_seen_before(names, name, 0, idx)
+    let name = list_head(names)
+    let rest = list_tail(names)
+    let is_dup = name_seen_before(name, rest)
     if is_dup { () } else {
       let (_, ty, _) = env_lookup(env, name)
       let (wtype, init) = match ty {
@@ -82,13 +83,13 @@ fn emit_global_decls(names, idx, env)= {
       }
       out("  (global $" ++ name ++ " (mut " ++ wtype ++ ") (" ++ init ++ "))" ++ NL)
     }
-    emit_global_decls(names, idx + 1, env)
+    emit_global_decls(rest, env)
   }
 }
 
-fn name_seen_before(names, name, start, end) = {
-  if start >= end { false }
-  else { if names[start] == name { true } else { name_seen_before(names, name, start + 1, end) } }
+fn name_seen_before(name, later_names) = {
+  if len(later_names) == 0 { false }
+  else { if list_head(later_names) == name { true } else { name_seen_before(name, list_tail(later_names)) } }
 }
 
 fn emit_wasi_imports() with WasmOut = {
@@ -104,13 +105,13 @@ fn emit_wasi_imports() with WasmOut = {
 
 // ─── Function Emission ──────────────────────────────────────
 
-fn emit_fn_list(fns, idx, ctx) = {
-  if idx >= len(fns) { () }
+fn emit_fn_list(fns, ctx) = {
+  if len(fns) == 0 { () }
   else {
     let mark = heap_save()
-    emit_fn(fns[idx], ctx)
+    emit_fn(list_head(fns), ctx)
     heap_restore(mark)
-    emit_fn_list(fns, idx + 1, ctx)
+    emit_fn_list(list_tail(fns), ctx)
   }
 }
 
@@ -118,9 +119,9 @@ fn emit_fn_list(fns, idx, ctx) = {
 // Direct calls pass i32.const 0. Closures pass the closure pointer.
 fn emit_fn(fn_def, ctx) = {
   let LFn(name, arity, params, body, fn_eff) = fn_def
-  let fn_locals = collect_locals(body, 0)
-  let no_params = filter_out_names(fn_locals, params, 0)
-  let no_hs = filter_handler_locals(no_params, 0)
+  let fn_locals = collect_locals(body)
+  let no_params = filter_out_names(fn_locals, params)
+  let no_hs = filter_handler_locals(no_params)
   let with_temps = add_emitter_temps(no_hs, ctx)
   let env = ctx_type_env(ctx)
   let (_, fn_ty, _) = env_lookup(env, name)
@@ -130,7 +131,7 @@ fn emit_fn(fn_def, ctx) = {
   let eff_annotation = emit_eff_annotation(fn_eff)
 
   out("  (func $" ++ name ++ " (param $__closure i32)")
-  emit_params(params, param_types, 0)
+  emit_params(params, param_types)
   out(" (result " ++ result_ty ++ ")" ++ eff_annotation ++ NL)
   emit_local_decls(with_temps, body, env)
   emit_fn_body(body, params, with_temps, ctx)
@@ -141,33 +142,36 @@ fn emit_fn(fn_def, ctx) = {
 // Emit effect annotation as WAT comment: ;; PURE, ;; effects: IO, State, etc.
 fn emit_eff_annotation(eff) = match eff {
   EfPure => " ;; PURE",
-  EfClosed(effs) => if len(effs) == 0 { " ;; PURE" } else { " ;; effects: " ++ eff_list_str(effs, 0) },
-  EfOpen(effs, _) => if len(effs) == 0 { "" } else { " ;; effects: " ++ eff_list_str(effs, 0) ++ ", ..." },
+  EfClosed(effs) => if len(effs) == 0 { " ;; PURE" } else { " ;; effects: " ++ eff_list_str(effs) },
+  EfOpen(effs, _) => if len(effs) == 0 { "" } else { " ;; effects: " ++ eff_list_str(effs) ++ ", ..." },
   _ => ""
 }
 
-fn eff_list_str(effs, idx) = {
-  if idx >= len(effs) { "" }
-  else { if idx == 0 { effs[0] ++ eff_list_str(effs, 1) } else { ", " ++ effs[idx] ++ eff_list_str(effs, idx + 1) } }
+fn eff_list_str(effs) = {
+  if len(effs) == 0 { "" }
+  else {
+    let head = list_head(effs)
+    let rest = list_tail(effs)
+    if len(rest) == 0 { head } else { head ++ ", " ++ eff_list_str(rest) }
+  }
 }
 
-fn emit_params(params, param_types, idx) with WasmOut = {
-  if idx >= len(params) { () }
+fn emit_params(params, param_types) with WasmOut = {
+  if len(params) == 0 { () }
   else {
-    let pname = params[idx]
-    // Look up this param's type from the function's signature.
-    // If beyond the length (signature not found), default to i32.
-    let wtype = if idx < len(param_types) {
-      match param_types[idx] { TFloat => "f32", _ => "i32" }
+    let pname = list_head(params)
+    let wtype = if len(param_types) > 0 {
+      match list_head(param_types) { TFloat => "f32", _ => "i32" }
     } else { "i32" }
     out(" (param $" ++ pname ++ " " ++ wtype ++ ")")
-    emit_params(params, param_types, idx + 1)
+    let rest_tys = if len(param_types) > 0 { list_tail(param_types) } else { [] }
+    emit_params(list_tail(params), rest_tys)
   }
 }
 
 fn emit_fn_body(stmts, params, locals, ctx) = {
   if len(stmts) == 0 { out("    i32.const 0" ++ NL) }
-  else { emit_stmts_value(stmts, 0, params, locals, ctx) }
+  else { emit_stmts_value(stmts, params, locals, ctx) }
 }
 
 // ─── Expression Emission (unified) ──────────────────────────
@@ -193,10 +197,10 @@ fn emit_expr(e, params, locals, ctx) = match e {
   },
   LGlobal(_, name) => {
     if string_in(locals, name, 0) { out("    local.get $" ++ name ++ NL) }
-    else { if find_param_idx(params, name, 0) >= 0 { out("    local.get $" ++ name ++ NL) }
+    else { if find_param_idx(params, name) >= 0 { out("    local.get $" ++ name ++ NL) }
     else { if string_in(ctx_globals(ctx), name, 0) { out("    global.get $" ++ name ++ NL) }
     else { if string_in(ctx_tags(ctx), name, 0) {
-      let tag_id = find_tag_id(ctx_tags(ctx), name, 0)
+      let tag_id = find_tag_id(ctx_tags(ctx), name)
       out("    i32.const 4" ++ NL ++ "    call $alloc" ++ NL
       ++ "    local.tee $__vptr" ++ NL
       ++ "    i32.const " ++ to_string(tag_id) ++ NL ++ "    i32.store" ++ NL
@@ -331,26 +335,30 @@ fn emit_expr(e, params, locals, ctx) = match e {
 
 
 // Value context: last stmt produces a value (stays on stack). Non-last are void.
-fn emit_stmts_value(stmts, idx, params, locals, ctx) = {
-  if idx >= len(stmts) { () }
+fn emit_stmts_value(stmts, params, locals, ctx) = {
+  if len(stmts) == 0 { () }
   else {
-    if idx == len(stmts) - 1 {
-      emit_expr(stmts[idx], params, locals, ctx)
+    let stmt = list_head(stmts)
+    let rest = list_tail(stmts)
+    if len(rest) == 0 {
+      emit_expr(stmt, params, locals, ctx)
     } else {
-      emit_stmt(stmts[idx], params, locals, ctx)
-      emit_sibling_patches(stmts[idx], stmts, idx, params, locals, ctx)
-      emit_stmts_value(stmts, idx + 1, params, locals, ctx)
+      emit_stmt(stmt, params, locals, ctx)
+      emit_sibling_patches(stmt, stmts, params, locals, ctx)
+      emit_stmts_value(rest, params, locals, ctx)
     }
   }
 }
 
 // Void context: all stmts are void (values dropped). Used by _start.
-fn emit_stmts_void(stmts, idx, params, locals, ctx) = {
-  if idx >= len(stmts) { () }
+fn emit_stmts_void(stmts, params, locals, ctx) = {
+  if len(stmts) == 0 { () }
   else {
-    emit_stmt(stmts[idx], params, locals, ctx)
-    emit_sibling_patches(stmts[idx], stmts, idx, params, locals, ctx)
-    emit_stmts_void(stmts, idx + 1, params, locals, ctx)
+    let stmt = list_head(stmts)
+    let rest = list_tail(stmts)
+    emit_stmt(stmt, params, locals, ctx)
+    emit_sibling_patches(stmt, stmts, params, locals, ctx)
+    emit_stmts_void(rest, params, locals, ctx)
   }
 }
 
@@ -379,11 +387,11 @@ fn emit_stmt(stmt, params, locals, ctx) = match stmt {
   },
   LConst(_, _) => (),
   LMakeTuple(_, _) => (),
-  LBlock(_, stmts) => emit_stmts_void(stmts, 0, params, locals, ctx),
+  LBlock(_, stmts) => emit_stmts_void(stmts, params, locals, ctx),
   LRegion(_, stmts) => {
     out("    global.get $heap_ptr" ++ NL
     ++ "    local.set $__region_mark" ++ NL)
-    emit_stmts_void(stmts, 0, params, locals, ctx)
+    emit_stmts_void(stmts, params, locals, ctx)
     out("    local.get $__region_mark" ++ NL
     ++ "    global.set $heap_ptr" ++ NL)
   },
@@ -507,7 +515,7 @@ fn emit_call_expr(func, args, params, locals, ctx) = {
       // Safe: computed func exprs are pure capture reads (__closure + N).
       // Can't use a saved local — nested closure calls in args clobber ANY temp.
       emit_expr(func, params, locals, ctx)
-      emit_args(args, 0, params, locals, ctx)
+      emit_args(args, params, locals, ctx)
       emit_expr(func, params, locals, ctx)
       out("    i32.load" ++ NL
       ++ "    call_indirect (type $fn" ++ to_string(len(args)) ++ ")" ++ NL)
@@ -515,9 +523,9 @@ fn emit_call_expr(func, args, params, locals, ctx) = {
   }
 }
 
-fn emit_args(args, idx, params, locals, ctx) = {
-  if idx >= len(args) { () }
-  else { emit_expr(args[idx], params, locals, ctx); emit_args(args, idx + 1, params, locals, ctx) }
+fn emit_args(args, params, locals, ctx) = {
+  if len(args) == 0 { () }
+  else { emit_expr(list_head(args), params, locals, ctx); emit_args(list_tail(args), params, locals, ctx) }
 }
 
 fn emit_args_range(args, start, end, params, locals, ctx) = {
@@ -528,37 +536,37 @@ fn emit_args_range(args, start, end, params, locals, ctx) = {
 // ─── _start Function ────────────────────────────────────────
 
 fn emit_start(stmts, ctx) = {
-  let locals = filter_out_globals(collect_locals(stmts, 0), ctx_globals(ctx), 0)
+  let locals = filter_out_globals(collect_locals(stmts), ctx_globals(ctx))
   let with_temps = add_emitter_temps(locals, ctx)
   let env = ctx_type_env(ctx)
   out("  (func $_start (export " ++ DQ ++ "_start" ++ DQ ++ ")" ++ NL)
   emit_local_decls(with_temps, stmts, env)
-  emit_stmts_void(stmts, 0, [], with_temps, ctx)
+  emit_stmts_void(stmts, [], with_temps, ctx)
   out("  )" ++ NL)
 }
 
 // ─── Local Collection ───────────────────────────────────────
 
-fn collect_locals(stmts, idx)= {
-  if idx >= len(stmts) { [] }
-  else { string_union(collect_locals_expr(stmts[idx]), collect_locals(stmts, idx + 1)) }
+fn collect_locals(stmts)= {
+  if len(stmts) == 0 { [] }
+  else { string_union(collect_locals_expr(list_head(stmts)), collect_locals(list_tail(stmts))) }
 }
 
 fn collect_locals_expr(e)= match e {
   LLet(_, name, value) => string_union([name], collect_locals_expr(value)),
-  LBlock(_, stmts) => collect_locals(stmts, 0),
-  LRegion(_, stmts) => string_union(["__region_mark", "__region_result"], collect_locals(stmts, 0)),
-  LIf(_, _, t, e) => string_union(collect_locals_list(t, 0), collect_locals_list(e, 0)),
-  LMatch(_, scr, arms) => string_union(["__match"], string_union(collect_locals_expr(scr), collect_locals_arms(arms, 0))),
-  LLoop(_, body) => collect_locals(body, 0),
+  LBlock(_, stmts) => collect_locals(stmts),
+  LRegion(_, stmts) => string_union(["__region_mark", "__region_result"], collect_locals(stmts)),
+  LIf(_, _, t, e) => string_union(collect_locals_list(t), collect_locals_list(e)),
+  LMatch(_, scr, arms) => string_union(["__match"], string_union(collect_locals_expr(scr), collect_locals_arms(arms))),
+  LLoop(_, body) => collect_locals(body),
   LBreak(_, value) => collect_locals_expr(value),
   LReturn(_, value) => collect_locals_expr(value),
-  LMakeClosure(_, fn_def, _) => { let LFn(_, _, _, body, _) = fn_def; collect_locals(body, 0) },
-  LCall(_, func, args) => string_union(collect_locals_expr(func), collect_locals_list(args, 0)),
-  LTailCall(_, func, args) => string_union(collect_locals_expr(func), collect_locals_list(args, 0)),
-  LMakeTuple(_, elems) => collect_locals_list(elems, 0),
-  LMakeList(_, elems) => collect_locals_list(elems, 0),
-  LMakeVariant(_, _, fields) => collect_locals_list(fields, 0),
+  LMakeClosure(_, fn_def, _) => { let LFn(_, _, _, body, _) = fn_def; collect_locals(body) },
+  LCall(_, func, args) => string_union(collect_locals_expr(func), collect_locals_list(args)),
+  LTailCall(_, func, args) => string_union(collect_locals_expr(func), collect_locals_list(args)),
+  LMakeTuple(_, elems) => collect_locals_list(elems),
+  LMakeList(_, elems) => collect_locals_list(elems),
+  LMakeVariant(_, _, fields) => collect_locals_list(fields),
   LBinOp(_, _, l, r) => string_union(collect_locals_expr(l), collect_locals_expr(r)),
   LUnaryOp(_, _, inner) => collect_locals_expr(inner),
   LIndex(_, coll, idx, _) => string_union(collect_locals_expr(coll), collect_locals_expr(idx)),
@@ -566,30 +574,30 @@ fn collect_locals_expr(e)= match e {
   _ => []
 }
 
-fn collect_locals_list(exprs, idx)= {
-  if idx >= len(exprs) { [] }
-  else { string_union(collect_locals_expr(exprs[idx]), collect_locals_list(exprs, idx + 1)) }
+fn collect_locals_list(exprs) = {
+  if len(exprs) == 0 { [] }
+  else { string_union(collect_locals_expr(list_head(exprs)), collect_locals_list(list_tail(exprs))) }
 }
 
-fn collect_locals_arms(arms, idx)= {
-  if idx >= len(arms) { [] }
+fn collect_locals_arms(arms) = {
+  if len(arms) == 0 { [] }
   else {
-    let (pat, body) = arms[idx]
+    let (pat, body) = list_head(arms)
     let pat_locals = collect_locals_pat(pat)
-    string_union(pat_locals, string_union(collect_locals_expr(body), collect_locals_arms(arms, idx + 1)))
+    string_union(pat_locals, string_union(collect_locals_expr(body), collect_locals_arms(list_tail(arms))))
   }
 }
 
 fn collect_locals_pat(pat)= match pat {
   LPVar(name) => [name],
-  LPCon(_, sub) => collect_locals_pats(sub, 0),
-  LPTuple(sub) => collect_locals_pats(sub, 0),
+  LPCon(_, sub) => collect_locals_pats(sub),
+  LPTuple(sub) => collect_locals_pats(sub),
   _ => []
 }
 
-fn collect_locals_pats(pats, idx)= {
-  if idx >= len(pats) { [] }
-  else { string_union(collect_locals_pat(pats[idx]), collect_locals_pats(pats, idx + 1)) }
+fn collect_locals_pats(pats) = {
+  if len(pats) == 0 { [] }
+  else { string_union(collect_locals_pat(list_head(pats)), collect_locals_pats(list_tail(pats))) }
 }
 
 // Find the type of a named local by walking the body looking for its LLet.
@@ -648,11 +656,11 @@ fn emit_local_decls(locals, body, env)= {
 // Add emitter temp locals based on what patterns are present.
 // __match: needed when LMatch exists in the expression tree
 // __vptr: needed when variant constructors exist (tag_map non-empty)
-fn filter_out_names(locals, exclude, idx) = {
-  if idx >= len(locals) { [] }
+fn filter_out_names(locals, exclude) = {
+  if len(locals) == 0 { [] }
   else {
-    let name = locals[idx]
-    let rest = filter_out_names(locals, exclude, idx + 1)
+    let name = list_head(locals)
+    let rest = filter_out_names(list_tail(locals), exclude)
     if string_in(exclude, name, 0) { rest } else { [name] ++ rest }
   }
 }
@@ -670,11 +678,11 @@ fn add_emitter_temps(locals, ctx)= {
 // Remove handler state globals from function locals — these must be WASM globals
 // for evidence passing (closures share state through globals, not local copies).
 // Only removes __hs_*, __save___hs_*, __ev_result — NOT regular globals like 'source'.
-fn filter_handler_locals(locals, idx) = {
-  if idx >= len(locals) { [] }
+fn filter_handler_locals(locals) = {
+  if len(locals) == 0 { [] }
   else {
-    let name = locals[idx]
-    let rest = filter_handler_locals(locals, idx + 1)
+    let name = list_head(locals)
+    let rest = filter_handler_locals(list_tail(locals))
     if is_handler_global(name) { rest } else { [name] ++ rest }
   }
 }
@@ -811,16 +819,16 @@ fn is_pure_eff(eff) = match eff {
 
 // Are all arguments trivial (no side effects)?
 // Trivial: LConst, LLocal, LGlobal, LUpval — no function calls, no allocations.
-fn all_trivial_args(args, idx) = {
-  if idx >= len(args) { true }
+fn all_trivial_args(args) = {
+  if len(args) == 0 { true }
   else {
-    let trivial = match args[idx] {
+    let trivial = match list_head(args) {
       LConst(_, _)  => true,
       LLocal(_, _)  => true,
       LGlobal(_, _) => true,
       LUpval(_, _)  => true,
       _ => false
     }
-    if trivial { all_trivial_args(args, idx + 1) } else { false }
+    if trivial { all_trivial_args(list_tail(args)) } else { false }
   }
 }
