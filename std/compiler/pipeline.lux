@@ -99,15 +99,13 @@ let __prelude_cache = {
   (ast, env, 1000)
 }
 
-fn count_fresh_vars(env, max_n) = count_fresh_vars_at(env, max_n, 0)
-
-fn count_fresh_vars_at(env, max_n, i) = {
-  if i >= len(env) { max_n + 1 }
+fn count_fresh_vars(env, max_n) = {
+  if len(env) == 0 { max_n + 1 }
   else {
-    let (_, ty, _) = env[i]
+    let (_, ty, _) = list_head(env)
     let n = max_tvar_in_type(ty)
     let new_max = if n > max_n { n } else { max_n }
-    count_fresh_vars_at(env, new_max, i + 1)
+    count_fresh_vars(list_tail(env), new_max)
   }
 }
 
@@ -121,14 +119,12 @@ fn max_tvar_in_type(ty) = match ty {
   _ => 0
 }
 
-fn max_tvar_in_types(tys, max_n) = max_tvar_in_types_at(tys, max_n, 0)
-
-fn max_tvar_in_types_at(tys, max_n, i) = {
-  if i >= len(tys) { max_n }
+fn max_tvar_in_types(tys, max_n) = {
+  if len(tys) == 0 { max_n }
   else {
-    let n = max_tvar_in_type(tys[i])
+    let n = max_tvar_in_type(list_head(tys))
     let new_max = if n > max_n { n } else { max_n }
-    max_tvar_in_types_at(tys, new_max, i + 1)
+    max_tvar_in_types(list_tail(tys), new_max)
   }
 }
 
@@ -168,26 +164,22 @@ fn validate(ast, env) with Diagnostic = {
   ast |> validate_refinements
 }
 
-fn validate_ownership_fns(ast) = validate_ownership_fns_at(ast, 0)
-
-fn validate_ownership_fns_at(ast, i) = {
-  if i >= len(ast) { () }
+fn validate_ownership_fns(ast) = {
+  if len(ast) == 0 { () }
   else {
-    match ast[i] {
+    match list_head(ast) {
       FnStmt(name, params, body, _, _) =>
         check_ownership(params, body) |> report_ownership(name),
       _ => ()
     }
-    validate_ownership_fns_at(ast, i + 1)
+    validate_ownership_fns(list_tail(ast))
   }
 }
 
-fn report_ownership(violations, fn_name) = report_ownership_at(violations, fn_name, 0)
-
-fn report_ownership_at(violations, fn_name, i) = {
-  if i >= len(violations) { () }
+fn report_ownership(violations, fn_name) = {
+  if len(violations) == 0 { () }
   else {
-    match violations[i] {
+    match list_head(violations) {
       ConsumedTwice(name, first, second) =>
         println("ownership error: '" ++ name ++ "' is own in '" ++ fn_name ++ "' but used more than once"),
       RefEscaped(name, line) =>
@@ -196,20 +188,20 @@ fn report_ownership_at(violations, fn_name, i) = {
         println("  -> own '" ++ name ++ "' in '" ++ fn_name ++ "' is never used (will be dropped)"),
       _ => ()
     }
-    report_ownership_at(violations, fn_name, i + 1)
+    report_ownership(list_tail(violations), fn_name)
   }
 }
 
 fn validate_exhaustive(pair) = {
   let (ast, env) = pair
-  validate_exhaustive_at(ast, env, 0)
+  validate_exhaustive_pop(ast, env)
 }
 
-fn validate_exhaustive_at(ast, env, i) = {
-  if i >= len(ast) { () }
+fn validate_exhaustive_pop(ast, env) = {
+  if len(ast) == 0 { () }
   else {
-    ast[i] |> walk_for_matches(env)
-    validate_exhaustive_at(ast, env, i + 1)
+    list_head(ast) |> walk_for_matches(env)
+    validate_exhaustive_pop(list_tail(ast), env)
   }
 }
 
@@ -218,38 +210,36 @@ fn walk_for_matches(item, env) = match item {
   _ => ()
 }
 
-fn validate_refinements(ast) with Diagnostic = validate_refinements_loop(ast, [], 0)
+fn validate_refinements(ast) with Diagnostic = validate_refinements_loop(ast, [])
 
-fn validate_refinements_loop(ast, aliases, i) with Diagnostic = {
-  if i >= len(ast) { () }
+fn validate_refinements_loop(ast, aliases) with Diagnostic = {
+  if len(ast) == 0 { () }
   else {
-    let new_aliases = match ast[i] {
+    let head = list_head(ast)
+    let new_aliases = match head {
       TypeAliasStmt(name, base, pred) => aliases ++ [(name, base, pred)],
       _ => aliases
     }
-    match ast[i] {
+    match head {
       LetStmt(name, value) =>
         if len(new_aliases) > 0 { check_let_against_aliases(name, value, new_aliases) } else { () },
       _ => ()
     }
-    validate_refinements_loop(ast, new_aliases, i + 1)
+    validate_refinements_loop(list_tail(ast), new_aliases)
   }
 }
 
-fn check_let_against_aliases(name, value, aliases) with Diagnostic =
-  check_let_against_aliases_at(name, value, aliases, 0)
-
-fn check_let_against_aliases_at(name, value, aliases, i) with Diagnostic = {
-  if i >= len(aliases) { () }
+fn check_let_against_aliases(name, value, aliases) with Diagnostic = {
+  if len(aliases) == 0 { () }
   else {
-    let (alias_name, base_type, predicate) = aliases[i]
+    let (alias_name, base_type, predicate) = list_head(aliases)
     let result = check_refinement(predicate, value)
     let _ = match result {
       Disproven(reason) =>
         report("", "refinement", alias_name ++ " violation: " ++ name ++ " -- " ++ reason, 0, 0),
       _ => ()
     }
-    check_let_against_aliases_at(name, value, aliases, i + 1)
+    check_let_against_aliases(name, value, list_tail(aliases))
   }
 }
 
@@ -439,7 +429,7 @@ fn resolve_and_check_at(paths, env, n, seen, combined_ast) = {
 
 fn resolve_imports(source, seen) = {
   let import_lines = source |> split("\n") |> find_imports
-  resolve_import_list(import_lines, seen)
+  resolve_import_list_pop(import_lines, seen, "")
 }
 
 fn find_imports(lines) = find_imports_pop(lines, [])
@@ -480,21 +470,18 @@ fn resolve_imports_tracked(source, seen) = {
   resolve_import_list_tracked(import_lines, seen)
 }
 
-fn resolve_import_list_tracked(paths, seen) =
-  resolve_import_list_tracked_at(paths, seen, 0)
-
-fn resolve_import_list_tracked_at(paths, seen, i) = {
-  if i >= len(paths) { ("", seen) }
+fn resolve_import_list_tracked(paths, seen) = {
+  if len(paths) == 0 { ("", seen) }
   else {
-    let path = paths[i]
+    let path = list_head(paths)
     if list_contains(seen, path) {
-      resolve_import_list_tracked_at(paths, seen, i + 1)
+      resolve_import_list_tracked(list_tail(paths), seen)
     } else {
       let new_seen = seen ++ [path]
       let file_path = "std/" ++ replace(path, "/", "/") ++ ".lux"
       let file_source = read_file(file_path)
       let (trans_source, trans_seen) = resolve_imports_tracked(file_source, new_seen)
-      let (rest_source, rest_seen) = resolve_import_list_tracked_at(paths, trans_seen, i + 1)
+      let (rest_source, rest_seen) = resolve_import_list_tracked(list_tail(paths), trans_seen)
       (trans_source ++ "\n" ++ (file_source |> strip_imports) ++ "\n" ++ rest_source, rest_seen)
     }
   }
@@ -504,11 +491,11 @@ fn strip_imports(source) = {
   source |> split("\n") |> filter_non_imports(0) |> join("\n")
 }
 
-fn filter_non_imports(lines, idx) = {
-  if idx >= len(lines) { [] }
+fn filter_non_imports(lines) = {
+  if len(lines) == 0 { [] }
   else {
-    let line = lines[idx]
-    let rest = filter_non_imports(lines, idx + 1)
+    let line = list_head(lines)
+    let rest = filter_non_imports(list_tail(lines))
     if len(line) >= 7 && string_slice(line, 0, 7) == "import " { rest }
     else { [line] ++ rest }
   }
@@ -516,20 +503,14 @@ fn filter_non_imports(lines, idx) = {
 
 // ─── Constructor Extraction ─────────────────────────────────
 
-fn extract_constructors(env) = extract_ctors_iter(env, 0)
-
-fn extract_ctors_iter(env, idx) = {
-  if idx >= len(env) { [] }
+fn extract_constructors(env) = {
+  if len(env) == 0 { [] }
   else {
-    let (name, ty, _) = env[idx]
-    // Constructors have TName type AND start with uppercase (A-Z).
-    // Without the case check, any variable of a named type (let r: Ty = ...)
-    // would be misidentified as a constructor, causing the lowerer to emit
-    // LMakeVariant instead of LGlobal — the variant-vs-variable confusion bug.
+    let (name, ty, _) = list_head(env)
     let first = char_code(name)
     let is_upper = first >= 65 && first <= 90
     let is_ctor = is_upper && match ty { TName(_, _) => true, _ => false }
-    let rest = extract_ctors_iter(env, idx + 1)
+    let rest = extract_constructors(list_tail(env))
     if is_ctor { [name] ++ rest } else { rest }
   }
 }
