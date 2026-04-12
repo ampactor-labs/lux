@@ -127,12 +127,12 @@ fn instantiate_type(ty, counter, mapping) =
     get_inst_state() => resume((n, m))
   }
 
-fn instantiate_types(tys, counter, mapping) = instantiate_types_at(tys, counter, mapping, 0, [])
-fn instantiate_types_at(tys, counter, mapping, i, acc) = {
-  if i >= len(tys) { (acc, counter, mapping) }
+fn instantiate_types(tys, counter, mapping) = instantiate_types_pop(tys, counter, mapping, [])
+fn instantiate_types_pop(tys, counter, mapping, acc) = {
+  if len(tys) == 0 { (acc, counter, mapping) }
   else {
-    let (new_ty, c2, m2) = instantiate_type(tys[i], counter, mapping)
-    instantiate_types_at(tys, c2, m2, i + 1, acc ++ [new_ty])
+    let (new_ty, c2, m2) = instantiate_type(list_head(tys), counter, mapping)
+    instantiate_types_pop(list_tail(tys), c2, m2, acc ++ [new_ty])
   }
 }
 
@@ -149,13 +149,12 @@ fn instantiate_eff(eff, counter, mapping) = match eff {
   _ => (eff, counter, mapping)
 }
 
-fn find_inst_mapping(mapping, id) = find_inst_mapping_at(mapping, id, 0)
-fn find_inst_mapping_at(mapping, id, i) = {
-  if i >= len(mapping) { -999 }
+fn find_inst_mapping(mapping, id) = {
+  if len(mapping) == 0 { -999 }
   else {
-    let (k, v) = mapping[i]
+    let (k, v) = list_head(mapping)
     if k == id { v }
-    else { find_inst_mapping_at(mapping, id, i + 1) }
+    else { find_inst_mapping(list_tail(mapping), id) }
   }
 }
 
@@ -247,21 +246,17 @@ fn apply(subst, ty) = match ty {
   TRecordOpen(fields, v) => TRecordOpen(apply_fields(subst, fields), v)
 }
 
-fn apply_fields(subst, fields) = apply_fields_at(subst, fields, 0)
-
-fn apply_fields_at(subst, fields, i) = {
-  if i >= len(fields) { [] }
+fn apply_fields(subst, fields) = {
+  if len(fields) == 0 { [] }
   else {
-    let (name, ty) = fields[i]
-    [(name, apply(subst, ty))] ++ apply_fields_at(subst, fields, i + 1)
+    let (name, ty) = list_head(fields)
+    [(name, apply(subst, ty))] ++ apply_fields(subst, list_tail(fields))
   }
 }
 
-fn apply_list(subst, tys) = apply_list_at(subst, tys, 0)
-
-fn apply_list_at(subst, tys, i) = {
-  if i >= len(tys) { [] }
-  else { [apply(subst, tys[i])] ++ apply_list_at(subst, tys, i + 1) }
+fn apply_list(subst, tys) = {
+  if len(tys) == 0 { [] }
+  else { [apply(subst, list_head(tys))] ++ apply_list(subst, list_tail(tys)) }
 }
 
 // Get the reason WHY a type variable was bound to its current value
