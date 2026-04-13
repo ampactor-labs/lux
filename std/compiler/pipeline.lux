@@ -388,7 +388,7 @@ fn gradient_suggestion(pair) = {
   let (env, ast) = pair
   let g = compute_gradient(env, ast)
   let (fgs, _) = g
-  if len(fgs) > 0 { render_fn_gradient(fgs[0]) }
+  if len(fgs) > 0 { render_fn_gradient(list_head(fgs)) }
   else { "" }
 }
 
@@ -403,8 +403,8 @@ fn resolve_and_check_modules(source, base_env, start_n) =
 fn resolve_and_check_at(paths, env, n, seen, combined_ast) = {
   if len(paths) == 0 { (env, n, combined_ast, seen) }
   else {
-    let path = paths[0]
-    let rest = slice(paths, 1, len(paths))
+    let path = list_head(paths)
+    let rest = list_tail(paths)
     if list_contains(seen, path) {
       resolve_and_check_at(rest, env, n, seen, combined_ast)
     } else {
@@ -488,7 +488,7 @@ fn resolve_import_list_tracked(paths, seen) = {
 }
 
 fn strip_imports(source) = {
-  source |> split("\n") |> filter_non_imports(0) |> join("\n")
+  source |> split("\n") |> filter_non_imports |> join("\n")
 }
 
 fn filter_non_imports(lines) = {

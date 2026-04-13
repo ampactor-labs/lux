@@ -322,7 +322,7 @@ fn infer_unify_list(elems, expected) with Infer, Diagnostic = {
 fn gradient_prism_branches(fns, line, col) with Infer, Diagnostic = {
   let n = len(fns)
   if n > 0 {
-    let pure_n = count_pure_branches(fns, 0)
+    let pure_n = count_pure_branches(fns)
     if pure_n == n {
       report("", "gradient", "<| all " ++ to_string(n) ++ " branches pure — PARALLEL", line, col)
     } else { if pure_n > 0 {
@@ -399,8 +399,8 @@ fn infer_stmt(stmt) with Infer, Diagnostic = match stmt {
   LetDestructure(names, value) => {
     let resolved = resolve(infer(value))
     match resolved {
-      TTuple(elems) => bind_tuple_elems(names, elems, 0),
-      _ => bind_fresh_names(names, 0)
+      TTuple(elems) => bind_tuple_elems(names, elems),
+      _ => bind_fresh_names(names)
     }
   },
 
@@ -469,8 +469,8 @@ fn bind_pattern(pat, ty) with Infer = match pat {
   PVar(name) => bind(name, ty, Inferred("pattern")),
   PWild => (),
   PLit(_) => (),
-  PCon(name, sub_pats) => bind_sub_pats(sub_pats, 0),
-  PTuple(sub_pats) => bind_sub_pats(sub_pats, 0),
+  PCon(name, sub_pats) => bind_sub_pats(sub_pats),
+  PTuple(sub_pats) => bind_sub_pats(sub_pats),
   _ => ()
 }
 

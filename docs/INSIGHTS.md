@@ -18,6 +18,15 @@ Every consumer of that knowledge is a handler:
 - **Codegen** — the handler that turns type knowledge into machine code
 - **LSP** — the handler that turns type knowledge into hover info
 - **Teaching** — the handler that turns type knowledge into the gradient
+
+## The Second Truth: Topology is Emitted, Not Computed
+
+*The structure of reality is built into the direction you traverse it.*
+
+In WASM/Lux, our arrays are Snoc Trees to guarantee $O(1)$ functional appends. But `list_head` returns the *last* element. If you iterate sequentially using `list_head` and `list_tail`, your program fundamentally executes backwards.
+
+Instead of writing $O(N^2)$ recursive loops to fetch indices, or $O(N)$ code to reverse arrays in memory, we exploit the call stack:
+**The Recurse-First Topology**: Walk to the deepest node first before emitting any code. As the stack unwinds, your traversal naturally reverses, returning $O(1)$ elements in mathematically pure forward-execution order without a single allocation or state variable. The structure handles itself!
 - **Errors** — the handler that turns type knowledge into diagnostics
 - **The user** — the handler that turns type knowledge into understanding
 

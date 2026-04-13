@@ -22,18 +22,18 @@ fn emit_module(defs, type_map) = {
   // One walk. Five results. Zero repeated tree structure.
   let (all_strings, tag_map, all_hs_globals, all_closures, call_max) = collect_all(defs)
   let fns = dedup_fns(all_closures)
-  let top_stmts = collect_top_stmts(defs, 0)
-  let top_globals = string_union(collect_top_let_names(top_stmts, 0), all_hs_globals)
-  let string_map = assign_offsets(all_strings, 0, 1024)
-  let data_end = string_heap_end(string_map, 0, 1024)
+  let top_stmts = collect_top_stmts(defs)
+  let top_globals = string_union(collect_top_let_names(top_stmts), all_hs_globals)
+  let string_map = assign_offsets(all_strings, 1024)
+  let data_end = string_heap_end(string_map, 1024)
   // Memory layout: [scratch:0-7][data:1024-data_end][vstack:data_end+1MB][heap:data_end+1MB+]
   // Variant stack gets 256K slots (1 MB) — enough for the self-hosted
   // compiler's deeply nested expressions. Overflow silently corrupts
   // the heap, so this must be generous.
   let vstack_base = data_end
   let heap_start = data_end + 1048576
-  let fn_table = collect_fn_names(fns, 0)
-  let max_arity = max(max_fn_arity(fns, 0), call_max)
+  let fn_table = collect_fn_names(fns)
+  let max_arity = max(max_fn_arity(fns), call_max)
   let ctx = (string_map, tag_map, fn_table, top_globals, type_map, vstack_base)
 
   handle {
@@ -159,13 +159,14 @@ fn eff_list_str(effs) = {
 fn emit_params(params, param_types) with WasmOut = {
   if len(params) == 0 { () }
   else {
+    let rest_tys = if len(param_types) > 0 { list_tail(param_types) } else { [] }
+    emit_params(list_tail(params), rest_tys)
+    
     let pname = list_head(params)
     let wtype = if len(param_types) > 0 {
       match list_head(param_types) { TFloat => "f32", _ => "i32" }
     } else { "i32" }
     out(" (param $" ++ pname ++ " " ++ wtype ++ ")")
-    let rest_tys = if len(param_types) > 0 { list_tail(param_types) } else { [] }
-    emit_params(list_tail(params), rest_tys)
   }
 }
 
@@ -207,7 +208,7 @@ fn emit_expr(e, params, locals, ctx) = match e {
       ++ "    local.get $__vptr" ++ NL)
     }
     else {
-      let fn_idx = find_fn_index(ctx_fns(ctx), name, 0)
+      let fn_idx = find_fn_index(ctx_fns(ctx), name)
       if fn_idx >= 0 {
         out("    i32.const 8" ++ NL ++ "    call $alloc" ++ NL
         ++ "    local.tee $__vptr" ++ NL
@@ -232,10 +233,10 @@ fn emit_expr(e, params, locals, ctx) = match e {
     ++ "    " ++ load_op ++ NL)
   },
   LLet(_, name, value) => { emit_expr(value, params, locals, ctx); out("    local.set $" ++ name ++ NL) },
-  LBlock(_, stmts) => emit_stmts_value(stmts, 0, params, locals, ctx),
+  LBlock(_, stmts) => emit_stmts_value(stmts, params, locals, ctx),
   LRegion(_, stmts) => {
     out("    global.get $heap_ptr" ++ NL ++ "    local.set $__region_mark" ++ NL)
-    emit_stmts_value(stmts, 0, params, locals, ctx)
+    emit_stmts_value(stmts, params, locals, ctx)
     out("    local.set $__region_result" ++ NL
     ++ "    local.get $__region_mark" ++ NL
     ++ "    global.set $heap_ptr" ++ NL
@@ -263,9 +264,9 @@ fn emit_expr(e, params, locals, ctx) = match e {
     let result_wt = ty_to_wasm(ty)
     emit_expr(cond, params, locals, ctx)
     out("    (if (result " ++ result_wt ++ ")" ++ NL ++ "      (then" ++ NL)
-    emit_stmts_value(then_b, 0, params, locals, ctx)
+    emit_stmts_value(then_b, params, locals, ctx)
     out("      )" ++ NL ++ "      (else" ++ NL)
-    emit_stmts_value(else_b, 0, params, locals, ctx)
+    emit_stmts_value(else_b, params, locals, ctx)
     out("      )" ++ NL ++ "    )" ++ NL)
   },
   LMakeVariant(_, tag, fields) => emit_make_variant(tag, fields, params, locals, ctx),
@@ -291,7 +292,7 @@ fn emit_expr(e, params, locals, ctx) = match e {
   },
   LMakeClosure(_, fn_def, captures) => {
     let LFn(fname, _, _, _, _) = fn_def
-    let fn_idx = find_fn_index(ctx_fns(ctx), fname, 0)
+    let fn_idx = find_fn_index(ctx_fns(ctx), fname)
     if len(captures) == 0 {
       out("    i32.const 8" ++ NL ++ "    call $alloc" ++ NL
       ++ "    local.tee $__vptr" ++ NL
@@ -320,7 +321,7 @@ fn emit_expr(e, params, locals, ctx) = match e {
       ++ "    i32.const 4" ++ NL ++ "    i32.add" ++ NL
       ++ "    i32.const " ++ to_string(n_caps) ++ NL
       ++ "    i32.store" ++ NL)
-      emit_closure_captures_stacked(captures, 0, params, locals, ctx)
+      emit_closure_captures_stacked(rev_list(captures, []), 0, params, locals, ctx)
       out("    global.get $__vsp" ++ NL ++ "    i32.const 1" ++ NL ++ "    i32.sub" ++ NL
       ++ "    global.set $__vsp" ++ NL
       ++ "    global.get $__vsp" ++ NL
@@ -338,15 +339,10 @@ fn emit_expr(e, params, locals, ctx) = match e {
 fn emit_stmts_value(stmts, params, locals, ctx) = {
   if len(stmts) == 0 { () }
   else {
-    let stmt = list_head(stmts)
-    let rest = list_tail(stmts)
-    if len(rest) == 0 {
-      emit_expr(stmt, params, locals, ctx)
-    } else {
-      emit_stmt(stmt, params, locals, ctx)
-      emit_sibling_patches(stmt, stmts, params, locals, ctx)
-      emit_stmts_value(rest, params, locals, ctx)
-    }
+    let stmt_last = list_head(stmts)
+    let prev_stmts = list_tail(stmts)
+    emit_stmts_void(prev_stmts, params, locals, ctx)
+    emit_expr(stmt_last, params, locals, ctx)
   }
 }
 
@@ -354,17 +350,17 @@ fn emit_stmts_value(stmts, params, locals, ctx) = {
 fn emit_stmts_void(stmts, params, locals, ctx) = {
   if len(stmts) == 0 { () }
   else {
-    let stmt = list_head(stmts)
-    let rest = list_tail(stmts)
-    emit_stmt(stmt, params, locals, ctx)
-    emit_sibling_patches(stmt, stmts, params, locals, ctx)
-    emit_stmts_void(rest, params, locals, ctx)
+    let stmt_last = list_head(stmts)
+    let prev_stmts = list_tail(stmts)
+    emit_stmts_void(prev_stmts, params, locals, ctx)
+    emit_stmt(stmt_last, params, locals, ctx)
+    emit_sibling_patches(stmt_last, prev_stmts, params, locals, ctx)
   }
 }
 
 fn emit_stmt(stmt, params, locals, ctx) = match stmt {
   LLet(_, name, value) => {
-    let is_local = string_in(locals, name, 0) || find_param_idx(params, name, 0) >= 0
+    let is_local = string_in(locals, name, 0) || find_param_idx(params, name) >= 0
     let setter = if is_local { "    local.set $" } else { if string_in(ctx_globals(ctx), name, 0) { "    global.set $" } else { "    local.set $" } }
     let getter = if is_local { "    local.get $" } else { if string_in(ctx_globals(ctx), name, 0) { "    global.get $" } else { "    local.get $" } }
     emit_expr(value, params, locals, ctx)
@@ -372,7 +368,7 @@ fn emit_stmt(stmt, params, locals, ctx) = match stmt {
     // Patch self-referential closures
     match value {
       LMakeClosure(_, fn_def, captures) => {
-        let self_idx = find_self_capture(captures, name, 0)
+        let self_idx = find_self_capture(captures, name)
         if self_idx >= 0 {
           let offset = (2 + self_idx) * 4
           out(getter ++ name ++ NL
@@ -414,7 +410,7 @@ fn emit_const(ty, v, ctx)= match v {
   LFloat(f) => "    f32.const " ++ to_string(f) ++ NL,
   LBool(b) => "    i32.const " ++ if b { "1" } else { "0" } ++ NL,
   LString(s) => {
-    let offset = find_string_offset(ctx_strings(ctx), s, 0)
+    let offset = find_string_offset(ctx_strings(ctx), s)
     "    i32.const " ++ to_string(offset) ++ NL
   },
   _ => "    i32.const 0" ++ NL
@@ -422,26 +418,26 @@ fn emit_const(ty, v, ctx)= match v {
 
 fn emit_builtin(name, args, params, locals, ctx) = {
   if name == "load_i32" {
-    emit_args(args, 0, params, locals, ctx); out("    i32.load" ++ NL); true
+    emit_args(args, params, locals, ctx); out("    i32.load" ++ NL); true
   } else { if name == "store_i32" {
-    emit_args(args, 0, params, locals, ctx); out("    i32.store" ++ NL ++ "    i32.const 0" ++ NL); true
+    emit_args(args, params, locals, ctx); out("    i32.store" ++ NL ++ "    i32.const 0" ++ NL); true
   } else { if name == "load_i8" {
-    emit_args(args, 0, params, locals, ctx); out("    i32.load8_u" ++ NL); true
+    emit_args(args, params, locals, ctx); out("    i32.load8_u" ++ NL); true
   } else { if name == "store_i8" {
-    emit_args(args, 0, params, locals, ctx); out("    i32.store8" ++ NL ++ "    i32.const 0" ++ NL); true
+    emit_args(args, params, locals, ctx); out("    i32.store8" ++ NL ++ "    i32.const 0" ++ NL); true
   } else { if name == "mem_copy" {
-    emit_args(args, 0, params, locals, ctx); out("    memory.copy" ++ NL ++ "    i32.const 0" ++ NL); true
+    emit_args(args, params, locals, ctx); out("    memory.copy" ++ NL ++ "    i32.const 0" ++ NL); true
   } else { if name == "byte_at" {
-    emit_args(args, 0, params, locals, ctx)
+    emit_args(args, params, locals, ctx)
     out("    i32.const 4" ++ NL ++ "    i32.add" ++ NL ++ "    i32.add" ++ NL ++ "    i32.load8_u" ++ NL); true
   } else { if name == "byte_len" {
-    emit_args(args, 0, params, locals, ctx); out("    i32.load" ++ NL); true
+    emit_args(args, params, locals, ctx); out("    i32.load" ++ NL); true
   } else { if name == "alloc" {
-    emit_args(args, 0, params, locals, ctx); out("    call $alloc" ++ NL); true
+    emit_args(args, params, locals, ctx); out("    call $alloc" ++ NL); true
   } else { if name == "fd_write" {
-    emit_args(args, 0, params, locals, ctx); out("    call $fd_write" ++ NL); true
+    emit_args(args, params, locals, ctx); out("    call $fd_write" ++ NL); true
   } else { if name == "fd_read" {
-    emit_args(args, 0, params, locals, ctx); out("    call $fd_read" ++ NL); true
+    emit_args(args, params, locals, ctx); out("    call $fd_read" ++ NL); true
   } else { if name == "path_open" {
     // path_open(dirfd, dirflags, path, path_len, oflags, rights_base:i64, rights_inh:i64, fdflags, result_fd)
     // Args 5 and 6 are i64 in WASI but i32 in Lux — extend them
@@ -453,11 +449,11 @@ fn emit_builtin(name, args, params, locals, ctx) = {
     emit_args_range(args, 7, len(args), params, locals, ctx)
     out("    call $path_open" ++ NL); true
   } else { if name == "fd_close" {
-    emit_args(args, 0, params, locals, ctx); out("    call $fd_close" ++ NL); true
+    emit_args(args, params, locals, ctx); out("    call $fd_close" ++ NL); true
   } else { if name == "heap_save" {
     out("    i32.const 0" ++ NL ++ "    call $heap_save" ++ NL); true
   } else { if name == "heap_restore" {
-    out("    i32.const 0" ++ NL); emit_args(args, 0, params, locals, ctx); out("    call $heap_restore" ++ NL); true
+    out("    i32.const 0" ++ NL); emit_args(args, params, locals, ctx); out("    call $heap_restore" ++ NL); true
   } else {
     false
   } } } } } } } } } } } } } }
@@ -471,38 +467,38 @@ fn emit_call_expr(func, args, params, locals, ctx) = {
         if string_in(ctx_tags(ctx), name, 0) {
           emit_make_variant(name, args, params, locals, ctx)
         } else {
-          let is_param = find_param_idx(params, name, 0) >= 0
+          let is_param = find_param_idx(params, name) >= 0
           let is_local = string_in(locals, name, 0)
           let is_global = string_in(ctx_globals(ctx), name, 0)
           if is_param || is_local {
             out("    local.get $" ++ name ++ NL)
-            emit_args(args, 0, params, locals, ctx)
+            emit_args(args, params, locals, ctx)
             out("    local.get $" ++ name ++ NL
             ++ "    i32.load" ++ NL
             ++ "    call_indirect (type $fn" ++ to_string(len(args)) ++ ")" ++ NL)
           } else { if is_global {
             out("    global.get $" ++ name ++ NL)
-            emit_args(args, 0, params, locals, ctx)
+            emit_args(args, params, locals, ctx)
             out("    global.get $" ++ name ++ NL
             ++ "    i32.load" ++ NL
             ++ "    call_indirect (type $fn" ++ to_string(len(args)) ++ ")" ++ NL)
           } else {
-            let fn_idx = find_fn_index(ctx_fns(ctx), name, 0)
+            let fn_idx = find_fn_index(ctx_fns(ctx), name)
             if fn_idx >= 0 {
               out("    i32.const 0" ++ NL)
-              emit_args(args, 0, params, locals, ctx)
+              emit_args(args, params, locals, ctx)
               out("    call $" ++ name ++ NL)
             } else {
               let ev_name = "__ev_op_" ++ name
               if string_in(ctx_globals(ctx), ev_name, 0) {
                 out("    global.get $" ++ ev_name ++ NL)
-                emit_args(args, 0, params, locals, ctx)
+                emit_args(args, params, locals, ctx)
                 out("    global.get $" ++ ev_name ++ NL
                 ++ "    i32.load" ++ NL
                 ++ "    call_indirect (type $fn" ++ to_string(len(args)) ++ ")" ++ NL)
               } else {
                 out("    i32.const 0" ++ NL)
-                emit_args(args, 0, params, locals, ctx)
+                emit_args(args, params, locals, ctx)
                 out("    call $" ++ name ++ NL)
               }
             }
@@ -525,7 +521,10 @@ fn emit_call_expr(func, args, params, locals, ctx) = {
 
 fn emit_args(args, params, locals, ctx) = {
   if len(args) == 0 { () }
-  else { emit_expr(list_head(args), params, locals, ctx); emit_args(list_tail(args), params, locals, ctx) }
+  else {
+    emit_args(list_tail(args), params, locals, ctx)
+    emit_expr(list_head(args), params, locals, ctx)
+  }
 }
 
 fn emit_args_range(args, start, end, params, locals, ctx) = {
@@ -754,7 +753,7 @@ fn emit_loop(ty, body_stmts, params, locals, ctx) = {
   let result_wt = ty_to_wasm(ty)
   out("    (block $break (result " ++ result_wt ++ ")" ++ NL
   ++ "      (loop $loop" ++ NL)
-  emit_stmts_void(body_stmts, 0, params, locals, ctx)
+  emit_stmts_void(body_stmts, params, locals, ctx)
   out("        br $loop" ++ NL
   ++ "      )" ++ NL
   ++ "    )" ++ NL)

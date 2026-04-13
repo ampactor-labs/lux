@@ -78,9 +78,9 @@ fn emit_closure_capture_stores(n_caps, idx) = {
 // defined value. Same mechanism as self-reference patching — generalized
 // to sibling forward references.
 
-fn emit_sibling_patches(current_stmt, all_stmts, current_idx, params, locals, ctx) = {
+fn emit_sibling_patches(current_stmt, prev_stmts, params, locals, ctx) = {
   match current_stmt {
-    LLet(_, name, _) => patch_previous_siblings(name, all_stmts, current_idx, 0, params, locals, ctx),
+    LLet(_, name, _) => patch_previous_siblings(name, prev_stmts, params, locals, ctx),
     _ => ()
   }
 }
@@ -122,7 +122,7 @@ fn emit_make_tuple(elems, params, locals, ctx) = {
   out("    i32.const 0" ++ NL
   ++ "    i32.const " ++ to_string(n) ++ NL
   ++ "    call $make_tuple" ++ NL)
-  emit_tuple_sets(elems, 0, params, locals, ctx)
+  emit_tuple_sets(rev_list(elems, []), 0, params, locals, ctx)
 }
 
 fn emit_tuple_sets(elems, idx, params, locals, ctx) = {
@@ -145,7 +145,7 @@ fn emit_make_list(elems, params, locals, ctx) = {
   out("    i32.const 0" ++ NL
   ++ "    i32.const " ++ to_string(n) ++ NL
   ++ "    call $make_list" ++ NL)
-  emit_list_sets(elems, 0, params, locals, ctx)
+  emit_list_sets(rev_list(elems, []), 0, params, locals, ctx)
 }
 
 fn emit_list_sets(elems, idx, params, locals, ctx) = {
@@ -177,7 +177,7 @@ fn emit_tuple_elems(elems, idx, params, locals, ctx) = {
 // ─── Variant Construction ───────────────────────────────────
 
 fn emit_make_variant(tag, fields, params, locals, ctx) = {
-  let tag_id = find_tag_id(ctx_tags(ctx), tag, 0)
+  let tag_id = find_tag_id(ctx_tags(ctx), tag)
   let n_fields = len(fields)
   let total_size = (1 + n_fields) * 4
   out("    i32.const " ++ to_string(total_size) ++ NL
@@ -193,7 +193,7 @@ fn emit_make_variant(tag, fields, params, locals, ctx) = {
   ++ "    local.get $__vptr" ++ NL
   ++ "    i32.const " ++ to_string(tag_id) ++ NL
   ++ "    i32.store" ++ NL)
-  emit_variant_fields(fields, 0, params, locals, ctx)
+  emit_variant_fields(rev_list(fields, []), 0, params, locals, ctx)
   out("    global.get $__vsp" ++ NL ++ "    i32.const 1" ++ NL ++ "    i32.sub" ++ NL
   ++ "    global.set $__vsp" ++ NL
   ++ "    global.get $__vsp" ++ NL
@@ -226,7 +226,7 @@ fn match_local(depth) =
 fn emit_match(scrutinee, arms, params, locals, ctx) = {
   do_emit_expr(scrutinee, params, locals, ctx)
   out("    local.set $__match" ++ NL)
-  emit_match_arms(arms, 0, params, locals, ctx)
+  emit_match_arms(rev_list(arms, []), 0, params, locals, ctx)
 }
 
 fn emit_match_arms(arms, idx, params, locals, ctx) = {
@@ -242,7 +242,7 @@ fn emit_match_arms(arms, idx, params, locals, ctx) = {
         ++ "    i32.eq" ++ NL
         ++ "    (if (result i32)" ++ NL
         ++ "      (then" ++ NL)
-        emit_bind_fields(sub_pats, 0, 0, params, locals, ctx)
+        emit_bind_fields(rev_list(sub_pats, []), 0, 0, params, locals, ctx)
         do_emit_expr(body, params, locals, ctx)
         out("      )" ++ NL
         ++ "      (else" ++ NL)
@@ -264,7 +264,7 @@ fn emit_match_arms(arms, idx, params, locals, ctx) = {
 }
 
 fn emit_match_arm_tuple(sub_pats, body, params, locals, ctx) = {
-  emit_bind_fields(sub_pats, 0, 0, params, locals, ctx)
+  emit_bind_fields(rev_list(sub_pats, []), 0, 0, params, locals, ctx)
   do_emit_expr(body, params, locals, ctx)
 }
 
@@ -358,12 +358,12 @@ fn emit_bind_sub_pattern(pat, base, field_offset, depth, params, locals, ctx) = 
       ++ "    i32.eq" ++ NL
       ++ "    (if" ++ NL
       ++ "      (then" ++ NL)
-      emit_bind_fields(inner_pats, 0, next_depth, params, locals, ctx)
+      emit_bind_fields(rev_list(inner_pats, []), 0, next_depth, params, locals, ctx)
       out("      )" ++ NL
       ++ "    )" ++ NL)
     },
     LPTuple(inner_pats) => {
-      emit_bind_fields(inner_pats, 0, next_depth, params, locals, ctx)
+      emit_bind_fields(rev_list(inner_pats, []), 0, next_depth, params, locals, ctx)
     },
     _ => ()
   }

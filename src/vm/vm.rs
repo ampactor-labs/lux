@@ -346,6 +346,21 @@ impl Vm {
                             Arc::make_mut(&mut a).extend((*b).iter().cloned());
                             self.stack.push(VmValue::List(a));
                         }
+                        (VmValue::List(mut a), VmValue::ListSlice(b_arc, b_start, b_end)) => {
+                            self.cow_drop_list_aliases(&a, frame_idx, false);
+                            Arc::make_mut(&mut a).extend(b_arc[b_start..b_end].iter().cloned());
+                            self.stack.push(VmValue::List(a));
+                        }
+                        (VmValue::ListSlice(a_arc, a_start, a_end), VmValue::List(b)) => {
+                            let mut new_list = a_arc[a_start..a_end].to_vec();
+                            new_list.extend((*b).iter().cloned());
+                            self.stack.push(VmValue::List(Arc::new(new_list)));
+                        }
+                        (VmValue::ListSlice(a_arc, a_start, a_end), VmValue::ListSlice(b_arc, b_start, b_end)) => {
+                            let mut new_list = a_arc[a_start..a_end].to_vec();
+                            new_list.extend(b_arc[b_start..b_end].iter().cloned());
+                            self.stack.push(VmValue::List(Arc::new(new_list)));
+                        }
                         _ => {
                             let line = self.frames[frame_idx].current_line();
                             return Err(VmError::new("type error: cannot concat", line));
@@ -848,19 +863,30 @@ impl Vm {
                 OpCode::MatchListCons => {
                     let min_elems = self.frames[frame_idx].read_u16() as usize;
                     let actual = self.stack.last().cloned().unwrap_or(VmValue::Unit);
-                    let matches =
-                        matches!(&actual, VmValue::List(elems) if elems.len() >= min_elems);
+                    let matches = match &actual {
+                        VmValue::List(elems) => elems.len() >= min_elems,
+                        VmValue::ListSlice(_, start, end) => (end - start) >= min_elems,
+                        _ => false,
+                    };
                     self.stack.push(VmValue::Bool(matches));
                 }
                 OpCode::MatchListEmpty => {
                     let actual = self.stack.last().cloned().unwrap_or(VmValue::Unit);
-                    let matches = matches!(&actual, VmValue::List(elems) if elems.is_empty());
+                    let matches = match &actual {
+                        VmValue::List(elems) => elems.is_empty(),
+                        VmValue::ListSlice(_, start, end) => start == end,
+                        _ => false,
+                    };
                     self.stack.push(VmValue::Bool(matches));
                 }
                 OpCode::MatchListExact => {
                     let count = self.frames[frame_idx].read_u16() as usize;
                     let actual = self.stack.last().cloned().unwrap_or(VmValue::Unit);
-                    let matches = matches!(&actual, VmValue::List(elems) if elems.len() == count);
+                    let matches = match &actual {
+                        VmValue::List(elems) => elems.len() == count,
+                        VmValue::ListSlice(_, start, end) => (end - start) == count,
+                        _ => false,
+                    };
                     self.stack.push(VmValue::Bool(matches));
                 }
                 OpCode::BindLocal => {
@@ -1380,18 +1406,25 @@ impl Vm {
         });
         self.register_builtin("is_empty", |args| match args.first() {
             Some(VmValue::List(l)) => Ok(VmValue::Bool(l.is_empty())),
+            Some(VmValue::ListSlice(_, start, end)) => Ok(VmValue::Bool(start == end)),
             _ => Ok(VmValue::Bool(true)),
         });
         self.register_builtin("push", |mut args| {
             if args.len() == 2 {
                 let elem = args.pop().unwrap();
                 let list = args.pop().unwrap();
-                if let VmValue::List(l) = list {
-                    let mut v = Arc::unwrap_or_clone(l);
-                    v.push(elem);
-                    Ok(VmValue::List(Arc::new(v)))
-                } else {
-                    Ok(VmValue::Unit)
+                match list {
+                    VmValue::List(l) => {
+                        let mut v = Arc::unwrap_or_clone(l);
+                        v.push(elem);
+                        Ok(VmValue::List(Arc::new(v)))
+                    }
+                    VmValue::ListSlice(arc, start, end) => {
+                        let mut v = arc[start..end].to_vec();
+                        v.push(elem);
+                        Ok(VmValue::List(Arc::new(v)))
+                    }
+                    _ => Ok(VmValue::Unit),
                 }
             } else {
                 Ok(VmValue::Unit)
@@ -1429,6 +1462,17 @@ impl Vm {
                     let len = items.len() as i64;
                     let s = (*start).max(0).min(len) as usize;
                     let e = (*end).max(0).min(len) as usize;
+                    let slice = items[s..e].to_vec();
+                    Ok(VmValue::List(Arc::new(slice)))
+                }
+                (
+                    Some(VmValue::ListSlice(items, sl_start, sl_end)),
+                    Some(VmValue::Int(start)),
+                    Some(VmValue::Int(end)),
+                ) => {
+                    let len = (sl_end - sl_start) as i64;
+                    let s = (*start).max(0).min(len) as usize + sl_start;
+                    let e = (*end).max(0).min(len) as usize + sl_start;
                     let slice = items[s..e].to_vec();
                     Ok(VmValue::List(Arc::new(slice)))
                 }

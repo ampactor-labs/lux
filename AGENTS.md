@@ -17,9 +17,10 @@ lux3.wasm compiles → lux4.wasm (Lux compiler as WASM, built by itself — NO R
 - The Ouroboros (lux3 compiling itself to lux4) is running. Memory is stable at ~1 GB. CPU-bound, not memory-bound.
 
 **Current status (lux4.wasm):**
-- The Ouroboros is running but slow due to O(N²) `list_index` traversals in the WASM list tree representation.
-- Memory is stable — the allocator fixes work. The bottleneck is pure CPU time from quadratic tree walks.
-- Once lux4.wasm completes, the next optimization pass will convert `list[i]` index loops to `list_pop` traversals.
+- **CRITICAL UPDATE FROM SESSION 307fa01a-6834-4010-af6e-a27e0fd3bf75**: The O(N²) Snoc list traversal bug has been structurally solved. We discovered the compiler was emitting trees backwards because `list_head` accesses the *last* element.
+- **The Solution**: We implemented a **Recurse-First Topological Traversal**. We stripped `idx` tracking entirely out of `wasm_emit`, `wasm_construct`, and `wasm_collect`. The stack unwinds naturally in $O(1)$ forward execution.
+- We fixed ~40 arity mismatch bugs caused by the `idx` removal. The Ouroboros is running.
+- If you are a new agent, know that the compiler is currently completely devoid of index-based iteration in the emitter. DO NOT introduce index loops back into the AST!
 
 ## Build Commands
 

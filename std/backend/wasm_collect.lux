@@ -62,6 +62,11 @@ fn is_handler_global(name) = {
   else { false } } } }
 }
 
+fn rev_list(list, acc) = {
+  if len(list) == 0 { acc }
+  else { rev_list(list_tail(list), push(acc, list_head(list))) }
+}
+
 // ─── Top-Level Name Collection (structural, not tree-walk) ──
 
 fn collect_top_let_names(stmts) = {
@@ -219,9 +224,9 @@ fn assign_offsets(strings, offset) = {
   }
 }
 
-fn string_heap_end(string_map, idx, default)= {
+fn string_heap_end(string_map, default)= {
   if len(string_map) == 0 { default }
-  else { let (_, offset, slen) = string_map[len(string_map) - 1]; offset + 4 + slen }
+  else { let (_, offset, slen) = list_head(string_map); offset + 4 + slen }
 }
 
 fn find_string_offset(string_map, text) = {
