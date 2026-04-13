@@ -138,6 +138,12 @@ fn slice(list, start, end) with Memory, Alloc = {
   }
 }
 
+// list_first / list_rest: True forward-order iteration for lists.
+// list_first returns the 0th element. list_rest returns element 1..len.
+// These match source ordering for flat lists and tuples.
+fn list_first(list) with Memory = list_index(list, 0)
+fn list_rest(list) with Memory, Alloc = slice(list, 1, load_i32(list))
+
 fn char_code(s) with Memory = load_i8(s + 4)
 
 fn from_char_code(code) with Memory, Alloc = {

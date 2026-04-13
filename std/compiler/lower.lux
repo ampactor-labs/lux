@@ -26,8 +26,8 @@ fn lty_list(lowered_elems) = {
 fn lty_tuple_elems(lowered_elems) = {
   if len(lowered_elems) == 0 { [] }
   else {
-    [lexpr_ty(list_head(lowered_elems))]
-    ++ lty_tuple_elems(list_tail(lowered_elems))
+    let (rest, e) = list_pop(lowered_elems)
+    lty_tuple_elems(rest) ++ [lexpr_ty(e)]
   }
 }
 
@@ -335,9 +335,10 @@ fn lower_expr(sexpr, env) = {
 fn fan_out_single(fns, input_ref, env) = {
   if len(fns) == 0 { [] }
   else {
-    let lowered_fn = lower_expr(list_head(fns), env)
-    [LCall(lty_call_result(lowered_fn), lowered_fn, [input_ref])]
-    ++ fan_out_single(list_tail(fns), input_ref, env)
+    let (rest, f) = list_pop(fns)
+    let lowered_fn = lower_expr(f, env)
+    fan_out_single(rest, input_ref, env)
+    ++ [LCall(lty_call_result(lowered_fn), lowered_fn, [input_ref])]
   }
 }
 
@@ -351,26 +352,27 @@ fn lty_fn_eff(lowered) = match lexpr_ty(lowered) {
 fn fan_out_lower(fns, input, env) = {
   if len(fns) == 0 { [] }
   else {
-    let lowered_fn = lower_expr(list_head(fns), env)
-    [LCall(lty_call_result(lowered_fn), lowered_fn, [lower_expr(input, env)])]
-    ++ fan_out_lower(list_tail(fns), input, env)
+    let (rest, f) = list_pop(fns)
+    let lowered_fn = lower_expr(f, env)
+    fan_out_lower(rest, input, env)
+    ++ [LCall(lty_call_result(lowered_fn), lowered_fn, [lower_expr(input, env)])]
   }
 }
 
 fn lower_exprs(sexprs, env) = {
   if len(sexprs) == 0 { [] }
   else {
-    let expr = list_head(sexprs)
-    let rest = list_tail(sexprs)
-    [lower_expr(expr, env)] ++ lower_exprs(rest, env)
+    let (rest, expr) = list_pop(sexprs)
+    lower_exprs(rest, env) ++ [lower_expr(expr, env)]
   }
 }
 
 fn lower_record_fields(fields, env) = {
   if len(fields) == 0 { [] }
   else {
-    let (_, val) = list_head(fields)
-    [lower_expr(val, env)] ++ lower_record_fields(list_tail(fields), env)
+    let (rest, f) = list_pop(fields)
+    let (_, val) = f
+    lower_record_fields(rest, env) ++ [lower_expr(val, env)]
   }
 }
 
@@ -441,8 +443,9 @@ fn lower_interp_one(part, env) = {
 fn lower_match_arms(arms, env) = {
   if len(arms) == 0 { [] }
   else {
-    let (pat, body) = list_head(arms)
-    [(lower_pat(pat), lower_expr(body, env))] ++ lower_match_arms(list_tail(arms), env)
+    let (rest, arm) = list_pop(arms)
+    let (pat, body) = arm
+    lower_match_arms(rest, env) ++ [(lower_pat(pat), lower_expr(body, env))]
   }
 }
 
@@ -492,14 +495,14 @@ fn lower_stmts_pop(stmts, env, acc) = {
 
 // Lower statements while extending env with local types — for BlockExpr.
 // Each LetStmt/FnStmt adds its binding to env for subsequent statements.
-fn lower_stmts_with_env(stmts, env) = {
-  if len(stmts) == 0 { ([], env) }
+fn lower_stmts_with_env(stmts, env) = lower_stmts_forward(reverse_list(stmts), env, [])
+fn lower_stmts_forward(reversed_stmts, env, acc) = {
+  if len(reversed_stmts) == 0 { (acc, env) }
   else {
-    let stmt = list_head(stmts)
+    let (rest, stmt) = list_pop(reversed_stmts)
     let lowered = lower_stmt(stmt, env)
     let new_env = extend_env_from_stmt(stmt, lowered, env)
-    let (rest, final_env) = lower_stmts_with_env(list_tail(stmts), new_env)
-    ([lowered] ++ rest, final_env)
+    lower_stmts_forward(rest, new_env, push(acc, lowered))
   }
 }
 
@@ -516,17 +519,17 @@ fn extend_env_from_stmt(stmt, lowered, env) = match stmt {
 fn bind_names_unknown(names, env) = {
   if len(names) == 0 { env }
   else {
-    let name = list_head(names)
-    bind_names_unknown(list_tail(names), push(env, (name, TUnit, Inferred("destructured"))))
+    let (rest, name) = list_pop(names)
+    bind_names_unknown(rest, push(env, (name, TUnit, Inferred("destructured"))))
   }
 }
 
 fn extract_param_names(params) = {
   if len(params) == 0 { [] }
   else {
-    let p = list_head(params)
+    let (rest, p) = list_pop(params)
     let name = match p { (n, _, _) => n, (n, _) => n, _ => p };
-    [name] ++ extract_param_names(list_tail(params))
+    extract_param_names(rest) ++ [name]
   }
 }
 
@@ -578,20 +581,20 @@ fn lower_stmt(stmt, env) = match stmt {
 fn emit_dummy_ops(ops, env) = {
   if len(ops) == 0 { [] }
   else {
-    let (op_name, p_names) = list_head(ops)
+    let (rest, op) = list_pop(ops)
+    let (op_name, p_names) = op
     let ev_name = "__ev_op_" ++ op_name
     let fn_def = LFn(ev_name, len(p_names), p_names, [LConst(TUnit, LUnit)], EfPure)
     let closure_ty = TFun([], TUnit, EfPure)
-    [LLet(closure_ty, ev_name, LMakeClosure(closure_ty, fn_def, []))]
-    ++ emit_dummy_ops(list_tail(ops), env)
+    emit_dummy_ops(rest, env)
+    ++ [LLet(closure_ty, ev_name, LMakeClosure(closure_ty, fn_def, []))]
   }
 }
 
 fn lower_destructure_bindings_offset(names, offset, idx) = {
   if len(names) == 0 { [] }
   else {
-    let name = list_head(names)
-    let rest = list_tail(names)
+    let (rest, name) = list_pop(names)
     if name == "_" { lower_destructure_bindings_offset(rest, offset, idx + 1) }
     else {
       [LLet(TUnit, name, LIndex(TUnit, LGlobal(TUnit, "_lp"), LConst(TInt, LInt(offset + idx)), true))]
@@ -603,8 +606,7 @@ fn lower_destructure_bindings_offset(names, offset, idx) = {
 fn lower_destructure_bindings(names, idx) = {
   if len(names) == 0 { [] }
   else {
-    let name = list_head(names)
-    let rest = list_tail(names)
+    let (rest, name) = list_pop(names)
     if name == "_" { lower_destructure_bindings(rest, idx + 1) }
     else {
       [LLet(TUnit, name, LIndex(TUnit, LGlobal(TUnit, "_dt"), LConst(TInt, LInt(idx)), true))]

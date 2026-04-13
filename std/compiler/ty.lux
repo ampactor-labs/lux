@@ -67,6 +67,8 @@ fn env_with_primitives(env) = {
     |> env_extend("list_pop", TFun([TList(a)], TTuple([TList(a), a]), EfPure), Declared("builtin"))
     |> env_extend("list_head", TFun([TList(a)], a, EfPure), Declared("builtin"))
     |> env_extend("list_tail", TFun([TList(a)], TList(a), EfPure), Declared("builtin"))
+    |> env_extend("list_first", TFun([TList(a)], a, EfPure), Declared("builtin"))
+    |> env_extend("list_rest", TFun([TList(a)], TList(a), EfPure), Declared("builtin"))
     |> env_extend("len", TFun([a], TInt, EfPure), Declared("builtin"))
     |> env_extend("push", TFun([a, b], a, EfPure), Declared("builtin"))
     |> env_extend("slice", TFun([a, TInt, TInt], a, EfPure), Declared("builtin"))
@@ -127,12 +129,13 @@ fn instantiate_type(ty, counter, mapping) =
     get_inst_state() => resume((n, m))
   }
 
-fn instantiate_types(tys, counter, mapping) = instantiate_types_pop(tys, counter, mapping, [])
-fn instantiate_types_pop(tys, counter, mapping, acc) = {
-  if len(tys) == 0 { (acc, counter, mapping) }
+fn instantiate_types(tys, counter, mapping) = instantiate_types_pop(reverse_list(tys), counter, mapping, [])
+fn instantiate_types_pop(reversed_tys, counter, mapping, acc) = {
+  if len(reversed_tys) == 0 { (acc, counter, mapping) }
   else {
-    let (new_ty, c2, m2) = instantiate_type(list_head(tys), counter, mapping)
-    instantiate_types_pop(list_tail(tys), c2, m2, acc ++ [new_ty])
+    let (rest, ty) = list_pop(reversed_tys)
+    let (new_ty, c2, m2) = instantiate_type(ty, counter, mapping)
+    instantiate_types_pop(rest, c2, m2, push(acc, new_ty))
   }
 }
 
@@ -249,14 +252,18 @@ fn apply(subst, ty) = match ty {
 fn apply_fields(subst, fields) = {
   if len(fields) == 0 { [] }
   else {
-    let (name, ty) = list_head(fields)
-    [(name, apply(subst, ty))] ++ apply_fields(subst, list_tail(fields))
+    let (rest, val) = list_pop(fields)
+    let (name, ty) = val
+    apply_fields(subst, rest) ++ [(name, apply(subst, ty))]
   }
 }
 
 fn apply_list(subst, tys) = {
   if len(tys) == 0 { [] }
-  else { [apply(subst, list_head(tys))] ++ apply_list(subst, list_tail(tys)) }
+  else {
+    let (rest, ty) = list_pop(tys)
+    apply_list(subst, rest) ++ [apply(subst, ty)]
+  }
 }
 
 // Get the reason WHY a type variable was bound to its current value

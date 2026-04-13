@@ -92,6 +92,14 @@ fn drop(n, xs) =
 fn head(xs) = xs[0]
 fn tail(xs) = slice(xs, 1, len(xs))
 fn last(xs) = xs[len(xs) - 1]
+fn reverse_list(list) = reverse_list_pop(list, [])
+fn reverse_list_pop(list, acc) = {
+  if len(list) == 0 { acc }
+  else {
+    let (rest, val) = list_pop(list)
+    reverse_list_pop(rest, push(acc, val))
+  }
+}
 fn reverse(xs) = fold(xs, [], |acc, x| [x] ++ acc)
 fn flatten(xss) = fold(xss, [], |acc, xs| acc ++ xs)
 fn flat_map(f, xs) = flatten(map(f, xs))

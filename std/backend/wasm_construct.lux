@@ -128,13 +128,14 @@ fn emit_make_tuple(elems, params, locals, ctx) = {
 fn emit_tuple_sets(elems, idx, params, locals, ctx) = {
   if len(elems) == 0 { () }
   else {
+    let (rest, val) = list_pop(elems)
     out("    local.set $__match" ++ NL
     ++ "    i32.const 0" ++ NL
     ++ "    local.get $__match" ++ NL
     ++ "    i32.const " ++ to_string(idx) ++ NL)
-    do_emit_expr(list_head(elems), params, locals, ctx)
+    do_emit_expr(val, params, locals, ctx)
     out("    call $tuple_set" ++ NL)
-    emit_tuple_sets(list_tail(elems), idx + 1, params, locals, ctx)
+    emit_tuple_sets(rest, idx + 1, params, locals, ctx)
   }
 }
 
@@ -151,26 +152,28 @@ fn emit_make_list(elems, params, locals, ctx) = {
 fn emit_list_sets(elems, idx, params, locals, ctx) = {
   if len(elems) == 0 { () }
   else {
+    let (rest, val) = list_pop(elems)
     out("    local.set $__match" ++ NL
     ++ "    i32.const 0" ++ NL
     ++ "    local.get $__match" ++ NL
     ++ "    i32.const " ++ to_string(idx) ++ NL)
-    do_emit_expr(list_head(elems), params, locals, ctx)
+    do_emit_expr(val, params, locals, ctx)
     out("    call $list_set" ++ NL)
-    emit_list_sets(list_tail(elems), idx + 1, params, locals, ctx)
+    emit_list_sets(rest, idx + 1, params, locals, ctx)
   }
 }
 
 fn emit_tuple_elems(elems, idx, params, locals, ctx) = {
   if len(elems) == 0 { () }
   else {
+    let (rest, val) = list_pop(elems)
     let offset = (1 + idx) * 4
     out("    local.get $__vptr" ++ NL
     ++ "    i32.const " ++ to_string(offset) ++ NL
     ++ "    i32.add" ++ NL)
-    do_emit_expr(list_head(elems), params, locals, ctx)
+    do_emit_expr(val, params, locals, ctx)
     out("    i32.store" ++ NL)
-    emit_tuple_elems(list_tail(elems), idx + 1, params, locals, ctx)
+    emit_tuple_elems(rest, idx + 1, params, locals, ctx)
   }
 }
 
@@ -205,6 +208,7 @@ fn emit_make_variant(tag, fields, params, locals, ctx) = {
 fn emit_variant_fields(fields, idx, params, locals, ctx) = {
   if len(fields) == 0 { () }
   else {
+    let (rest, val) = list_pop(fields)
     let field_offset = (1 + idx) * 4
     out("    global.get $__vsp" ++ NL ++ "    i32.const 1" ++ NL ++ "    i32.sub" ++ NL
     ++ "    i32.const 4" ++ NL ++ "    i32.mul" ++ NL
@@ -212,9 +216,9 @@ fn emit_variant_fields(fields, idx, params, locals, ctx) = {
     ++ "    i32.load" ++ NL
     ++ "    i32.const " ++ to_string(field_offset) ++ NL
     ++ "    i32.add" ++ NL)
-    do_emit_expr(list_head(fields), params, locals, ctx)
+    do_emit_expr(val, params, locals, ctx)
     out("    i32.store" ++ NL)
-    emit_variant_fields(list_tail(fields), idx + 1, params, locals, ctx)
+    emit_variant_fields(rest, idx + 1, params, locals, ctx)
   }
 }
 
@@ -232,7 +236,8 @@ fn emit_match(scrutinee, arms, params, locals, ctx) = {
 fn emit_match_arms(arms, idx, params, locals, ctx) = {
   if len(arms) == 0 { out("    i32.const 0 ;; match fallthrough" ++ NL) }
   else {
-    let (pat, body) = list_head(arms)
+    let (rest_arms, arm) = list_pop(arms)
+    let (pat, body) = arm
     match pat {
       LPCon(name, sub_pats) => {
         let tag_id = find_tag_id(ctx_tags(ctx), name)
@@ -246,7 +251,7 @@ fn emit_match_arms(arms, idx, params, locals, ctx) = {
         do_emit_expr(body, params, locals, ctx)
         out("      )" ++ NL
         ++ "      (else" ++ NL)
-        emit_match_arms(list_tail(arms), idx + 1, params, locals, ctx)
+        emit_match_arms(rest_arms, idx + 1, params, locals, ctx)
         out("      )" ++ NL
         ++ "    )" ++ NL)
       },
@@ -256,9 +261,9 @@ fn emit_match_arms(arms, idx, params, locals, ctx) = {
         ++ "    local.set $" ++ name ++ NL)
         do_emit_expr(body, params, locals, ctx)
       },
-      LPLit(lit_val) => emit_match_arm_lit(lit_val, body, list_tail(arms), idx, params, locals, ctx),
+      LPLit(lit_val) => emit_match_arm_lit(lit_val, body, rest_arms, idx, params, locals, ctx),
       LPWild => do_emit_expr(body, params, locals, ctx),
-      _ => emit_match_arms(list_tail(arms), idx + 1, params, locals, ctx)
+      _ => emit_match_arms(rest_arms, idx + 1, params, locals, ctx)
     }
   }
 }
@@ -321,21 +326,22 @@ fn emit_match_arm_lit(lit_val, body, arms, idx, params, locals, ctx) = {
 fn emit_bind_fields(sub_pats, idx, depth, params, locals, ctx) = {
   if len(sub_pats) == 0 { () }
   else {
+    let (rest_pats, pat) = list_pop(sub_pats)
     let field_offset = (1 + idx) * 4
     let base = match_local(depth)
-    match list_head(sub_pats) {
+    match pat {
       LPVar(name) => {
         out("    local.get " ++ base ++ NL
         ++ "    i32.const " ++ to_string(field_offset) ++ NL
         ++ "    i32.add" ++ NL
         ++ "    i32.load" ++ NL
         ++ "    local.set $" ++ name ++ NL)
-        emit_bind_fields(list_tail(sub_pats), idx + 1, depth, params, locals, ctx)
+        emit_bind_fields(rest_pats, idx + 1, depth, params, locals, ctx)
       },
-      LPWild => emit_bind_fields(list_tail(sub_pats), idx + 1, depth, params, locals, ctx),
+      LPWild => emit_bind_fields(rest_pats, idx + 1, depth, params, locals, ctx),
       _ => {
-        emit_bind_sub_pattern(list_head(sub_pats), base, field_offset, depth, params, locals, ctx)
-        emit_bind_fields(list_tail(sub_pats), idx + 1, depth, params, locals, ctx)
+        emit_bind_sub_pattern(pat, base, field_offset, depth, params, locals, ctx)
+        emit_bind_fields(rest_pats, idx + 1, depth, params, locals, ctx)
       }
     }
   }
@@ -373,8 +379,9 @@ fn emit_bind_sub_pattern(pat, base, field_offset, depth, params, locals, ctx) = 
 fn emit_variant_field_exprs(fields, idx, params, locals, ctx) = {
   if len(fields) == 0 { () }
   else {
-    do_emit_expr(list_head(fields), params, locals, ctx)
+    let (rest, val) = list_pop(fields)
+    do_emit_expr(val, params, locals, ctx)
     out("    local.set $__f" ++ to_string(idx) ++ NL)
-    emit_variant_field_exprs(list_tail(fields), idx + 1, params, locals, ctx)
+    emit_variant_field_exprs(rest, idx + 1, params, locals, ctx)
   }
 }

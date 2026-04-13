@@ -126,7 +126,7 @@ fn add_constant(ctx, value) = {
 // Intern a name, return (ctx, index). Deduplicates.
 fn intern_name(ctx, name) = {
   let names = ctx_names(ctx)
-  let found = find_name(names, name, 0)
+  let found = find_name(names, name)
   if found >= 0 { (ctx, found) }
   else {
     let (code, co, na, lo, de, sl, uv, enc, eo, ht, sn) = ctx
@@ -135,10 +135,14 @@ fn intern_name(ctx, name) = {
   }
 }
 
-fn find_name(names, name, idx) = {
-  if idx >= len(names) { 0 - 1 }
-  else { if names[idx] == name { idx }
-  else { find_name(names, name, idx + 1) }}
+fn find_name(names, name) = {
+  if len(names) == 0 { 0 - 1 }
+  else {
+    let (rest, val) = list_pop(names)
+    let current_idx = len(names) - 1
+    if val == name { current_idx }
+    else { find_name(rest, name) }
+  }
 }
 
 // Emit LoadConst with a constant value
@@ -165,11 +169,11 @@ fn patch_jump(ctx, patch_offset) = {
   // Write delta as u16 big-endian
   let hi = delta / 256
   let lo = delta - hi * 256
-  let patched = list_set(list_set(code, patch_offset, hi), patch_offset + 1, lo)
+  let patched = code_set(code_set(code, patch_offset, hi), patch_offset + 1, lo)
   ctx_set_code(ctx, patched)
 }
 
-fn list_set(lst, idx, val) = {
+fn code_set(lst, idx, val) = {
   if idx >= len(lst) { lst }
   else {
     let before = slice(lst, 0, idx)
@@ -212,15 +216,16 @@ fn declare_local(ctx, name) = {
 
 fn resolve_local(ctx, name) = {
   let locals = ctx_locals(ctx)
-  find_local(locals, name, len(locals) - 1)
+  find_local(locals, name)
 }
 
-fn find_local(locals, name, idx) = {
-  if idx < 0 { 0 - 1 }
+fn find_local(locals, name) = {
+  if len(locals) == 0 { 0 - 1 }
   else {
-    let (n, slot, _) = locals[idx]
+    let (rest, val) = list_pop(locals)
+    let (n, slot, _) = val
     if n == name { slot }
-    else { find_local(locals, name, idx - 1) }
+    else { find_local(rest, name) }
   }
 }
 

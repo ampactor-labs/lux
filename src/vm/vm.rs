@@ -1548,6 +1548,49 @@ impl Vm {
                 _ => Err("list_tail expects a List".into()),
             }
         });
+        // list_first / list_rest: TRUE forward-order iteration.
+        // list_first returns items[0], list_rest returns items[1..].
+        // Unlike list_head/list_tail (Snoc-tree: last-to-first), these
+        // iterate first-to-last — matching source order for all lists.
+        self.register_builtin("list_first", |args| {
+            match args.first() {
+                Some(VmValue::List(items)) => {
+                    if items.is_empty() {
+                        Ok(VmValue::Unit)
+                    } else {
+                        Ok(items[0].clone())
+                    }
+                }
+                Some(VmValue::ListSlice(items, start, end)) => {
+                    if start >= end {
+                        Ok(VmValue::Unit)
+                    } else {
+                        Ok(items[*start].clone())
+                    }
+                }
+                _ => Err("list_first expects a List".into()),
+            }
+        });
+        self.register_builtin("list_rest", |args| {
+            match args.first() {
+                Some(VmValue::List(items)) => {
+                    let len = items.len();
+                    if len == 0 {
+                        Ok(VmValue::List(Arc::new(vec![])))
+                    } else {
+                        Ok(VmValue::ListSlice(items.clone(), 1, len))
+                    }
+                }
+                Some(VmValue::ListSlice(items, start, end)) => {
+                    if start >= end {
+                        Ok(VmValue::List(Arc::new(vec![])))
+                    } else {
+                        Ok(VmValue::ListSlice(items.clone(), start + 1, *end))
+                    }
+                }
+                _ => Err("list_rest expects a List".into()),
+            }
+        });
         self.register_builtin("split", |args| match (args.first(), args.get(1)) {
             (Some(VmValue::String(s)), Some(VmValue::String(sep))) => {
                 let parts: Vec<VmValue> = s
