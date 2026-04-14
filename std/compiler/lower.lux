@@ -74,12 +74,22 @@ fn lower_expr(sexpr, env) = {
       let l = lower_expr(left, env)
       let r = lower_expr(right, env)
       let lt = lexpr_ty(l)
+      let rt = lexpr_ty(r)
       if op == "Eq" || op == "Neq" {
+        // If EITHER side types as TString (e.g., one is a literal), emit
+        // str_eq directly. Falling through to val_eq "works" at runtime
+        // but has been observed to miss heap-pointer equality in edge
+        // cases (string_slice result vs. data-segment literal), breaking
+        // handler-prefix detection in wasm_collect. Typed fast path fixes
+        // it structurally.
         let eq = match lt {
           TString => LCall(TBool, LGlobal(TFun([TString, TString], TBool, EfPure), "str_eq"), [l, r]),
           TInt    => LBinOp(TBool, "Eq", l, r),
           TBool   => LBinOp(TBool, "Eq", l, r),
-          _       => LCall(TBool, LGlobal(TFun([TUnit, TUnit], TBool, EfPure), "val_eq"), [l, r])
+          _       => match rt {
+            TString => LCall(TBool, LGlobal(TFun([TString, TString], TBool, EfPure), "str_eq"), [l, r]),
+            _ => LCall(TBool, LGlobal(TFun([TUnit, TUnit], TBool, EfPure), "val_eq"), [l, r])
+          }
         }
         if op == "Neq" { LUnaryOp(TBool, "Not", eq) } else { eq }
       } else { if op == "Concat" {
@@ -284,7 +294,12 @@ fn lower_expr(sexpr, env) = {
     },
     Index(collection, idx) => {
       let lowered_coll = lower_expr(collection, env)
-      LIndex(lty_index_result(lowered_coll), lowered_coll, lower_expr(idx, env), false)
+      // ctx[3] for a tuple must emit direct i32.load, not call $list_index
+      // (which misreads tuple memory as list-with-tag). Root-caused via
+      // wasm-decompile showing ctx_globals(ctx) compiled to list_index
+      // → returned the wrong field → ctx_globals appeared empty in-fn.
+      let is_tuple = match lexpr_ty(lowered_coll) { TTuple(_) => true, _ => false }
+      LIndex(lty_index_result(lowered_coll), lowered_coll, lower_expr(idx, env), is_tuple)
     },
     FieldAccess(obj, field) => {
       let lowered_obj = lower_expr(obj, env)
