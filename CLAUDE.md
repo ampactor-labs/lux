@@ -67,26 +67,35 @@ problems dissolve through its own patterns.
 **Never "sufficient." Always right.** If the fundamental architecture is
 correct, simplicity and perfection are the same thing.
 
-## STATE OF THE WORLD — Last Updated: 2026-04-12
+## STATE OF THE WORLD — Last Updated: 2026-04-13
 
-**Arc 2 Bootstrap is nearly complete.** `lux3.wasm` (2.4 MB WAT) builds
-in ~9 minutes via the Rust VM. The Ouroboros (lux3 compiling itself to
-lux4) runs with stable memory (~1 GB). Six memory optimizations applied:
-LIndex desync fix, O(N) split, strip_imports elimination, Levenshtein
-neutering, list_pop env_lookup, and Rust VM ListSlice.
+**Arc 2 (Ouroboros) is nearly complete.** `lux3.wasm` (2.4 MB WAT)
+builds in ~9 minutes via the Rust VM. Self-compilation runs stable at
+~1 GB memory. Six memory optimizations shipped: LIndex desync fix,
+O(N) split, strip_imports elimination, Levenshtein neutering,
+list_pop env_lookup, Rust VM ListSlice. A native ELF path exists via
+`wasm2c + gcc -O2` producing `bootstrap/build/lux3-native` (780 KB).
 
-**Remaining bottleneck:** O(N²) `list[i]` loops throughout the compiler
-source. CPU-bound, not memory-bound. See `AGENTS.md` for details.
+**Remaining bottleneck:** O(N²) `list[i]` loops in the compiler source.
+CPU-bound, not memory-bound. Target files named in `AGENTS.md` →
+*Known Remaining Issue*. The fix is algorithmic (convert `list[i]`
+loops to `list_pop` tail recursion).
 
 | Milestone | Status |
-|-----------|--------|
-| Self-hosted pipeline as default | ✅ Arc 1 complete |
+|---|---|
+| Self-hosted pipeline as default | ✅ Arc 1 |
 | Rust checker deleted (4,200 lines) | ✅ c84cd43 |
-| 272 purity proofs (9 compiler modules) | ✅ |
-| lux3.wasm (Rust VM → WASM compiler) | ✅ 2.4 MB, 9 min |
-| lux4.wasm (WASM → WASM, self-hosted) | 🔄 In progress |
-| O(N²) list traversal elimination | ⬜ Next |
-| Delete Rust VM (`rm -rf src/`) | ⬜ After lux4 verified |
+| 272 purity proofs across 9 compiler modules | ✅ |
+| `lux3.wasm` (Rust VM → WAT, bootstrap entry) | ✅ 2.4 MB, 9 min |
+| `lux3-native` (wasm2c + gcc -O2 ELF) | ✅ 780 KB |
+| `bootstrap/Makefile` formalizes stage 0 → 1 → 2 | ✅ |
+| `lux4.wasm` fixed point (WASM compiles itself) | 🔄 Blocked on O(N²) |
+| O(N²) list traversal elimination | ⬜ Arc 2 finish |
+| Arc 3 — diagnostics effect, arenas, DAG env | ⬜ `docs/ARC3_ROADMAP.md` |
+| Arc 4+ — native x86 backend, delete Rust VM | ⬜ `docs/ARCS.md` → *Arc 4+* |
+
+For the full handoff: `AGENTS.md`. For the build recipe:
+`bootstrap/README.md`. For the narrative: `docs/ARCS.md`.
 
 ## What Lux IS
 

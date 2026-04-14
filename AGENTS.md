@@ -1,6 +1,11 @@
-# Agent Handoff: Arc 2 — WASM Self-Hosting Bootstrap
+# Agent Handoff — Arc 2 Ouroboros
 
-**Last Updated: 2026-04-12**
+*What's in progress. What's broken. How to rebuild.
+For narrated history, see `docs/ARCS.md`.
+For next arc, see `docs/ARC3_ROADMAP.md`.
+For the build recipe, see `bootstrap/README.md`.*
+
+**Last updated:** 2026-04-13
 
 ## Current State
 
@@ -24,22 +29,29 @@ lux3.wasm compiles → lux4.wasm (Lux compiler as WASM, built by itself — NO R
 
 ## Build Commands
 
+All bootstrap commands go through `bootstrap/Makefile`. Do not run the
+raw `cargo` / `wat2wasm` / `wasm2c` invocations by hand — the Makefile
+encodes the exact flags (including `--debug-names` for
+wasm-decompile/wasm2c readability) and directory layout.
+
 ```bash
-# Step 1: Build lux3.wasm using Rust VM (~9 min)
-cargo run --release -- wasm examples/wasm_bootstrap.lux > lux3.wasm
-
-# Step 2: Extract clean WAT (strip Rust VM preamble)
-sed -n '/^(module/,$p' lux3.wasm > lux3.wat
-
-# Step 3: Self-host — lux3 compiles itself (THE OUROBOROS)
-cat examples/wasm_bootstrap.lux | ~/.wasmtime/bin/wasmtime run --dir . -W max-wasm-stack=33554432 lux3.wat > lux4.wasm
-
-# Step 4: Verify lux4 = lux3 (structural equivalence)
-sed -n '/^(module/,$p' lux4.wasm > lux4.wat
-diff <(wc -l lux3.wat) <(wc -l lux4.wat)
+make -C bootstrap help           # what each target does
+make -C bootstrap stage0         # Rust VM → lux3.wat         (~9 min)
+make -C bootstrap stage1         # wat2wasm --debug-names     → lux3.wasm
+make -C bootstrap stage1-native  # wasm2c + gcc -O2           → lux3-native
+make -C bootstrap stage2         # Ouroboros via wasmtime     → lux4.wat
+make -C bootstrap stage2-native  # Ouroboros via native ELF   → lux4-native.wat
+make -C bootstrap check          # diff lux3.wat lux4.wat     → fixed-point verdict
 ```
 
-> **CRITICAL:** Do NOT use `cat file | ./target/release/lux file` — that runs in `teach` mode and dumps diagnostic text to stdout, corrupting the `.wasm` output. Always use the `wasm` CLI subcommand.
+All artifacts land in `bootstrap/build/` (gitignored). The hand-written
+source files live in `bootstrap/` (`wasi_shim.c`, `Makefile`,
+`README.md`).
+
+> **CRITICAL:** Do NOT run `cat file | ./target/release/lux file` for
+> bootstrap — that runs in `teach` mode and dumps diagnostic text to
+> stdout, corrupting the `.wat` output. Always go through the Makefile
+> or the `wasm` CLI subcommand.
 
 ## Memory Optimizations Applied (All Verified ✅)
 
@@ -108,17 +120,32 @@ This doesn't affect correctness — only WASM performance. The Rust VM is unaffe
 **Build the tool that tells you.** Don't guess. Don't pattern-match from crash addresses. Add one debug print. Run once. Fix.
 
 ### WAT-Level Surgery
-When debugging WASM runtime crashes, edit the generated `.wat` file directly instead of recompiling through the 9-minute Rust pipeline:
+When debugging WASM runtime crashes, edit the generated `.wat` file
+directly instead of recompiling through the 9-minute Rust pipeline:
 
 ```bash
-# Generate WAT once
-cargo run --release -- wasm examples/wasm_bootstrap.lux > lux3.wasm
-sed -n '/^(module/,$p' lux3.wasm > lux3.wat
-
-# Inject diagnostics, run immediately (~30 sec)
-# Edit lux3.wat, then:
-cat input.lux | wasmtime run --dir . -W max-wasm-stack=33554432 lux3.wat
+make -C bootstrap stage0             # Generate WAT once (~9 min)
+# Edit bootstrap/build/lux3.wat, then:
+cat input.lux | ~/.wasmtime/bin/wasmtime run --dir . \
+  -W max-wasm-stack=33554432 bootstrap/build/lux3.wat
 ```
+
+### Reading generated WASM when WAT is too noisy
+
+2.5 MB of WAT is hard to scan for structural oddities. The `bootstrap`
+Makefile now passes `--debug-names` to `wat2wasm`, so these tools
+produce readable output:
+
+```bash
+# Pseudocode view — great for finding hot loops in what Lux emitted
+wasm-decompile bootstrap/build/lux3.wasm > /tmp/lux3.dec
+wasm-objdump -d bootstrap/build/lux3.wasm | less    # disassembly
+wasm-objdump -x bootstrap/build/lux3.wasm           # exports/imports/sections
+```
+
+Named functions also flow through to wasmtime stack traces (readable
+crashes) and `wasm2c`-generated C (readable symbols in `lux3-native`
+debugger sessions).
 
 ### Common Crash Patterns
 
@@ -169,12 +196,18 @@ Before writing any string-processing function, ask: "Am I creating temporary str
 | `std/compiler/suggest.lux` | Levenshtein — NEUTERED during bootstrap (returns "") |
 | `src/vm/value.rs` | `VmValue` with `ListSlice` variant for O(1) list_pop |
 | `src/vm/vm.rs` | Rust VM builtins including `list_pop`, `len` (ListSlice-aware) |
+| `bootstrap/Makefile` | Stage 0 → 1 → 2 recipe — every bootstrap command |
+| `bootstrap/wasi_shim.c` | WASI bridge for the `wasm2c + gcc` native path |
+| `bootstrap/README.md` | Handler-chain explanation of the build stages |
+| `bootstrap/build/` | All generated artifacts (gitignored) |
 
-## Arc 3 Roadmap
+## What comes next
 
-See `docs/ARC3_ROADMAP.md` for the full vision:
-1. Effect-driven diagnostics (structured effects instead of inline string generation)
-2. Scoped memory arenas (GC-free deterministic deallocation)
-3. Ownership enforcement (use-after-free prevention via effect system)
-4. stderr support (diagnostics without corrupting stdout)
-5. DAG-based compiler (O(1) env lookup, incremental compilation)
+- **Finish Arc 2** — resolve the O(N²) list loops above; `make -C
+  bootstrap check` should print "FIXED POINT REACHED".
+- **Arc 3** — see `docs/ARC3_ROADMAP.md`. Diagnostic effects, scoped
+  arenas, ownership enforcement, `stderr`, DAG env, execution trees.
+- **Arc 4+** — self-containment. See `docs/ARCS.md` → *Arc 4+* and
+  `docs/SYNTHESIS_CROSSWALK.md` for candidate phases (native backend,
+  fractional permissions, FBIP, projectional AST, type-directed
+  synthesis).

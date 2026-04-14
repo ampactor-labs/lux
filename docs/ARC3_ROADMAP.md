@@ -1,9 +1,22 @@
-# Arc 3 Roadmap: Native Superpowers & Memory Independence
+# Arc 3 Roadmap — Native Superpowers & Memory Independence
 
-**Date:** 2026-04-12
-**Status:** Crystalized during the Ouroboros Bootstrap
+*The active arc. Captures architectural insights from Arc 2 and the
+path to native, memory-aware Lux. For the full narrative and
+prerequisites, see [`ARCS.md`](ARCS.md).*
 
-This document captures the architectural insights derived from resolving the Arc 2 bootstrapping memory bottlenecks. These concepts form the foundational roadmap for Arc 3 development natively via `lux4.wasm`.
+**Crystalized:** 2026-04-12 (during the Ouroboros bootstrap)
+**Status:** In progress — scoped on top of Arc 2 fixed-point
+
+### Companion specs
+
+- [`specs/scoped-memory.md`](specs/scoped-memory.md) — ownership +
+  arena deep-dive (problem, bootstrap insight, superpowers)
+- [`specs/incremental-compilation.md`](specs/incremental-compilation.md)
+  — `.luxi` module cache design (the memory-scaling foundation for DAG)
+- [`specs/codegen-effect-design.md`](specs/codegen-effect-design.md) —
+  `CodegenCtx` as an effect (replaces the manual 10-tuple threading)
+- [`specs/ownership-design.md`](specs/ownership-design.md) — the
+  ownership-as-effect design that protects arena escapes
 
 ---
 
