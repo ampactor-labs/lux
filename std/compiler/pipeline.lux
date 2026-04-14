@@ -43,7 +43,7 @@ import backend/wasm_emit
 // The frontend IS the composition of lex and parse.
 // ParseError handler: report and stop. No recovery. No sentinels.
 fn frontend(source) =
-  handle { source |> lex |> parse_program } {
+  handle { source |> lex |> list_to_flat |> parse_program } {
     unexpected(expected, got, line, col) => {
       println("Parse error [" ++ to_string(line) ++ ":" ++ to_string(col) ++ "]: expected " ++ expected ++ " got " ++ got)
       []

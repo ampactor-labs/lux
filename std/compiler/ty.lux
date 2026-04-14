@@ -69,6 +69,7 @@ fn env_with_primitives(env) = {
     |> env_extend("list_tail", TFun([TList(a)], TList(a), EfPure), Declared("builtin"))
     |> env_extend("list_first", TFun([TList(a)], a, EfPure), Declared("builtin"))
     |> env_extend("list_rest", TFun([TList(a)], TList(a), EfPure), Declared("builtin"))
+    |> env_extend("list_to_flat", TFun([TList(a)], TList(a), EfPure), Declared("builtin"))
     |> env_extend("len", TFun([a], TInt, EfPure), Declared("builtin"))
     |> env_extend("push", TFun([a, b], a, EfPure), Declared("builtin"))
     |> env_extend("slice", TFun([a, TInt, TInt], a, EfPure), Declared("builtin"))

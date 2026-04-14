@@ -99,7 +99,7 @@ fn env_shadows(env, name) = {
   else { match r { Declared(s) => s == "param", _ => false } }
 }
 
-fn filter_real_captures_no_self(names, env) = filter_real_captures_no_self_at(names, env, 0)
+fn filter_real_captures_no_self(names, env) = filter_real_captures_no_self_at(list_to_flat(names), env, 0)
 fn filter_real_captures_no_self_at(names, env, i) = {
   if i >= len(names) { [] }
   else {
@@ -113,7 +113,7 @@ fn filter_real_captures_no_self_at(names, env, i) = {
   }
 }
 
-fn filter_real_captures(names, self_name, env) = filter_real_captures_at(names, self_name, env, 0)
+fn filter_real_captures(names, self_name, env) = filter_real_captures_at(list_to_flat(names), self_name, env, 0)
 fn filter_real_captures_at(names, self_name, env, i) = {
   if i >= len(names) { [] }
   else {
@@ -215,7 +215,7 @@ fn collect_free_record_at(fields, bound, i) = {
   }
 }
 
-fn collect_free_list(sexprs, bound) = collect_free_list_at(sexprs, bound, 0)
+fn collect_free_list(sexprs, bound) = collect_free_list_at(list_to_flat(sexprs), bound, 0)
 fn collect_free_list_at(sexprs, bound, i) = {
   if i >= len(sexprs) { [] }
   else { string_union(collect_free(sexprs[i], bound), collect_free_list_at(sexprs, bound, i + 1)) }
@@ -306,7 +306,7 @@ fn collect_pat_names_lower(pat) = {
   []
 }
 
-fn extract_param_names_pure(params) = extract_param_names_pure_at(params, 0)
+fn extract_param_names_pure(params) = extract_param_names_pure_at(list_to_flat(params), 0)
 fn extract_param_names_pure_at(params, i) = {
   if i >= len(params) { [] }
   else {
@@ -367,7 +367,7 @@ fn find_in_list(list, name, idx) = {
 // ─── String Set Utilities ────────────────────────────────────
 // Used by closure lowering (collect_free) and program lowering handlers.
 
-fn string_union(a, b) = string_union_at(a, b, 0)
+fn string_union(a, b) = string_union_at(a, list_to_flat(b), 0)
 fn string_union_at(a, b, i) = {
   if i >= len(b) { a }
   else {

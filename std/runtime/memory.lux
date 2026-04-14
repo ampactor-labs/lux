@@ -144,6 +144,50 @@ fn slice(list, start, end) with Memory, Alloc = {
 fn list_first(list) with Memory = list_index(list, 0)
 fn list_rest(list) with Memory, Alloc = slice(list, 1, load_i32(list))
 
+// list_to_flat: Convert any list tree (Snoc/Concat/Slice) to a contiguous
+// tag=0 flat array in O(N). After this, list[i] is a single i32.load.
+// Returns the input unchanged if already flat or empty.
+fn list_to_flat(list) with Memory, Alloc = {
+  let n = load_i32(list)
+  if n == 0 { list }
+  else {
+    let tag = load_i32(list + 4)
+    if tag == 0 { list }
+    else {
+      let flat = make_list(n)
+      fill_flat(flat, list, n - 1)
+      flat
+    }
+  }
+}
+
+// fill_flat: Walk a Snoc tree from the right, writing each element into
+// the flat array at the correct position. O(1) per step for tag=1 nodes.
+// Falls back to list_index for non-Snoc nodes (Concat/Slice — rare).
+fn fill_flat(flat, tree, i) with Memory, Alloc = {
+  if i < 0 { () }
+  else {
+    let tag = load_i32(tree + 4)
+    if tag == 1 {
+      let left = load_i32(tree + 8)
+      let val = load_i32(tree + 12)
+      store_i32(flat + 8 + i * 4, val)
+      fill_flat(flat, left, i - 1)
+    } else {
+      // Fallback: Concat/Slice/flat — use list_index per element
+      fill_flat_fallback(flat, tree, i)
+    }
+  }
+}
+
+fn fill_flat_fallback(flat, tree, i) with Memory, Alloc = {
+  if i < 0 { () }
+  else {
+    store_i32(flat + 8 + i * 4, list_index(tree, i))
+    fill_flat_fallback(flat, tree, i - 1)
+  }
+}
+
 fn char_code(s) with Memory = load_i8(s + 4)
 
 fn from_char_code(code) with Memory, Alloc = {

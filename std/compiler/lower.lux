@@ -379,8 +379,8 @@ fn lower_record_fields(fields, env) = {
 fn sort_fields_for_lower(fields) = {
   if len(fields) <= 1 { fields }
   else {
-    let rest = sort_fields_for_lower(list_tail(fields))
-    insert_field_sorted(list_head(fields), rest)
+    let rest = sort_fields_for_lower(list_rest(fields))
+    insert_field_sorted(list_first(fields), rest)
   }
 }
 
@@ -388,10 +388,10 @@ fn insert_field_sorted(field, sorted) = {
   if len(sorted) == 0 { [field] }
   else {
     let (fa, _) = field
-    let head = list_head(sorted)
+    let head = list_first(sorted)
     let (fb, _) = head
     if fa < fb { [field] ++ sorted }
-    else { [head] ++ insert_field_sorted(field, list_tail(sorted)) }
+    else { [head] ++ insert_field_sorted(field, list_rest(sorted)) }
   }
 }
 
@@ -402,8 +402,8 @@ fn lower_record_tag(sorted_fields) = {
 fn lower_field_name_list(fields) = {
   if len(fields) == 0 { "" }
   else {
-    let (name, _) = list_head(fields)
-    let rest = list_tail(fields)
+    let (name, _) = list_first(fields)
+    let rest = list_rest(fields)
     if len(rest) == 0 { name }
     else { name ++ "," ++ lower_field_name_list(rest) }
   }
@@ -413,9 +413,9 @@ fn infer_record_field_types(fields, lowered_exprs) = {
   // Extract type from each lowered expression for the TRecord type
   if len(fields) == 0 || len(lowered_exprs) == 0 { [] }
   else {
-    let (name, _) = list_head(fields)
-    let ty = lexpr_ty(list_head(lowered_exprs))
-    [(name, ty)] ++ infer_record_field_types(list_tail(fields), list_tail(lowered_exprs))
+    let (name, _) = list_first(fields)
+    let ty = lexpr_ty(list_first(lowered_exprs))
+    [(name, ty)] ++ infer_record_field_types(list_rest(fields), list_rest(lowered_exprs))
   }
 }
 
@@ -644,8 +644,8 @@ fn extract_names_from_ty(ty) = match ty {
 fn extract_record_ty_names(fields) = {
   if len(fields) == 0 { [] }
   else {
-    let (name, _) = list_head(fields)
-    [name] ++ extract_record_ty_names(list_tail(fields))
+    let (name, _) = list_first(fields)
+    [name] ++ extract_record_ty_names(list_rest(fields))
   }
 }
 
@@ -716,23 +716,23 @@ fn lower_handle(body, handler_expr, state_bindings, env) = {
 fn install_evidence_from_record(handler_name, op_names, idx) = {
   if len(op_names) == 0 { [] }
   else {
-    let op_name = list_head(op_names)
+    let op_name = list_first(op_names)
     let ev_name = "__ev_op_" ++ op_name
     let index_expr = LIndex(TUnit, LGlobal(TUnit, handler_name), LConst(TInt, LInt(idx)), true)
     [LLet(TUnit, ev_name, index_expr)]
-    ++ install_evidence_from_record(handler_name, list_tail(op_names), idx + 1)
+    ++ install_evidence_from_record(handler_name, list_rest(op_names), idx + 1)
   }
 }
 
 fn install_stateful_evidence(handler_name, op_names, state_names, idx, env) = {
   if len(op_names) == 0 { [] }
   else {
-    let op_name = list_head(op_names)
+    let op_name = list_first(op_names)
     let ev_name = "__ev_op_" ++ op_name
     let index_expr = LIndex(TUnit, LGlobal(TUnit, handler_name), LConst(TInt, LInt(idx)), true)
     let substituted = subst_state_to_cells(index_expr, state_names)
     [LLet(TUnit, ev_name, substituted)]
-    ++ install_stateful_evidence(handler_name, list_tail(op_names), state_names, idx + 1, env)
+    ++ install_stateful_evidence(handler_name, list_rest(op_names), state_names, idx + 1, env)
   }
 }
 
@@ -794,9 +794,9 @@ fn extract_full_rewrite(name, params, body, pre_stmts) = {
 fn gen_state_names(bindings) = {
   if len(bindings) == 0 { [] }
   else {
-    let (name, _) = list_head(bindings)
+    let (name, _) = list_first(bindings)
     let gname = "__hs_" ++ name ++ "_" ++ to_string(fresh_id())
-    [(name, gname)] ++ gen_state_names(list_tail(bindings))
+    [(name, gname)] ++ gen_state_names(list_rest(bindings))
   }
 }
 
@@ -816,9 +816,9 @@ fn init_state_globals(bindings, state_names, env) = {
 fn restore_state_globals(state_names) = {
   if len(state_names) == 0 { [] }
   else {
-    let (_, gname) = list_head(state_names)
+    let (_, gname) = list_first(state_names)
     [LLet(TUnit, gname, LGlobal(TUnit, "__save_" ++ gname))]
-    ++ restore_state_globals(list_tail(state_names))
+    ++ restore_state_globals(list_rest(state_names))
   }
 }
 
@@ -827,26 +827,26 @@ fn restore_state_globals(state_names) = {
 fn save_op_bindings(op_names) = {
   if len(op_names) == 0 { [] }
   else {
-    let ev = "__ev_op_" ++ list_head(op_names)
+    let ev = "__ev_op_" ++ list_first(op_names)
     [LLet(TUnit, "__save_" ++ ev, LGlobal(TUnit, ev))]
-    ++ save_op_bindings(list_tail(op_names))
+    ++ save_op_bindings(list_rest(op_names))
   }
 }
 
 fn restore_op_bindings(op_names) = {
   if len(op_names) == 0 { [] }
   else {
-    let ev = "__ev_op_" ++ list_head(op_names)
+    let ev = "__ev_op_" ++ list_first(op_names)
     [LLet(TUnit, ev, LGlobal(TUnit, "__save_" ++ ev))]
-    ++ restore_op_bindings(list_tail(op_names))
+    ++ restore_op_bindings(list_rest(op_names))
   }
 }
 
 fn flatten_blocks(stmts) = {
   if len(stmts) == 0 { [] }
   else {
-    let head = list_head(stmts)
-    let rest = flatten_blocks(list_tail(stmts))
+    let head = list_first(stmts)
+    let rest = flatten_blocks(list_rest(stmts))
     match head {
       LBlock(_, inner) => flatten_blocks(inner) ++ rest,
       _ => [head] ++ rest
@@ -859,8 +859,8 @@ fn flatten_blocks(stmts) = {
 fn filter_out_hs_names(names) = {
   if len(names) == 0 { [] }
   else {
-    let n = list_head(names)
-    let rest = filter_out_hs_names(list_tail(names))
+    let n = list_first(names)
+    let rest = filter_out_hs_names(list_rest(names))
     if starts_with(n, "__hs_") || starts_with(n, "__save___hs_") || starts_with(n, "__ev_result") { rest }
     else { [n] ++ rest }
   }
@@ -889,10 +889,10 @@ fn collect_free_lowir(node, bound) =
 fn lower_state_updates_pure(updates, env) = {
   if len(updates) == 0 { [] }
   else {
-    let (name, value_sexpr) = list_head(updates)
+    let (name, value_sexpr) = list_first(updates)
     let lowered = lower_expr_pure(value_sexpr, env)
     [LLet(lexpr_ty(lowered), name, lowered)]
-    ++ lower_state_updates_pure(list_tail(updates), env)
+    ++ lower_state_updates_pure(list_rest(updates), env)
   }
 }
 
@@ -902,17 +902,17 @@ fn lower_state_updates_pure(updates, env) = {
 fn is_orig_state_name(state_names, n) = {
   if len(state_names) == 0 { false }
   else {
-    let (orig, _) = list_head(state_names)
-    if orig == n { true } else { is_orig_state_name(list_tail(state_names), n) }
+    let (orig, _) = list_first(state_names)
+    if orig == n { true } else { is_orig_state_name(list_rest(state_names), n) }
   }
 }
 
 fn subst_state_to_cells(node, state_names) = {
   if len(state_names) == 0 { node }
   else {
-    let (orig, gname) = list_head(state_names)
+    let (orig, gname) = list_first(state_names)
     let replaced = subst_one_state(node, orig, gname)
-    subst_state_to_cells(replaced, list_tail(state_names))
+    subst_state_to_cells(replaced, list_rest(state_names))
   }
 }
 
@@ -937,19 +937,19 @@ fn subst_one_state(node, orig, gname) =
 fn remap_rewrites_to_cells(rw_map, cell_names, env) = {
   if len(rw_map) == 0 { [] }
   else {
-    let entry = list_head(rw_map)
+    let entry = list_first(rw_map)
     // Append cell_names as 6th element — apply_rewrite detects and substitutes
     [entry ++ [cell_names]]
-    ++ remap_rewrites_to_cells(list_tail(rw_map), cell_names, env)
+    ++ remap_rewrites_to_cells(list_rest(rw_map), cell_names, env)
   }
 }
 
 fn bind_rewrite_params(params, args, env, idx) = {
   if len(params) == 0 || len(args) == 0 { [] }
   else {
-    let lowered = lower_expr(list_head(args), env)
-    [LLet(lexpr_ty(lowered), list_head(params), lowered)]
-    ++ bind_rewrite_params(list_tail(params), list_tail(args), env, idx + 1)
+    let lowered = lower_expr(list_first(args), env)
+    [LLet(lexpr_ty(lowered), list_first(params), lowered)]
+    ++ bind_rewrite_params(list_rest(params), list_rest(args), env, idx + 1)
   }
 }
 
@@ -1033,9 +1033,9 @@ fn lower_exprs_pure(sexprs, env) = {
 fn lookup_rewrite(rw_map, name, idx) = {
   if len(rw_map) == 0 { [] }
   else {
-    let entry = list_head(rw_map)
+    let entry = list_first(rw_map)
     if entry[0] == name { entry }
-    else { lookup_rewrite(list_tail(rw_map), name, idx + 1) }
+    else { lookup_rewrite(list_rest(rw_map), name, idx + 1) }
   }
 }
 
@@ -1059,10 +1059,10 @@ fn lower_state_updates(updates, env) = {
 fn lower_state_updates_direct(updates, env) = {
   if len(updates) == 0 { [] }
   else {
-    let (name, value_sexpr) = list_head(updates)
+    let (name, value_sexpr) = list_first(updates)
     let lowered = lower_expr(value_sexpr, env)
     [LLet(lexpr_ty(lowered), name, lowered)]
-      ++ lower_state_updates_direct(list_tail(updates), env)
+      ++ lower_state_updates_direct(list_rest(updates), env)
   }
 }
 

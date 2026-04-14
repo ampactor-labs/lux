@@ -1591,6 +1591,11 @@ impl Vm {
                 _ => Err("list_rest expects a List".into()),
             }
         });
+        // list_to_flat: In the Rust VM, lists are already flat Vec — identity.
+        // In WASM, this converts Snoc trees to tag=0 flat arrays for O(1) indexing.
+        self.register_builtin("list_to_flat", |args| {
+            Ok(args.into_iter().next().unwrap_or(VmValue::Unit))
+        });
         self.register_builtin("split", |args| match (args.first(), args.get(1)) {
             (Some(VmValue::String(s)), Some(VmValue::String(sep))) => {
                 let parts: Vec<VmValue> = s

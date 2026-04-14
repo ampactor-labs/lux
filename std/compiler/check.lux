@@ -261,9 +261,10 @@ fn resolve_env_pop(env, subst, eff_subst, acc) = {
 fn check_program(stmts) = check_program_with(stmts, env_with_primitives(env_empty()), 0)
 
 fn check_program_with(stmts, init_env, start_n) = {
+  let flat_stmts = list_to_flat(stmts)
   handle {
-    prescan_fns(stmts)
-    infer_stmts(stmts)
+    prescan_fns(flat_stmts)
+    infer_stmts(flat_stmts)
     get_env()
   } with n = start_n, s = [], e = init_env, ef = EfPure, sc = [], es = eff_subst_empty() {
     fresh() => {

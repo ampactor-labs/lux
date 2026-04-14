@@ -75,8 +75,8 @@ fn collect_top_let_names(stmts) = {
     let stmt = list_head(stmts)
     let rest_names = collect_top_let_names(list_tail(stmts))
     match stmt {
-      LLet(_, name, _) => [name] ++ rest_names,
-      LBlock(_, inner) => collect_top_let_names(inner) ++ rest_names,
+      LLet(_, name, _) => push(rest_names, name),
+      LBlock(_, inner) => string_union(rest_names, collect_top_let_names(inner)),
       _ => rest_names
     }
   }
@@ -350,8 +350,8 @@ fn collect_top_stmts(defs) = {
     let head = list_head(defs)
     let rest = collect_top_stmts(list_tail(defs))
     match head {
-      LLet(_, name, value) => match value { LMakeClosure(_, _, _) => rest, _ => [head] ++ rest },
-      _ => [head] ++ rest
+      LLet(_, name, value) => match value { LMakeClosure(_, _, _) => rest, _ => push(rest, head) },
+      _ => push(rest, head)
     }
   }
 }

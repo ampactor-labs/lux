@@ -115,7 +115,7 @@ fn single_char_type(ch) = {
 // This is cleaner than the pre-Phase 7 version which threaded them everywhere.
 
 fn lex(source) = {
-  let cs = chars(source);
+  let cs = list_to_flat(chars(source));
   let src_len = len(cs);
 
   // -- Scan helpers (closures capture cs, src_len) --
