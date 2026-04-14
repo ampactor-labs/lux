@@ -1394,6 +1394,14 @@ impl Vm {
             }
             Ok(VmValue::Unit)
         });
+        // str_eq: value-equality on two strings, returns 1 (equal) or 0 (not).
+        // Mirrors std/runtime/memory.lux's $str_eq for the Rust VM.
+        self.register_builtin("str_eq", |args| match (args.first(), args.get(1)) {
+            (Some(VmValue::String(a)), Some(VmValue::String(b))) => {
+                Ok(VmValue::Int(if a == b { 1 } else { 0 }))
+            }
+            _ => Ok(VmValue::Int(0)),
+        });
         self.register_builtin("to_string", |args| {
             let val = args.first().cloned().unwrap_or(VmValue::Unit);
             Ok(VmValue::String(Arc::new(val.display_print())))

@@ -29,7 +29,7 @@ fn env_with_params(env, fn_name, params) = {
   }
 }
 
-fn zip_params_to_env(param_names, param_tys, env) = zip_params_at(param_names, param_tys, env, 0)
+fn zip_params_to_env(param_names, param_tys, env) = zip_params_at(list_to_flat(param_names), list_to_flat(param_tys), env, 0)
 fn zip_params_at(param_names, param_tys, env, i) = {
   if i >= len(param_names) { env }
   else {
@@ -38,7 +38,7 @@ fn zip_params_at(param_names, param_tys, env, i) = {
   }
 }
 
-fn bind_params_unknown_ty(params, env) = bind_params_unknown_at(params, env, 0)
+fn bind_params_unknown_ty(params, env) = bind_params_unknown_at(list_to_flat(params), env, 0)
 fn bind_params_unknown_at(params, env, i) = {
   if i >= len(params) { env }
   else { bind_params_unknown_at(params, push(env, (params[i], TUnit, Declared("param"))), i + 1) }
@@ -183,7 +183,7 @@ fn extract_state_binding_names(bindings, i) = {
   }
 }
 
-fn collect_free_match_arms(arms, bound) = collect_free_match_arms_at(arms, bound, 0)
+fn collect_free_match_arms(arms, bound) = collect_free_match_arms_at(list_to_flat(arms), bound, 0)
 fn collect_free_match_arms_at(arms, bound, i) = {
   if i >= len(arms) { [] }
   else {
@@ -197,7 +197,7 @@ fn collect_free_match_arms_at(arms, bound, i) = {
   }
 }
 
-fn collect_free_updates(updates, bound) = collect_free_updates_at(updates, bound, 0)
+fn collect_free_updates(updates, bound) = collect_free_updates_at(list_to_flat(updates), bound, 0)
 fn collect_free_updates_at(updates, bound, i) = {
   if i >= len(updates) { [] }
   else {
@@ -206,7 +206,7 @@ fn collect_free_updates_at(updates, bound, i) = {
   }
 }
 
-fn collect_free_record(fields, bound) = collect_free_record_at(fields, bound, 0)
+fn collect_free_record(fields, bound) = collect_free_record_at(list_to_flat(fields), bound, 0)
 fn collect_free_record_at(fields, bound, i) = {
   if i >= len(fields) { [] }
   else {
@@ -229,7 +229,7 @@ fn collect_free_list_at(sexprs, bound, i) = {
 // the returned free set so they don't propagate up.
 fn collect_free_stmts(stmts, bound) = {
   let fn_names = prescan_fn_names(stmts, 0)
-  let (refs, final_bound) = collect_free_stmts_at(stmts, bound, 0)
+  let (refs, final_bound) = collect_free_stmts_at(list_to_flat(stmts), bound, 0)
   (filter_out(refs, fn_names, 0), final_bound)
 }
 

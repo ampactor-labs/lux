@@ -329,18 +329,13 @@ fn compile_illuminate(source) = {
 
 fn compile_wasm(source) = {
   let (prelude_ast, prelude_env, start_n) = __prelude_cache
-  // Check imports module-by-module — fresh substitution per module.
   let (import_env, next_n, import_ast, _seen) =
     resolve_and_check_modules(source, prelude_env, start_n)
-  // Check user source against accumulated env.
-  // No strip_imports — parser creates ImportStmt, checker/lowerer ignore it.
   let user_ast = source |> frontend
   let env = user_ast |> check_program_with(import_env, next_n)
-  // Prepend runtime ONLY for lowering.
   let runtime = read_file("std/runtime/memory.lux")
   let runtime_ast = runtime |> frontend
   let combined_ast = prelude_ast ++ import_ast ++ runtime_ast ++ user_ast
-  // Silent — diagnostics don't contaminate WAT stdout.
   handle { validate(combined_ast, env) } with silent_diagnostics
   let ctors = env |> extract_constructors
   let lowered = lower_program_typed(combined_ast, ctors, env)
@@ -400,26 +395,33 @@ fn gradient_suggestion(pair) = {
 fn resolve_and_check_modules(source, base_env, start_n) =
   resolve_and_check_at(source |> split("\n") |> find_imports, base_env, start_n, [], [])
 
+// String-typed dedup — list_contains via polymorphic == falls through
+// to val_eq, which SHOULD work for strings but in practice doesn't
+// dedupe across allocations. str_eq is the canonical value-equality.
+fn paths_contain(paths, p) = {
+  if len(paths) == 0 { false }
+  else {
+    if str_eq(list_head(paths), p) == 1 { true }
+    else { paths_contain(list_tail(paths), p) }
+  }
+}
+
 fn resolve_and_check_at(paths, env, n, seen, combined_ast) = {
   if len(paths) == 0 { (env, n, combined_ast, seen) }
   else {
     let path = list_head(paths)
     let rest = list_tail(paths)
-    if list_contains(seen, path) {
+    if paths_contain(seen, path) {
       resolve_and_check_at(rest, env, n, seen, combined_ast)
     } else {
       let file_path = "std/" ++ path ++ ".lux"
       let file_source = read_file(file_path)
-      // Recursively resolve+check this module's own imports first
       let dep_imports = file_source |> split("\n") |> find_imports
       let (dep_env, dep_n, dep_ast, dep_seen) =
         resolve_and_check_at(dep_imports, env, n, seen ++ [path], combined_ast)
-      // Check THIS module against accumulated dependency env
-      // No strip_imports — ImportStmt flows through and is ignored.
       let mod_ast = file_source |> frontend
       let mod_env = mod_ast |> check_program_with(dep_env, dep_n)
       let new_n = dep_n + len(mod_env) * 10
-      // Continue with remaining imports
       resolve_and_check_at(rest, mod_env, new_n, dep_seen, dep_ast ++ mod_ast)
     }
   }

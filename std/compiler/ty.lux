@@ -45,7 +45,10 @@ fn env_lookup(env, name) = {
     let val = list_head(env)
     let rest = list_tail(env)
     let (k, v, r) = val
-    if k == name { (k, v, r) }
+    // str_eq fast path — polymorphic == falls through to val_eq, which adds
+    // ~10 loads per call. Per-stmt env_lookup count is in the thousands; the
+    // compounded overhead dominated WASM lowering until this fix.
+    if str_eq(k, name) == 1 { (k, v, r) }
     else { env_lookup(rest, name) }
   }
 }
@@ -100,6 +103,9 @@ fn env_with_primitives(env) = {
     |> env_extend("println", TFun([a], TUnit, EfClosed(["Console"])), Declared("builtin"))
     |> env_extend("print", TFun([a], TUnit, EfClosed(["Console"])), Declared("builtin"))
     |> env_extend("read_file", TFun([TString], TString, EfClosed(["IO"])), Declared("builtin"))
+    // str_eq: value equality on strings (returns 1/0). Defined in std/runtime/memory.lux.
+    // Declared here so the compiler can call it from contexts that don't import memory.
+    |> env_extend("str_eq", TFun([TString, TString], TInt, EfPure), Declared("builtin"))
     // Region primitives — bump allocator checkpoint/restore
     |> env_extend("heap_save", TFun([], TInt, EfPure), Declared("builtin"))
     |> env_extend("heap_restore", TFun([TInt], TUnit, EfPure), Declared("builtin"))

@@ -1194,14 +1194,16 @@ fn lower_program_typed(stmts, ctors, env) = {
   }
 }
 
+// String-equality fix — polymorphic == falls through to val_eq which works
+// but adds overhead per-call. str_eq is the typed-string fast path.
 fn ctor_in(ctors, name, idx) = {
   if len(ctors) == 0 { false }
-  else { if list_head(ctors) == name { true } else { ctor_in(list_tail(ctors), name, idx + 1) } }
+  else { if str_eq(list_head(ctors), name) == 1 { true } else { ctor_in(list_tail(ctors), name, idx + 1) } }
 }
 
 fn name_in(names, name, idx) = {
   if len(names) == 0 { false }
-  else { if list_head(names) == name { true } else { name_in(list_tail(names), name, idx + 1) } }
+  else { if str_eq(list_head(names), name) == 1 { true } else { name_in(list_tail(names), name, idx + 1) } }
 }
 
 fn collect_top_names(stmts, idx) = {
