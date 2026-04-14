@@ -100,5 +100,39 @@ check: $(BUILD)/lux3.wat $(BUILD)/lux4.wat
 	  exit 1; \
 	fi
 
+
+# ─── Canonical-form fixed-point check ─────────────────────────────────
+# Strip syntactic noise (comments, whitespace, name-section ordering)
+# by round-tripping through wat2wasm + wasm2wat. What survives is
+# semantically meaningful — names of identifiers, ordering of sections,
+# function bodies. A clean diff here is a stronger guarantee than
+# `make check`'s textual diff: handler-state fresh_id numbering
+# doesn't matter if the structural shape matches.
+check-canonical: $(BUILD)/lux3.wat $(BUILD)/lux4.wat
+	@wat2wasm --debug-names $(BUILD)/lux3.wat -o $(BUILD)/lux3.canon.wasm 2>/dev/null
+	@wat2wasm --debug-names $(BUILD)/lux4.wat -o $(BUILD)/lux4.canon.wasm 2>/dev/null
+	@wasm2wat $(BUILD)/lux3.canon.wasm > $(BUILD)/lux3.canon.wat
+	@wasm2wat $(BUILD)/lux4.canon.wasm > $(BUILD)/lux4.canon.wat
+	@if diff -q $(BUILD)/lux3.canon.wat $(BUILD)/lux4.canon.wat > /dev/null; then \
+	  echo "CANONICAL FIXED POINT — Arc 2 semantically complete"; \
+	else \
+	  echo "Canonical WAT differs ($$(diff $(BUILD)/lux3.canon.wat $(BUILD)/lux4.canon.wat | wc -l) lines):"; \
+	  diff $(BUILD)/lux3.canon.wat $(BUILD)/lux4.canon.wat | head -40; \
+	  exit 1; \
+	fi
+
+# ─── Per-function decompile diff ──────────────────────────────────────
+# wasm-decompile each binary, split into per-function chunks, diff
+# function-by-function. The function whose diff is non-empty IS the
+# miscompiled function — much faster than wading through 137K lines
+# of WAT looking for the divergence.
+decompile-diff: $(BUILD)/lux3.wasm $(BUILD)/lux4.wasm
+	@wasm-decompile $(BUILD)/lux3.wasm > $(BUILD)/lux3.dc.txt
+	@wasm-decompile $(BUILD)/lux4.wasm > $(BUILD)/lux4.dc.txt
+	@diff $(BUILD)/lux3.dc.txt $(BUILD)/lux4.dc.txt > $(BUILD)/dc.diff || true
+	@echo "Decompile diff written to $(BUILD)/dc.diff ($$(wc -l < $(BUILD)/dc.diff) lines)"
+	@echo "First diverging function name:"
+	@awk '/^[<>] function /{print; exit}' $(BUILD)/dc.diff || true
+
 clean:
 	rm -rf $(BUILD)
