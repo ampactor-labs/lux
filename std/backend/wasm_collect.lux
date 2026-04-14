@@ -38,12 +38,17 @@ effect ExprEmit { do_emit_expr(e, params, locals, ctx) -> () }
 
 // ─── Context Accessors ──────────────────────────────────────
 // ctx = (string_map, tag_map, fn_table, top_globals, type_env, vstack_base)
-fn ctx_strings(ctx) = ctx[0]
-fn ctx_tags(ctx) = ctx[1]
-fn ctx_fns(ctx) = ctx[2]
-fn ctx_globals(ctx) = ctx[3]
-fn ctx_type_env(ctx) = ctx[4]
-fn ctx_vstack_base(ctx) = ctx[5]
+//
+// Must use tuple destructuring, NOT ctx[i]: the type of `ctx` is TVar at
+// the call site (polymorphic), so the lowerer emits list_index(ctx, i)
+// which misreads tuple memory as a List with a tag byte. Destructuring
+// produces direct i32.load at the correct offset per field.
+fn ctx_strings(ctx) = { let (s, _, _, _, _, _) = ctx; s }
+fn ctx_tags(ctx) = { let (_, t, _, _, _, _) = ctx; t }
+fn ctx_fns(ctx) = { let (_, _, f, _, _, _) = ctx; f }
+fn ctx_globals(ctx) = { let (_, _, _, g, _, _) = ctx; g }
+fn ctx_type_env(ctx) = { let (_, _, _, _, e, _) = ctx; e }
+fn ctx_vstack_base(ctx) = { let (_, _, _, _, _, v) = ctx; v }
 
 fn find_param_idx(params, name) = {
   if len(params) == 0 { 0 - 1 }
@@ -53,12 +58,18 @@ fn find_param_idx(params, name) = {
   }
 }
 
+// `name` is already a String — the `to_string(name)` wrapper was a no-op in
+// the Rust VM but a silent corrupter in WASM: when inference leaves `name`
+// typed as TVar, the lowerer routes to int_to_str(pointer), yielding the
+// decimal text of the heap pointer instead of the original string.
+// Root-caused via `wasm-decompile bootstrap/build/lux3.wasm` on the
+// miscompiled Ouroboros output — the handler-state lifting that broke
+// self-compilation traces back to this single line.
 fn is_handler_global(name) = {
-  let ns = to_string(name)
-  if len(ns) > 5 && string_slice(ns, 0, 5) == "__hs_" { true }
-  else { if len(ns) > 7 && string_slice(ns, 0, 7) == "__save_" { true }
-  else { if len(ns) > 8 && string_slice(ns, 0, 8) == "__ev_op_" { true }
-  else { if len(ns) >= 11 && string_slice(ns, 0, 11) == "__ev_result" { true }
+  if len(name) > 5 && string_slice(name, 0, 5) == "__hs_" { true }
+  else { if len(name) > 7 && string_slice(name, 0, 7) == "__save_" { true }
+  else { if len(name) > 8 && string_slice(name, 0, 8) == "__ev_op_" { true }
+  else { if len(name) >= 11 && string_slice(name, 0, 11) == "__ev_result" { true }
   else { false } } } }
 }
 
@@ -301,11 +312,16 @@ fn max_fn_arity(fns) = {
   }
 }
 
+// fn_table is List<String> (function names); use str_eq directly rather
+// than falling through to val_eq via polymorphic ==. val_eq works for
+// heap-pointer strings in principle, but the typed fast-path has been
+// more reliable across self-hosting — see wasm_collect.is_handler_global
+// root-cause for the pattern.
 fn find_fn_index(fn_table, name) = {
   if len(fn_table) == 0 { 0 - 1 }
   else {
     let (rest, n) = list_pop(fn_table)
-    if n == name { len(rest) } else { find_fn_index(rest, name) }
+    if str_eq(n, name) == 1 { len(rest) } else { find_fn_index(rest, name) }
   }
 }
 
