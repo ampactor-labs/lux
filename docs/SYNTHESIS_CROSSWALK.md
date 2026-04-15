@@ -30,21 +30,28 @@ Six of eight pillars are Lux. Two bring ideas worth adopting:
 
 **The genuinely new ideas, ranked by fit:**
 
-1. **Fractional permissions for concurrent reads** (Pillar VI) — a
-   mathematically-clean alternative to affine `own` when values are
-   shared for *reading* across threads. Fits naturally on top of Lux's
-   ownership-as-effect model.
+1. ~~**Fractional permissions for concurrent reads** (Pillar VI)~~ —
+   **SUPERSEDED.** See *2024–2026 Research Neighbors* (Tier 4): Vale's
+   region-freeze via `!Mutate` delivers the same proof via Lux's existing
+   effect algebra with no numeric permission accounting.
+   `specs/fractional-permissions.md` is shelved.
 2. **FBIP — Functional But In-Place** (Pillar IV) — pure functional
    updates compiled to destructive in-place mutation when the value is
    unshared. A native-backend optimization that pays off exactly where
-   Lux's gradient is strongest.
+   Lux's gradient is strongest. **Refined:** via ownership graph directly,
+   not post-hoc RC analysis (see Tier 5). Stronger static guarantee than
+   Koka/Lean's approach.
 3. **Projectional AST + content-addressed storage** (Pillar I + VII) —
-   already partially in `specs/packaging-design.md` (handler = package,
-   hash = lock). Elevating it to the source-of-truth level is a full
-   arc.
+   **DOWNGRADED to storage-only.** Text remains canonical (Darklang's
+   retreat from structural editing confirms). Content-addressing lives
+   in the `.luxi` cache (`specs/incremental-compilation.md`). No
+   projectional editor. See *Research Neighbors* Tier 4.
 4. **AI-native as an explicit design principle** (Pillar VIII) — Lux's
    *Collaboration Pattern* (`INSIGHTS.md`) is exactly this, unnamed.
-   Worth promoting to a first-class design constraint.
+   Worth promoting to a first-class design constraint. **Operationalized**
+   as one-mechanism `Suggest` effect — any proposer (enumerative,
+   SMT-guided, LLM-guided) is a handler; the verifier is the oracle.
+   See Tier 5.
 5. **SIMD auto-gen for byte scans** (Pillar III) — a native-backend
    optimization for the lexer hot path. Lands when the x86 emitter lands.
 
@@ -279,15 +286,156 @@ items are candidates for scoping:
   `specs/incremental-compilation.md` (from Pillar VII).
 
 **For Arc 4+ (open):**
-- `specs/fractional-permissions.md` — new spec (from Pillar VI).
+- ~~`specs/fractional-permissions.md`~~ — **shelved** per *Research
+  Neighbors* Tier 4 (Vale's region-freeze is cleaner).
 - `specs/span-types.md` — new spec (from Pillar III).
-- **FBIP** transform as a native-backend milestone (from Pillar IV).
+- **FBIP** transform as a native-backend milestone (from Pillar IV) —
+  via the ownership graph directly (see *Research Neighbors* Tier 5).
 - **SIMD auto-gen** for byte scans (from Pillar III).
-- **Projectional AST** as a full arc thesis (from Pillar I).
+- ~~**Projectional AST** as a full arc thesis~~ — **downgraded** to
+  storage-only (see *Research Neighbors* Tier 4). Text stays canonical.
 
 **Documentation-only (can happen any time):**
 - Name the AI-native principle explicitly (from Pillar VIII).
 - Document Parse/Read separation as a Lux teaching point (from Pillar III).
+
+---
+
+## 2024–2026 Research Neighbors
+
+*Extending the crosswalk beyond the Synthesis Manifesto. What academic
+and industrial language design in 2024–2026 says Lux should absorb,
+reframe, or reject. Same verdict format: ✅ already Lux, 🔀 convergent,
+🆕 new, ❌ reject.*
+
+### The short answer
+
+Most 2024-2026 research converges on what Lux has already chosen. The
+interesting findings are **implementation techniques** — how to make what
+Lux has already designed run faster, infer more precisely, or emit cleaner
+bytes — not new primitives.
+
+| Neighbor | Verdict | Fit |
+|---|---|---|
+| Affect (POPL 2025) — affine-tracked `resume` | 🆕 new | Arc 3 candidate Item 8 |
+| Koka evidence-passing (ICFP 2021, Koka 2024 C backend) | 🆕 impl. technique | Arc 3 Item 5 (`val_concat` drift fix) |
+| Polonius 2026 alpha — lazy constraint rewrite | 🆕 impl. technique | Arc 3 Item 5 (ownership pass) |
+| Salsa 3.0 / `ty` — flat-array subst + epoch + persistent overlay | 🆕 impl. technique | Arc 3 Item 5 (substitution representation) |
+| Liquid Haskell 2025 — SMT by theory | 🔀 convergent | Arc 3 (`SMT` effect; handler picks Z3 / cvc5) |
+| Modal effect types (POPL 2025 / POPL 2026) | 🔀 convergent reframe | theoretical grounding for `E - F` |
+| Idris 2 QTT (ECOOP 2021) | 🔀 display only | `--teach` renders `0/1/ω` presentation |
+| Wasm 3.0 exceptions + tail calls (Sep 2025) | 🆕 new | Arc 3 Item 1 (Diagnostic), Arc 4 |
+| WASIp3 async effect ABI (late 2025 RC) | 🆕 new | Arc 3/4 capability layer |
+| Direct WASM binary emission (Thunderseethe pattern) | 🆕 pattern | Arc 4 #1 (delete `wat2wasm`) |
+| Lexa (OOPSLA 2024) — direct stack-switching | 🆕 new | Arc 4 native-backend optimization |
+| GPCE 2024 — typed codegen via effects | ✅ validation | cite in Codegen-as-effect commit |
+| Rust 2025 bootstrap redesign + Crystal tarball + DDC | ✅ validates | Phase 0 of Arc 3 (freeze+delete Rust) |
+| Vale region-freeze with `!Mutate` | 🔀 supersedes fractional permissions | update Pillar VI below |
+| Darklang projectional retreat | ❌ validates rejection | update Pillar I below |
+| Unison 1.0 content-addressed codebase | 🔀 storage only | names stay canonical |
+| Scala 3 capture checking `^` | ❌ reject | redundant with effect rows |
+| WASM 3.0 GC | ❌ reject as default | optional Arc 4 backend |
+
+### Tier 1 — load-bearing for Arc 3
+
+**Affect (POPL 2025) — affine-tracked `resume`.** Types distinguish one-shot
+from multi-shot resume; compiler picks stack-alloc vs heap-copy per handler.
+Exactly "the inference IS the light" applied to continuations. Candidate new
+**Arc 3 Item 8**. [Paper](https://iris-project.org/pdfs/2025-popl-affect.pdf).
+
+**Koka evidence passing — monomorphic handler dispatch.** When the DAG env
+(Item 5) proves a call site's handler stack is monomorphic, emit
+`call $h_foo` directly instead of `global.get $__ev_op_foo; call_indirect`.
+**This kills the `val_concat`/`val_eq` polymorphic-fallback drift at the
+compile stage, not runtime.** [Paper](https://xnning.github.io/papers/multip.pdf).
+
+**Polonius 2026 alpha — lazy constraint rewrite.** Abandoned Datalog for
+location-sensitive reachability over subset+CFG with lazy rewrites. Correct
+shape for Lux's ownership pass; don't build a Datalog-style side structure.
+[Project goal](https://rust-lang.github.io/rust-project-goals/2026/polonius.html).
+
+**Salsa 3.0 / `ty` — flat-array substitution with epoch + persistent
+per-module overlay (Dec 2025).** Convergent answer to Item 5's subst
+representation decision. Module granularity is sufficient; fine-grained
+per-definition is overkill (Pyrefly engineering confirms at Meta scale).
+[ty / Salsa 3.0](https://lobste.rs/s/zjq0nl/ty_extremely_fast_python_type_checker).
+
+### Tier 2 — Arc 4 / native backend
+
+- **Wasm 3.0** (Sep 2025): exceptions + tail calls standardized. Diagnostic lowers cheap. [Announcement](https://webassembly.org/news/2025-09-17-wasm-3.0/).
+- **WASIp3 async ABI**: `IO + Async` row → WASIp3 async imports, no caller coloring. [Preview](https://www.fermyon.com/blog/looking-ahead-to-wasip3).
+- **Direct WASM binary emission** (Thunderseethe 2024): typed section builder emitting LEB128. [Reference](https://thunderseethe.dev/posts/emit-base/).
+- **Lexa** (OOPSLA 2024): direct stack-switching for lexical handlers; linear vs quadratic. [Paper](https://cs.uwaterloo.ca/~yizhou/papers/lexa-oopsla2024.pdf).
+- **Native-backend ranking** (hand-rolled x86 > QBE > Cranelift > LLVM): see `docs/ARCS.md` Arc 4+.
+- **Roc surgical linker + dev-backend split**: release (LLVM/QBE) + dev (bespoke) for interactive latency. [Roc](https://sycl.it/agenda/day2/roc-surgical-linker/).
+
+### Tier 3 — reframes (no redesign, citations)
+
+- **Modal effect types** (POPL 2025 / POPL 2026): Lux's `E - F` as relative modality. [2025](https://homepages.inf.ed.ac.uk/slindley/papers/modal-effects.pdf) · [2026](https://popl26.sigplan.org/details/POPL-2026-popl-research-papers/34/Rows-and-Capabilities-as-Modal-Effects).
+- **Idris 2 QTT** (ECOOP 2021): display convention `0/1/ω` in `--teach`. Semantics stays own/ref. [Paper](https://arxiv.org/abs/2104.00480).
+- **GPCE 2024 — typed codegen via effects**: academic grounding for `specs/codegen-effect-design.md`. Cite in Phase 1 commit. [Paper](https://2024.splashcon.org/details/gpce-2024-papers/2/Type-Safe-Code-Generation-With-Algebraic-Effects-and-Handlers).
+- **Liquid Haskell 2025 — SMT split**: `SMT` effect; handler picks Z3/cvc5 by residual form. [Release](https://www.tweag.io/blog/2025-03-20-lh-release/).
+- **Scala 3 reach capabilities** (`x*`): syntactic precedent for "capability reachable through `x`"; information already in Lux's effect row. [Reference](https://docs.scala-lang.org/scala3/reference/experimental/cc.html).
+
+### Tier 4 — rejections (overriding earlier recommendations)
+
+**Supersedes "Fractional permissions for concurrent reads" (ranked #1 in
+the earlier recommendations list, Pillar VI).** Vale's region-freeze via
+`!Mutate` on a region delivers the same "N parallel readers, no mutation"
+proof using Lux's existing effect algebra with no numeric permission
+accounting. **Shelve `specs/fractional-permissions.md`.** [Vale regions](https://verdagon.dev/blog/zero-cost-memory-safety-regions-overview).
+
+**Downgrades "Projectional AST" (Pillar I) from "full arc thesis" to
+"storage-only."** Darklang retreated from structural editing after
+production failure ("buggy and frustrating"); Hazel stays research. **Text
+remains canonical.** Adopt content-addressing for the `.luxi` storage
+layer only — which the existing `specs/incremental-compilation.md` already
+does. No projectional editor in Lux's future. [Darklang status](https://blog.darklang.com/an-overdue-status-update/).
+
+**Rejects WASM 3.0 GC as default memory model.** `struct.new` hides
+allocation, defeating `!Alloc`. **Optional Arc 4 alternative backend** for
+pure-functional code (compiler passes themselves) where ownership inference
+proves the function is GC-safe. [Wasm 3.0 announcement](https://webassembly.org/news/2025-09-17-wasm-3.0/).
+
+**Rejects content-addressed code as source of truth (Unison 1.0).** Hashed
+identity breaks user-visible names in the gradient/teaching output. Keep
+names. Use hashing for the `.luxi` cache only.
+
+**Rejects capture-checking as parallel syntax (Scala 3 `^`).** Same info
+Lux already tracks in effect rows. Adding a second mechanism fractures
+the one-mechanism thesis.
+
+**Rejects dependent types as semantics (Idris 2 QTT).** Elaboration blowup;
+no SMT automation. Refinement + Z3 keeps inference linear. Keep the
+display convention (Tier 3), reject the semantics.
+
+### Tier 5 — Lux-original contributions worth publishing
+
+**Multi-shot continuations + scoped arenas.** When a captured continuation
+closes over an `own Arena`, the arena's drop defers until all reachable
+continuations are discarded. **No current language integrates these.**
+Affect (POPL 2025) provides the type machinery; semantics is Lux's.
+Arc 3 Items 2 + 3 together.
+
+**FBIP via ownership graph (not post-hoc RC analysis).** Koka/Lean do reuse
+analysis *after* RC'ing the IR. Lux's ownership graph already knows which
+values are unshared — a straight IR-to-IR pass suffices. Stronger static
+guarantee, simpler implementation. Arc 4 after native backend.
+
+**One-mechanism synthesis/diagnostics.** All proposers (enumerative,
+SMT-guided, LLM-guided) become handlers on a single `Suggest` effect. The
+verifier (`check.lux`) is the oracle; any proposer is a handler. Lean 4's
+"macros are Lean functions" is the nearest neighbor; Lux generalizes
+further via effects. Arc 4+ synthesis capstone.
+
+### Rebranded old ideas (flagged)
+
+- "Capability capture sets" (Scala 3) = effect rows with different sugar.
+- "Generational references" (Vale) = Pony's ORCA recast.
+- "Quantitative type theory" (Idris 2) = Girard's bounded linear logic + erasure, repackaged.
+- "Capture tracking for ownership" (System Capybara, SPLASH 2025) = Rust's borrow checker in a different formalism.
+
+Each validates Lux's direction without offering a replacement primitive.
 
 ---
 

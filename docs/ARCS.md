@@ -184,35 +184,98 @@ See also:
 inside Lux. No external oracle. No patient parent. This arc's thesis
 is the deletion of every external handler in the chain.*
 
-Today's chain still borrows handlers: `wat2wasm`, `wasm2c`, `gcc`,
-`wasmtime`. Each is a dependency that can answer questions Lux's own
-graph ought to answer itself. Arc 4+ removes them.
+Today's chain still borrows handlers: Rust VM, `wat2wasm`, `wasm2c`,
+`gcc`, `wasmtime`. Each is a dependency that can answer questions Lux's
+own graph ought to answer itself. Arc 4+ removes them.
 
-Candidate phases (no priority order yet — **the implementation plan
-discussion will decide**):
+**Phase 0 (Arc 3 opening move, per active plan):** freeze `lux3.wasm` as
+a versioned bootstrap artifact, delete `src/`, tag `rust-vm-final`. Before
+deletion, run **Diverse Double-Compiling** (Wheeler, [trusting-trust](https://dwheeler.com/trusting-trust/))
+to fingerprint-match output of the two independent compilers. This is the
+Rust oracle deletion — the largest one in the tree.
 
-- **Native x86 / aarch64 backend** (`std/backend/x86_emit.lux`,
-  `aarch64_emit.lux`) — the `Memory` effect handled directly: `load_i32`
-  → `MOV`, `alloc` → arena on stack, `fd_write` → syscall. Once
-  written, `wasm2c + gcc` becomes historical. See `DESIGN.md` →
-  *Custom Native Backend*. **This is the primary self-containment
-  milestone.**
-- **Native WASM binary emitter** — skip the text format entirely. Lux
-  writes the binary `.wasm` directly, eliminating the `wat2wasm`
-  dependency. The info already exists (section layout, type tables,
-  opcode encoding); we just haven't let it flow through Lux.
-- **Self-hosted WASM runtime** — eventually a `std/runtime/wasm_vm.lux`
-  so the Ouroboros check doesn't need `wasmtime` either.
-- **Projectional AST** (from the *Synthesis Manifesto* crosswalk) —
-  code stored as structured AST + cryptographic hashes instead of text
-  files. A profound reframing of the medium. See
-  `SYNTHESIS_CROSSWALK.md` → Pillar I.
-- **Fractional permissions for concurrency** (from the crosswalk) —
-  alternative to affine ownership when values are read by N threads.
-  See `SYNTHESIS_CROSSWALK.md` → Pillar VI.
-- **Type-directed synthesis** (original Phase 9 in `DESIGN.md`) — write
-  the type, derive the code. Refinement-narrowed proof search. The
-  "top of the gradient."
+Candidate phases ordered by "which external oracle does this delete?"
+(this is the selection rule, not "what's cool"):
+
+### Arc 4 #1 — Native WASM binary emitter (deletes `wat2wasm`)
+
+Skip the text format entirely. Lux writes the binary `.wasm` directly.
+The info already exists (section layout, type tables, opcode encoding);
+we just haven't let it flow through Lux.
+
+Reference implementation pattern: typed section builder emitting LEB128
+to a buffer. See [Thunderseethe — emit-base](https://thunderseethe.dev/posts/emit-base/).
+Kills the `wat2wasm` dependency. Proves the byte-emission discipline the
+native backend will reuse.
+
+### Arc 4 #2 — Native x86 / aarch64 backend (deletes `wasm2c + gcc`)
+
+`std/backend/x86_emit.lux`, `aarch64_emit.lux` — the `Memory` effect
+handled directly: `load_i32` → `MOV`, `alloc` → arena on stack,
+`fd_write` → syscall. **This is the primary self-containment milestone.**
+
+**Implementation choice decision matrix:**
+
+| Choice | Pros | Cons | Verdict |
+|--------|------|------|---------|
+| **Hand-rolled x86/aarch64 from LowIR** | No external dependency; aligns with "Lux solves Lux" thesis | Largest implementation cost | **Long-term target.** |
+| **QBE via C FFI** ([c9x.me/compile](https://c9x.me/compile/)) | ~70% LLVM perf in ~10% code; portable amd64/arm64/riscv64 | Requires a C toolchain in the build | **Good intermediate step.** |
+| **Cranelift** ([cranelift.dev](https://cranelift.dev/)) | 10× faster codegen than LLVM; battle-tested (Wasmtime) | Pulls Rust back into the native path — contradicts Phase 0 | **Rejected** post Phase 0. |
+| **LLVM** | Best peak perf | Multi-minute compile times (Lean's experience); external oracle writ large | **Rejected.** |
+
+**Dev-backend split (Roc pattern):** ship two backends — release
+(hand-rolled or QBE) + dev (bespoke byte-stitching, surgical-linker) for
+interactive rebuild latency. See [Roc surgical linker](https://sycl.it/agenda/day2/roc-surgical-linker/).
+
+### Arc 4 #3 — Self-hosted WASM runtime (deletes `wasmtime`)
+
+Eventually `std/runtime/wasm_vm.lux` so the Ouroboros check doesn't need
+`wasmtime`. Only meaningful after #2 lands; otherwise the native path
+still needs wasmtime for validation.
+
+### Arc 4 #4 — Capability layer target: WASIp3 (late 2025 RC / mid-2026 stable)
+
+WASIp3 is designed explicitly to eliminate the "function coloring"
+problem: async imports connect seamlessly to sync exports. **This is
+convergent with Lux's effect algebra.** An `IO + Async` effect row
+compiles to a WASIp3 async import without requiring the caller to be
+annotated. Target WASIp3 as the primary capability layer. See
+[WASIp3 preview (Fermyon)](https://www.fermyon.com/blog/looking-ahead-to-wasip3).
+
+### Arc 4 #5 — Fractional permissions for concurrency
+
+**Shelved.** Vale's region-freeze approach via `!Mutate` on a region
+delivers the same "N parallel readers, no mutation" proof using the
+existing effect algebra with no numeric permission accounting. See
+`SYNTHESIS_CROSSWALK.md` → *Research Neighbors* Tier 4.
+
+### Arc 4 #6 — Projectional AST (storage only)
+
+Downgraded: **content-addressing lives in the `.luxi` cache** (see
+`specs/incremental-compilation.md`). Text remains canonical. Darklang's
+retreat from structural editing ("buggy and frustrating") and Hazel
+staying in research validate rejecting projectional editors. See
+`SYNTHESIS_CROSSWALK.md` → *Research Neighbors* Tier 4.
+
+### Arc 4 #7 — Type-directed synthesis (capstone)
+
+Original Phase 9 in `DESIGN.md`. Write the type, derive the code.
+Refinement-narrowed proof search. The "top of the gradient." **Generalizes
+via effects:** enumerative search, SMT-guided, LLM-guided — all become
+handlers on a single `Suggest` effect. The verifier (`check.lux`) is the
+oracle; any proposer is a handler. Lean 4's "macros are Lean functions"
+is the nearest neighbor; Lux generalizes further. Needs #1–#4 stable first.
+
+### Arc 4 optional — WASM GC as alternative emission target
+
+Wasm 3.0 (Sep 2025) stabilized GC. Kotlin/Scala/Dart/Go/OCaml adopted.
+**Rejected as default** because `struct.new` hides allocation, defeating
+`!Alloc`. **Option:** Lux could ship a WASM GC backend for pure-functional
+code (compiler passes themselves) where the ownership graph proves the
+function is GC-safe. Decision deferred to when the native backend is
+stable. See [Wasm 3.0 announcement](https://webassembly.org/news/2025-09-17-wasm-3.0/).
+
+---
 
 **The selection rule is not "what's cool" but "which external oracle
 does this delete?"** Every arc graduates Lux closer to answering its

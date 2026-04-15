@@ -265,18 +265,42 @@ Before writing any string-processing function, ask: "Am I creating temporary str
 
 ## What comes next
 
-- **Close Arc 2** — run `make -C bootstrap verify`. If green:
-  `bootstrap/build/lux4.wasm` validates + `make check-canonical`
-  confirms semantic fixed point. Then ceremony commit (update this
-  file, `CLAUDE.md`, `docs/ARCS.md` with Arc 2 outcome).
+- **Close Arc 2** — Arc 2 closed semantically on 2026-04-15. Strict
+  byte-perfect fixed-point (`lux3.wat ≡ lux4.wat`) carries forward as
+  Arc 3 Item 6 (the DAG env refactor).
+
+- **Phase 0 — Freeze & delete the Rust VM (active plan, Arc 3 opening).**
+  Ship `bootstrap/artifacts/lux3.wasm` as the versioned bootstrap
+  binary; tag `rust-vm-final`; run Diverse Double-Compiling ([trusting-trust](https://dwheeler.com/trusting-trust/))
+  to fingerprint-match before `rm -rf src/`. Precedents:
+  [Rust 2025 bootstrap redesign](https://blog.rust-lang.org/inside-rust/2025/05/29/redesigning-the-initial-bootstrap-sequence/)
+  (prebuilt stage-0 std instead of cross-compile), [Crystal tarball
+  bootstrap](https://crystal-lang.org/install/from_targz/). Collapses
+  `stage0` from ~9 min to a `cp`. Plan file:
+  `~/.claude/plans/logical-greeting-tarjan.md`.
+
 - **Arc 2.5 — `std/vm.lux` self-contained** (task #23) — removes the
   last `type_of`-based runtime type introspection. Needed so the
   Lux-written bytecode interpreter runs correctly in WASM for the
   browser-playground vision. Structural refactor (trust bytecode over
-  runtime type checks); see plan file Stage 2.
+  runtime type checks).
+
 - **Arc 3** — `docs/ARC3_ROADMAP.md`. Diagnostic effects, scoped
   arenas, ownership enforcement, DAG env, `.luxi` incremental cache.
-- **Arc 4+** — self-containment in full. See `docs/ARCS.md` → *Arc 4+*
-  and `docs/SYNTHESIS_CROSSWALK.md` for candidate phases (native
-  backend, fractional permissions, FBIP, projectional AST,
-  type-directed synthesis).
+  **Implementation references (2024-2026)** now annotated inline in the
+  roadmap: Affect POPL 2025 (affine resume), Koka evidence passing
+  (ICFP 2021, static handler dispatch), Polonius 2026 alpha (lazy
+  constraint rewrite), Salsa 3.0 / `ty` (mutable flat-array subst with
+  epoch overlay), Wasm 3.0 exceptions + tail calls, GPCE 2024
+  (typed codegen as effects). See `docs/SYNTHESIS_CROSSWALK.md` →
+  *Research Neighbors* for the full verdict table.
+
+- **Arc 4+** — self-containment in full. `docs/ARCS.md` → *Arc 4+* now
+  carries a **backend decision matrix** (hand-rolled x86 > QBE >
+  Cranelift > LLVM) with Roc's surgical-linker dev-backend split as the
+  architectural precedent. Arc 4 #1 is direct WASM binary emission
+  ([Thunderseethe 2024 reference](https://thunderseethe.dev/posts/emit-base/)),
+  killing `wat2wasm`. WASIp3 (late 2025 RC) is the capability-layer
+  target. Fractional permissions are shelved in favor of Vale-style
+  region-freeze via `!Mutate`. Projectional AST is downgraded to
+  storage-only (Darklang retreat + Hazel staying research validate).
