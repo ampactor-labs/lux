@@ -530,59 +530,15 @@ fn read_stdin_loop(buf, offset) with Memory, Alloc = {
 
 fn string_slice(s, start, end) with Memory, Alloc = str_slice(s, start, end)
 
-fn starts_with(s, prefix) with Memory = {
-  let slen = load_i32(s)
-  let plen = load_i32(prefix)
-  if plen > slen { false }
-  else { str_region_eq(s, 0, prefix, 0, plen) }
-}
+// NB: starts_with / ends_with / contains / index_of were defined here
+// duplicating std/prelude.lux. Same-name fn definitions cause the
+// emitter to silently pick one — see feedback_duplicate_fn_names.md.
+// Deleted in favour of the prelude versions.
 
-fn ends_with(s, suffix) with Memory = {
-  let slen = load_i32(s)
-  let xlen = load_i32(suffix)
-  if xlen > slen { false }
-  else { str_region_eq(s, slen - xlen, suffix, 0, xlen) }
-}
+// `index_of` was a duplicate of std/prelude.lux:196 — deleted, along with
+// its private helpers index_of_scan / str_region_eq / str_region_eq_loop.
 
-fn contains(s, sub) with Memory = index_of(s, sub) >= 0
-
-fn index_of(s, sub) with Memory = {
-  let slen = load_i32(s)
-  let sublen = load_i32(sub)
-  if sublen > slen { 0 - 1 }
-  else { index_of_scan(s, sub, slen, sublen, 0) }
-}
-
-fn index_of_scan(s, sub, slen, sublen, i) with Memory =
-  if i + sublen > slen { 0 - 1 }
-  else {
-    if str_region_eq(s, i, sub, 0, sublen) { i }
-    else { index_of_scan(s, sub, slen, sublen, i + 1) }
-  }
-
-fn str_region_eq(a, a_off, b, b_off, count) with Memory =
-  str_region_eq_loop(a, a_off, b, b_off, count, 0)
-
-fn str_region_eq_loop(a, a_off, b, b_off, count, i) with Memory =
-  if i >= count { true }
-  else {
-    let ca = load_i8(a + 4 + a_off + i)
-    let cb = load_i8(b + 4 + b_off + i)
-    if ca != cb { false }
-    else { str_region_eq_loop(a, a_off, b, b_off, count, i + 1) }
-  }
-
-fn replace(s, from, to) with Memory, Alloc = {
-  let idx = index_of(s, from)
-  if idx < 0 { s }
-  else {
-    let slen = load_i32(s)
-    let flen = load_i32(from)
-    let before = str_slice(s, 0, idx)
-    let after = str_slice(s, idx + flen, slen)
-    str_concat(str_concat(before, to), replace(after, from, to))
-  }
-}
+// `replace` was a duplicate of std/prelude.lux:204 — deleted.
 
 fn is_empty(obj) with Memory = load_i32(obj) == 0
 
@@ -605,23 +561,8 @@ fn to_string(val) with Memory, Alloc = {
   else { int_to_str(val) }
 }
 
-fn parse_int(s) with Memory = {
-  let slen = load_i32(s)
-  if slen == 0 { 0 }
-  else {
-    let first = load_i8(s + 4)
-    if first == 45 { 0 - parse_digits(s, slen, 1, 0) }
-    else { parse_digits(s, slen, 0, 0) }
-  }
-}
-
-fn parse_digits(s, slen, i, acc) with Memory =
-  if i >= slen { acc }
-  else {
-    let ch = load_i8(s + 4 + i)
-    if ch >= 48 && ch <= 57 { parse_digits(s, slen, i + 1, acc * 10 + (ch - 48)) }
-    else { acc }
-  }
+// `parse_int` was a duplicate of std/prelude.lux:221 — deleted.
+// (parse_digits was only an internal helper of the deleted version.)
 
 fn parse_float(s) with Memory = parse_int(s)
 fn to_int(val) = val
@@ -666,36 +607,18 @@ fn read_file_loop(fd, buf, offset) with Memory, Alloc = {
   else { read_file_loop(fd, buf, offset + nread) }
 }
 
-fn list_contains(list, val) with Memory = list_contains_loop(list, val, load_i32(list), 0)
+// NB: list_contains, head, tail were defined here with FLAT-ARRAY memory
+// access (load_i32 at i*4 offsets). That's correct under the Rust VM's
+// Vec-backed lists but WRONG for WASM's Snoc-tree representation —
+// where `list[i]` traverses tags. Their presence was shadowing the
+// Snoc-safe versions in std/compiler/eff.lux and std/prelude.lux.
+// While the inliner lived, it inlined these at small call sites and the
+// breakage stayed hidden; with the inliner gone, unify_eff → list_subset
+// → list_contains silently fails on Snoc lists, collapsing effect rows
+// to EfPure and dropping `WasmOut` annotations from fn types.
+// See: memory project_arc2_inliner_deletion.md / the name-collision audit.
 
-fn list_contains_loop(list, val, count, i) with Memory =
-  if i >= count { false }
-  else {
-    let elem = load_i32(list + 4 + i * 4)
-    if val_eq(elem, val) == 1 { true }
-    else { list_contains_loop(list, val, count, i + 1) }
-  }
-
-fn head(list) with Memory = load_i32(list + 4)
-
-fn tail(list) with Memory, Alloc = {
-  let count = load_i32(list)
-  if count <= 1 {
-    let empty = alloc(4)
-    store_i32(empty, 0)
-    empty
-  } else {
-    let new_list = alloc(4 + (count - 1) * 4)
-    store_i32(new_list, count - 1)
-    mem_copy(new_list + 4, list + 8, (count - 1) * 4)
-    new_list
-  }
-}
-
-fn not(b) = if b { false } else { true }
-
-fn abs(n) = if n < 0 { 0 - n } else { n }
-fn max(a, b) = if a > b { a } else { b }
-fn min(a, b) = if a < b { a } else { b }
-fn clamp(x, lo, hi) = max(lo, min(x, hi))
+// `not`, `abs`, `max`, `min`, `clamp` were all duplicates of prelude versions.
+// Deleted to satisfy the "no shadowing" invariant — the emitter picks one
+// silently when names collide.
 

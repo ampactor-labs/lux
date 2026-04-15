@@ -1383,14 +1383,14 @@ fn sort_record_fields_at(fields, i) = {
   }}
 }
 
-fn insert_field(field, sorted) = insert_field_at(field, sorted, 0)
-fn insert_field_at(field, sorted, i) = {
+fn insert_field(field, sorted) = insert_field_at_codegen(field, sorted, 0)
+fn insert_field_at_codegen(field, sorted, i) = {
   if i >= len(sorted) { [field] }
   else {
     let (fa, _) = field
     let (fb, _) = sorted[i]
     if str_lt(fa, fb) == 1 { slice(sorted, 0, i) ++ [field] ++ slice(sorted, i, len(sorted)) }
-    else { insert_field_at(field, sorted, i + 1) }
+    else { insert_field_at_codegen(field, sorted, i + 1) }
   }
 }
 

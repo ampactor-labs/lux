@@ -1126,7 +1126,7 @@ There are no primitives. There are only effects and handlers.
 When lowering closures: free variable detection is a **pure transform**
 (walk the AST, collect unbound names). Capture rewriting is a **pure
 transform** (replace `LGlobal(name)` → `LUpval(idx)`). Neither needs
-effects. The LowerCtx effects (`is_ctor`, `is_global`, `find_rewrite`)
+effects. The LowerCtx effects (`is_ctor`, `is_global`, `is_state_var`)
 provide **context** — they answer questions about the ENVIRONMENT.
 
 The rule: use pure transforms for operations on STRUCTURE (the data

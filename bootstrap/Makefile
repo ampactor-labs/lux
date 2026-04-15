@@ -25,32 +25,30 @@ WABT_RT_DIR   ?= /usr/share/wabt/wasm2c
 WABT_RT       := $(WABT_RT_DIR)/wasm-rt-impl.c
 
 BUILD := build
+TOOLS := $(CURDIR)/tools
 
 # ─── Progress monitor ─────────────────────────────────────────────────
 # Runs in background during long stages. Prints file size + line count
-# every 30 seconds so you know the build is alive.
-define start_monitor
-	@( while true; do \
-	  sleep 30; \
-	  if [ -f $(1) ]; then \
-	    SIZE=$$(du -h $(1) 2>/dev/null | cut -f1); \
-	    LINES=$$(wc -l < $(1) 2>/dev/null); \
-	    echo "  📊 $(1): $$SIZE, $$LINES lines ($(2))"; \
-	  fi; \
-	done ) & echo $$! > $(BUILD)/.monitor.pid
-endef
-
-define stop_monitor
-	@if [ -f $(BUILD)/.monitor.pid ]; then \
-	  kill $$(cat $(BUILD)/.monitor.pid) 2>/dev/null || true; \
-	  rm -f $(BUILD)/.monitor.pid; \
-	fi
-endef
+# every 30 seconds so you know the build is alive. The monitor is started
+# inline within each long recipe and torn down via `trap` so it can never
+# orphan past the recipe — even if the recipe fails or you Ctrl+C make.
+#
+# Usage in a recipe (single shell command, backslash-continued):
+#   @( while true; do sleep 30; ...echo...; done ) & MON=$$!; \
+#    trap "kill $$MON 2>/dev/null" EXIT INT TERM; \
+#    <the long command>
 
 # ─── Phony targets ────────────────────────────────────────────────────
 .PHONY: all stage0 stage1 stage1-aot stage1-native stage2 stage2-native \
-        smoke verify check check-canonical decompile-diff stats \
-        interp-check clean help
+        smoke verify check check-canonical check-wat preflight decompile-diff stats \
+        interp-check clean help lux4-runtime
+
+# ─── Preflight: instant static checks before any compile ──────────────
+# Catches: duplicate top-level fn names (the memory.lux shadow class),
+# flat-array list ops in fns named like collection ops, and known-bad
+# polymorphic-fallback patterns. Runs in <1 second.
+preflight:
+	@$(TOOLS)/preflight.sh
 .DEFAULT_GOAL := help
 
 all: verify
@@ -86,17 +84,25 @@ $(BUILD):
 # ─── Stage 0: Rust VM → WAT ───────────────────────────────────────────
 # The Rust VM runs the self-hosted compiler against the bootstrap entry
 # point and emits WAT to stdout.
-stage0: $(BUILD)/lux3.wat
+stage0: preflight $(BUILD)/lux3.wat
 $(BUILD)/lux3.wat: | $(BUILD)
 	@echo "╔══════════════════════════════════════════════╗"
 	@echo "║  STAGE 0: Rust VM → WAT                     ║"
 	@echo "╚══════════════════════════════════════════════╝"
 	@echo "  started: $$(date '+%H:%M:%S')"
-	$(call start_monitor,bootstrap/$(BUILD)/lux3.raw.out,stage0)
-	@cd $(PROJECT_ROOT) && /usr/bin/time -f "  ⏱  stage0: %E elapsed, %M KB peak RSS" \
-	  cargo run --release -- wasm $(LUX_SRC) \
-	  > bootstrap/$(BUILD)/lux3.raw.out 2>&1
-	$(call stop_monitor)
+	@( while true; do sleep 30; \
+	    if [ -f bootstrap/$(BUILD)/lux3.raw.out ]; then \
+	      SIZE=$$(du -h bootstrap/$(BUILD)/lux3.raw.out 2>/dev/null | cut -f1); \
+	      LINES=$$(wc -l < bootstrap/$(BUILD)/lux3.raw.out 2>/dev/null); \
+	      echo "  📊 stage0: $$SIZE, $$LINES lines"; \
+	    fi; \
+	  done ) & MON=$$!; \
+	  trap "kill $$MON 2>/dev/null" EXIT INT TERM; \
+	  cd $(PROJECT_ROOT) && /usr/bin/time -f "  ⏱  stage0: %E elapsed, %M KB peak RSS" \
+	    -o bootstrap/$(BUILD)/stage0.time \
+	    cargo run --release -- wasm $(LUX_SRC) \
+	    > bootstrap/$(BUILD)/lux3.raw.out 2>&1
+	@cat $(BUILD)/stage0.time
 	@sed -n '1,/^(module/{ /^(module/!p }' $(BUILD)/lux3.raw.out > $(BUILD)/lux3.preamble.log
 	@sed -n '/^(module/,$$p' $(BUILD)/lux3.raw.out > $(BUILD)/lux3.wat
 	@if [ -s $(BUILD)/lux3.preamble.log ]; then \
@@ -106,7 +112,14 @@ $(BUILD)/lux3.wat: | $(BUILD)
 	@LINES=$$(wc -l < $(BUILD)/lux3.wat); \
 	 SIZE=$$(du -h $(BUILD)/lux3.wat | cut -f1); \
 	 FUNCS=$$(grep -c '^  (func ' $(BUILD)/lux3.wat || true); \
-	 echo "  ✓ lux3.wat: $$SIZE, $$LINES lines, $$FUNCS functions"
+	 UNR=$$(grep -c 'UNRESOLVED:' $(BUILD)/lux3.wat || true); \
+	 echo "  ✓ lux3.wat: $$SIZE, $$LINES lines, $$FUNCS functions"; \
+	 echo "  stage0 UNRESOLVED=$$UNR"; \
+	 if [ $$UNR -gt 0 ]; then \
+	   echo "  ✗ lux3.wat has UNRESOLVED — Rust VM lost a symbol. No known bugs allowed to sit."; \
+	   awk '/^  \(func /{fn=$$2} /UNRESOLVED:/{print "    " fn ": " $$0}' $(BUILD)/lux3.wat; \
+	   exit 1; \
+	 fi
 
 # ─── Stage 1: WAT → binary WASM ───────────────────────────────────────
 # --debug-names preserves $name symbolic identifiers.
@@ -133,7 +146,7 @@ $(BUILD)/lux3.cwasm: $(BUILD)/lux3.wasm
 	@echo "╚══════════════════════════════════════════════╝"
 	@echo "  started: $$(date '+%H:%M:%S')"
 	@/usr/bin/time -f "  ⏱  AOT compile: %E elapsed" \
-	  $(WASMTIME) compile --enable-tail-call -C inlining=y \
+	  $(WASMTIME) compile -C inlining=y \
 	  -W max-wasm-stack=33554432 $< -o $@ 2>&1
 	@SIZE=$$(du -h $@ | cut -f1); \
 	 echo "  ✓ lux3.cwasm: $$SIZE (AOT native)"
@@ -161,7 +174,12 @@ smoke: $(BUILD)/lux3.wat
 	  $(BUILD)/lux3.wat > $(BUILD)/pattern_compiled.out 2>&1
 	@sed -n '/^(module/,$$p' $(BUILD)/pattern_compiled.out > $(BUILD)/pattern.wat
 	@UNRESOLVED=$$(grep -c UNRESOLVED $(BUILD)/pattern.wat || true); \
-	 echo "  UNRESOLVED=$$UNRESOLVED"
+	 echo "  UNRESOLVED=$$UNRESOLVED"; \
+	 if [ $$UNRESOLVED -gt 0 ]; then \
+	   echo "  ✗ pattern.wat has UNRESOLVED markers — lux3 lost a symbol while compiling a user program"; \
+	   awk '/^  \(func /{fn=$$2} /UNRESOLVED:/{print "    " fn ": " $$0}' $(BUILD)/pattern.wat; \
+	   exit 1; \
+	 fi
 	@wat2wasm --debug-names --enable-tail-call $(BUILD)/pattern.wat -o $(BUILD)/pattern.wasm
 	@$(WASMTIME) run -W max-wasm-stack=33554432 $(BUILD)/pattern.wasm > $(BUILD)/pattern_run.out 2>&1 || true
 	@ACTUAL=$$(cat $(BUILD)/pattern_run.out); \
@@ -178,7 +196,12 @@ smoke: $(BUILD)/lux3.wat
 	  $(BUILD)/lux3.wat > $(BUILD)/counter_compiled.out 2>&1
 	@sed -n '/^(module/,$$p' $(BUILD)/counter_compiled.out > $(BUILD)/counter.wat
 	@UNRESOLVED=$$(grep -c UNRESOLVED $(BUILD)/counter.wat || true); \
-	 echo "  UNRESOLVED=$$UNRESOLVED"
+	 echo "  UNRESOLVED=$$UNRESOLVED"; \
+	 if [ $$UNRESOLVED -gt 0 ]; then \
+	   echo "  ✗ counter.wat has UNRESOLVED markers — lux3 lost a symbol while compiling a user program"; \
+	   awk '/^  \(func /{fn=$$2} /UNRESOLVED:/{print "    " fn ": " $$0}' $(BUILD)/counter.wat; \
+	   exit 1; \
+	 fi
 	@wat2wasm --debug-names --enable-tail-call $(BUILD)/counter.wat -o $(BUILD)/counter.wasm
 	@echo "  COUNTER TEST PASSED ✓"
 	@echo "  finished: $$(date '+%H:%M:%S')"
@@ -193,19 +216,28 @@ $(BUILD)/lux4.wat: $(BUILD)/lux3.wat
 	@echo "║  STAGE 2: OUROBOROS — lux3 compiling itself  ║"
 	@echo "╚══════════════════════════════════════════════╝"
 	@echo "  started: $$(date '+%H:%M:%S')"
-	$(call start_monitor,$(BUILD)/lux4.raw.out,stage2 ouroboros)
-	@if [ -f $(BUILD)/lux3.cwasm ]; then \
-	  echo "  using AOT-compiled lux3.cwasm (no JIT warmup)"; \
-	  /usr/bin/time -f "  ⏱  stage2: %E elapsed, %M KB peak RSS" \
-	    sh -c 'cat $(LUX_SRC) | $(WASMTIME) run --allow-precompiled $(WASMTIME_OPTS) $(BUILD)/lux3.cwasm' \
-	    > $(BUILD)/lux4.raw.out 2>&1; \
-	else \
-	  echo "  using lux3.wat (JIT mode — run 'make stage1-aot' for faster)"; \
-	  /usr/bin/time -f "  ⏱  stage2: %E elapsed, %M KB peak RSS" \
-	    sh -c 'cat $(LUX_SRC) | $(WASMTIME) run $(WASMTIME_OPTS) $(BUILD)/lux3.wat' \
-	    > $(BUILD)/lux4.raw.out 2>&1; \
-	fi
-	$(call stop_monitor)
+	@( while true; do sleep 30; \
+	    if [ -f $(BUILD)/lux4.raw.out ]; then \
+	      SIZE=$$(du -h $(BUILD)/lux4.raw.out 2>/dev/null | cut -f1); \
+	      LINES=$$(wc -l < $(BUILD)/lux4.raw.out 2>/dev/null); \
+	      echo "  📊 stage2 ouroboros: $$SIZE, $$LINES lines"; \
+	    fi; \
+	  done ) & MON=$$!; \
+	  trap "kill $$MON 2>/dev/null" EXIT INT TERM; \
+	  if [ -f $(BUILD)/lux3.cwasm ]; then \
+	    echo "  using AOT-compiled lux3.cwasm (no JIT warmup)"; \
+	    /usr/bin/time -f "  ⏱  stage2: %E elapsed, %M KB peak RSS" \
+	      -o $(BUILD)/stage2.time \
+	      sh -c 'cat $(LUX_SRC) | $(WASMTIME) run --allow-precompiled -C inlining=y $(WASMTIME_OPTS) $(BUILD)/lux3.cwasm' \
+	      > $(BUILD)/lux4.raw.out 2>&1; \
+	  else \
+	    echo "  using lux3.wat (JIT mode — run 'make stage1-aot' for faster)"; \
+	    /usr/bin/time -f "  ⏱  stage2: %E elapsed, %M KB peak RSS" \
+	      -o $(BUILD)/stage2.time \
+	      sh -c 'cat $(LUX_SRC) | $(WASMTIME) run $(WASMTIME_OPTS) $(BUILD)/lux3.wat' \
+	      > $(BUILD)/lux4.raw.out 2>&1; \
+	  fi
+	@cat $(BUILD)/stage2.time
 	@sed -n '1,/^(module/{ /^(module/!p }' $(BUILD)/lux4.raw.out > $(BUILD)/lux4.preamble.log
 	@sed -n '/^(module/,$$p' $(BUILD)/lux4.raw.out > $@
 	@if [ -s $(BUILD)/lux4.preamble.log ]; then \
@@ -219,6 +251,7 @@ $(BUILD)/lux4.wat: $(BUILD)/lux3.wat
 	 echo "  ✓ lux4.wat: $$SIZE, $$LINES lines, $$FUNCS functions"; \
 	 echo "  UNRESOLVED=$$UNRESOLVED"; \
 	 echo "  finished: $$(date '+%H:%M:%S')"
+	@$(TOOLS)/check_wat.sh $(BUILD)/lux4.wat $(BUILD)/lux3.wat
 
 # Also turn the result into a binary for comparison and next-stage runs.
 $(BUILD)/lux4.wasm: $(BUILD)/lux4.wat
@@ -231,20 +264,54 @@ stage2-native: $(BUILD)/lux4-native.wat
 $(BUILD)/lux4-native.wat: $(BUILD)/lux3-native
 	cat $(LUX_SRC) | $(BUILD)/lux3-native > $@
 
+# ─── Tier 4: fast runtime trap check on lux4.wasm ────────────────────
+# Takes ~2s. Failure here surfaces the state_names-class bugs that
+# silently pass wasm-validate and only manifest when an UNRESOLVED slot
+# is invoked via call_indirect.
+lux4-runtime: $(BUILD)/lux4.wasm
+	@echo ""
+	@echo "=== Tier 4: lux4.wasm runtime trap check (counter.lux, 30s timeout) ==="
+	@set -e; \
+	 if timeout 30 sh -c 'cat $(COUNTER_LUX) | $(WASMTIME) run -W max-wasm-stack=33554432 $(BUILD)/lux4.wasm > $(BUILD)/counter_via_lux4.out 2>&1'; then \
+	   HEAD=$$(sed -n '/^(module/,$$p' $(BUILD)/counter_via_lux4.out | head -1); \
+	   if [ -n "$$HEAD" ]; then \
+	     echo "  ✓ lux4.wasm compiled counter.lux (WAT emitted)"; \
+	   else \
+	     echo "  ✗ lux4.wasm ran but produced no WAT"; \
+	     tail -30 $(BUILD)/counter_via_lux4.out; exit 1; \
+	   fi; \
+	 else \
+	   echo "  ✗ lux4.wasm TRAPPED on counter.lux (exit != 0 or timed out)"; \
+	   echo "  --- backtrace ---"; \
+	   tail -40 $(BUILD)/counter_via_lux4.out; \
+	   exit 1; \
+	 fi
+
 # ─── Full Verification Pipeline ──────────────────────────────────────
 # Single command: build everything, test everything, report verdict.
 # This is THE command for Arc 2 verification.
-verify: clean stage0 stage1 stage1-aot smoke stage2 $(BUILD)/lux4.wasm
+#
+# Gates (in order; each hard-fails):
+#   stage0   — UNRESOLVED=0 on lux3.wat
+#   smoke    — UNRESOLVED=0 on counter.wat, pattern.wat (user programs); runtime passes
+#   stage2   — check_wat.sh on lux4.wat with lux3.wat baseline: no new UNRESOLVED, no new null-calls
+#   Tier 4   — lux4.wasm compiles counter.lux without trapping
+#   Ouroboros — lux4-emitted counter4.wasm validates
+verify: clean stage0 stage1 stage1-aot smoke stage2 $(BUILD)/lux4.wasm lux4-runtime
 	@echo ""
 	@echo "╔══════════════════════════════════════════════╗"
 	@echo "║  FINAL VERIFICATION                         ║"
 	@echo "╚══════════════════════════════════════════════╝"
 	@echo ""
-	@echo "=== counter test via lux4 (THE Ouroboros test) ==="
-	@cat $(COUNTER_LUX) | $(WASMTIME) run $(WASMTIME_OPTS) \
-	  $(BUILD)/lux4.wat > $(BUILD)/counter4_compiled.out 2>&1
-	@sed -n '/^(module/,$$p' $(BUILD)/counter4_compiled.out > $(BUILD)/counter4.wat
-	@echo "  UNRESOLVED=$$(grep -c UNRESOLVED $(BUILD)/counter4.wat || true)"
+	@echo "=== Ouroboros test: counter via lux4 ==="
+	@sed -n '/^(module/,$$p' $(BUILD)/counter_via_lux4.out > $(BUILD)/counter4.wat
+	@UNR=$$(grep -c UNRESOLVED $(BUILD)/counter4.wat || true); \
+	 echo "  counter4.wat UNRESOLVED=$$UNR"; \
+	 if [ $$UNR -gt 0 ]; then \
+	   echo "  ✗ counter4.wat has UNRESOLVED markers — lux4 lost a symbol"; \
+	   awk '/^  \(func /{fn=$$2} /UNRESOLVED:/{print "    " fn ": " $$0}' $(BUILD)/counter4.wat; \
+	   exit 1; \
+	 fi
 	@wat2wasm --debug-names --enable-tail-call $(BUILD)/counter4.wat -o $(BUILD)/counter4.wasm 2>&1 | head -3
 	@if [ -f $(BUILD)/counter4.wasm ]; then \
 	  echo "  counter4.wasm EXISTS AND VALIDATES ✓"; \
@@ -256,6 +323,13 @@ verify: clean stage0 stage1 stage1-aot smoke stage2 $(BUILD)/lux4.wasm
 	  echo "  counter4.wasm MISSING — Arc 2 not yet closed"; \
 	  exit 1; \
 	fi
+
+# ─── Standalone WAT sanity check ──────────────────────────────────────
+# Runs check_wat.sh against whatever artifacts exist. Useful to debug
+# without a full rebuild.
+check-wat:
+	@if [ -f $(BUILD)/lux3.wat ]; then $(TOOLS)/check_wat.sh $(BUILD)/lux3.wat; fi
+	@if [ -f $(BUILD)/lux4.wat ]; then $(TOOLS)/check_wat.sh $(BUILD)/lux4.wat $(BUILD)/lux3.wat; fi
 
 # ─── Fixed-point check ────────────────────────────────────────────────
 check: $(BUILD)/lux3.wat $(BUILD)/lux4.wat

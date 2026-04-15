@@ -323,7 +323,20 @@ fn emit_expr(e, params, locals, ctx) = match e {
       else {
         let ev_name = "__ev_op_" ++ name
         if string_in(ctx_globals(ctx), ev_name, 0) { out("    global.get $" ++ ev_name ++ NL) }
-        else { out("    ;; UNRESOLVED: " ++ name ++ NL ++ "    i32.const 0" ++ NL) }
+        else {
+          // Surrender path — the emitter can't resolve this name. Every
+          // time this fallback has fired in Arc 2 it was a latent bug:
+          // `println` (handler capture), `state_names` (inlined arm body).
+          // Report loudly to stderr so the build operator sees it, leave
+          // the UNRESOLVED marker for the WAT-level gate (check_wat.sh),
+          // and emit i32.const 0 so validation still produces something
+          // localizable — runtime call_indirect on slot 0 will trap
+          // deterministically if this dead reference is ever invoked.
+          eprint_string("ERROR: wasm_emit: unresolved reference to '")
+          eprint_string(name)
+          eprint_string("' — not a local, param, function, or effect op. See check_wat.sh output.\n")
+          out("    ;; UNRESOLVED: " ++ name ++ NL ++ "    i32.const 0" ++ NL)
+        }
       }
     } } } }
   },

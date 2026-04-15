@@ -47,7 +47,7 @@ fn lty_index_result(lowered_coll) = match lexpr_ty(lowered_coll) {
 fn lty_name(env, name) = { let (_, ty, _) = env_lookup(env, name); ty }
 
 // ─── The One lower_expr ─────────────────────────────────────
-// Performs LowerCtx effects (is_ctor, find_rewrite, is_global, fresh_id).
+// Performs LowerCtx effects (is_ctor, is_global, is_state_var, fresh_id).
 // Every L* construction attaches a Ty as its first field. The types
 // come from env (for VarRef) or from children (for composite nodes).
 
@@ -62,12 +62,14 @@ fn lower_expr(sexpr, env) = {
     VarRef(name) => {
       let ty = lty_name(env, name)
       if is_ctor(name) { LMakeVariant(ty, name, []) }
-      else {
-        // Effect ops used as values: only prefix when inside active handler.
-        let (is_op, _, _) = get_op_info(name, env)
-        if is_op && len(find_rewrite(name)) > 0 { LGlobal(ty, "__ev_op_" ++ name) }
-        else { LGlobal(ty, name) }
-      }
+      else { LGlobal(ty, name) }
+      // NB: we do NOT prefix effect-op names with __ev_op_ here, even
+      // though that would handle "bump-as-value inside a handler" correctly.
+      // Reason: a local `let is_global = ...` shadows the LowerCtx effect
+      // op of the same name; prefixing would rewrite the local ref to the
+      // effect-op closure pointer. The emitter's LGlobal resolution
+      // hierarchy already does the right thing — locals/params first,
+      // then declared globals, then fn table, then __ev_op_ fallback.
     },
 
     BinOp(op, left, right) => {
@@ -171,19 +173,11 @@ fn lower_expr(sexpr, env) = {
                 _ => LCall(first_ty, LGlobal(TFun([], first_ty, EfPure), "slice"), lowered_args)
               }
             } else {
-              // Check for handler rewrite (effect op inlining)
-              let rw = find_rewrite(name)
-              if len(rw) > 0 {
-                let params = rw[1]
-                let bindings = bind_rewrite_params(params, args, env, 0)
-                let body = apply_rewrite(rw, env)
-                if len(bindings) == 0 { body }
-                else { LBlock(lexpr_ty(body), bindings ++ [body]) }
-              } else {
-                // Regular call — get return type from the function's TFun.
-                let lowered_func = lower_expr(func, env)
-                LCall(lty_call_result(lowered_func), lowered_func, lower_exprs(args, env))
-              }
+              // Regular call — effect ops dispatch through __ev_op_NAME
+              // closures (installed by the handle). No compile-time inlining;
+              // the closure captures free vars by value at install time.
+              let lowered_func = lower_expr(func, env)
+              LCall(lty_call_result(lowered_func), lowered_func, lower_exprs(args, env))
             } } } }
           }
         },
@@ -320,11 +314,11 @@ fn lower_expr(sexpr, env) = {
       lower_handle(body, handler_expr, state_bindings, env),
 
     ResumeExpr(value, updates) => {
-      // For indirect dispatch (handler arm closure body), state updates
-      // must be included. For direct dispatch, apply_rewrite handles them
-      // inline and replaces the ResumeExpr. This branch only runs in the
-      // indirect path. subst_state_to_cells on the handler record renames
-      // LLet("s", ..) → LLet("__hs_s_42", ..) so updates reach the globals.
+      // Indirect dispatch: the arm body runs as a closure invoked via
+      // __ev_op_NAME. State updates must be executed before the resume
+      // value so the caller sees the new state. subst_state_to_cells on
+      // the handler record renames LLet("s", ..) → LLet("__hs_s_42", ..)
+      // so updates reach the heap-cell globals.
       //
       // Order matters: resume(VALUE) with STATE = EXPR must compute VALUE
       // using OLD state. Stash value in a temp, apply updates, return temp.
@@ -697,20 +691,12 @@ fn lower_handle(body, handler_expr, state_bindings, env) = {
   // State vars already substituted in the record — direct index suffices.
   let ev_installs = install_evidence_from_record(handler_name, op_names, 0)
 
-  // ─── Build rewrite map for state (resume with state = ...) ───
-  let rw_map = build_rewrite_map_from_names(op_names, handler_expr)
-  let rw_map_cells = remap_rewrites_to_cells(rw_map, state_names, env)
-
-  // ─── Lower the body with is_state_var + find_rewrite active ───
+  // ─── Lower the body with is_state_var active ───
+  // All effect op calls in `body` dispatch indirectly through __ev_op_NAME.
+  // The installed closures (in the handler record above) capture their
+  // free vars by value — no compile-time inlining needed.
   let lowered_body = handle {
-    handle {
-      lower_expr(body, env)
-    } {
-      find_rewrite(name) => {
-        let entry = lookup_rewrite(rw_map_cells, name, 0)
-        resume(entry)
-      }
-    }
+    lower_expr(body, env)
   } {
     is_state_var(n) => resume(is_orig_state_name(state_names, n))
   }
@@ -752,55 +738,6 @@ fn install_stateful_evidence(handler_name, op_names, state_names, idx, env) = {
     ++ install_stateful_evidence(handler_name, list_rest(op_names), state_names, idx + 1, env)
   }
 }
-
-// Build rewrite map from field names and handler AST
-fn build_rewrite_map_from_names(op_names, handler_expr) = {
-  // Unwrap span — nested variant matching in S(RecordExpr(_), _, _) is unsound
-  let inner = match handler_expr { S(e, _, _) => e, _ => handler_expr }
-  match inner {
-    RecordExpr(fields) => build_rewrite_map_from_fields(fields),
-    _ => []
-  }
-}
-
-fn build_rewrite_map_from_fields(fields) = {
-  if len(fields) == 0 { [] }
-  else {
-    let (name, expr) = list_head(fields)
-    let entry = extract_rewrite_from_lambda(name, expr)
-    entry ++ build_rewrite_map_from_fields(list_tail(fields))
-  }
-}
-
-fn extract_rewrite_from_lambda(name, expr) = {
-  // Unwrap span — nested variant matching is unsound in Rust VM
-  let inner = match expr { S(e, _, _) => e, _ => expr }
-  let (params, body) = match inner {
-    LambdaExpr(p, b) => (p, b),
-    _ => ([], expr)
-  }
-  // Extract full rewrite entry: [name, params, pre_stmts, resume_value, updates]
-  extract_full_rewrite(name, params, body, [])
-}
-
-// Recursively find the ResumeExpr in a handler body, collecting pre-statements.
-// Returns a list of entries (0 or 1 for simple bodies, 2 for if/else branches).
-fn extract_full_rewrite(name, params, body, pre_stmts) = {
-  let inner = match body { S(e, _, _) => e, _ => body }
-  match inner {
-    ResumeExpr(value, updates) =>
-      [[name, params, pre_stmts, value, updates]],
-    BlockExpr(stmts, last) =>
-      extract_full_rewrite(name, params, last, pre_stmts ++ stmts),
-    IfExpr(_, then_b, else_b) => {
-      let t = extract_full_rewrite(name, params, then_b, pre_stmts)
-      let e = extract_full_rewrite(name, params, else_b, pre_stmts)
-      t ++ e
-    },
-    _ => []
-  }
-}
-
 
 // ─── Evidence Passing Infrastructure ────────────────────────
 // Effect ops are global bindings. Handlers install closures.
@@ -950,48 +887,6 @@ fn subst_one_state(node, orig, gname) =
     }
   }
 
-// Remap rewrite entries: append cell_names so apply_rewrite substitutes state vars
-fn remap_rewrites_to_cells(rw_map, cell_names, env) = {
-  if len(rw_map) == 0 { [] }
-  else {
-    let entry = list_first(rw_map)
-    // Append cell_names as 6th element — apply_rewrite detects and substitutes
-    [entry ++ [cell_names]]
-    ++ remap_rewrites_to_cells(list_rest(rw_map), cell_names, env)
-  }
-}
-
-fn bind_rewrite_params(params, args, env, idx) = {
-  if len(params) == 0 || len(args) == 0 { [] }
-  else {
-    let lowered = lower_expr(list_first(args), env)
-    [LLet(lexpr_ty(lowered), list_first(params), lowered)]
-    ++ bind_rewrite_params(list_rest(params), list_rest(args), env, idx + 1)
-  }
-}
-
-fn apply_rewrite(rw, env) = {
-  if len(rw) < 5 {
-    LConst(TUnit, LUnit)
-  } else {
-    let pre_stmts = rw[2]
-    let resume_value = rw[3]
-    let updates = rw[4]
-    let cell_names = if len(rw) > 5 { rw[5] } else { [] }
-    let lowered_pre = flatten_blocks(lower_stmts(pre_stmts, env))
-    let lowered_updates = lower_state_updates(updates, env)
-    let lowered_value = lower_expr(resume_value, env)
-    let value_ty = lexpr_ty(lowered_value)
-    let result = if len(lowered_pre) == 0 && len(lowered_updates) == 0 {
-      lowered_value
-    } else {
-      LBlock(value_ty, lowered_pre ++ lowered_updates ++ [lowered_value])
-    }
-    if len(cell_names) > 0 { subst_state_to_cells(result, cell_names) }
-    else { result }
-  }
-}
-
 fn lower_stmts_pure(stmts, env) = {
   if len(stmts) == 0 { [] }
   else { [lower_stmt_pure(list_head(stmts), env)] ++ lower_stmts_pure(list_tail(stmts), env) }
@@ -1045,16 +940,6 @@ fn lower_exprs_pure(sexprs, env) = {
   else { [lower_expr_pure(list_head(sexprs), env)] ++ lower_exprs_pure(list_tail(sexprs), env) }
 }
 
-
-
-fn lookup_rewrite(rw_map, name, idx) = {
-  if len(rw_map) == 0 { [] }
-  else {
-    let entry = list_first(rw_map)
-    if str_eq(entry[0], name) == 1 { entry }
-    else { lookup_rewrite(list_rest(rw_map), name, idx + 1) }
-  }
-}
 
 // ─── State Init + Update ────────────────────────────────────
 
@@ -1147,34 +1032,6 @@ fn get_op_info(name, env) = {
   } }
 }
 
-fn has_active_handler(eff_name, env) = {
-  // Check if any op of this effect has an active rewrite (meaning we're inside a handler)
-  let ops = get_effect_ops(eff_name, env, 0)
-  has_any_rewrite(ops)
-}
-
-fn get_effect_ops(eff_name, env, idx) = {
-  if len(env) == 0 { [] }
-  else {
-    let (name, _, _) = list_head(env)
-    let rest = list_tail(env)
-    if starts_with(name, "__opinfo_") {
-      let op_name = string_slice(name, 9, len(name))
-      let (_, found_eff, _) = get_op_info(op_name, env)
-      if str_eq(found_eff, eff_name) == 1 { [op_name] ++ get_effect_ops(eff_name, rest, idx + 1) }
-      else { get_effect_ops(eff_name, rest, idx + 1) }
-    } else { get_effect_ops(eff_name, rest, idx + 1) }
-  }
-}
-
-fn has_any_rewrite(ops) = {
-  if len(ops) == 0 { false }
-  else {
-    if len(find_rewrite(list_head(ops))) > 0 { true }
-    else { has_any_rewrite(list_tail(ops)) }
-  }
-}
-
 fn get_user_effects(name, env) = {
   let (_, ty, _) = env_lookup(env, name)
   match ty {
@@ -1183,12 +1040,8 @@ fn get_user_effects(name, env) = {
   }
 }
 
-fn effect_names(row) = match row {
-  EfPure => [],
-  EfClosed(es) => es,
-  EfOpen(es, _) => es,
-  _ => []
-}
+// `effect_names` is defined in std/compiler/eff.lux:294 — duplicate removed
+// here to satisfy the no-shadow invariant.
 
 fn is_user_effect(eff_name, env) = {
   let (k, _, _) = env_lookup(env, "__user_eff_" ++ eff_name)
@@ -1199,10 +1052,17 @@ fn is_user_effect(eff_name, env) = {
 
 fn lower_program_typed(stmts, ctors, env) = {
   let final_env = add_op_indices_to_env(stmts, 0, env)
-  let globals = collect_top_names(stmts, 0) ++ ["heap_save", "heap_restore"]
+  // println/print are call-site specialized in lower_expr (see the Call
+  // branch — they desugar to print_string / print_int / print_newline).
+  // They're not real top-level fns, but collect_free_vars walks the raw
+  // AST and treats them as captured free variables in closure bodies.
+  // Listing them here lets is_global filter them out of capture lists
+  // so the emitter doesn't hit its unresolved-ref fallback.
+  // to_string and slice ARE real fns (memory.lux) — no addition needed.
+  let globals = collect_top_names(stmts, 0)
+             ++ ["heap_save", "heap_restore", "println", "print"]
   handle { lower_stmts(stmts, final_env) } with state = 0 {
     is_ctor(name) => resume(ctor_in(ctors, name, 0)),
-    find_rewrite(name) => resume([]),
     is_global(name) => resume(name_in(globals, name, 0)),
     is_state_var(name) => resume(false),
     fresh_id() => {

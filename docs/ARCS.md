@@ -109,17 +109,39 @@ answered by Lux's own graph structure.
 | G++ | Perfection Plan session — 6 fixes (type_of shadow, rewrite→Call, locals shadow, val_eq, list_concat) | 63964ae..d7f7274 |
 | G³ | **Evidence passing** — effects flow across function boundaries in WASM. 8/8 crucibles. | ce05534 |
 | G4 | **Arc 2 Ouroboros Bootstrap** — O(N²) Snoc list bottlenecks erased. Recurse-First Topological Traversal. Native `lux4.wasm` from `lux3.wasm` without the Rust VM. | HEAD |
+| G5 | **Inliner deletion + name-collision hygiene + cross-module TVar integrity** — ~150 lines removed (apply_rewrite / find_rewrite), memory.lux flat-array shadows deleted, count_fresh_vars wired at pipeline.lux:424. `lux4.wasm` now compiles `counter.lux` to working output. Semantic Ouroboros closed 2026-04-15. | HEAD |
 
-**Arc 2 outcome (2026-04-13):** `lux3.wasm` (2.4 MB WAT) builds via the
-Rust VM in ~9 min. The Ouroboros runs with stable ~1 GB memory. Six
-memory optimizations applied (LIndex desync, O(N) split, strip_imports
-elimination, Levenshtein neutering, list_pop env_lookup, Rust VM
-ListSlice). A native ELF path exists via `wasm2c + gcc -O2` producing
-`bootstrap/build/lux3-native` (780 KB).
+**Arc 2 outcome (2026-04-15):** `lux3.wasm` (2.4 MB WAT) builds via the
+Rust VM in ~6 min. `lux3.wasm` then compiles the self-hosted source to
+`lux4.wat` — UNRESOLVED=0, validates. `lux4.wasm` compiles
+`counter.lux` to valid WAT in ~2 s, which in turn compiles to a wasm
+that runs to exit 0. The Rust VM's charity is no longer load-bearing.
 
-**Remaining bottleneck:** O(N²) `list[i]` loops throughout the compiler
-source. CPU-bound, not memory-bound. See `AGENTS.md` → *Known Remaining
-Issue*.
+**Semantic vs strict closure:** lux3.wat and lux4.wat differ by ~4
+lines — 12 `val_concat` polymorphic-fallback sites in lux4 whose
+element types inferred as TVar (runtime-correct but textually drifted).
+The structural cure — unified substitution across modules (current
+code gives each module a private `s`) — is the same design item as
+Arc 3 Item 5 (DAG env), so strict byte-perfect fixed-point is
+carried forward instead of tactically patched.
+
+**Bootstrap hygiene now enforced:**
+- `bootstrap/tools/preflight.sh` runs before `stage0` (<1 s) and
+  hard-fails on: duplicate top-level fn names, duplicate effect-op
+  names, signature mismatches, flat-array patterns in list-named fns,
+  println/print as a value.
+- `bootstrap/tools/check_wat.sh` runs after stage2 (<1 s) and
+  hard-fails on: UNRESOLVED markers, new polymorphic-fallback sites
+  vs baseline, null-function-pointer patterns.
+- `bootstrap/tools/baseline.sh` fingerprints lux3.wat / lux4.wat for
+  drift detection; promote to golden only after a verified clean close.
+- Fast-repro fixtures in `bootstrap/tests/handler_capture*.lux` and
+  `list_concat_direct.lux` reproduce the bug classes surfaced during
+  Arc 2 close in ~2 s each.
+
+**Previous remaining bottleneck (resolved):** O(N²) `list[i]` loops
+throughout the compiler source — fixed via `list_to_flat` primitive
+(commit e6e133f).
 
 ---
 

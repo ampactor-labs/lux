@@ -421,7 +421,14 @@ fn resolve_and_check_at(paths, env, n, seen, combined_ast) = {
         resolve_and_check_at(dep_imports, env, n, seen ++ [path], combined_ast)
       let mod_ast = file_source |> frontend
       let mod_env = mod_ast |> check_program_with(dep_env, dep_n)
-      let new_n = dep_n + len(mod_env) * 10
+      // Use count_fresh_vars (defined above, line 102) to compute the
+      // exact next-fresh TVar id from the env. Was: heuristic
+      // `dep_n + len(mod_env) * 10`, which under-counted on envs with
+      // nested TVars and caused cross-module TVar collisions —
+      // surface symptom: TList(TVar) escaping into downstream modules,
+      // every `++` on a list whose element type "should" be String
+      // falling through to val_concat at lower time. (2026-04-15.)
+      let new_n = count_fresh_vars(mod_env, dep_n)
       resolve_and_check_at(rest, mod_env, new_n, dep_seen, dep_ast ++ mod_ast)
     }
   }

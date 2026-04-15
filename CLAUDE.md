@@ -50,6 +50,34 @@ The Wasm Paradox: operations that are O(1) in the Rust VM (contiguous Vec)
 become O(N) in WASM (Snoc tree traversal). Use `list_pop` for traversal,
 never `list[i]` in a loop. See `AGENTS.md` for the full list of hot paths.
 
+## NO KNOWN BUGS SIT
+
+When a bug is **known** — reproduced, localized, understood — it is the
+top of the attack list until fixed. There are only two acceptable states
+for any signal the build emits:
+
+1. **Clean.** Zero.
+2. **Blocking.** The build will not proceed past it.
+
+There is no "informational-for-now," no "soft warning," no "let's track
+it and move on." If you're tempted to write `|| true` to hide a grep
+count, or `⚠` where the right symbol is `✗`, you are burying a bug that
+will cost 75+ minutes of bootstrap time the next week.
+
+Every latent bug in this repo has eventually manifested as a ruined
+bootstrap. The cost of tolerating is always higher than the cost of
+attacking.
+
+**The protocol when a bug is found:**
+1. Reproduce it in seconds, not a full rebuild. (Fast-repro or die.)
+2. Gate it in the build. `exit 1` on the signal. No exceptions.
+3. Fix the root cause — not the symptom, not the gate.
+4. Only then strengthen the gate's scope (baseline, regression diff).
+
+If the bug is inconvenient to fix, that is not a license to tolerate it.
+It is a signal that the architecture is wrong in that area, and the fix
+should be architectural. See THE STRUCTURAL QUESTION.
+
 ## ASK THE ARTIFACT — wabt is a first-class interlocutor
 
 When a WASM build misbehaves, don't hypothesize. **Ask the artifact what
@@ -94,63 +122,92 @@ problems dissolve through its own patterns.
 **Never "sufficient." Always right.** If the fundamental architecture is
 correct, simplicity and perfection are the same thing.
 
-## STATE OF THE WORLD — Last Updated: 2026-04-14
+## STATE OF THE WORLD — Last Updated: 2026-04-15
 
-**Arc 2 (Ouroboros) — closing move queued.** Branch `arc23-execute`. All
-five known bug classes that blocked fixed-point closure have been
-addressed; the verify run is the only thing between us and Arc 2 done.
+**Arc 2 (Ouroboros) — semantic closure achieved.** Branch `arc23-execute`.
+`lux3.wasm` compiles itself → `lux4.wat` (UNRESOLVED=0, validates).
+`lux4.wasm` compiles `counter.lux` → valid WAT → wasm validates → runs
+to exit 0. The Rust VM's charity is no longer a load-bearing input.
 
-**Resolved this branch:**
-- `list_to_flat` primitive: every `list[i]` hot path is now O(1) in
-  WASM (e6e133f). The O(N²) Snoc traversal bottleneck is **gone** —
-  `grep "list[i]" std/compiler/*.lux std/backend/*.lux` returns zero.
-- `str_lt` primitive: record-field sort now compares content, not
-  pointers (str_eq fast-path in 233f2fc + str_lt pattern).
-- Polymorphic pointer-compare class: **54 sites** across 19 files —
-  all `a == b` on strings now `str_eq(a, b) == 1`, all `x != ""` on
-  runtime-built strings now `len(x) > 0` (commits aaecb0c, 853a2e1,
-  2120c46, plus 4 residual sites just patched).
-- `extract_pat_names_safe`: direct ADT match on Pat variants (Rust-VM
-  `to_string` stringified ADTs; WASM stub returned pointers, breaking
-  match-arm pattern bindings).
-- WASM tail-call emission: `return_call` / `return_call_indirect` for
-  tail positions — fixes str_eq_loop stack overflow (f611794).
-- ctx tuple accessors: destructuring, not `ctx[i]` (ff88531).
+**Semantic vs strict closure.** There is ~4 lines of textual difference
+between `lux3.wat` and `lux4.wat` (not byte-perfect fixed point). The
+drift is 12 `val_concat` fallback sites in lux4 that aren't in lux3 —
+cosmetic artifacts of cross-module TVar visibility that surface as
+polymorphic runtime dispatch instead of monomorphic typed dispatch.
+Both paths compute correct results; one is just slower. **Closing the
+strict fixed-point is carried forward to Arc 3 Item 5 (DAG env as single
+source of truth) — see the deferred work in `ARC3_ROADMAP.md`.**
 
-**Build harness:**
-- `bootstrap/Makefile` (d0978cc): `make stage0 | stage1 | stage1-aot
-  | smoke | stage2 | check | verify` with progress monitor, timestamps,
-  AOT-precompiled cwasm. `bootstrap/tests/{counter,pattern}.lux` are
-  in-repo fixtures. `make smoke` is the ~1-min canary before the ~50-min
-  stage2.
-- wabt is first-class: `make decompile-diff` localizes lux3-vs-lux4
-  divergence function-by-function. `make check-canonical` is the
-  semantic fixed-point check.
+**Resolved in the Arc 2 close (2026-04-15):**
+- **Inliner deleted** — `apply_rewrite`, `find_rewrite`, ~150 lines of
+  parallel closure-capture machinery removed. Every effect op now
+  dispatches through `__ev_op_NAME` (one mechanism, many handlers).
+  Removed the `state_names` regression + 7 latent sibling bugs that were
+  waiting for a refactor to surface.
+- **Duplicate fn names eliminated** — `memory.lux` had flat-array
+  versions of `list_contains`, `head`, `tail`, `index_of`, `replace`,
+  `starts_with`, etc. that shadowed Snoc-safe versions elsewhere. The
+  emitter silently picked the flat ones. Fatal on Snoc trees; Rust VM
+  charitably tolerated. All memory.lux shadows removed. `effect_names`
+  duplicate in `lower.lux` also removed.
+- **Cross-module TVar collision fixed** — `pipeline.lux:424` used a
+  heuristic `dep_n + len(mod_env) * 10` for the fresh-counter bump
+  between modules. `count_fresh_vars` (defined above in the same file
+  but never wired up) is now the actual bump. Reduced `val_concat`
+  drift from 33 sites to 17, then 17 to 12 after the tactical fix in
+  `collect_free_stmt`.
+- **VarRef edit reverted** — briefly broke local shadowing of
+  effect-op names; the emitter's resolution hierarchy already does the
+  right thing. Kept emitter unified.
+- **Emitter diagnostic loudness** — `wasm_emit.lux`'s UNRESOLVED
+  fallback now writes to stderr before emitting the marker. The build
+  halts visibly instead of silently producing a validated-but-wrong
+  lux4.
+
+**Tooling now in place (use before and after every stage0):**
+- `bootstrap/tools/preflight.sh` — instant static checks before
+  compile: duplicate fn names, duplicate effect-op names, flat-array
+  list ops (Snoc-tree breakers), with-clause effect declarations,
+  println-as-value. Runs in <1 s. Wired as a dep of `make stage0`.
+- `bootstrap/tools/check_wat.sh` — WAT-level drift gate: UNRESOLVED
+  count, regression diff vs baseline, null-fn-ptr patterns, polymorphic
+  fallback (val_concat/val_eq) growth detection. Runs in <1 s.
+- `bootstrap/tools/baseline.sh capture|diff|promote` — structural
+  fingerprint of a WAT artifact for detecting drift without requiring
+  byte-perfect fixed point. `bootstrap/baselines/lux3.fp` captures the
+  current Rust-VM-produced lux3.wat.
+- `bootstrap/tests/handler_capture.lux`, `handler_capture3.lux`,
+  `list_concat_direct.lux` — fast-repro fixtures (~2 s) for the bug
+  classes surfaced today: handler closure capture, nested-fn-in-handle,
+  list-op type inference.
 
 | Milestone | Status |
 |---|---|
 | Self-hosted pipeline as default | ✅ Arc 1 |
 | Rust checker deleted (4,200 lines) | ✅ c84cd43 |
 | 272 purity proofs across 9 compiler modules | ✅ |
-| `lux3.wasm` (Rust VM → WAT, bootstrap entry) | ✅ 2.4 MB, 9 min |
+| `lux3.wasm` (Rust VM → WAT, bootstrap entry) | ✅ 2.4 MB, ~6 min |
 | O(N²) `list[i]` loops eliminated via `list_to_flat` | ✅ e6e133f |
 | WASM tail-call emission | ✅ f611794 |
 | 54-site polymorphic string-compare class closed | ✅ aaecb0c..2120c46 |
-| `bootstrap/Makefile` with AOT + smoke + verify | ✅ d0978cc |
-| `lux4.wasm` fixed point (WASM compiles itself) | 🔄 Pending `make verify` |
-| Arc 2 ceremony (narrative updates, close-out commit) | ⬜ Post-verify |
-| Arc 3 companion — `std/vm.lux` self-contained (task #23) | ⬜ Structural |
+| `bootstrap/Makefile` with preflight + gates + drift | ✅ d0978cc + 2026-04-15 |
+| Inliner deleted (apply_rewrite / find_rewrite) | ✅ 2026-04-15 |
+| Name-collision hygiene (memory.lux shadows removed) | ✅ 2026-04-15 |
+| `count_fresh_vars` wired (cross-module TVar integrity) | ✅ 2026-04-15 |
+| `lux4.wasm` **semantic** Ouroboros (compiles counter.lux) | ✅ 2026-04-15 |
+| `lux4.wasm` **strict** fixed-point (`lux3.wat == lux4.wat`) | 🔄 Arc 3 carry-over |
 | Arc 3 — diagnostics effect, arenas, DAG env | ⬜ `docs/ARC3_ROADMAP.md` |
 | Arc 4+ — native x86 backend, delete Rust VM | ⬜ `docs/ARCS.md` → *Arc 4+* |
 
-**Next concrete action:** `make -C bootstrap verify` (clean → stage0 →
-stage1 → stage1-aot → smoke → stage2 → validate, ~55 min). Success
-criteria: smoke prints `42/7/5`, `lux4.wasm` validates, lux4 compiles
-`bootstrap/tests/counter.lux` cleanly.
+**Next concrete action** (for the next session): read `AGENTS.md` +
+`docs/ARC3_ROADMAP.md`. The remaining strict-fixed-point drift is a
+natural case study for Arc 3 Item 5 (env as DAG, one substitution
+graph across modules). Before starting any code change, run
+`make -C bootstrap preflight` to confirm the invariants haven't
+regressed since this closure.
 
 For the full handoff: `AGENTS.md`. For the build recipe:
-`bootstrap/README.md`. For the narrative: `docs/ARCS.md`. For the
-staged plan: `/home/suds/.claude/plans/recursive-splashing-matsumoto.md`.
+`bootstrap/README.md`. For the narrative: `docs/ARCS.md`.
 
 ## What Lux IS
 

@@ -1,0 +1,32 @@
+// Minimal repro of the handler-closure-capture bug.
+//
+// Pattern:
+//   - effect op `ask` declared
+//   - function `caller` calls `ask` but is defined OUTSIDE the handle
+//   - handle installs a handler whose arm body references `outside_var`
+//     from the enclosing lexical scope
+//   - caller is invoked from INSIDE the handle
+//
+// Expected (lux3 correct): `caller`'s emitted WAT dispatches `ask(n)`
+// through `global.get $__ev_op_ask` + `call_indirect`. `outside_var`
+// is captured by the handler closure, not by `caller`.
+//
+// Bug (the one that took 75 min to surface in lux4): `caller`'s WAT
+// INLINES the arm body `outside_var + n` at the ask() call site, leaving
+// `outside_var` as an UNRESOLVED free reference.
+
+effect Q { ask(n: Int) -> Int }
+
+fn caller(n: Int) -> Int = ask(n)
+
+fn main() = {
+  let outside_var = 100
+  let result = handle {
+    caller(5)
+  } {
+    ask(n) => resume(outside_var + n)
+  }
+  println(to_string(result))
+}
+
+main()

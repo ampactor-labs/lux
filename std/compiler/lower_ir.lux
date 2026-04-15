@@ -15,7 +15,6 @@
 
 effect LowerCtx {
   is_ctor(name: String) -> Bool
-  find_rewrite(name: String) -> List
   is_global(name: String) -> Bool
   is_state_var(name: String) -> Bool
   fresh_id() -> Int

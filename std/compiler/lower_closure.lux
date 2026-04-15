@@ -253,16 +253,23 @@ fn collect_free_stmts_at(stmts, bound, i) = {
   }
 }
 
+// `bound`/`names`/`pat_names` are SET-of-strings (no duplicates) — use
+// string_union, not `++`. `++` here is the polymorphic Concat that
+// dispatches by type at lower time; when extract_pat_names_safe and
+// LetDestructure's `names` field don't fully resolve in lux3.wasm's
+// self-hosted inference, the dispatch falls through to val_concat,
+// which mis-handles the data and downstream emit_global_decls traps.
+// string_union is monomorphic on List[String] — bypasses the issue.
 fn collect_free_stmt(stmt, bound) = match stmt {
-  LetStmt(name, value) => (collect_free(value, bound), bound ++ [name]),
-  LetDestructure(names, value) => (collect_free(value, bound), bound ++ names),
+  LetStmt(name, value) => (collect_free(value, bound), string_union(bound, [name])),
+  LetDestructure(names, value) => (collect_free(value, bound), string_union(bound, names)),
   LetPattern(pat, value) => {
     let pat_names = extract_pat_names_safe(pat)
-    (collect_free(value, bound), bound ++ pat_names)
+    (collect_free(value, bound), string_union(bound, pat_names))
   },
   FnStmt(name, params, body, _, _) => {
     let fn_params = extract_param_names_pure(params)
-    (collect_free(body, bound ++ [name] ++ fn_params), bound ++ [name])
+    (collect_free(body, string_union(string_union(bound, [name]), fn_params)), string_union(bound, [name]))
   },
   ExprStmt(expr) => (collect_free(expr, bound), bound),
   _ => ([], bound)

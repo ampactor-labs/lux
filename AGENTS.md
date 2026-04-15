@@ -1,43 +1,64 @@
-# Agent Handoff — Arc 2 Ouroboros
+# Agent Handoff — Arc 2 Ouroboros (semantic closure — 2026-04-15)
 
 *What's in progress. What's broken. How to rebuild.
 For narrated history, see `docs/ARCS.md`.
 For next arc, see `docs/ARC3_ROADMAP.md`.
 For the build recipe, see `bootstrap/README.md`.*
 
-**Last updated:** 2026-04-14
+**Last updated:** 2026-04-15
 
 ## Current State
 
-The Lux compiler is bootstrapping to WebAssembly. The pipeline:
+**Arc 2 semantic Ouroboros is closed.** `lux3.wasm` (built by the Rust
+VM from the self-hosted source) compiles itself to `lux4.wat`, which
+validates. `lux4.wasm` then compiles `bootstrap/tests/counter.lux` to
+valid WAT that runs to exit 0. The Rust VM's charity is no longer a
+load-bearing input of the production path.
 
 ```
-Rust VM compiles → lux3.wasm (Lux compiler as WASM, built by Rust)
-lux3.wasm compiles → lux4.wasm (Lux compiler as WASM, built by itself — NO RUST)
+Rust VM compiles → lux3.wat (Lux compiler in WAT, built by Rust)
+                 → lux3.wasm (binary via wat2wasm)
+lux3.wasm compiles → lux4.wat (identical semantics, ~4 lines drift)
+                   → lux4.wasm (validates; runs counter.lux to exit 0)
 ```
 
-Active branch: `arc23-execute`. The closing move for Arc 2 (54-site
-polymorphic-compare fix + 4 residuals + ADT-match pattern extraction)
-is committed and queued for verify.
+Active branch: `arc23-execute`. The closing work (inliner deletion,
+name-collision hygiene, cross-module TVar integrity, VarRef shadowing
+fix, emitter diagnostic loudness) is uncommitted in the working tree
+as of this write — see the forthcoming Arc 2 close commit.
 
 **What works:**
-- `lux3.wasm` — built by Rust VM in ~9 minutes via `make -C bootstrap stage0 stage1`.
-- All Arc 2 memory optimizations are applied (see below).
-- `list_to_flat` (e6e133f) eliminated the O(N²) Snoc traversal class —
-  `list[i]` is a single `i32.load` on hot paths in WASM.
-- WASM tail-call emission (f611794) — `return_call` in tail position,
-  fixes str_eq_loop stack overflow.
-- Polymorphic pointer-compare class CLOSED (aaecb0c, 853a2e1, 2120c46,
-  plus 4 residual `== ""` sites). 54 sites across 19 files now use
-  `str_eq(a, b) == 1` / `len(x) > 0`. See "Polymorphism Pattern" below.
+- `lux3.wasm` — Rust VM → WAT in ~6 minutes via `make -C bootstrap stage0 stage1`.
+- Preflight gate (`bootstrap/tools/preflight.sh`) runs in <1 s before
+  `stage0` and catches dup fn names, duplicate effect ops, flat-array
+  list access patterns, println-as-value.
+- Check-wat gate (`bootstrap/tools/check_wat.sh`) runs post-stage2 and
+  catches UNRESOLVED growth, null-fn-ptr patterns, polymorphic-fallback
+  (val_concat / val_eq) drift.
+- Baseline drift detector (`bootstrap/tools/baseline.sh`) captures
+  lux3.wat / lux4.wat fingerprints for regression sensing without
+  requiring byte-perfect fixed point.
+- Fast-repro fixtures: `handler_capture.lux`, `handler_capture3.lux`,
+  `list_concat_direct.lux` — ~2 s per repro for the bug classes
+  surfaced during Arc 2 close.
 
-**Pending (blocks Arc 2 close):**
-- `make -C bootstrap verify` must pass end-to-end: stage0 → stage1 →
-  AOT compile → smoke (pattern canary + counter) → stage2 (~45 min) →
-  wat2wasm + wasm-validate on lux4.wasm → counter via lux4.
-- If verify passes: Arc 2 ceremony commit + doc updates + celebrate.
-- If verify fails: use `make decompile-diff` to localize the next
-  divergence; check `build/{lux3,lux4}.preamble.log` for VM warnings.
+**Residual drift — Arc 3 carry-over:**
+- lux4.wat has 17 `val_concat` fallback sites vs lux3.wat's 5
+  (12 new). All are `++` on lists whose element-type inference
+  produced TVar in lux3.wasm's compiled `check_program_with` but
+  concrete String in the Rust VM. Runtime-correct but textually drifted.
+- Structural cure is Arc 3 Item 5 (DAG env + unified substitution
+  across modules), not more tactical patches. See
+  `docs/ARC3_ROADMAP.md` + the memory entry
+  `feedback_polymorphic_dispatch_silent_fallback.md`.
+
+**Before making ANY code change, run:**
+```bash
+make -C bootstrap preflight          # <1 s; catches dup names, shadows, dispatch fallbacks
+make -C bootstrap check-wat          # <1 s; diffs lux4.wat vs lux3.wat
+```
+Both exit 0 means the current invariants still hold. Non-zero means
+something in the tree (or a just-made edit) broke a regression gate.
 
 ## Build Commands
 

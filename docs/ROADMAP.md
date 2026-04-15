@@ -31,17 +31,20 @@ For deep **insights** that fall out of the design, see [`INSIGHTS.md`](INSIGHTS.
 | LowIR + WASM emitter — `lux wasm` produces WAT | ✅ Shipped |
 | Rust checker deleted (4,200 lines retired) | ✅ Shipped (c84cd43) |
 | 272 purity proofs (9 self-hosted modules) | ✅ Shipped |
-| WASM bootstrap: `lux3.wasm` built by Rust VM in 9 min | ✅ Shipped |
+| WASM bootstrap: `lux3.wasm` built by Rust VM in ~6 min | ✅ Shipped |
 | Native ELF via `wasm2c + gcc -O2` | ✅ Shipped (bootstrap/build/lux3-native) |
-| **Ouroboros fixed-point** (`lux3.wasm == lux4.wasm`) | 🔄 Blocked on O(N²) list loops |
+| Inliner deleted + name-collision hygiene + count_fresh_vars | ✅ 2026-04-15 |
+| **Ouroboros — semantic** (lux4.wasm compiles counter.lux cleanly) | ✅ 2026-04-15 |
+| **Ouroboros — strict** (`lux3.wat == lux4.wat` byte-identical) | 🔄 Arc 3 carry-over |
 
-### Near-term focus: finish Arc 2
+### Near-term focus: Arc 3
 
-See `AGENTS.md` → *Known Remaining Issue*. The compiler source uses
-`list[i]` index-based loops that are O(1) on the Rust VM (contiguous
-`Vec`) but O(N) in WASM (Snoc trees). Each such loop is O(N²) in the
-Ouroboros. Fix pattern: convert to `list_pop` tail recursion. Target
-files named there.
+Arc 2's strict byte-fixed-point has ~12 residual `val_concat`
+polymorphic-fallback sites where lux3.wasm's cross-module type
+inference loses information relative to the Rust VM's. The structural
+fix — unified substitution + env as DAG across modules — is Arc 3 Item
+5. Tactical patching is deferred in favor of that larger refactor.
+See `AGENTS.md` → *Residual drift — Arc 3 carry-over*.
 
 ### Next: Arc 3 — Native Superpowers
 

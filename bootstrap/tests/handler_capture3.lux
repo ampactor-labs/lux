@@ -1,0 +1,15 @@
+effect E { ask(n) -> Int }
+
+fn test() = {
+  let outside_var = 100
+  handle {
+    fn local_fn(n) = ask(n)
+    local_fn(5)
+  } {
+    ask(n) => resume(outside_var + n)
+  }
+}
+
+fn main() = println(to_string(test()))
+
+main()
