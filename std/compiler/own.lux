@@ -44,7 +44,7 @@ fn used_has_at(name, used, i) = {
   if i >= len(used) { false }
   else {
     let (n, _) = used[i];
-    if n == name { true } else { used_has_at(name, used, i + 1) }
+    if str_eq(n, name) == 1 { true } else { used_has_at(name, used, i + 1) }
   }
 }
 

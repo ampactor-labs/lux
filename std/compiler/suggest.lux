@@ -160,7 +160,7 @@ fn collect_pat_names(arms, i) = {
 fn suggest_list_contains(lst, item, i) = {
   if i >= len(lst) { false }
   else {
-    if lst[i] == item { true }
+    if str_eq(lst[i], item) == 1 { true }
     else { suggest_list_contains(lst, item, i + 1) }
   }
 }

@@ -405,7 +405,10 @@ fn insert_field_sorted(field, sorted) = {
     let (fa, _) = field
     let head = list_first(sorted)
     let (fb, _) = head
-    if fa < fb { [field] ++ sorted }
+    // Use str_lt on CONTENT, not raw `<` which lowers to pointer compare
+    // in WASM. Record-field order is load-bearing for handler indices —
+    // see commit log for the self-hosting miscompilation this fixes.
+    if str_lt(fa, fb) == 1 { [field] ++ sorted }
     else { [head] ++ insert_field_sorted(field, list_rest(sorted)) }
   }
 }
@@ -560,19 +563,18 @@ fn lower_stmt(stmt, env) = match stmt {
   LetPattern(pat, value) => {
     let lowered = lower_expr(value, env)
     let lowered_ty = lexpr_ty(lowered)
-    let pat_str = to_string(pat)
-    if starts_with(pat_str, "PCon(") {
-      let names = extract_pvar_names_from_string(pat_str)
-      LBlock(TUnit, [LLet(lowered_ty, "_lp", lowered)] ++ lower_destructure_bindings_offset(names, 0, 0))
-    } else { if starts_with(pat_str, "PTuple(") {
-      let names = extract_pvar_names_from_string(pat_str)
-      LBlock(TUnit, [LLet(lowered_ty, "_lp", lowered)] ++ lower_destructure_bindings_offset(names, 0, 0))
-    } else { if starts_with(pat_str, "PVar(") {
-      let name = str_slice(pat_str, 6, len(pat_str) - 2)
-      LLet(lowered_ty, name, lowered)
-    } else {
-      LLet(lowered_ty, "_lp", lowered)
-    } } }
+    match pat {
+      PVar(name) => LLet(lowered_ty, name, lowered),
+      PCon(_, sub) => {
+        let names = extract_pat_names_safe(pat)
+        LBlock(TUnit, [LLet(lowered_ty, "_lp", lowered)] ++ lower_destructure_bindings_offset(names, 0, 0))
+      },
+      PTuple(sub) => {
+        let names = extract_pat_names_safe(pat)
+        LBlock(TUnit, [LLet(lowered_ty, "_lp", lowered)] ++ lower_destructure_bindings_offset(names, 0, 0))
+      },
+      _ => LLet(lowered_ty, "_lp", lowered)
+    }
   },
   FnStmt(name, params, body, _, _) => {
     let base_params = extract_param_names(params)
@@ -1159,7 +1161,7 @@ fn get_effect_ops(eff_name, env, idx) = {
     if starts_with(name, "__opinfo_") {
       let op_name = string_slice(name, 9, len(name))
       let (_, found_eff, _) = get_op_info(op_name, env)
-      if found_eff == eff_name { [op_name] ++ get_effect_ops(eff_name, rest, idx + 1) }
+      if str_eq(found_eff, eff_name) == 1 { [op_name] ++ get_effect_ops(eff_name, rest, idx + 1) }
       else { get_effect_ops(eff_name, rest, idx + 1) }
     } else { get_effect_ops(eff_name, rest, idx + 1) }
   }

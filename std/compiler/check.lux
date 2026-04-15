@@ -174,7 +174,8 @@ fn insert_field_at(field, sorted, i) = {
   else {
     let (fa, _) = field
     let (fb, _) = sorted[i]
-    if fa < fb { [field] ++ slice(sorted, i, len(sorted)) }
+    // str_lt on CONTENT — polymorphic < would compile to pointer compare
+    if str_lt(fa, fb) == 1 { [field] ++ slice(sorted, i, len(sorted)) }
     else { [sorted[i]] ++ insert_field_at(field, sorted, i + 1) }
   }
 }

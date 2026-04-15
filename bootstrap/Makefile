@@ -127,12 +127,33 @@ check-canonical: $(BUILD)/lux3.wat $(BUILD)/lux4.wat
 # miscompiled function — much faster than wading through 137K lines
 # of WAT looking for the divergence.
 decompile-diff: $(BUILD)/lux3.wasm $(BUILD)/lux4.wasm
-	@wasm-decompile $(BUILD)/lux3.wasm > $(BUILD)/lux3.dc.txt
-	@wasm-decompile $(BUILD)/lux4.wasm > $(BUILD)/lux4.dc.txt
+	@wasm-decompile --enable-tail-call $(BUILD)/lux3.wasm > $(BUILD)/lux3.dc.txt
+	@wasm-decompile --enable-tail-call $(BUILD)/lux4.wasm > $(BUILD)/lux4.dc.txt
 	@diff $(BUILD)/lux3.dc.txt $(BUILD)/lux4.dc.txt > $(BUILD)/dc.diff || true
 	@echo "Decompile diff written to $(BUILD)/dc.diff ($$(wc -l < $(BUILD)/dc.diff) lines)"
 	@echo "First diverging function name:"
 	@awk '/^[<>] function /{print; exit}' $(BUILD)/dc.diff || true
+
+# ─── Profile: opcode + section triage ─────────────────────────────────
+# ASK THE ARTIFACT. wasm-stats → opcode histogram (find hot paths).
+# wasm-objdump -h → section sizes (Code vs Data vs Elem — tells you
+# where bytes actually live). wasm-objdump -x → full structural dump.
+stats: $(BUILD)/lux3.wasm
+	@echo "=== lux3.wasm opcode histogram ==="
+	@wasm-stats --enable-tail-call $(BUILD)/lux3.wasm | head -30
+	@echo ""
+	@echo "=== section sizes ==="
+	@wasm-objdump -h $(BUILD)/lux3.wasm | head -12
+
+# ─── Third-opinion runtime ────────────────────────────────────────────
+# wasm-interp is a reference interpreter — slow but independent. If
+# wasmtime and wasm-interp disagree on the output of the same WASM,
+# the runtime is lying. Useful as a sanity probe on tiny inputs.
+interp-check: $(BUILD)/lux3.wasm
+	@echo "=== wasm-interp counter via lux3 ==="
+	@echo "(runs the reference interpreter — minutes, not seconds)"
+	@cat /tmp/counter.lux | wasm-interp --enable-tail-call --run-all-exports \
+	  $(BUILD)/lux3.wasm 2>&1 | head -20 || echo "(interp can't drive stdin — skip)"
 
 clean:
 	rm -rf $(BUILD)

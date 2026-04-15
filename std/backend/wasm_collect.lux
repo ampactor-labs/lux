@@ -54,7 +54,7 @@ fn find_param_idx(params, name) = {
   if len(params) == 0 { 0 - 1 }
   else {
     let (rest, p) = list_pop(params)
-    if p == name { len(rest) } else { find_param_idx(rest, name) }
+    if str_eq(p, name) == 1 { len(rest) } else { find_param_idx(rest, name) }
   }
 }
 
@@ -245,7 +245,7 @@ fn find_string_offset(string_map, text) = {
   else {
     let (rest, last_elem) = list_pop(string_map)
     let (s, offset, _) = last_elem
-    if s == text { offset } else { find_string_offset(rest, text) }
+    if str_eq(s, text) == 1 { offset } else { find_string_offset(rest, text) }
   }
 }
 
@@ -292,7 +292,7 @@ fn find_tag_id(tag_map, name) = {
   if len(tag_map) == 0 { 0 }
   else {
     let (rest, n) = list_pop(tag_map)
-    if n == name { len(rest) } else { find_tag_id(rest, name) }
+    if str_eq(n, name) == 1 { len(rest) } else { find_tag_id(rest, name) }
   }
 }
 
@@ -392,7 +392,7 @@ fn fn_name_in_list(name, fns) = {
   if len(fns) == 0 { false }
   else {
     let LFn(n, _, _, _, _) = list_head(fns)
-    if n == name { true }
+    if str_eq(n, name) == 1 { true }
     else { fn_name_in_list(name, list_tail(fns)) }
   }
 }

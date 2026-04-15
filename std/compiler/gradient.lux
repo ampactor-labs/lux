@@ -234,7 +234,7 @@ fn has_negation_declared_at(declared, eff_name, i) = {
   if i >= len(declared) { false }
   else {
     let (name, negated) = declared[i]
-    if name == eff_name && negated { true }
+    if str_eq(name, eff_name) == 1 && negated { true }
     else { has_negation_declared_at(declared, eff_name, i + 1) }
   }
 }

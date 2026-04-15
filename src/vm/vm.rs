@@ -1402,6 +1402,15 @@ impl Vm {
             }
             _ => Ok(VmValue::Int(0)),
         });
+        // str_lt: lexicographic less-than (returns 1/0). Record-field sort
+        // depends on CONTENT ordering. Default < on strings falls through
+        // to i32.lt_s (pointer compare) in WASM.
+        self.register_builtin("str_lt", |args| match (args.first(), args.get(1)) {
+            (Some(VmValue::String(a)), Some(VmValue::String(b))) => {
+                Ok(VmValue::Int(if a.as_str() < b.as_str() { 1 } else { 0 }))
+            }
+            _ => Ok(VmValue::Int(0)),
+        });
         self.register_builtin("to_string", |args| {
             let val = args.first().cloned().unwrap_or(VmValue::Unit);
             Ok(VmValue::String(Arc::new(val.display_print())))

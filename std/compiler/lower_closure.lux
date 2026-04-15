@@ -268,43 +268,25 @@ fn collect_free_stmt(stmt, bound) = match stmt {
   _ => ([], bound)
 }
 
-fn extract_pat_names_safe(pat) = {
-  // Use to_string to avoid Rust VM ADT matching crash on Pat variants
-  let s = to_string(pat)
-  if starts_with(s, "PVar(") { [string_slice(s, 6, len(s) - 2)] }
-  else { if starts_with(s, "PCon(") { extract_pvar_names_from_string(s) }
-  else { if starts_with(s, "PTuple(") { extract_pvar_names_from_string(s) }
-  else { [] } } }
+// Direct ADT match — to_string() stringifies ADTs in the Rust VM but
+// returns raw pointers in WASM runtime, so string-based extraction
+// silently returns [] in self-hosted builds. Pattern-bound variables
+// then look free, get closure-captured, and match-arm bodies read
+// from (__closure + offset) instead of local.get — garbage output.
+fn extract_pat_names_safe(pat) = match pat {
+  PVar(name) => [name],
+  PWild => ["_"],
+  PCon(_, sub) => extract_pat_names_list(list_to_flat(sub), 0),
+  PTuple(sub) => extract_pat_names_list(list_to_flat(sub), 0),
+  _ => []
 }
 
-fn extract_pvar_names_from_string(s) = {
-  // Extract PVar/PWild from stringified pattern: PCon("S", [PVar("inner"), PWild])
-  // Returns names for PVar and "_" for PWild, preserving positions.
-  fn find_pvars(s, idx, acc) =
-    if idx + 5 >= len(s) { acc }
-    else {
-      if string_slice(s, idx, idx + 5) == "PWild" {
-        find_pvars(s, idx + 5, acc ++ ["_"])
-      } else {
-        if idx + 6 < len(s) && string_slice(s, idx, idx + 6) == "PVar(\"" {
-          let rest = string_slice(s, idx + 6, len(s))
-          let end = index_of(rest, "\"")
-          if end >= 0 {
-            let name = string_slice(s, idx + 6, idx + 6 + end)
-            find_pvars(s, idx + 6 + end, acc ++ [name])
-          } else { find_pvars(s, idx + 1, acc) }
-        } else { find_pvars(s, idx + 1, acc) }
-      }
-    }
-  find_pvars(s, 0, [])
+fn extract_pat_names_list(pats, i) = {
+  if i >= len(pats) { [] }
+  else { extract_pat_names_safe(pats[i]) ++ extract_pat_names_list(pats, i + 1) }
 }
 
-fn collect_pat_names_lower(pat) = {
-  let s = to_string(pat)
-  // Simple extraction: avoid ADT matching that crashes on field count mismatch
-  // LetPattern is rare in the lowering path — _lp works for most cases
-  []
-}
+fn collect_pat_names_lower(pat) = extract_pat_names_safe(pat)
 
 fn extract_param_names_pure(params) = extract_param_names_pure_at(list_to_flat(params), 0)
 fn extract_param_names_pure_at(params, i) = {
@@ -361,7 +343,7 @@ fn map_to_globals_typed(names, env, idx) = {
 
 fn find_in_list(list, name, idx) = {
   if idx >= len(list) { 0 - 1 }
-  else { if list[idx] == name { idx } else { find_in_list(list, name, idx + 1) } }
+  else { if str_eq(list[idx], name) == 1 { idx } else { find_in_list(list, name, idx + 1) } }
 }
 
 // ─── String Set Utilities ────────────────────────────────────
@@ -378,5 +360,5 @@ fn string_union_at(a, b, i) = {
 
 fn string_in(list, s, idx) = {
   if idx >= len(list) { false }
-  else { if list[idx] == s { true } else { string_in(list, s, idx + 1) } }
+  else { if str_eq(list[idx], s) == 1 { true } else { string_in(list, s, idx + 1) } }
 }

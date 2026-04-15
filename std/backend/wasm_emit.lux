@@ -89,7 +89,7 @@ fn emit_global_decls(names, env) = {
 
 fn name_seen_before(name, later_names) = {
   if len(later_names) == 0 { false }
-  else { if list_head(later_names) == name { true } else { name_seen_before(name, list_tail(later_names)) } }
+  else { if str_eq(list_head(later_names), name) == 1 { true } else { name_seen_before(name, list_tail(later_names)) } }
 }
 
 fn emit_wasi_imports() with WasmOut = {

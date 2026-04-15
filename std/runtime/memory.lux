@@ -296,6 +296,31 @@ fn str_cmp_bytes(a, b, slen, i) with Memory = {
   }
 }
 
+// str_lt: lexicographic less-than on strings. Returns 1 if a < b, else 0.
+// Required because the polymorphic `<` lowers to i32.lt_s, which compares
+// heap POINTERS instead of string CONTENT. Record-field sorting in the
+// self-hosted compiler depends on CONTENT comparison; without str_lt,
+// lux4's sort order diverges from lux3's and every handler record's
+// field indices get swapped (yield at 0 vs result at 0), cascading into
+// UNRESOLVED __ev_op_* lookups and garbage output when lux4 runs.
+fn str_lt(a, b) with Memory = {
+  let len_a = load_i32(a)
+  let len_b = load_i32(b)
+  let min_len = if len_a < len_b { len_a } else { len_b }
+  str_lt_loop(a, b, min_len, len_a, len_b, 0)
+}
+
+fn str_lt_loop(a, b, min_len, len_a, len_b, i) with Memory =
+  if i >= min_len {
+    if len_a < len_b { 1 } else { 0 }
+  } else {
+    let ba = load_i8(a + 4 + i)
+    let bb = load_i8(b + 4 + i)
+    if ba < bb { 1 }
+    else { if ba > bb { 0 }
+    else { str_lt_loop(a, b, min_len, len_a, len_b, i + 1) } }
+  }
+
 fn write_digits(n, ptr) with Memory =
   if n == 0 { ptr }
   else {

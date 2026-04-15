@@ -42,7 +42,7 @@ fn list_contains(lst, item) = list_contains_walk(lst, item)
 
 fn list_contains_walk(lst, item) = {
   if len(lst) == 0 { false }
-  else { if list_head(lst) == item { true } else { list_contains_walk(list_tail(lst), item) }
+  else { if str_eq(list_head(lst), item) == 1 { true } else { list_contains_walk(list_tail(lst), item) }
   }
 }
 

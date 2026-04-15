@@ -106,6 +106,10 @@ fn env_with_primitives(env) = {
     // str_eq: value equality on strings (returns 1/0). Defined in std/runtime/memory.lux.
     // Declared here so the compiler can call it from contexts that don't import memory.
     |> env_extend("str_eq", TFun([TString, TString], TInt, EfPure), Declared("builtin"))
+    // str_lt: lexicographic less-than on strings (returns 1/0). The raw
+    // `<` operator lowers to i32.lt_s on pointers; when sorting record
+    // field names the compiler needs content comparison, not pointer.
+    |> env_extend("str_lt", TFun([TString, TString], TInt, EfPure), Declared("builtin"))
     // Region primitives — bump allocator checkpoint/restore
     |> env_extend("heap_save", TFun([], TInt, EfPure), Declared("builtin"))
     |> env_extend("heap_restore", TFun([TInt], TUnit, EfPure), Declared("builtin"))

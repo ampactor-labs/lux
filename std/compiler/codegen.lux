@@ -724,7 +724,7 @@ fn find_effect_op_at(ops, name, i) = {
   if i >= len(ops) { "" }
   else {
     let (op_name, eff_name) = ops[i]
-    if op_name == name { eff_name }
+    if str_eq(op_name, name) == 1 { eff_name }
     else { find_effect_op_at(ops, name, i + 1) }
   }
 }
@@ -1389,7 +1389,7 @@ fn insert_field_at(field, sorted, i) = {
   else {
     let (fa, _) = field
     let (fb, _) = sorted[i]
-    if fa < fb { slice(sorted, 0, i) ++ [field] ++ slice(sorted, i, len(sorted)) }
+    if str_lt(fa, fb) == 1 { slice(sorted, 0, i) ++ [field] ++ slice(sorted, i, len(sorted)) }
     else { insert_field_at(field, sorted, i + 1) }
   }
 }
