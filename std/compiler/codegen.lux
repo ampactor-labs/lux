@@ -986,7 +986,7 @@ fn binop_to_opcode(op) = {
   else { if op == "Gt"  { OP_GT }
   else { if op == "GtEq"  { OP_GTEQ }
   else { if op == "Concat" { OP_CONCAT }
-  else { let _ = println("codegen: unknown binary operator '" ++ op ++ "'"); OP_ADD }
+  else { let _ = eprint_string("codegen: unknown binary operator '" ++ op ++ "'\n"); OP_ADD }
   }}}}}}}}}}}
 }
 
