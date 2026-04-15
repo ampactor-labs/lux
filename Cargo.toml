@@ -1,9 +1,0 @@
-[package]
-name = "lux"
-version = "0.1.0"
-edition = "2024"
-description = "Lux — a language of light. Algebraic effects, refinement types, ownership inference."
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/ampactor/lux"
-
-[dependencies]

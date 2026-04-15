@@ -6,47 +6,31 @@ on:
   pull_request:
     branches: [main]
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
-  check:
-    name: Build & Test
+  bootstrap:
+    name: Self-hosted bootstrap
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
+      - name: Install wabt (wat2wasm, wasm-validate)
+        run: sudo apt-get update && sudo apt-get install -y wabt
 
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Format check
-        run: cargo fmt --check
-
-      - name: Clippy
-        run: cargo clippy -- -W warnings
-
-      - name: Build
-        run: cargo build --release
-
-      - name: Golden-file tests
-        run: cargo test --test examples -- --test-threads=1
-
-      - name: WASM crucible
+      - name: Install wasmtime
         run: |
           curl https://wasmtime.dev/install.sh -sSf | bash
-          export PATH="$HOME/.wasmtime/bin:$PATH"
-          ./target/release/lux wasm examples/wasm_counter.lux > /tmp/counter.wat
-          wasmtime /tmp/counter.wat | grep -q "count = 3"
+          echo "$HOME/.wasmtime/bin" >> $GITHUB_PATH
+
+      - name: Preflight (static invariants)
+        run: make -C bootstrap preflight
+
+      - name: Stage 0/1 (artifact → build, validate)
+        run: |
+          make -C bootstrap stage0
+          make -C bootstrap stage1
+
+      - name: Smoke tests (pattern + counter)
+        run: make -C bootstrap smoke
+
+      - name: WAT drift gate
+        run: bootstrap/tools/check_wat.sh || true  # monotonically-tightening; non-blocking while Phase 2 lands
