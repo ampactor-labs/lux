@@ -64,7 +64,7 @@ fn show_eff_doc(eff) = match eff {
 
 fn format_diagnostic(source, kind, msg, line, col) = {
   let header = kind ++ ": " ++ msg
-  if line <= 0 || source == "" { header }
+  if line <= 0 || len(source) == 0 { header }
   else {
     let src_lines = split(source, "\n")
     if line > len(src_lines) { header }

@@ -176,7 +176,7 @@ fn find_missing(all, covered, i) = {
 }
 
 fn check_exhaustive(env, type_name, arms) = {
-  if type_name == "" { [] }
+  if len(type_name) == 0 { [] }
   else {
     let constructors = collect_constructors(env, type_name)
     if len(constructors) == 0 { [] }

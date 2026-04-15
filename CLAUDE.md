@@ -94,19 +94,38 @@ problems dissolve through its own patterns.
 **Never "sufficient." Always right.** If the fundamental architecture is
 correct, simplicity and perfection are the same thing.
 
-## STATE OF THE WORLD — Last Updated: 2026-04-13
+## STATE OF THE WORLD — Last Updated: 2026-04-14
 
-**Arc 2 (Ouroboros) is nearly complete.** `lux3.wasm` (2.4 MB WAT)
-builds in ~9 minutes via the Rust VM. Self-compilation runs stable at
-~1 GB memory. Six memory optimizations shipped: LIndex desync fix,
-O(N) split, strip_imports elimination, Levenshtein neutering,
-list_pop env_lookup, Rust VM ListSlice. A native ELF path exists via
-`wasm2c + gcc -O2` producing `bootstrap/build/lux3-native` (780 KB).
+**Arc 2 (Ouroboros) — closing move queued.** Branch `arc23-execute`. All
+five known bug classes that blocked fixed-point closure have been
+addressed; the verify run is the only thing between us and Arc 2 done.
 
-**Remaining bottleneck:** O(N²) `list[i]` loops in the compiler source.
-CPU-bound, not memory-bound. Target files named in `AGENTS.md` →
-*Known Remaining Issue*. The fix is algorithmic (convert `list[i]`
-loops to `list_pop` tail recursion).
+**Resolved this branch:**
+- `list_to_flat` primitive: every `list[i]` hot path is now O(1) in
+  WASM (e6e133f). The O(N²) Snoc traversal bottleneck is **gone** —
+  `grep "list[i]" std/compiler/*.lux std/backend/*.lux` returns zero.
+- `str_lt` primitive: record-field sort now compares content, not
+  pointers (str_eq fast-path in 233f2fc + str_lt pattern).
+- Polymorphic pointer-compare class: **54 sites** across 19 files —
+  all `a == b` on strings now `str_eq(a, b) == 1`, all `x != ""` on
+  runtime-built strings now `len(x) > 0` (commits aaecb0c, 853a2e1,
+  2120c46, plus 4 residual sites just patched).
+- `extract_pat_names_safe`: direct ADT match on Pat variants (Rust-VM
+  `to_string` stringified ADTs; WASM stub returned pointers, breaking
+  match-arm pattern bindings).
+- WASM tail-call emission: `return_call` / `return_call_indirect` for
+  tail positions — fixes str_eq_loop stack overflow (f611794).
+- ctx tuple accessors: destructuring, not `ctx[i]` (ff88531).
+
+**Build harness:**
+- `bootstrap/Makefile` (d0978cc): `make stage0 | stage1 | stage1-aot
+  | smoke | stage2 | check | verify` with progress monitor, timestamps,
+  AOT-precompiled cwasm. `bootstrap/tests/{counter,pattern}.lux` are
+  in-repo fixtures. `make smoke` is the ~1-min canary before the ~50-min
+  stage2.
+- wabt is first-class: `make decompile-diff` localizes lux3-vs-lux4
+  divergence function-by-function. `make check-canonical` is the
+  semantic fixed-point check.
 
 | Milestone | Status |
 |---|---|
@@ -114,15 +133,24 @@ loops to `list_pop` tail recursion).
 | Rust checker deleted (4,200 lines) | ✅ c84cd43 |
 | 272 purity proofs across 9 compiler modules | ✅ |
 | `lux3.wasm` (Rust VM → WAT, bootstrap entry) | ✅ 2.4 MB, 9 min |
-| `lux3-native` (wasm2c + gcc -O2 ELF) | ✅ 780 KB |
-| `bootstrap/Makefile` formalizes stage 0 → 1 → 2 | ✅ |
-| `lux4.wasm` fixed point (WASM compiles itself) | 🔄 Blocked on O(N²) |
-| O(N²) list traversal elimination | ⬜ Arc 2 finish |
+| O(N²) `list[i]` loops eliminated via `list_to_flat` | ✅ e6e133f |
+| WASM tail-call emission | ✅ f611794 |
+| 54-site polymorphic string-compare class closed | ✅ aaecb0c..2120c46 |
+| `bootstrap/Makefile` with AOT + smoke + verify | ✅ d0978cc |
+| `lux4.wasm` fixed point (WASM compiles itself) | 🔄 Pending `make verify` |
+| Arc 2 ceremony (narrative updates, close-out commit) | ⬜ Post-verify |
+| Arc 3 companion — `std/vm.lux` self-contained (task #23) | ⬜ Structural |
 | Arc 3 — diagnostics effect, arenas, DAG env | ⬜ `docs/ARC3_ROADMAP.md` |
 | Arc 4+ — native x86 backend, delete Rust VM | ⬜ `docs/ARCS.md` → *Arc 4+* |
 
+**Next concrete action:** `make -C bootstrap verify` (clean → stage0 →
+stage1 → stage1-aot → smoke → stage2 → validate, ~55 min). Success
+criteria: smoke prints `42/7/5`, `lux4.wasm` validates, lux4 compiles
+`bootstrap/tests/counter.lux` cleanly.
+
 For the full handoff: `AGENTS.md`. For the build recipe:
-`bootstrap/README.md`. For the narrative: `docs/ARCS.md`.
+`bootstrap/README.md`. For the narrative: `docs/ARCS.md`. For the
+staged plan: `/home/suds/.claude/plans/recursive-splashing-matsumoto.md`.
 
 ## What Lux IS
 

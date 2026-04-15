@@ -553,7 +553,7 @@ fn collect_absorbed_from_names(names) with Infer = {
       _ => ""
     }
     let rest = collect_absorbed_from_names(list_tail(names))
-    if eff_name == "" { rest }
+    if len(eff_name) == 0 { rest }
     else { if list_contains(rest, eff_name) { rest } else { [eff_name] ++ rest } }
   }
 }

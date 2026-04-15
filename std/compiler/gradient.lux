@@ -143,7 +143,7 @@ fn analyze_all_fns_at(env, declared, i) = {
     else {
       let fg = analyze_fn(name, ty, reason, declared)
       let (fg_n, _, _, _) = fg
-      if fg_n == "" { rest }
+      if len(fg_n) == 0 { rest }
       else { [fg] ++ rest }
     }
   }

@@ -5,7 +5,7 @@ For narrated history, see `docs/ARCS.md`.
 For next arc, see `docs/ARC3_ROADMAP.md`.
 For the build recipe, see `bootstrap/README.md`.*
 
-**Last updated:** 2026-04-13
+**Last updated:** 2026-04-14
 
 ## Current State
 
@@ -16,37 +16,56 @@ Rust VM compiles → lux3.wasm (Lux compiler as WASM, built by Rust)
 lux3.wasm compiles → lux4.wasm (Lux compiler as WASM, built by itself — NO RUST)
 ```
 
-**What works:**
-- `lux3.wasm` — built successfully by the Rust VM in ~9 minutes via `cargo run --release -- wasm examples/wasm_bootstrap.lux > lux3.wasm`. 2.4 MB of pure WAT.
-- All Arc 2 memory optimizations are applied and verified in `lux3.wasm`.
-- The Ouroboros (lux3 compiling itself to lux4) is running. Memory is stable at ~1 GB. CPU-bound, not memory-bound.
+Active branch: `arc23-execute`. The closing move for Arc 2 (54-site
+polymorphic-compare fix + 4 residuals + ADT-match pattern extraction)
+is committed and queued for verify.
 
-**Current status (lux4.wasm):**
-- **CRITICAL UPDATE FROM SESSION 307fa01a-6834-4010-af6e-a27e0fd3bf75**: The O(N²) Snoc list traversal bug has been structurally solved. We discovered the compiler was emitting trees backwards because `list_head` accesses the *last* element.
-- **The Solution**: We implemented a **Recurse-First Topological Traversal**. We stripped `idx` tracking entirely out of `wasm_emit`, `wasm_construct`, and `wasm_collect`. The stack unwinds naturally in $O(1)$ forward execution.
-- We fixed ~40 arity mismatch bugs caused by the `idx` removal. The Ouroboros is running.
-- If you are a new agent, know that the compiler is currently completely devoid of index-based iteration in the emitter. DO NOT introduce index loops back into the AST!
+**What works:**
+- `lux3.wasm` — built by Rust VM in ~9 minutes via `make -C bootstrap stage0 stage1`.
+- All Arc 2 memory optimizations are applied (see below).
+- `list_to_flat` (e6e133f) eliminated the O(N²) Snoc traversal class —
+  `list[i]` is a single `i32.load` on hot paths in WASM.
+- WASM tail-call emission (f611794) — `return_call` in tail position,
+  fixes str_eq_loop stack overflow.
+- Polymorphic pointer-compare class CLOSED (aaecb0c, 853a2e1, 2120c46,
+  plus 4 residual `== ""` sites). 54 sites across 19 files now use
+  `str_eq(a, b) == 1` / `len(x) > 0`. See "Polymorphism Pattern" below.
+
+**Pending (blocks Arc 2 close):**
+- `make -C bootstrap verify` must pass end-to-end: stage0 → stage1 →
+  AOT compile → smoke (pattern canary + counter) → stage2 (~45 min) →
+  wat2wasm + wasm-validate on lux4.wasm → counter via lux4.
+- If verify passes: Arc 2 ceremony commit + doc updates + celebrate.
+- If verify fails: use `make decompile-diff` to localize the next
+  divergence; check `build/{lux3,lux4}.preamble.log` for VM warnings.
 
 ## Build Commands
 
 All bootstrap commands go through `bootstrap/Makefile`. Do not run the
 raw `cargo` / `wat2wasm` / `wasm2c` invocations by hand — the Makefile
-encodes the exact flags (including `--debug-names` for
-wasm-decompile/wasm2c readability) and directory layout.
+encodes the exact flags (`--debug-names`, `--enable-tail-call`, etc.)
+and the progress monitor + timing that make long runs observable.
 
 ```bash
 make -C bootstrap help           # what each target does
 make -C bootstrap stage0         # Rust VM → lux3.wat         (~9 min)
 make -C bootstrap stage1         # wat2wasm --debug-names     → lux3.wasm
-make -C bootstrap stage1-native  # wasm2c + gcc -O2           → lux3-native
+make -C bootstrap stage1-aot     # wasmtime compile           → lux3.cwasm (AOT)
+make -C bootstrap smoke          # pattern + counter canaries (~1 min gate)
 make -C bootstrap stage2         # Ouroboros via wasmtime     → lux4.wat
-make -C bootstrap stage2-native  # Ouroboros via native ELF   → lux4-native.wat
 make -C bootstrap check          # diff lux3.wat lux4.wat     → fixed-point verdict
+make -C bootstrap check-canonical  # round-trip canonical diff (stronger)
+make -C bootstrap decompile-diff   # per-function divergence localizer
+make -C bootstrap verify         # full: stage0 → 1 → aot → smoke → 2 → validate
+make -C bootstrap stats          # opcode histogram + section sizes
+make -C bootstrap stage1-native  # wasm2c + gcc -O2 → lux3-native (BROKEN:
+                                 # wabt 1.0.36 --enable-tail-call has a
+                                 # codegen bug with undeclared locals in
+                                 # return_call bodies; blocked upstream)
 ```
 
-All artifacts land in `bootstrap/build/` (gitignored). The hand-written
-source files live in `bootstrap/` (`wasi_shim.c`, `Makefile`,
-`README.md`).
+Tests live in `bootstrap/tests/` (in-repo, versioned). Generated artifacts
+land in `bootstrap/build/` (gitignored).
 
 > **CRITICAL:** Do NOT run `cat file | ./target/release/lux file` for
 > bootstrap — that runs in `teach` mode and dumps diagnostic text to
@@ -85,34 +104,55 @@ source files live in `bootstrap/` (`wasi_shim.c`, `Makefile`,
 
 **Fix:** Added `ListSlice(Arc<Vec<VmValue>>, usize, usize)` variant to `VmValue` in `src/vm/value.rs`. `list_pop` returns a slice view — zero allocation, O(1). Updated `ListIndex`, `len`, `Display` to handle `ListSlice`.
 
-## Known Remaining Issue: O(N²) List Traversals in WASM
+## Resolved: O(N²) List Traversals (was the previous blocker)
 
-The compiler source uses `list[i]` index-based loops extensively:
-```lux
-fn process_at(items, idx) = {
-  if idx >= len(items) { [] }
-  else { do_thing(items[idx]); process_at(items, idx + 1) }
-}
-```
+Historically, `list[i]` was O(N) in WASM (Snoc tree) but O(1) in Rust
+VM (contiguous Vec). Every index-based loop in the compiler source
+was O(N²) at stage2.
 
-In the Rust VM, `list[i]` is O(1) (contiguous `Vec`). In WASM, lists are Snoc trees, so `list[i]` is O(N). Every such loop becomes O(N²).
+**The fix (commit e6e133f):** `list_to_flat` runtime primitive
+materializes any list tree into a contiguous tag=0 flat array in O(N).
+Threaded through the hot-path entrances of lex, parse-prep, check,
+lower_closure (5 sites), and wasm_collect. After this, `list[i]` is a
+single `i32.load` in WASM.
 
-**Files with hot `list[i]` loops:**
-- `std/compiler/check.lux` — `check_block_at`, `resolve_env_at`, `resolve_type_list_at`
-- `std/compiler/lower.lux` — `lower_stmts_at`, `lower_exprs_at`, `lower_pats_at`
-- `std/compiler/pipeline.lux` — `find_imports`, `show_env_at`, `resolve_import_list_at`
-- `std/backend/wasm_emit.lux` — `emit_local_decls`, `emit_stmts`, `find_local_ty_at`
-- `std/compiler/ty.lux` — `instantiate_types_at`, `apply_list_at`, `apply_fields_at`
+Verification: `grep "list[i]" std/compiler/*.lux std/backend/*.lux`
+returns zero. Any new hot loop should flatten at the entry and write
+forward-index code.
 
-**Fix pattern:** Convert `list[i] + idx+1` to `list_pop` + recursive descent:
-```lux
-fn process(items) = {
-  if len(items) == 0 { [] }
-  else { let (rest, val) = list_pop(items); do_thing(val); process(rest) }
-}
-```
+## Polymorphism Pattern — use `str_eq`, never bare `==` on strings
 
-This doesn't affect correctness — only WASM performance. The Rust VM is unaffected.
+User-defined generics in Lux are NOT instantiated per call-site
+(confirmed at `check.lux:356` comment). Inside `fn list_contains(lst,
+item)`, the `item == lst[i]` comparison has type `TVar == TVar`, which
+codegen lowers to `i32.eq` — a **pointer compare in WASM**. Rust VM's
+`val_eq` does content compare, so stage1 works; stage2 silently fails
+on runtime-built strings.
+
+**Resolution (commits aaecb0c, 853a2e1, 2120c46, plus residuals):**
+54 sites across 19 files converted. Canonical replacements:
+
+| Old | New | When |
+|---|---|---|
+| `a == b` | `str_eq(a, b) == 1` | Both sides are (or may be) strings |
+| `a != b` | `str_eq(a, b) == 0` | Same, inverted |
+| `x == ""` | `len(x) == 0` | Non-empty check on string |
+| `x != ""` | `len(x) > 0` | Non-empty check on string |
+| `fa < fb` on strings | `str_lt(fa, fb) == 1` | Content order (e.g. field sort) |
+| `to_string(pat)` + `starts_with` | direct ADT `match pat` | Pat/AST introspection |
+
+`str_eq`, `str_lt`, `len` are registered builtins in both Rust VM
+(`src/vm/vm.rs`) and WASM runtime (`std/runtime/memory.lux`). Monomorphic
+call sites where the checker resolves `String == String` still emit
+`call $str_eq` automatically via `emit_binop` — those don't need manual
+rewriting.
+
+**Still `== "literal"` in codebase (safe):** `op == "Add"`, `op == "Neg"`
+in solver.lux and codegen.lux compare operation names which are all
+literal constants. Literal strings are pointer-deduped at WAT emission
+(wasm_collect's `find_string_offset` — now content-compared), so literal
+vs literal stays consistent. If you add a comparison where EITHER side
+may be a runtime-built string, use `str_eq`.
 
 ## Debugging Methodology
 
@@ -198,16 +238,24 @@ Before writing any string-processing function, ask: "Am I creating temporary str
 | `src/vm/vm.rs` | Rust VM builtins including `list_pop`, `len` (ListSlice-aware) |
 | `bootstrap/Makefile` | Stage 0 → 1 → 2 recipe — every bootstrap command |
 | `bootstrap/wasi_shim.c` | WASI bridge for the `wasm2c + gcc` native path |
+| `bootstrap/tests/{counter,pattern}.lux` | In-repo canaries — used by `make smoke` |
 | `bootstrap/README.md` | Handler-chain explanation of the build stages |
 | `bootstrap/build/` | All generated artifacts (gitignored) |
 
 ## What comes next
 
-- **Finish Arc 2** — resolve the O(N²) list loops above; `make -C
-  bootstrap check` should print "FIXED POINT REACHED".
-- **Arc 3** — see `docs/ARC3_ROADMAP.md`. Diagnostic effects, scoped
-  arenas, ownership enforcement, `stderr`, DAG env, execution trees.
-- **Arc 4+** — self-containment. See `docs/ARCS.md` → *Arc 4+* and
-  `docs/SYNTHESIS_CROSSWALK.md` for candidate phases (native backend,
-  fractional permissions, FBIP, projectional AST, type-directed
-  synthesis).
+- **Close Arc 2** — run `make -C bootstrap verify`. If green:
+  `bootstrap/build/lux4.wasm` validates + `make check-canonical`
+  confirms semantic fixed point. Then ceremony commit (update this
+  file, `CLAUDE.md`, `docs/ARCS.md` with Arc 2 outcome).
+- **Arc 2.5 — `std/vm.lux` self-contained** (task #23) — removes the
+  last `type_of`-based runtime type introspection. Needed so the
+  Lux-written bytecode interpreter runs correctly in WASM for the
+  browser-playground vision. Structural refactor (trust bytecode over
+  runtime type checks); see plan file Stage 2.
+- **Arc 3** — `docs/ARC3_ROADMAP.md`. Diagnostic effects, scoped
+  arenas, ownership enforcement, DAG env, `.luxi` incremental cache.
+- **Arc 4+** — self-containment in full. See `docs/ARCS.md` → *Arc 4+*
+  and `docs/SYNTHESIS_CROSSWALK.md` for candidate phases (native
+  backend, fractional permissions, FBIP, projectional AST,
+  type-directed synthesis).
