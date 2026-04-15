@@ -66,7 +66,13 @@ $(BUILD):
 stage0: $(BUILD)/lux3.wat
 $(BUILD)/lux3.wat: | $(BUILD)
 	cd $(PROJECT_ROOT) && cargo run --release -- wasm $(LUX_SRC) \
-	  | sed -n '/^(module/,$$p' > bootstrap/$(BUILD)/lux3.wat
+	  > bootstrap/$(BUILD)/lux3.raw.out 2>&1
+	@sed -n '1,/^(module/{ /^(module/!p }' $(BUILD)/lux3.raw.out > $(BUILD)/lux3.preamble.log
+	@sed -n '/^(module/,$$p' $(BUILD)/lux3.raw.out > $(BUILD)/lux3.wat
+	@if [ -s $(BUILD)/lux3.preamble.log ]; then \
+	  echo "⚠  stage0 preamble ($(BUILD)/lux3.preamble.log):"; \
+	  cat $(BUILD)/lux3.preamble.log; \
+	fi
 
 # ─── Stage 1: WAT → binary WASM ───────────────────────────────────────
 # --debug-names preserves the $name symbolic identifiers that the Lux
@@ -125,8 +131,13 @@ smoke: $(BUILD)/lux3.wat
 # lux3.wat compiles itself, outputting lux4.wat.
 stage2: $(BUILD)/lux4.wat
 $(BUILD)/lux4.wat: $(BUILD)/lux3.wat
-	cat $(LUX_SRC) | $(WASMTIME) run $(WASMTIME_OPTS) $< > $(BUILD)/lux4.raw.out
-	sed -n '/^(module/,$$p' $(BUILD)/lux4.raw.out > $@
+	cat $(LUX_SRC) | $(WASMTIME) run $(WASMTIME_OPTS) $< > $(BUILD)/lux4.raw.out 2>&1
+	@sed -n '1,/^(module/{ /^(module/!p }' $(BUILD)/lux4.raw.out > $(BUILD)/lux4.preamble.log
+	@sed -n '/^(module/,$$p' $(BUILD)/lux4.raw.out > $@
+	@if [ -s $(BUILD)/lux4.preamble.log ]; then \
+	  echo "⚠  stage2 preamble ($(BUILD)/lux4.preamble.log):"; \
+	  cat $(BUILD)/lux4.preamble.log; \
+	fi
 	@echo "lux4 UNRESOLVED=$$(grep -c UNRESOLVED $@ || true)"
 
 # Also turn the result into a binary for comparison and next-stage runs.

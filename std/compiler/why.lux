@@ -58,7 +58,7 @@ fn fn_has_annotations_at(stmts, name, i) = {
   if i >= len(stmts) { false }
   else {
     match stmts[i] {
-      FnStmt(n, _, _, effs, _) => if n == name { len(effs) > 0 }
+      FnStmt(n, _, _, effs, _) => if str_eq(n, name) == 1 { len(effs) > 0 }
         else { fn_has_annotations_at(stmts, name, i + 1) },
       _ => fn_has_annotations_at(stmts, name, i + 1)
     }

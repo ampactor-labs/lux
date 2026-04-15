@@ -113,7 +113,7 @@ fn collect_type_names_from_env_at(env, i) = {
     let (name, ty, _) = env[i]
     let rest = collect_type_names_from_env_at(env, i + 1)
     match ty {
-      TName(n, _) => if n == name { [name] ++ rest } else { rest },
+      TName(n, _) => if str_eq(n, name) == 1 { [name] ++ rest } else { rest },
       _ => rest
     }
   }

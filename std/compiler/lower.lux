@@ -941,10 +941,10 @@ fn subst_one_state(node, orig, gname) =
   handle { walk_ir(node) } {
     visit_lowir(n) => match n {
       LGlobal(ty, name) =>
-        if name == orig { resume(LGlobal(ty, gname)) }
+        if str_eq(name, orig) == 1 { resume(LGlobal(ty, gname)) }
         else { resume(n) },
       LLet(ty, name, value) =>
-        if name == orig { resume(LLet(ty, gname, value)) }
+        if str_eq(name, orig) == 1 { resume(LLet(ty, gname, value)) }
         else { resume(n) },
       _ => resume(n)
     }
@@ -1051,7 +1051,7 @@ fn lookup_rewrite(rw_map, name, idx) = {
   if len(rw_map) == 0 { [] }
   else {
     let entry = list_first(rw_map)
-    if entry[0] == name { entry }
+    if str_eq(entry[0], name) == 1 { entry }
     else { lookup_rewrite(list_rest(rw_map), name, idx + 1) }
   }
 }

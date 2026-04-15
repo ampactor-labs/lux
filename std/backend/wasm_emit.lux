@@ -728,7 +728,7 @@ fn find_local_ty_pop(name, body) = {
 
 fn find_local_ty_expr(name, expr) = match expr {
   LLet(ty, n, value) =>
-    if n == name { ty } else { find_local_ty_expr_inner(name, value) },
+    if str_eq(n, name) == 1 { ty } else { find_local_ty_expr_inner(name, value) },
   LBlock(_, stmts) => find_local_ty(name, stmts),
   LRegion(_, stmts) => find_local_ty(name, stmts),
   LIf(_, _, t, e) => {

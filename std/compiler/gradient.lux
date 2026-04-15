@@ -126,7 +126,7 @@ fn lookup_declared_at(declared, name, i) = {
   if i >= len(declared) { [] }
   else {
     let (n, effs) = declared[i]
-    if n == name { effs }
+    if str_eq(n, name) == 1 { effs }
     else { lookup_declared_at(declared, name, i + 1) }
   }
 }

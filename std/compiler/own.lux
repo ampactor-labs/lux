@@ -21,7 +21,7 @@ fn is_own_param_at(name, own_params, i) = {
   if i >= len(own_params) { false }
   else {
     let (n, _) = own_params[i];
-    if n == name { true }
+    if str_eq(n, name) == 1 { true }
     else { is_own_param_at(name, own_params, i + 1) }
   }
 }
@@ -32,7 +32,7 @@ fn is_ref_param_at(name, ref_params, i) = {
   if i >= len(ref_params) { false }
   else {
     let (n, _) = ref_params[i];
-    if n == name { true }
+    if str_eq(n, name) == 1 { true }
     else { is_ref_param_at(name, ref_params, i + 1) }
   }
 }
@@ -54,7 +54,7 @@ fn used_line_at(name, used, i) = {
   if i >= len(used) { 0 }
   else {
     let (n, line) = used[i];
-    if n == name { line } else { used_line_at(name, used, i + 1) }
+    if str_eq(n, name) == 1 { line } else { used_line_at(name, used, i + 1) }
   }
 }
 

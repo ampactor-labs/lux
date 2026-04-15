@@ -52,7 +52,7 @@ fn fn_return_ty(env, fn_name) = {
 
 fn lower_lambda_named(wasm_name, name, params, body, env) = {
   let all_free = collect_free_vars(body, params)
-  let free = if wasm_name == name { filter_real_captures(all_free, name, env) }
+  let free = if str_eq(wasm_name, name) == 1 { filter_real_captures(all_free, name, env) }
              else { filter_real_captures_no_self(all_free, env) }
   // Critical: extend env with parameter types so the body's VarRefs resolve.
   let body_env = env_with_params(env, name, params)

@@ -286,7 +286,7 @@ fn record_field_type(fields, name) with Infer = {
   if len(fields) == 0 { fresh() }
   else {
     let (fname, fty) = list_head(fields)
-    if fname == name { fty }
+    if str_eq(fname, name) == 1 { fty }
     else { record_field_type(list_tail(fields), name) }
   }
 }
