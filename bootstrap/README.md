@@ -133,6 +133,32 @@ examples/wasm_bootstrap.lux
 Every `~>` is an effect handler — no pipeline, no passes, just
 observers on the same computation.
 
+## Disaster recovery — regenerating `lux3.wasm` from source
+
+As of Arc 3 Phase 0, `bootstrap/artifacts/lux3.wasm` is the seed. The
+Makefile's `stage0` target copies it into `build/` instead of running
+the Rust VM. The Rust path is preserved only as an irrevocable escape
+hatch under the `rust-vm-final` git tag.
+
+If `bootstrap/artifacts/lux3.wasm` is ever corrupted, lost, or produces
+a broken `lux4.wat` that can't compile itself:
+
+```bash
+git checkout rust-vm-final
+cargo build --release
+./target/release/lux wasm std/compiler/wasm_bootstrap.lux \
+  > bootstrap/artifacts/lux3.wat
+wat2wasm --debug-names bootstrap/artifacts/lux3.wat \
+  -o bootstrap/artifacts/lux3.wasm
+sha256sum bootstrap/artifacts/lux3.wasm > bootstrap/artifacts/lux3.wasm.sha256
+git checkout arc23-execute  # return to working branch
+# commit the refreshed artifact
+```
+
+Once Arc 4 ships the native x86 backend, `lux3-native` (compiled by Lux
+itself) becomes the disaster-recovery regenerator and the `rust-vm-final`
+tag becomes archaeological.
+
 ## See also
 
 - `docs/INSIGHTS.md` / *The Handler IS the Backend*
