@@ -249,242 +249,53 @@ handler lookup_ty_handler {
   }
 }
 
-// ─── Handler: Query ─────────────────────────────────────────
-// Forensic substrate. Reads graph + env, answers questions.
-
-handler query_handler {
-  ask(q) => match q {
-    QTypeOf(name) => match perform env_lookup(name) {
-      None => resume(QRError("not found: " ++ name)),
-      Some(entry) => {
-        let (scheme, reason) = entry
-        let Forall(_, ty) = scheme
-        resume(QRType(ty, reason))
-      }
-    },
-    QTypeAt(span) => {
-      resume(QRError("type-at not yet implemented (needs AST span index)"))
-    },
-    QUnresolved => {
-      let Env(entries) = perform env_snapshot()
-      let unresolved = find_unresolved_entries(entries)
-      resume(QRUnresolved(unresolved))
-    },
-    QSubstChain(handle) => {
-      let chain = walk_subst_chain(handle, 0)
-      resume(QRChain(chain))
-    },
-    QEffects(name) => match perform env_lookup(name) {
-      None => resume(QRError("not found: " ++ name)),
-      Some(entry) => {
-        let (scheme, _) = entry
-        let Forall(_, ty) = scheme
-        match ty {
-          TFun(_, _, row) => resume(QREffects(row)),
-          _ => resume(QRError(name ++ " is not a function"))
-        }
-      }
-    },
-    QOwnership(name) => match perform env_lookup(name) {
-      None => resume(QRError("not found: " ++ name)),
-      Some(entry) => {
-        let (scheme, _) = entry
-        let Forall(_, ty) = scheme
-        match ty {
-          TFun(params, _, _) => resume(QROwnership(params)),
-          _ => resume(QRError(name ++ " is not a function"))
-        }
-      }
-    },
-    QWhy(name) => match perform env_lookup(name) {
-      None => resume(QRError("not found: " ++ name)),
-      Some(entry) => {
-        let (_, reason) = entry
-        resume(QRWhy(reason))
-      }
-    },
-    QVerifyDebt => {
-      let debt = perform verify_debt()
-      resume(QRVerifyDebt(debt))
-    },
-    QUnknown(q) => resume(QRError("unknown query: " ++ q))
-  }
-}
-
-fn find_unresolved_entries(entries) = {
-  if len(entries) == 0 { [] }
-  else {
-    let (name, scheme, reason) = list_head(entries)
-    let Forall(_, ty) = scheme
-    let has_tvar = check_has_tvar(ty)
-    let rest = find_unresolved_entries(list_tail(entries))
-    if has_tvar { [(name, ty, [])] ++ rest } else { rest }
-  }
-}
-
-fn check_has_tvar(ty) = match ty {
-  TVar(_) => true,
-  TList(elem) => check_has_tvar(elem),
-  TTuple(elems) => check_has_tvar_list(elems),
-  TFun(params, ret, _) => check_has_tvar(ret) || check_has_tvar_params(params),
-  _ => false
-}
-
-fn check_has_tvar_list(tys) = {
-  if len(tys) == 0 { false }
-  else { check_has_tvar(list_head(tys)) || check_has_tvar_list(list_tail(tys)) }
-}
-
-fn check_has_tvar_params(params) = {
-  if len(params) == 0 { false }
-  else {
-    let TParam(_, ty, _) = list_head(params)
-    check_has_tvar(ty) || check_has_tvar_params(list_tail(params))
-  }
-}
-
-fn walk_subst_chain(handle, depth) = {
-  if depth > 20 { [] }
-  else {
-    let node = perform graph_chase(handle)
-    let GNode(kind, reason) = node
-    match kind {
-      NBound(ty) => match ty {
-        TVar(next) => [(handle, node)] ++ walk_subst_chain(next, depth + 1),
-        _ => [(handle, node)]
-      },
-      _ => [(handle, node)]
-    }
-  }
-}
-
-// ─── Query parsing + rendering ──────────────────────────────
-
-fn parse_query(q) = {
-  let words = split(q, " ")
-  if len(words) == 0 { QUnknown(q) }
-  else {
-    let w0 = words[0]
-    if str_eq(w0, "unresolved") == 1 { QUnresolved }
-    else {
-      if len(words) >= 3 && str_eq(w0, "type") == 1 && str_eq(words[1], "of") == 1 {
-        QTypeOf(words[2])
-      } else {
-        if len(words) >= 3 && str_eq(w0, "effects") == 1 && str_eq(words[1], "of") == 1 {
-          QEffects(words[2])
-        } else {
-          if len(words) >= 3 && str_eq(w0, "ownership") == 1 && str_eq(words[1], "of") == 1 {
-            QOwnership(words[2])
-          } else {
-            if len(words) >= 2 && str_eq(w0, "why") == 1 {
-              QWhy(words[1])
-            } else {
-              if str_eq(w0, "verification") == 1 { QVerifyDebt }
-              else { QUnknown(q) }
-            }
-          }
-        }
-      }
-    }
-  }
-}
+// ─── Query, display, and rendering ──────────────────────────
+// All display functions use canonical implementations:
+//   show_type / show_span / show_reason → types.jxj
+//   show_effrow → effects.jxj
+//   query_default → query.jxj
+//
+// Pipeline composes and installs. It does not redefine.
 
 fn render_query_result(result) = match result {
   QRType(ty, reason) =>
-    "→ " ++ show_ty(ty) ++ "\n  Reason: " ++ show_reason_chain(reason),
+    "→ " ++ show_type(ty) ++ "\n  Reason: " ++ show_reason(reason),
   QRUnresolved(entries) =>
-    "→ " ++ to_string(len(entries)) ++ " unresolved entries",
+    "→ " ++ int_to_str(len(entries)) ++ " unresolved entries",
   QRChain(hops) =>
-    "→ " ++ to_string(len(hops)) ++ " hops in chain",
+    "→ " ++ int_to_str(len(hops)) ++ " hops in chain",
   QREffects(row) => "→ " ++ show_effrow(row),
-  QROwnership(params) => "→ " ++ to_string(len(params)) ++ " params",
-  QRWhy(reason) => show_reason_chain(reason),
+  QROwnership(params) => "→ " ++ int_to_str(len(params)) ++ " params",
+  QRWhy(reason) => show_reason(reason),
   QRVerifyDebt(obligations) =>
-    "→ " ++ to_string(len(obligations)) ++ " verification obligations pending",
+    "→ " ++ int_to_str(len(obligations)) ++ " verification obligations pending",
   QRError(msg) => "error: " ++ msg
 }
 
-fn show_ty(ty) = match ty {
-  TInt => "Int",
-  TFloat => "Float",
-  TString => "String",
-  TBool => "Bool",
-  TUnit => "()",
-  TVar(id) => "?" ++ to_string(id),
-  TList(elem) => "List(" ++ show_ty(elem) ++ ")",
-  TTuple(elems) => "(" ++ show_ty_list(elems) ++ ")",
-  TFun(params, ret, eff) =>
-    "(" ++ show_params(params) ++ ") -> " ++ show_ty(ret) ++ " " ++ show_effrow(eff),
-  TName(name, args) => name ++ if len(args) > 0 { "(" ++ show_ty_list(args) ++ ")" } else { "" },
-  TRecord(fields) => "{ " ++ show_fields(fields) ++ " }",
-  TRefined(base, pred) => show_ty(base) ++ " where ...",
-  TCont(ret, disc) => "Cont(" ++ show_ty(ret) ++ ")",
-  _ => "?"
-}
-
-fn show_ty_list(tys) = {
-  if len(tys) == 0 { "" }
-  else {
-    let s = show_ty(list_head(tys))
-    if len(list_tail(tys)) == 0 { s }
-    else { s ++ ", " ++ show_ty_list(list_tail(tys)) }
+fn parse_query(q) =
+  match split(q, " ") {
+    [] => QUnknown(q),
+    [w0] =>
+      match w0 {
+        "unresolved" => QUnresolved,
+        "verification" => QVerifyDebt,
+        _ => QUnknown(q)
+      },
+    [w0, w1] =>
+      match w0 {
+        "why" => QWhy(w1),
+        _ => QUnknown(q)
+      },
+    [w0, w1, w2] =>
+      match w0 {
+        "type" => QTypeOf(w2),
+        "effects" => QEffects(w2),
+        "ownership" => QOwnership(w2),
+        _ => QUnknown(q)
+      },
+    _ => QUnknown(q)
   }
-}
-
-fn show_params(params) = {
-  if len(params) == 0 { "" }
-  else {
-    let TParam(name, ty, own) = list_head(params)
-    let s = name ++ ": " ++ show_ty(ty)
-    if len(list_tail(params)) == 0 { s }
-    else { s ++ ", " ++ show_params(list_tail(params)) }
-  }
-}
-
-fn show_fields(fields) = {
-  if len(fields) == 0 { "" }
-  else {
-    let (name, ty) = list_head(fields)
-    let s = name ++ ": " ++ show_ty(ty)
-    if len(list_tail(fields)) == 0 { s }
-    else { s ++ ", " ++ show_fields(list_tail(fields)) }
-  }
-}
-
-fn show_effrow(row) = match row {
-  EfPure => "Pure",
-  EfClosed(names) => join(names, " + "),
-  EfOpen(names, v) =>
-    if len(names) == 0 { "?" ++ to_string(v) }
-    else { join(names, " + ") ++ " + ?" ++ to_string(v) },
-  EfNeg(inner) => "!" ++ show_effrow(inner),
-  _ => "..."
-}
-
-fn show_reason_chain(reason) = match reason {
-  Declared(s) => "declared: " ++ s,
-  Inferred(s) => "inferred: " ++ s,
-  Fresh(id) => "fresh(" ++ to_string(id) ++ ")",
-  VarLookup(name, inner) => "looked up '" ++ name ++ "'",
-  FnReturn(name, _) => "return of " ++ name,
-  FnParam(name, idx, _) => "param " ++ to_string(idx) ++ " of " ++ name,
-  OpConstraint(op, _, _) => "operator " ++ op,
-  Unified(a, b) => "unified",
-  MissingVar(name) => "missing: " ++ name,
-  UnifyFailed(a, b) => "unification failed: " ++ show_ty(a) ++ " vs " ++ show_ty(b),
-  _ => "..."
-}
 
 // ─── frontend (lexer + parser) ─────────────────────
 
-fn frontend(source) = source |> lex_source |> parse_tokens
-
-fn lex_source(source) = {
-  // Uses lexer.jxj
-  lex(source)
-}
-
-fn parse_tokens(tokens) = {
-  // Uses parser.jxj
-  parse_program(tokens)
-}
+fn frontend(source) = source |> lex |> parse_program

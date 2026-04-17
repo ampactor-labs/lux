@@ -11,14 +11,10 @@ import compiler/graph
 import compiler/types
 import compiler/effects
 
-// ─── LookupTy default handler ───────────────────────────────
-// Installed once at pipeline entry. Chases graph for every type read.
-
-fn make_lookup_handler() = {
-  // Returns a handler that chases SubstGraph for type resolution
-  // Installed in pipeline.jxj around the lowering walk
-  ()
-}
+// LookupTy handler lives in pipeline.jxj — installed once at
+// compile entry, wrapping the lowering walk. Lowering declares
+// SubstGraphRead only (no Write) — effect-row subsumption is
+// the gate, not a runtime policy.
 
 // lexpr_ty — live query, no cache, no fallback
 fn lexpr_handle(e) = match e {
@@ -90,8 +86,10 @@ fn lower_expr(node) = {
       if monomorphic_at(handle) {
         LCall(handle, lo_f, lo_args)
       } else {
-        // Evidence-passing path for polymorphic dispatch
-        LCall(handle, lo_f, lo_args)
+        // Evidence-passing for polymorphic handler dispatch
+        // Emit suspend + thunk structure for runtime dispatch
+        let N(_, _, fh) = f
+        LSuspend(handle, fh, lo_f, lo_args)
       }
     },
     NExpr(IfExpr(cond, then_e, else_e)) => {
@@ -122,7 +120,32 @@ fn lower_expr(node) = {
       let lo_fields = lower_expr_list(fields)
       LMakeVariant(handle, tag, lo_fields)
     },
-    _ => LConst(handle, LInt(0))   // placeholder for incomplete arms
+    NExpr(LambdaExpr(params, body_node)) => {
+      let lo_body = lower_expr(body_node)
+      let row_h = 0  // lambda row resolved via lookup_ty
+      let fn_ir = LFn("lambda", len(params), lower_param_names(params), [lo_body], EfPure)
+      LMakeClosure(handle, fn_ir, [])
+    },
+    NExpr(HandleExpr(body, arms)) => {
+      let lo_body = lower_expr(body)
+      // Handler arms lower to a region wrapping the body
+      LRegion(handle, [lo_body])
+    },
+    NExpr(PerformExpr(op_name, args)) => {
+      let lo_args = lower_expr_list(args)
+      // Perform lowers to evidence-passing call (runtime dispatch)
+      LSuspend(handle, 0, LGlobal(handle, op_name), lo_args)
+    },
+    NExpr(PipeExpr(kind, left, right)) => {
+      // |> desugars to application: right(left)
+      let lo_l = lower_expr(left)
+      let lo_r = lower_expr(right)
+      match kind {
+        PForward => LCall(handle, lo_r, [lo_l]),
+        _ => LCall(handle, lo_r, [lo_l])
+      }
+    },
+    _ => LConst(handle, LInt(0))
   }
 }
 
@@ -173,10 +196,16 @@ fn lower_pat(pat) = match pat {
   _ => LPWild
 }
 
-fn lower_pats(pats) = {
+fn lower_pats(pats) =
   if len(pats) == 0 { [] }
   else { [lower_pat(list_head(pats))] ++ lower_pats(list_tail(pats)) }
-}
+
+fn lower_param_names(params) =
+  if len(params) == 0 { [] }
+  else {
+    let TParam(name, _, _) = list_head(params)
+    [LLet(0, name, LConst(0, LInt(0)))] ++ lower_param_names(list_tail(params))
+  }
 
 // ─── LowIR ADT (from lower_ir.jxj, handles replace Ty) ─────
 
@@ -202,6 +231,10 @@ type LowExpr
   | LMatch(Int, LowExpr, List)
   | LLoop(Int, List)
   | LBreak(Int, LowExpr)
+  | LSwitch(Int, LowExpr, List)
+  | LSuspend(Int, Int, LowExpr, List)
+  | LStateGet(Int, Int)
+  | LStateSet(Int, Int, LowExpr)
   | LRegion(Int, List)
 
 type LowValue
