@@ -4,7 +4,7 @@
 // binding. Handler tracks linearity: consumed-twice is an error.
 // !Consume proves read-only. !Alloc propagates via the same algebra.
 //
-// The structural escape check from v1's own.jxj is preserved:
+// Structural escape check:
 // a ref-annotated value cannot escape the scope of its borrow.
 
 import compiler/types

@@ -22,7 +22,7 @@ import "std/compiler/query"
 // source |> lex |> parse |> infer |> lower |> emit
 // Every handler installed. Every effect scoped.
 
-fn compile_wasm_v2(source) = {
+fn compile_wasm(source) = {
   // Install all handlers in the correct nesting order using Form A layout-scoped ~> attach:
   // outermost: Diagnostic (catches all errors)
   // then: SubstGraph (shared inference state)
@@ -45,7 +45,7 @@ fn compile_wasm_v2(source) = {
 // ─── check_source: inference only, no lowering ──────────────
 // Used by lux query and lux check.
 
-fn check_source_v2(source) =
+fn check_source(source) =
   {
     let ast = source |> frontend
     infer_program(ast)
@@ -326,14 +326,14 @@ fn parse_query(q) = {
 
 fn render_query_result(result) = match result {
   QRType(ty, reason) =>
-    "→ " ++ show_ty(ty) ++ "\n  Reason: " ++ show_reason_v2(reason),
+    "→ " ++ show_ty(ty) ++ "\n  Reason: " ++ show_reason_chain(reason),
   QRUnresolved(entries) =>
     "→ " ++ to_string(len(entries)) ++ " unresolved entries",
   QRChain(hops) =>
     "→ " ++ to_string(len(hops)) ++ " hops in chain",
   QREffects(row) => "→ " ++ show_effrow(row),
   QROwnership(params) => "→ " ++ to_string(len(params)) ++ " params",
-  QRWhy(reason) => show_reason_v2(reason),
+  QRWhy(reason) => show_reason_chain(reason),
   QRVerifyDebt(obligations) =>
     "→ " ++ to_string(len(obligations)) ++ " verification obligations pending",
   QRError(msg) => "error: " ++ msg
@@ -396,7 +396,7 @@ fn show_effrow(row) = match row {
   _ => "..."
 }
 
-fn show_reason_v2(reason) = match reason {
+fn show_reason_chain(reason) = match reason {
   Declared(s) => "declared: " ++ s,
   Inferred(s) => "inferred: " ++ s,
   Fresh(id) => "fresh(" ++ to_string(id) ++ ")",
@@ -410,7 +410,7 @@ fn show_reason_v2(reason) = match reason {
   _ => "..."
 }
 
-// ─── frontend (reuse v1 lexer + parser) ─────────────────────
+// ─── frontend (lexer + parser) ─────────────────────
 
 fn frontend(source) = source |> lex_source |> parse_tokens
 

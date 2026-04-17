@@ -226,7 +226,7 @@ effect EnvWrite {
 }
 
 // ─── Diagnostic (spec 06) ───────────────────────────────────
-// Extended from v1: 6-arg with stable error code, full span,
+// 6-arg with stable error code, full span,
 // applicability tag. Every perform report(...) names a code
 // whose docs/errors/<CODE>.md entry exists.
 
