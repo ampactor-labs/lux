@@ -67,7 +67,7 @@ is incomplete. Extend the graph. Don't route around it.
 ## Operational essentials
 
 **State of the world:** Inka bootstraps backward. The VFINAL codebase
-in `inka/compiler/` IS the compiler — written unconstrained from the
+in `std/compiler/` IS the compiler — written unconstrained from the
 12 specs. A disposable bootstrap translator (any language, ~3-5K
 lines) will compile it once. After that, Inka compiles itself. The
 translator is deleted. Active plan: `docs/PLAN.md`.
@@ -81,12 +81,12 @@ deduplication, pipeline alignment, emit/runtime/main ports.
 
 ```
 # Bootstrap (one-time)
-bootstrap/translate inka/compiler/*.jxj -o inka.wasm
+bootstrap/translate std/compiler/*.jxj -o inka.wasm
 
 # Self-compilation (the real test)
-cat inka/compiler/*.jxj | wasmtime run inka.wasm > inka2.wat
+cat std/compiler/*.jxj | wasmtime run inka.wasm > inka2.wat
 wat2wasm inka2.wat -o inka2.wasm
-cat inka/compiler/*.jxj | wasmtime run inka2.wasm > inka3.wat
+cat std/compiler/*.jxj | wasmtime run inka2.wasm > inka3.wat
 diff inka2.wat inka3.wat    # empty = first-light
 ```
 
@@ -141,21 +141,21 @@ once, fix.
 
 | File | Role |
 |---|---|
-| `inka/compiler/graph.jxj` | SubstGraph: flat-array, O(1) chase, Read/Write effects |
-| `inka/compiler/types.jxj` | Ty + Reason + Scheme + typed AST + core effects |
-| `inka/compiler/effects.jxj` | EffRow Boolean algebra: + - & ! |
-| `inka/compiler/infer.jxj` | HM inference, one walk, graph-direct |
-| `inka/compiler/lower.jxj` | Live-observer lowering via LookupTy |
-| `inka/compiler/pipeline.jxj` | Handler composition via ~> + query handler |
-| `inka/compiler/own.jxj` | Ownership as Consume effect |
-| `inka/compiler/verify.jxj` | Verify ledger (Arc F.1 swaps to SMT) |
-| `inka/compiler/clock.jxj` | Clock / Tick / Sample / Deadline |
-| `inka/compiler/mentl.jxj` | Teaching substrate (Teach effect, 5 ops) |
-| `inka/compiler/lexer.jxj` | Tokenizer (full spans, all 5 pipe ops) |
-| `inka/compiler/parser.jxj` | Recursive descent (all PipeKind variants) |
-| `inka/compiler/emit.jxj` | LowIR → WAT |
-| `inka/runtime/memory.jxj` | Allocator as handler, strings, lists |
-| `inka/main.jxj` | Entry: read stdin → compile → emit WAT |
+| `std/compiler/graph.jxj` | SubstGraph: flat-array, O(1) chase, Read/Write effects |
+| `std/compiler/types.jxj` | Ty + Reason + Scheme + typed AST + core effects |
+| `std/compiler/effects.jxj` | EffRow Boolean algebra: + - & ! |
+| `std/compiler/infer.jxj` | HM inference, one walk, graph-direct |
+| `std/compiler/lower.jxj` | Live-observer lowering via LookupTy |
+| `std/compiler/pipeline.jxj` | Handler composition via ~> + query handler |
+| `std/compiler/own.jxj` | Ownership as Consume effect |
+| `std/compiler/verify.jxj` | Verify ledger (Arc F.1 swaps to SMT) |
+| `std/compiler/clock.jxj` | Clock / Tick / Sample / Deadline |
+| `std/compiler/mentl.jxj` | Teaching substrate (Teach effect, 5 ops) |
+| `std/compiler/lexer.jxj` | Tokenizer (full spans, all 5 pipe ops) |
+| `std/compiler/parser.jxj` | Recursive descent (all PipeKind variants) |
+| `std/compiler/emit.jxj` | LowIR → WAT |
+| `std/runtime/memory.jxj` | Allocator as handler, strings, lists |
+| `std/main.jxj` | Entry: read stdin → compile → emit WAT |
 | `docs/PLAN.md` | THE plan |
 | `docs/rebuild/00–11` | The 12 executable specs |
 | `docs/errors/` | Error catalog |

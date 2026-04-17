@@ -58,7 +58,7 @@ a mechanical translation from Inka syntax to WASM:
 
 No effect algebra needed. No type inference needed. No refinement
 checking. Just syntax-directed translation, correct enough for the
-~15 files in `inka/compiler/`. Used once. Deleted forever.
+~15 files in `std/compiler/`. Used once. Deleted forever.
 
 ---
 
@@ -120,7 +120,7 @@ Every subsequent action observes them.*
 ### 1. Write the final form. No intermediate versions.
 
 There is no V1, no V2, no VFINAL. There is only **Inka**. The code
-in `inka/compiler/` IS the compiler. It is written to be correct,
+in `std/compiler/` IS the compiler. It is written to be correct,
 complete, and un-improvable. It is not a stepping stone, not a draft,
 not a version. It is the thing itself.
 
@@ -188,7 +188,7 @@ No "can the bootstrapper handle this?" — write what's right.
 #### Codebase Structure
 
 ```
-inka/
+std/
   compiler/
     types.jxj        — Ty, Reason, Scheme, Node, Expr, Stmt, Pat,
                        PipeKind, Predicate, Span, Option.
@@ -304,11 +304,11 @@ inka/
 - Add handler arm in graph_handler.
 
 **6. Import Consistency**
-- All files: `import "inka/compiler/graph"` (quoted, inka/ prefix).
+- All files: `import "std/compiler/graph"` (quoted, std/ prefix).
 
 **7. Emit + Runtime + Main**
-- Port wasm_emit.jxj into inka/compiler/emit.jxj.
-- Port runtime into inka/runtime/memory.jxj (allocator as handler).
+- Port wasm_emit.jxj into std/compiler/emit.jxj.
+- Port runtime into std/runtime/memory.jxj (allocator as handler).
 - Write main.jxj entry point.
 
 **8. Error Catalog**
@@ -324,7 +324,7 @@ Both WATs run correctly under wasmtime.
 ```
 
 No duplicate ADTs. No duplicate effects. No phantom references.
-All imports use quoted inka/ style. Every handler threads real state.
+All imports use quoted std/ style. Every handler threads real state.
 
 ---
 
@@ -358,7 +358,7 @@ Build a disposable translator that compiles VFINAL once.
 #### Phase 2 Exit Gate
 
 ```
-translator compiles inka/compiler/*.jxj → inka.wasm
+translator compiles std/compiler/*.jxj → inka.wasm
 inka.wasm validates under wasm-validate
 inka.wasm runs: reads stdin, produces WAT output
 ```
@@ -371,11 +371,11 @@ Inka compiles itself. The fixed point closes.
 
 ```bash
 # Inka compiles itself → first output
-cat inka/compiler/*.jxj | wasmtime run inka.wasm > inka2.wat
+cat std/compiler/*.jxj | wasmtime run inka.wasm > inka2.wat
 wat2wasm inka2.wat -o inka2.wasm
 
 # Inka2 compiles itself → second output
-cat inka/compiler/*.jxj | wasmtime run inka2.wasm > inka3.wat
+cat std/compiler/*.jxj | wasmtime run inka2.wasm > inka3.wat
 
 # Fixed point check
 diff inka2.wat inka3.wat

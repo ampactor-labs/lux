@@ -9,7 +9,7 @@ Mentl's tentacles; the shared substrate is the SubstGraph + Env
 
 **Scope.** This spec consolidates three currently-separate modules —
 `gradient.jxj`, `suggest.jxj`, `why.jxj` — and the Teach effect (spec
-06) into one coherent subsystem: `inka/compiler/mentl.jxj`. Ships in
+06) into one coherent subsystem: `std/compiler/mentl.jxj`. Ships in
 Arc F.6 as the capstone on the rebuild's teaching surface. Structural
 prerequisites (Teach effect signatures, error-catalog wiring) land in
 Phase 1.
@@ -235,7 +235,7 @@ that already exist.
 ## Module structure
 
 ```
-inka/compiler/mentl.jxj          — the consolidated teaching module
+std/compiler/mentl.jxj          — the consolidated teaching module
   ├── handler mentl_default      — default Teach handler
   ├── handler why_default        — default Why tentacle
   ├── fn gradient_next(handle)   — gradient logic

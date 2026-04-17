@@ -6,78 +6,74 @@
 // Every handler is installed here. Every effect is scoped here.
 // Downstream passes don't thread state — they perform effects.
 
-import compiler/v2/graph
-import compiler/v2/types
-import compiler/v2/effects
-import compiler/v2/infer
-import compiler/v2/lower
-import compiler/v2/own
-import compiler/v2/verify
-import compiler/lexer
-import compiler/parser
+import "std/compiler/v2/graph"
+import "std/compiler/v2/types"
+import "std/compiler/v2/effects"
+import "std/compiler/v2/infer"
+import "std/compiler/v2/lower"
+import "std/compiler/v2/own"
+import "std/compiler/v2/verify"
+import "std/compiler/v2/lexer"
+import "std/compiler/v2/parser"
+import "std/compiler/v2/mentl"
+import "std/compiler/v2/query"
 
 // ─── compile_wasm: the full pipeline ────────────────────────
 // source |> lex |> parse |> infer |> lower |> emit
 // Every handler installed. Every effect scoped.
 
 fn compile_wasm_v2(source) = {
-  // Install all handlers in the correct nesting order:
+  // Install all handlers in the correct nesting order using Form A layout-scoped ~> attach:
   // outermost: Diagnostic (catches all errors)
   // then: SubstGraph (shared inference state)
   // then: Env (shared binding state)
   // then: Verify (accumulates obligations)
-  // then: the pipeline walks
-  handle {
-    handle {
-      handle {
-        handle {
-          let ast = source |> frontend
-          infer_program(ast)
-          let lowered = lower_program(ast)
-          emit_module(lowered)
-        } with verify_ledger_handler
-      } with env_handler
-    } with graph_handler
-  } with diagnostics_handler
+  // then: Mentl (teaching substrate)
+  {
+    let ast = source |> frontend
+    infer_program(ast)
+    let lowered = lower_program(ast)
+    emit_module(lowered)
+  }
+    ~> mentl_default
+    ~> verify_ledger_handler
+    ~> env_handler
+    ~> graph_handler
+    ~> diagnostics_handler
 }
 
 // ─── check_source: inference only, no lowering ──────────────
 // Used by lux query and lux check.
 
-fn check_source_v2(source) = {
-  handle {
-    handle {
-      handle {
-        handle {
-          let ast = source |> frontend
-          infer_program(ast)
-          ast
-        } with verify_ledger_handler
-      } with env_handler
-    } with graph_handler
-  } with diagnostics_handler
-}
+fn check_source_v2(source) =
+  {
+    let ast = source |> frontend
+    infer_program(ast)
+    ast
+  }
+    ~> mentl_default // Add Mentl to checking as well
+    ~> verify_ledger_handler
+    ~> env_handler
+    ~> graph_handler
+    ~> diagnostics_handler
 
 // ─── query_source: check + query ────────────────────────────
 // Runs inference, then answers a question against the result.
 
-fn query_source(source, question) = {
-  handle {
-    handle {
-      handle {
-        handle {
-          handle {
-            let ast = source |> frontend
-            infer_program(ast)
-            let q = parse_query(question)
-            let result = perform ask(q)
-            render_query_result(result)
-          } with query_handler
-        } with verify_ledger_handler
-      } with env_handler
-    } with graph_handler
-  } with diagnostics_handler
-}
+fn query_source(source, question) =
+  {
+    let ast = source |> frontend
+    infer_program(ast)
+    let q = parse_query(question)
+    let result = perform ask(q)
+    render_query_result(result)
+  }
+    ~> query_default // Renamed from query_handler since query.lux exports query_default
+    ~> mentl_default // Added Mentl here as well for diagnostic support
+    ~> verify_ledger_handler
+    ~> env_handler
+    ~> graph_handler
+    ~> diagnostics_handler
 
 // ─── Lower program ─────────────────────────────────────────
 
@@ -419,13 +415,11 @@ fn show_reason_v2(reason) = match reason {
 fn frontend(source) = source |> lex_source |> parse_tokens
 
 fn lex_source(source) = {
-  // Delegates to existing lexer.lux
-  // Phase C adapts token output to carry Spans
-  tokenize(source)
+  // Uses v2/lexer.lux
+  lex(source)
 }
 
 fn parse_tokens(tokens) = {
-  // Delegates to existing parser.lux
-  // Phase C adapts to produce N(body, span, handle) wrappers
-  parse(tokens)
+  // Uses v2/parser.lux
+  parse_program(tokens)
 }

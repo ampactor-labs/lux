@@ -293,6 +293,6 @@ query mints display ids. One function, two handlers.
 
 ## Consumed by
 
-- Every inka/compiler/*.jxj — this is the linker interface; checker enforces
+- Every std/compiler/*.jxj — this is the linker interface; checker enforces
   every `perform op` matches a declared op.
 - Arc F.2 LSP handler — serializes Diagnostic and Query as JSON-RPC.

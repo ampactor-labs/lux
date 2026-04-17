@@ -1,0 +1,133 @@
+// 09 — Mentl: the teaching substrate as handler consolidation
+// This module provides the central nervous system for all teaching,
+// querying, and error diagnostic surface areas in Inka.
+
+import "std/compiler/v2/types"
+import "std/compiler/v2/graph"
+import "std/compiler/v2/effects"
+
+// --- Mentl Specific ADTs ---
+
+type Annotation
+  = APure
+  | ANotAlloc
+  | ANotIO
+  | ANotNetwork
+  | ARefined(String, Predicate)
+  | AOwn(String)
+  | ARef(String)
+
+type Capability
+  = CMemoize
+  | CParallelize
+  | CCompileTimeEval
+  | CRealTime
+  | CSandbox
+  | CEliminateBoundsCheck
+  | CZeroCopy
+  | CDeterministicDrop
+
+type Patch
+  = Patch(Span, String)
+
+type Explanation
+  = Explanation(
+      // code: E001, V001, W017, etc.
+      String,
+      // canonical_md: path into docs/errors/<code>.md
+      String,
+      // summary: one-line human-readable
+      String,
+      // fix: MachineApplicable -> concrete patch
+      Option(Patch),
+      // reason_chain: The Why chain that led here
+      Reason
+    )
+
+// The Teach effect
+effect Teach {
+  teach_here(String, Span, Ty) -> ()               @resume=OneShot
+  teach_gradient(Int) -> Option(Annotation)        @resume=OneShot
+  teach_why(Int) -> Reason                         @resume=OneShot
+  teach_error(String, Span, Reason) -> Explanation @resume=OneShot
+  teach_unlock(Annotation) -> Capability           @resume=OneShot
+}
+
+// --- Handlers ---
+
+// The primary Mentl handler. Reads the SubstGraph and Env through effects.
+handler mentl_default {
+  teach_here(name, span, ty) => {
+    // Accumulate for LSP hover and --teach mode.
+    resume(())
+  },
+  teach_gradient(handle) => {
+    // Examines the current type + effect row, returns the highest-leverage next annotation.
+    resume(gradient_next(handle))
+  },
+  teach_why(handle) => {
+    // Returns the Reason chain for the binding at handle.
+    // Wraps graph_chase + recursive traversal.
+    resume(why_from_handle(handle))
+  },
+  teach_error(code, span, reason) => {
+    // Pulls canonical explanation from docs/errors/<code>.md
+    let md_path = str_concat("docs/errors/", code, ".md");
+    let summary = load_catalog_summary(code);
+    let explanation = Explanation(code, md_path, summary, None, reason);
+    resume(explanation)
+  },
+  teach_unlock(annotation) => {
+    // Given an annotation, what does it unlock?
+    resume(unlock_capability(annotation))
+  }
+}
+
+// The why handler serves as a specific tentacle
+handler why_default {
+  // To be expanded as the Why Engine is fully formalized in Arc F.6
+  // Reads SubstGraphRead + EnvRead
+  // Currently delegates to why_from_handle
+}
+
+// --- Logic ---
+
+fn gradient_next(handle) = {
+  // Analyzes handle type and effects to suggest an Annotation.
+  // E.g., if a function has no Alloc in its graph, suggest ANotAlloc.
+  None // Stub for Phase C
+}
+
+fn why_from_handle(handle) = {
+  // Placeholder for graph_chase traversal
+  // The Reason type is typically tracked in the graph
+  RUser(handle)
+}
+
+fn load_catalog_summary(code) = {
+  // Reads docs/errors/<code>.md to extract the Summary section.
+  "Summary pending implementation"
+}
+
+fn unlock_capability(annotation) = {
+  match annotation {
+    APure => CMemoize,
+    ANotAlloc => CRealTime,
+    ANotIO => CCompileTimeEval,
+    ANotNetwork => CSandbox,
+    ARefined(n, p) => CEliminateBoundsCheck,
+    AOwn(n) => CDeterministicDrop,
+    ARef(n) => CZeroCopy
+  }
+}
+
+fn render_explanation(exp) = {
+  let Explanation(code, md, sum, fix, reason) = exp;
+  let base = str_concat(code, " - ", sum);
+  base // Further text rendering happens here
+}
+
+fn render_patch(patch) = {
+  let Patch(span, text) = patch;
+  str_concat("Replace ", format_span(span), " with: ", text)
+}

@@ -1862,7 +1862,7 @@ FIRST means the codebase never enters that gravity field. The design
 is unconstrained. The handlers use real syntax. The pipeline draws
 the real topology. The imports use the real paths.
 
-**Action for implementation.** The codebase lives at `inka/compiler/`.
+**Action for implementation.** The codebase lives at `std/compiler/`.
 It is written directly from the 12 specs in `docs/rebuild/`. It does
 not ask "can the bootstrapper handle this?" — it asks "is this
 correct?" The bootstrap translator is a separate concern, solved

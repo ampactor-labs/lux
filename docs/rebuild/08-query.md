@@ -166,7 +166,7 @@ graph already knows why the handle was bound; query just reads it.
 ## CLI integration
 
 ```lux
-// inka/main.jxj
+// std/main.jxj
 match argv[0] {
   "check"   => lux_check(argv[1]),
   "wasm"    => lux_wasm(argv[1]),

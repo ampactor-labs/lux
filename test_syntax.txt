@@ -1,0 +1,13 @@
+fn query_source(source, question) =
+  {
+    let ast = source |> frontend
+    infer_program(ast)
+    let q = parse_query(question)
+    let result = perform ask(q)
+    render_query_result(result)
+  }
+  ~> query_handler
+  ~> verify_ledger_handler
+  ~> env_handler
+  ~> graph_handler
+  ~> diagnostics_handler
