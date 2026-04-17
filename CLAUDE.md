@@ -1,6 +1,6 @@
 # Inka (formerly Lux) — CLAUDE.md  |  File extension: `.jxj`
 
-> **Five anchors. Read them before every non-trivial action.**
+> **Six anchors. Read them before every non-trivial action.**
 
 ---
 
@@ -61,6 +61,46 @@ the Program").
 
 If a feature can't be expressed as a handler on the graph, the graph
 is incomplete. Extend the graph. Don't route around it.
+## 6. Write Inka like Inka. Every file. Every time.
+
+Every `.jxj` file you touch MUST be written in Inka's most powerful
+and expressive form. This is non-negotiable:
+
+**Use the five pipe operators where they express the topology:**
+- `|>` for sequential flow (data transforms, compilation stages)
+- `<|` for divergence (one input → parallel branches, borrows input)
+- `><` for parallel composition (independent pipelines, independent inputs)
+- `~>` for handler attachment (inline: wraps one stage; block: wraps chain)
+- `<~` for feedback loops (iterative algorithms, DSP, control)
+
+If a function chains three transforms, use `|> |> |>`, not nested
+calls. If a pipeline needs error handling per-stage, use inline `~>`.
+If handlers should wrap the whole pipeline, use block-scoped `~>`.
+If two independent data sources converge, use `><`, not a tuple.
+
+**Follow the canonical formatting rules (INSIGHTS.md):**
+- Sequential operators (`|>`, `~>`) sit at the LEFT edge — flow goes down
+- Convergent operators (`><`, `<~`) sit at the INDENTED CENTER — they draw shape
+- `<|` sits at the left edge before its branch tuple
+- The shape of the code on the page IS the computation graph
+- The formatter is a handler on the graph; respect its layout discipline
+
+**Express handler composition as `~>` chains, not nested `handle`:**
+```
+source
+    |> frontend
+    |> infer_program
+    ~> env_handler
+    ~> graph_handler
+    ~> diagnostics_handler
+```
+
+Not: `handle (handle (handle (infer_program(frontend(source))) with env) with graph) with diag`
+
+**If existing code uses flat imperative style, refactor it.** Every
+file you touch exits in its most powerful Inka form. Elegance falls
+out for free — the same way every property of Inka falls out for free
+from its one mechanism.
 
 ---
 
