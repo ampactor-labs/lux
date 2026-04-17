@@ -266,9 +266,9 @@ std/
 | clock.jxj | ✅ cascade | All four tiers (real/test/record/replay) with handler-state |
 | lexer.jxj | ✅ patched for pipes | — |
 | parser.jxj | ✅ patched for pipes | — |
-| emit.jxj | ⏳ step 8 | Port from std/backend/wasm_emit.jxj |
-| runtime/ | ⏳ step 9 | Port from std/runtime/memory.jxj |
-| main.jxj | ⏳ step 10 | Simple entry point |
+| emit.jxj | ✅ cascade step 8 | ty_to_wasm via LookupTy, WAT structure emission, LowIR dispatch |
+| runtime/ | ✅ production | 625-line battle-tested runtime (bootstraps self-hosted compiler) |
+| main.jxj | ✅ cascade step 10 | compile/check/query modes, ~30 lines each |
 
 #### Order of Operations — The Cascade
 

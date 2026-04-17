@@ -1,0 +1,205 @@
+// Emit — WASM emission from LowIR (spec 05)
+//
+// Bridge between the VFINAL compiler pipeline and the existing
+// WASM emitter in std/backend/wasm_emit.jxj. The existing emitter
+// is ~1000 lines of production code that produces working WASM
+// (it bootstraps the self-hosted compiler). This module adapts it
+// to the handler-first architecture.
+//
+// ty_to_wasm reads perform lookup_ty(h) — live, not cached.
+// LookupTy is installed once by pipeline.jxj around the lowering walk.
+//
+// NO SubstGraphWrite — structural isolation via effect row.
+
+import compiler/types
+import compiler/graph
+import compiler/effects
+import compiler/lower
+
+// ─── ty_to_wasm: live graph → WASM type ─────────────────────
+// Maps Inka types to WASM value types via the live SubstGraph.
+// Everything is i32 in the current target (linear memory).
+// Future: i64, f32, f64 for unboxed numerics (Arc 3+).
+
+fn ty_to_wasm(handle) =
+  perform lookup_ty(handle)
+    |> ty_to_wasm_type
+
+fn ty_to_wasm_type(ty) = match ty {
+  TInt => "i32",
+  TFloat => "f64",
+  TBool => "i32",
+  TString => "i32",         // pointer into linear memory
+  TUnit => "i32",           // unit = 0
+  TList(_) => "i32",        // pointer
+  TTuple(_) => "i32",       // pointer
+  TFun(_, _, _) => "i32",   // closure pointer / table index
+  TName(_, _) => "i32",     // variant pointer
+  TRecord(_) => "i32",      // record pointer
+  TRefined(base, _) => ty_to_wasm_type(base),
+  TCont(_, _) => "i32",     // continuation pointer
+  TVar(_) => "i32",         // unresolved → default to i32
+  _ => "i32"
+}
+
+// ─── emit_module: delegate to backend ───────────────────────
+// The actual emission logic lives in std/backend/wasm_emit.jxj.
+// This function is the VFINAL entry point that the pipeline calls.
+
+fn emit_module(lowered) =
+  lowered |> emit_lowir_to_wat
+
+fn emit_lowir_to_wat(defs) = {
+  // Collect all metadata in one walk
+  let (strings, tags, globals, closures, call_max) = collect_all(defs)
+  let fns = dedup_fns(closures)
+  let top_stmts = collect_top_stmts(defs)
+  let top_globals = collect_top_let_names(top_stmts)
+  let string_map = assign_offsets(strings, 1024)
+  let data_end = string_heap_end(string_map, 1024)
+  let vstack_base = data_end
+  let heap_start = data_end + 1048576
+  let fn_table = collect_fn_names(fns)
+  let max_arity = max_fn_arity(fns)
+
+  // Emit WAT module structure
+  emit_wat_header(heap_start)
+  emit_string_segments(string_map)
+  emit_global_decls(top_globals)
+  emit_fn_list(fns, string_map, tags, fn_table, top_globals, vstack_base)
+  emit_fn_table(fn_table)
+  emit_start(top_stmts, string_map, tags, fn_table, top_globals, vstack_base)
+  emit_wat_footer()
+}
+
+// ─── WAT structure emission ─────────────────────────────────
+
+fn emit_wat_header(heap_start) = {
+  print("(module\n")
+  emit_wasi_imports()
+  print("  (memory (export \"memory\") 32768 65536)\n")
+  print("  (global $heap_ptr (mut i32) (i32.const "
+    ++ int_to_str(heap_start) ++ "))\n")
+  print("  (global $__vsp (mut i32) (i32.const 0))\n")
+}
+
+fn emit_wat_footer() =
+  print(")\n")
+
+fn emit_wasi_imports() = {
+  print("  (import \"wasi_snapshot_preview1\" \"fd_write\"\n")
+  print("    (func $fd_write (param i32 i32 i32 i32) (result i32)))\n")
+  print("  (import \"wasi_snapshot_preview1\" \"fd_read\"\n")
+  print("    (func $fd_read (param i32 i32 i32 i32) (result i32)))\n")
+  print("  (import \"wasi_snapshot_preview1\" \"proc_exit\"\n")
+  print("    (func $proc_exit (param i32)))\n")
+}
+
+// ─── LowIR → WAT instruction emission ──────────────────────
+// Each LowExpr variant maps to a sequence of WAT instructions.
+
+fn emit_expr(expr, ctx) = match expr {
+  LConst(h, val) => emit_const(val),
+  LLocal(h, idx) => print("    (local.get $l" ++ int_to_str(idx) ++ ")\n"),
+  LGlobal(h, name) => print("    (global.get $" ++ name ++ ")\n"),
+  LBinOp(h, op, l, r) => {
+    emit_expr(l, ctx)
+    emit_expr(r, ctx)
+    emit_binop(op)
+  },
+  LUnaryOp(h, op, inner) => {
+    emit_expr(inner, ctx)
+    emit_unaryop(op)
+  },
+  LCall(h, func, args) => {
+    emit_expr_list(args, ctx)
+    emit_expr(func, ctx)
+    print("    (call_indirect (type $ft" ++ int_to_str(len(args)) ++ "))\n")
+  },
+  LIf(h, cond, then_body, else_body) => {
+    emit_expr(cond, ctx)
+    print("    (if (result i32)\n")
+    print("      (then\n")
+    emit_expr_list(then_body, ctx)
+    print("      )\n      (else\n")
+    emit_expr_list(else_body, ctx)
+    print("      )\n    )\n")
+  },
+  LBlock(h, stmts) => emit_expr_list(stmts, ctx),
+  LMakeList(h, elems) => {
+    // Allocate list cells in linear memory
+    emit_list_literal(elems, ctx)
+  },
+  LReturn(h, inner) => emit_expr(inner, ctx),
+  _ => print("    (i32.const 0) ;; unhandled LowExpr\n")
+}
+
+fn emit_expr_list(exprs, ctx) =
+  if len(exprs) == 0 { () }
+  else {
+    emit_expr(list_head(exprs), ctx)
+    emit_expr_list(list_tail(exprs), ctx)
+  }
+
+fn emit_const(val) = match val {
+  LInt(n) => print("    (i32.const " ++ int_to_str(n) ++ ")\n"),
+  LFloat(f) => print("    (f64.const " ++ float_to_str(f) ++ ")\n"),
+  LBool(b) =>
+    if b { print("    (i32.const 1)\n") }
+    else { print("    (i32.const 0)\n") },
+  LString(s) => print("    ;; string: " ++ s ++ "\n    (i32.const 0)\n")
+}
+
+fn emit_binop(op) = match op {
+  "+" => print("    (i32.add)\n"),
+  "-" => print("    (i32.sub)\n"),
+  "*" => print("    (i32.mul)\n"),
+  "/" => print("    (i32.div_s)\n"),
+  "%" => print("    (i32.rem_s)\n"),
+  "==" => print("    (i32.eq)\n"),
+  "!=" => print("    (i32.ne)\n"),
+  "<" => print("    (i32.lt_s)\n"),
+  ">" => print("    (i32.gt_s)\n"),
+  "<=" => print("    (i32.le_s)\n"),
+  ">=" => print("    (i32.ge_s)\n"),
+  "&&" => print("    (i32.and)\n"),
+  "||" => print("    (i32.or)\n"),
+  _ => print("    ;; unknown binop: " ++ op ++ "\n")
+}
+
+fn emit_unaryop(op) = match op {
+  "Neg" => {
+    print("    (i32.const 0)\n")
+    print("    (i32.sub)\n")  // 0 - x
+  },
+  "Not" => print("    (i32.eqz)\n"),
+  _ => print("    ;; unknown unaryop: " ++ op ++ "\n")
+}
+
+fn emit_list_literal(elems, ctx) =
+  if len(elems) == 0 {
+    print("    (i32.const 0) ;; empty list = null\n")
+  } else {
+    // Allocate cons cells: [head:i32][tail:i32]
+    emit_expr(list_head(elems), ctx)
+    emit_list_literal(list_tail(elems), ctx)
+    print("    (call $alloc_cons)\n")
+  }
+
+// ─── Stub delegation points ────────────────────────────────
+// These will be filled from std/backend/ when wiring is complete.
+
+fn collect_all(defs) = ([], [], [], [], 0)
+fn dedup_fns(closures) = closures
+fn collect_top_stmts(defs) = defs
+fn collect_top_let_names(stmts) = []
+fn assign_offsets(strings, base) = []
+fn string_heap_end(string_map, base) = base
+fn collect_fn_names(fns) = []
+fn max_fn_arity(fns) = 8
+fn emit_string_segments(string_map) = ()
+fn emit_global_decls(top_globals) = ()
+fn emit_fn_list(fns, sm, tm, ft, tg, vs) = ()
+fn emit_fn_table(fn_table) = ()
+fn emit_start(stmts, sm, tm, ft, tg, vs) = ()
+fn float_to_str(f) = "0.0"

@@ -1,0 +1,32 @@
+// main.jxj — Inka compiler entry point
+//
+// ~30 lines. The simplest possible Inka program.
+// Reads stdin, compiles, writes WAT to stdout.
+//
+// This file demonstrates why effects eliminate ceremony:
+// read_stdin, compile, and write_stdout are all effect-mediated.
+// The handler stack IS the configuration.
+
+import compiler/pipeline
+import runtime/memory
+
+fn main() =
+  read_stdin()
+    |> compile_wasm
+    |> print_string
+
+// ─── check mode ─────────────────────────────────────────────
+// inka check <file>: runs inference only, reports diagnostics.
+
+fn main_check(source) =
+  source
+    |> check_source
+    |> fn(_) => ()  // diagnostics already emitted by handler
+
+// ─── query mode ─────────────────────────────────────────────
+// inka query <file> <question>: runs inference, answers question.
+
+fn main_query(source, question) =
+  source
+    |> fn(s) => query_source(s, question)
+    |> print_string
