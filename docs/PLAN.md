@@ -258,7 +258,7 @@ std/
 | effects.jxj | ✅ cascade step 3 | Full Boolean algebra, unify_row, absorb_row, row_is_ground |
 | infer.jxj | ✅ cascade step 4 | unify_row wired, real let-gen, ctor/op registration, show_type errors |
 | lower.jxj | ✅ structurally complete | Fix import style |
-| pipeline.jxj | ⏳ needs state threading | Implement real graph_handler, env_handler state |
+| pipeline.jxj | ✅ cascade step 5 | Real graph_handler + env_handler with handler-state, env_free_vars |
 | mentl.jxj | ⏳ needs fixes | RUser fixed, empty handler, str_concat |
 | own.jxj | ✅ complete | — |
 | verify.jxj | ✅ complete | — |

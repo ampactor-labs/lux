@@ -6,17 +6,17 @@
 // Every handler is installed here. Every effect is scoped here.
 // Downstream passes don't thread state — they perform effects.
 
-import "std/compiler/graph"
-import "std/compiler/types"
-import "std/compiler/effects"
-import "std/compiler/infer"
-import "std/compiler/lower"
-import "std/compiler/own"
-import "std/compiler/verify"
-import "std/compiler/lexer"
-import "std/compiler/parser"
-import "std/compiler/mentl"
-import "std/compiler/query"
+import compiler/graph
+import compiler/types
+import compiler/effects
+import compiler/infer
+import compiler/lower
+import compiler/own
+import compiler/verify
+import compiler/lexer
+import compiler/parser
+import compiler/mentl
+import compiler/query
 
 // ─── compile_wasm: the full pipeline ────────────────────────
 // source |> lex |> parse |> infer |> lower |> emit
@@ -85,71 +85,136 @@ fn lower_program(ast) = {
 
 // ─── Handler: SubstGraph ────────────────────────────────────
 // Threads a single mutable graph through all pipeline passes.
+// Uses handler-local state: nodes (flat array of GNode),
+// ep (epoch counter), next (next fresh handle ID).
+//
+// This is the canonical handler-state pattern: 'with state = ...'
+// on resume carries updated state to the next continuation point.
 
-handler graph_handler {
+handler graph_handler with nodes = [], ep = 0, next = 0 {
   graph_chase(h) => {
-    // Chase through the graph state
-    resume(chase_node(graph_nodes, h, 0))
+    let result = chase_node(nodes, h, 0)
+    resume(result)
   },
-  graph_epoch() => resume(graph_ep),
-  graph_snapshot() => resume(SubstGraph(graph_nodes, graph_ep, graph_next, [])),
+  graph_epoch() => resume(ep),
+  graph_snapshot() => resume(SubstGraph(nodes, ep, next, [])),
   graph_fresh_ty(reason) => {
-    let h = graph_next
-    // Extend graph, bump next
-    resume(h)
+    let h = next
+    let new_node = GNode(NFree(ep), reason)
+    resume(h) with nodes = nodes ++ [new_node], next = next + 1
   },
   graph_fresh_row(reason) => {
-    let h = graph_next
-    resume(h)
+    let h = next
+    let new_node = GNode(NRowFree(ep), reason)
+    resume(h) with nodes = nodes ++ [new_node], next = next + 1
   },
   graph_bind(h, ty, reason) => {
-    // Check occurs, then bind
     if occurs_in(h, ty) {
-      // Emit diagnostic, refuse
+      perform report("", "E010", "OccursCheck",
+        "circular type at handle " ++ int_to_str(h),
+        span_zero(), "MaybeIncorrect")
       resume(())
     } else {
-      // Set node, bump epoch
-      resume(())
+      let new_nodes = graph_set_node(nodes, h, GNode(NBound(ty), reason))
+      resume(()) with nodes = new_nodes, ep = ep + 1
     }
   },
   graph_bind_row(h, row, reason) => {
-    resume(())
+    let new_nodes = graph_set_node(nodes, h, GNode(NRowBound(row), reason))
+    resume(()) with nodes = new_nodes, ep = ep + 1
   },
   graph_fork(module_name) => {
-    resume(())
+    // Return current state as overlay snapshot for module isolation
+    resume(SubstGraph(nodes, ep, next, []))
   }
 }
+
+fn graph_set_node(nodes, idx, node) =
+  if idx >= len(nodes) { nodes ++ [node] }
+  else {
+    set_at(nodes, idx, node)
+  }
+
+fn set_at(lst, idx, val) =
+  if idx == 0 { [val] ++ list_tail(lst) }
+  else { [list_head(lst)] ++ set_at(list_tail(lst), idx - 1, val) }
+
+fn chase_node(nodes, h, depth) =
+  if depth > 50 { GNode(NFree(0), Fresh(0)) }
+  else if h >= len(nodes) { GNode(NFree(0), Fresh(h)) }
+  else {
+    let node = list_at(nodes, h)
+    let GNode(kind, reason) = node
+    match kind {
+      NBound(ty) => match ty {
+        TVar(next_h) => chase_node(nodes, next_h, depth + 1),
+        _ => node
+      },
+      NRowBound(row) => match row {
+        EfOpen(names, next_h) => node,  // Don't chase row vars further
+        _ => node
+      },
+      _ => node
+    }
+  }
+
+fn list_at(lst, idx) =
+  if idx == 0 { list_head(lst) }
+  else { list_at(list_tail(lst), idx - 1) }
 
 // ─── Handler: Env ───────────────────────────────────────────
+// Threads binding environment through all passes.
+// State: entries (list of (name, Scheme, Reason) triples),
+//        scopes (list of Int marks for scope enter/exit).
+//
+// Scoping uses mark-and-truncate: enter pushes len(entries),
+// exit truncates entries back to that mark.
 
-handler env_handler {
+handler env_handler with entries = [], scopes = [] {
   env_lookup(name) => {
-    let result = env_find(env_entries, name)
+    let result = env_find(entries, name)
     resume(result)
   },
-  env_snapshot() => resume(Env(env_entries)),
+  env_snapshot() => resume(Env(entries)),
   env_extend(name, scheme, reason) => {
-    // Push onto env
-    resume(())
+    resume(()) with entries = [(name, scheme, reason)] ++ entries
   },
   env_scope_enter() => {
-    // Push scope marker
-    resume(())
+    resume(()) with scopes = [len(entries)] ++ scopes
   },
   env_scope_exit() => {
-    // Pop to scope marker
-    resume(())
+    if len(scopes) == 0 { resume(()) }
+    else {
+      let mark = list_head(scopes)
+      let truncated = take_last(entries, mark)
+      resume(()) with entries = truncated, scopes = list_tail(scopes)
+    }
+  },
+  env_free_vars() => {
+    let free = collect_env_free(entries)
+    resume(free)
   }
 }
 
-fn env_find(entries, name) = {
+fn env_find(entries, name) =
   if len(entries) == 0 { None }
   else {
     let (k, scheme, reason) = list_head(entries)
     if str_eq(k, name) == 1 { Some((scheme, reason)) }
     else { env_find(list_tail(entries), name) }
   }
-}
+
+fn take_last(lst, n) =
+  if len(lst) <= n { lst }
+  else { take_last(list_tail(lst), n) }
+
+fn collect_env_free(entries) =
+  if len(entries) == 0 { [] }
+  else {
+    let (_, scheme, _) = list_head(entries)
+    let Forall(_, ty) = scheme
+    free_in_ty(ty) ++ collect_env_free(list_tail(entries))
+  }
 
 // ─── Handler: Diagnostic ────────────────────────────────────
 // Routes all diagnostics to stderr.
