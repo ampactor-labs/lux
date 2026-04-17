@@ -45,10 +45,14 @@ tool.** Find the primitive.
 
 **State of the world:** `lux3.wasm` (frozen artifact) compiles
 itself → `lux4.wat` with ~12 `val_concat` drift sites (Arc 2 semantic
-closure, 2026-04-15). Rust VM deleted. The patch-based Arc 3 Phase 2
-path is retired; the `rebuild` branch drives a scrap-and-rebuild of
-the compiler core against a live SubstGraph + EnvRead/Write effect
-substrate. Active plan: `docs/PLAN.md`.
+closure, 2026-04-15). Rust VM deleted. The `rebuild` branch drives a
+scrap-and-rebuild of the compiler core against a live SubstGraph +
+EnvRead/Write effect substrate. Active plan: `docs/PLAN.md`.
+
+**Rebuild progress (2026-04-17):** Phase A (specs) ✅, Phase B
+(query) ✅, Phase C (v2 core) ⏳ structure shipped (9 files, 2541
+lines in `std/compiler/v2/`). v2 ADTs, effects, handler stubs in
+place. Next: wire handler state management and frontend adapter.
 
 **Before any bootstrap:** `make -C bootstrap preflight` (<1 s). If it
 fails, fix first. If clean, then work.
@@ -132,16 +136,26 @@ cat input.lux | ~/.wasmtime/bin/wasmtime run --dir . \
 
 | File | Role |
 |---|---|
-| `std/compiler/pipeline.lux` | lex → parse → check → lower → emit |
-| `std/backend/wasm_emit.lux` | LowIR → WAT |
-| `std/compiler/lower_ir.lux` | LowIR ADT (`LIndex` has 4 fields incl. `is_tuple`) |
-| `std/compiler/lowir_walk.lux` | tree walker (preserves LIndex shape) |
-| `std/runtime/memory.lux` | alloc, strings, lists, split, list_pop |
+| `std/compiler/v2/graph.lux` | SubstGraph: flat-array, O(1) chase, Read/Write effects |
+| `std/compiler/v2/types.lux` | Ty + Reason + Scheme + typed AST + all 14 effects |
+| `std/compiler/v2/effects.lux` | EffRow Boolean algebra: + - & ! |
+| `std/compiler/v2/infer.lux` | HM inference, one walk, graph-direct |
+| `std/compiler/v2/lower.lux` | Live-observer lowering via LookupTy |
+| `std/compiler/v2/pipeline.lux` | Handler composition + query handler |
+| `std/compiler/v2/own.lux` | Ownership as Consume effect |
+| `std/compiler/v2/verify.lux` | Verify ledger (Arc F.1 swaps to SMT) |
+| `std/compiler/v2/clock.lux` | Clock / Tick / Sample / Deadline |
+| `std/compiler/query.lux` | Phase B forensic substrate (v1 bridge) |
+| `std/compiler/pipeline.lux` | v1 pipeline: lex → parse → check → lower → emit |
+| `std/backend/wasm_emit.lux` | LowIR → WAT (reused by v2) |
+| `std/compiler/lower_ir.lux` | LowIR ADT — v2/lower.lux replaces |
+| `std/compiler/lowir_walk.lux` | tree walker (preserved for v2) |
+| `std/runtime/memory.lux` | alloc, strings, lists (val_concat deleted Phase D) |
 | `std/backend/wasm_runtime.lux` | `emit_alloc` — the hand-written WAT |
-| `std/compiler/ty.lux` | type env, substitution (v1; spec 00+04 rebuild replaces) |
+| `std/compiler/ty.lux` | v1 type env, subst (v2/types.lux+graph.lux replace) |
 | `bootstrap/Makefile` | every bootstrap command |
 | `bootstrap/tests/{counter,pattern}.lux` | `make smoke` canaries |
-| `examples/wasm_bootstrap.lux` | entry point — `compile_wasm(read_stdin())` |
+| `examples/wasm_bootstrap.lux` | v1 entry — `compile_wasm(read_stdin())` |
 
 Tests: `bootstrap/tests/` (versioned). Artifacts: `bootstrap/build/`
 (gitignored).

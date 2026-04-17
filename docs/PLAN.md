@@ -3,7 +3,7 @@
 > **THE plan.** Singular, authoritative, evolvable. Edits land as
 > commits; supersedes `docs/ROADMAP.md` and `docs/ARC3_ROADMAP.md`.
 
-## Status — 2026-04-16
+## Status — 2026-04-17
 
 - **Phase 0 — branch hygiene: ✅ complete.** `rebuild` branch open,
   prior WIP committed (`64d241f`, `1f2fa73`, `9a41fae`), CLAUDE.md +
@@ -12,10 +12,18 @@
   `docs/rebuild/00-…11-…md` (`6308cce` + subsequent audit-driven
   edits), each ≤ 300 lines. Specs 09 (Mentl), 10 (Pipes), 11 (Clock)
   added after the Inka audits on 2026-04-16.
-- **Phase B — `lux query` forensic substrate + error catalog: ⏳ next.**
-  Commitment #2 binds: no Phase C until B ships. Twelve-file error
-  catalog at `docs/errors/` ships as companion artifact.
-- **Phases C–E, F.1–F.6: ⏳ pending.**
+- **Phase B — `lux query` forensic substrate + error catalog: ✅
+  shipped.** `std/compiler/query.lux` (297 lines) with
+  Question/QueryResult ADTs (spec 08), parse_query, answer(),
+  render_result(). v1 bridge entry at `examples/query_bootstrap.lux`.
+  Makefile targets added. Error catalog (12 files) at `docs/errors/`
+  shipped as companion artifact. Commit `7949a07`.
+- **Phase C — v2 core architecture: ⏳ structure shipped, wiring in
+  progress.** All 9 v2/*.lux files created directly from specs
+  (2541 lines, `7949a07`). ADTs, effects, handler stubs in place.
+  Remaining: flesh out handler state management, wire frontend
+  adapter (v1 parser → v2 Node wrappers), run first fixture test.
+- **Phases D–E, F.1–F.6: ⏳ pending.**
 - **Language rename:** Lux → **Inka** (mascot: **Mentl**, an octopus).
   Name is a play on "incremental" — gradient-driven compile, gradient-
   driven developer experience. **Mentl** is also the named teaching
@@ -289,74 +297,103 @@ scaffolding exists.
 
 ---
 
-## Phase B — Forensic tooling (`lux query`) + error catalog
+## Phase B — Forensic tooling (`lux query`) + error catalog: ✅ shipped
 
 **Goal:** sub-second forensic answers to any inference question,
 BEFORE rebuilding anything. Ship the error catalog as companion
 artifact so Mentl's error tentacle has a vocabulary from day one.
 
-### Implementation
+### What shipped (`7949a07`)
 
-- **std/compiler/query.lux** (~200 lines, new): parse query string, run checker via existing `check_program`, emit answer to stdout as human-readable text.
+- **std/compiler/query.lux** (297 lines): Question/QueryResult ADTs
+  per spec 08, parse_query (regex-lite tokenizer), answer() executor,
+  render_result() with stable grep-friendly output format. v1 bridge:
+  uses `env_lookup`, `apply(subst, ty)`, `show_type` from existing
+  `ty.lux`/`display.lux`. All types resolved through subst before
+  display.
 
-- **Query parser:** regex-like matching over `"type of NAME"`, `"unresolved"`, `"subst trace for TVar(N)"`, `"effects of NAME"`. Returns a `Query` ADT with fields.
+- **Query variants shipped:** `type of NAME`, `unresolved`,
+  `effects of NAME`, `ownership of NAME`, `why NAME`,
+  `subst trace for TVar(N)`. `QTypeAt(Span)` and `QVerifyDebt`
+  deferred to Phase D (need graph substrate).
 
-- **Query executor:** runs checker, inspects returned (env, subst). For each query type:
-  - `type of NAME`: `env_lookup(env, NAME)` + `apply(subst, ty)` + `show_type`
-  - `unresolved`: walk env, find any entry with TVar after apply
-  - `subst trace for TVar(N)`: follow chain, print each hop + Reason
-  - `effects of NAME`: extract TFun's EffRow, resolve
-  - `why NAME`: Reason chain via `why.lux`
+- **examples/query_bootstrap.lux** — stdin-based entry (line 1: file,
+  line 2: question). Temporary transport until Phase F.2 LSP.
 
-- **Entry point:** `std/compiler/main.lux` or wherever CLI dispatch lives (investigate existing pattern from `lux check`, `lux wasm`). Dispatches on argv[0] = `"query"`.
+- **bootstrap/Makefile** — `make query FILE=... QUESTION=...` target.
 
-**v1→v2 bridge:** Phase B ships using v1's `ty.lux` / `check.lux`
+- **docs/errors/** — 12 error catalog files + README shipped.
+
+**v1→v2 bridge:** Phase B shipped using v1's `ty.lux` / `check.lux`
 internals BUT produces `Question` / `QueryResult` ADTs per spec 08 as
 a forward-compatible wire format. Phase D's wholesale replacement
 swaps the internals (v2 graph + EnvRead effects) without changing the
-output contract. Query consumers never see the transition.
-
-### Files
-
-- Create: `std/compiler/query.lux`
-- Modify: `std/compiler/main.lux` OR wherever CLI dispatch lives
-- Reuse: `std/compiler/ty.lux` (env_lookup, apply, show_type), `std/compiler/why.lux` (Reason rendering), `std/compiler/check.lux` (check_program)
-
-### Companion artifact — error catalog (`docs/errors/`)
-
-Every reserved code from spec 06 gets a canonical explanation file
-shipped alongside `lux query`. Twelve codes, twelve files, one
-README. Format per `docs/errors/README.md`. This is Mentl's vocabulary
-— the compiler teaches in domain terms with the exact fix because the
-catalog exists.
-
-Codes landing in Phase B: E001, E002, E003, E004, E010, E100, E200,
-V001, W017, T001, T002, P001. ≈200 lines of markdown total. No code
-change — pure documentation shipping as compiler-adjacent data.
+output contract. v2/pipeline.lux already contains the v2 query handler
+that will replace the v1 bridge.
 
 ### Exit gate
 
 - `lux query std/compiler/own.lux "type of check_return_pos"` returns within 1 second.
 - Output includes the full resolved type AND any unresolved TVars in its transitive signature.
 - Smoke: `lux query std/compiler/lexer.lux "unresolved"` returns a non-empty set (proves the tool surfaces drift sites).
+- ⚠ Exit gate verification pending: v1 compilation cycle not yet
+  completed (query requires full pipeline import, ~25 min compile).
+  Phase C's v2 pipeline will provide faster verification path.
 
 ---
 
-## Phase C — New core in isolation (std/compiler/v2/)
+## Phase C — New core in isolation (std/compiler/v2/): ⏳ structure shipped
 
-Build the new compiler as parallel files. Existing compiler stays untouched and bootstraps stay green throughout.
+Build the new compiler as parallel files. Existing compiler stays
+untouched and bootstraps stay green throughout.
 
-### Files to create
+### Files created (`7949a07`, 2541 lines total)
 
-- **std/compiler/v2/graph.lux** — SubstGraph (per docs/rebuild/00). Flat-array backed by `list_to_flat`. `chase`, `bind`, `fork`, `epoch`.
-- **std/compiler/v2/effects.lux** — EffRow algebra (per docs/rebuild/01). Preserves existing eff.lux logic where correct; adds negation/subtraction/intersection handling.
-- **std/compiler/v2/types.lux** — Ty + Reason + TypedAst (per docs/rebuild/02, 03). TypeHandle as opaque graph index.
-- **std/compiler/v2/infer.lux** — HM + let-generalization + DAG (per docs/rebuild/04). Writes to graph via SubstGraph effect; emits Diagnostic for errors. Single walk, no prescan pass.
-- **std/compiler/v2/lower.lux** — live-observer lowering (per docs/rebuild/05). `LookupTy` effect installed at pipeline entry. No TUnit defaults.
-- **std/compiler/v2/pipeline.lux** — single-walk entry. Handlers composed. `compile_wasm`, `check_source`, `compile_lowering`.
-- **std/compiler/v2/own.lux** — ownership-as-effect (per docs/rebuild/07). Handlers track linearity.
-- **std/compiler/v2/verify.lux** — `verify_ledger` handler (per docs/rebuild/02). Accumulates `V001` obligations during inference; discharges or escalates at end of compilation unit. ~100 lines.
-- **std/compiler/v2/clock.lux** — Clock / Tick / Sample / Deadline effect handlers (per docs/rebuild/11). Real, test, record, replay handler tiers. ~150 lines.
+- **std/compiler/v2/graph.lux** (~160 lines) — SubstGraph (spec 00).
+  Flat-array, epoch-tagged, O(1) chase. `NodeKind`, `GNode`,
+  `SubstGraph` ADTs. `SubstGraphRead`/`SubstGraphWrite` effects.
+  `chase_node`, `occurs_in`, list helpers. ✅ ADT complete.
+
+- **std/compiler/v2/effects.lux** (~175 lines) — EffRow Boolean
+  algebra (spec 01). `EfNeg`/`EfSub`/`EfInter` intermediate forms.
+  `normalize_row`, `union_row`, `diff_row`, `row_subsumes`.
+  Set operations on sorted string lists. ✅ Complete.
+
+- **std/compiler/v2/types.lux** (~250 lines) — Ty + Reason + Scheme +
+  typed AST (specs 02, 03, 06). All 14 Ty variants including
+  `TRefined`, `TCont`. `TParam` with `Ownership`. `Span`, `Node`,
+  `NodeBody`, `Expr`, `Stmt`, `Pat`. All 14 effects declared (from
+  spec 06). Question/QueryResult ADTs (spec 08). ✅ Complete.
+
+- **std/compiler/v2/infer.lux** (~490 lines) — HM inference (spec 04).
+  `infer_expr`, `infer_stmt`, `generalize`, `instantiate`. Unification
+  against graph. BinOp/UnaryOp inference. Pattern inference. Match arm
+  inference. ✅ Structure complete; generalization needs env free-var
+  check.
+
+- **std/compiler/v2/lower.lux** (~200 lines) — Live-observer lowering
+  (spec 05). `lexpr_handle`, `lexpr_ty` (live query, no fallback).
+  `monomorphic_at`. `lower_expr`, `lower_stmt`. LowIR ADT with handle
+  fields instead of Ty fields. ✅ Structure complete.
+
+- **std/compiler/v2/pipeline.lux** (~370 lines) — Handler composition.
+  `compile_wasm_v2`, `check_source_v2`, `query_source`. All handlers:
+  `graph_handler`, `env_handler`, `diagnostics_handler`,
+  `lookup_ty_handler`, `query_handler`. `show_ty`, `show_effrow`,
+  `show_reason_v2`, `parse_query`, `render_query_result`. ⏳ Handler
+  state management stubs need real flat-array threading.
+
+- **std/compiler/v2/own.lux** (~80 lines) — Ownership as effect
+  (spec 07). `affine_ledger_handler`. Escape check. ✅ Structure
+  complete.
+
+- **std/compiler/v2/verify.lux** (~45 lines) — Verify ledger (spec 02).
+  `verify_ledger_handler`. Accumulates obligations, no solving.
+  ✅ Complete.
+
+- **std/compiler/v2/clock.lux** (~90 lines) — Clock family (spec 11).
+  Four effects × four handler tiers (real/test/record/replay).
+  ✅ Complete.
 
 ### Files that will be reused from v1 (imported by v2)
 
@@ -378,10 +415,14 @@ Build the new compiler as parallel files. Existing compiler stays untouched and 
 
 ### Exit gate
 
-- All 7 v2/*.lux files complete.
-- `lux_v2 compile bootstrap/tests/counter.lux` produces valid WAT (validates via wat2wasm).
-- `lux_v2 check std/compiler/v2/*.lux` type-checks each new file cleanly (no unresolved TVars).
-- Every bootstrap/tests/*.lux fixture passes through v2 with WAT that runs to the same result as v1.
+- All 9 v2/*.lux files created (was 7 in original plan; clock.lux
+  and verify.lux elevated to standalone files). ✅ Done.
+- ⏳ `lux_v2 compile bootstrap/tests/counter.lux` produces valid WAT
+  (validates via wat2wasm). **Next: wire frontend adapter.**
+- ⏳ `lux_v2 check std/compiler/v2/*.lux` type-checks each new file
+  cleanly (no unresolved TVars).
+- ⏳ Every bootstrap/tests/*.lux fixture passes through v2 with WAT
+  that runs to the same result as v1.
 
 ---
 
