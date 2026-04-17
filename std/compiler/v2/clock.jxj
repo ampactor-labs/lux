@@ -10,11 +10,13 @@
 import compiler/v2/types
 
 // ─── Effects ────────────────────────────────────────────────
-// Already declared in types.lux:
-// effect Clock { clock_now() -> Int }
-// effect Tick { tick() -> Int }
-// effect Sample { sample_rate() -> Int }
-// effect Deadline { deadline_remaining() -> Int }
+// Four peer effects. Capability negations !Clock, !Tick, !Sample,
+// !Deadline participate in the Boolean row algebra (spec 01).
+
+effect Clock { clock_now() -> Int               @resume=OneShot }
+effect Tick { tick() -> Int                      @resume=OneShot }
+effect Sample { sample_rate() -> Int             @resume=OneShot }
+effect Deadline { deadline_remaining() -> Int    @resume=OneShot }
 
 // ─── Handler tier: real ─────────────────────────────────────
 // Delegates to host for actual time.

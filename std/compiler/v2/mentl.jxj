@@ -99,9 +99,9 @@ fn gradient_next(handle) = {
 }
 
 fn why_from_handle(handle) = {
-  // Placeholder for graph_chase traversal
-  // The Reason type is typically tracked in the graph
-  RUser(handle)
+  // Reads graph_chase(handle).reason — the Reason tracked in the graph.
+  // Full implementation reads SubstGraphRead.
+  Fresh(handle)
 }
 
 fn load_catalog_summary(code) = {

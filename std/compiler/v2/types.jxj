@@ -1,18 +1,23 @@
-// Ty + Reason + Scheme + new ADTs (spec 02, 03, 04)
+// types.jxj — THE vocabulary of Inka
 //
-// The type ADT for the v2 architecture. Extends v1's types.lux with:
-//   - TRefined(Ty, Predicate) — refinement types
-//   - TCont(Ty, ResumeDiscipline) — handler continuation types
-//   - TParam(String, Ty, Ownership) — ownership-annotated params
-//   - Scheme = Forall(quantified, Ty) — let-generalization
-//   - Span = Span(sl, sc, el, ec) — full spans everywhere
-//   - Node = N(NodeBody, Span, Int) — typed AST wrapper
+// Every type, every effect signature, every ADT that the compiler
+// names lives here. This file is bedrock. Every other file imports it.
+//
+// Specs: 02 (Ty), 03 (TypedAST), 04 (Env/Scheme), 06 (effects surface)
 //
 // TVar(id) is a HANDLE into SubstGraph (spec 00), not a binding.
 // There is no apply(subst, ty) — graph chase replaces it.
+//
+// ADTs owned by other files are NOT declared here:
+//   Clock/Tick/Sample/Deadline → clock.jxj (spec 11)
+//   Annotation/Capability/Explanation/Teach → mentl.jxj (spec 09)
+//   Question/QueryResult/Query → query.jxj (spec 08)
+//   Synth/Candidate → mentl.jxj (spec 09)
+//   EffRow/EfNeg/EfSub/EfInter → effects.jxj (spec 01)
+//   SubstGraph/GNode/NodeKind/SubstGraphRead/Write → graph.jxj (spec 00)
 
-// ─── Core types ─────────────────────────────────────────────
-// Reuse existing ADT from types.lux, extended per spec 02.
+// ─── Core type ADT ──────────────────────────────────────────
+// The universe of types. spec 02.
 
 type Ty
   = TInt
@@ -22,7 +27,7 @@ type Ty
   | TUnit
   | TList(Ty)
   | TTuple(List)
-  | TFun(List, Ty, EffRow)        // params (List[TParam]), return, effects
+  | TFun(List, Ty, EffRow)        // params: List[TParam], return, effects
   | TVar(Int)                     // handle into SubstGraph
   | TName(String, List)           // nominal type + type args
   | TRecord(List)                 // [(name, Ty)]
@@ -31,6 +36,8 @@ type Ty
   | TCont(Ty, ResumeDiscipline)   // handler continuation type
 
 // ─── Ownership ──────────────────────────────────────────────
+// TParam wraps each function parameter with its ownership discipline.
+// TFun params is List[TParam]. spec 02.
 
 type TParam
   = TParam(String, Ty, Ownership)
@@ -41,6 +48,8 @@ type Ownership
   | OwRef          // borrowed: cannot escape
 
 // ─── Resume discipline ──────────────────────────────────────
+// Affect POPL 2025: one-shot vs multi-shot at the type level.
+// TCont carries this. Handler elimination reads it. spec 02.
 
 type ResumeDiscipline
   = OneShot
@@ -48,13 +57,15 @@ type ResumeDiscipline
   | Either
 
 // ─── Scheme (let-generalization) ────────────────────────────
+// Forall(quantified_handles, body_type). spec 04.
+// A monomorphic binding is Forall([], ty).
 
 type Scheme
-  = Forall(List, Ty)    // quantified handle IDs, body type
+  = Forall(List, Ty)
 
 // ─── Reason ─────────────────────────────────────────────────
 // Why a type was assigned. Every graph node carries one.
-// v1's 13 variants preserved + 3 new for specs 00/04/05.
+// The Why Engine reads these. Mentl's teach_why renders them.
 
 type Reason
   = Declared(String)
@@ -70,29 +81,35 @@ type Reason
   | LetBinding(String, Reason)
   | Unified(Reason, Reason)
   | Instantiation(String, Reason)
-  // New in v2
-  | UnifyFailed(Ty, Ty)            // inference mismatch (spec 04)
-  | Placeholder(Span)              // parse-time handle (spec 03)
-  | BinOpPlaceholder(String)       // binop-specific placeholder
-  | MissingVar(String)             // E001 — variable not in env
-  | Refinement(Predicate, Predicate)  // refinement obligation
+  | UnifyFailed(Ty, Ty)
+  | Placeholder(Span)
+  | BinOpPlaceholder(String)
+  | MissingVar(String)
+  | Refinement(Predicate, Predicate)
 
 // ─── Span ───────────────────────────────────────────────────
+// Full 4-tuple span on every node. Non-negotiable. spec 03.
 
 type Span
   = Span(Int, Int, Int, Int)    // start_line, start_col, end_line, end_col
 
-fn span_join(a, b) = {
-  let Span(sl1, sc1, _, _) = a
-  let Span(_, _, el2, ec2) = b
-  Span(sl1, sc1, el2, ec2)
-}
+fn span_join(a, b) =
+  let Span(sl, sc, _, _) = a
+  let Span(_, _, el, ec) = b
+  Span(sl, sc, el, ec)
 
 fn span_zero() = Span(0, 0, 0, 0)
 
+fn span_contains(outer, inner) =
+  let Span(osl, osc, oel, oec) = outer
+  let Span(isl, isc, iel, iec) = inner
+  (osl < isl || (osl == isl && osc <= isc))
+    && (oel > iel || (oel == iel && oec >= iec))
+
 // ─── Typed AST (spec 03) ────────────────────────────────────
 // Every expression site is an N(...). The handle is allocated at
-// parse time and populated during inference.
+// parse time via perform graph_fresh_ty(Placeholder(span))
+// and populated during inference.
 
 type Node
   = N(NodeBody, Span, Int)    // body, span, TypeHandle
@@ -103,7 +120,7 @@ type NodeBody
   | NPat(Pat)
   | NHole(Int)                // marked hole id (Hazel)
 
-// ─── Expr ───────────────────────────────────────────────────
+// ─── Expr (spec 03) ─────────────────────────────────────────
 
 type Expr
   = LitInt(Int)
@@ -115,34 +132,39 @@ type Expr
   | BinOpExpr(String, Node, Node)
   | UnaryOpExpr(String, Node)
   | CallExpr(Node, List)
-  | LambdaExpr(List, Node)
+  | LambdaExpr(List, Node)        // params: List[TParam], body
   | IfExpr(Node, Node, Node)
-  | BlockExpr(List, Node)
-  | MatchExpr(Node, List)
-  | HandleExpr(Node, List)
-  | PerformExpr(String, List)
-  | ResumeExpr(Node, List)
+  | BlockExpr(List, Node)         // stmts, final expr
+  | MatchExpr(Node, List)         // scrutinee, arms
+  | HandleExpr(Node, List)        // body, handler arms
+  | PerformExpr(String, List)     // op name, args
+  | ResumeExpr(Node, List)        // value, state updates
   | MakeListExpr(List)
   | MakeTupleExpr(List)
   | FieldExpr(Node, String)
   | PipeExpr(PipeKind, Node, Node)
-  | ExprPlaceholder
+  | ExprPlaceholder               // ? → spawns NHole
 
 type PipeKind = PForward | PDiverge | PCompose | PTee | PFeedback
 
-// ─── Stmt ───────────────────────────────────────────────────
+// ─── Stmt (spec 03) ─────────────────────────────────────────
 
 type Stmt
   = LetStmt(Pat, Node)
   | FnStmt(String, List, Node, List, Node)
+                      // name, params: List[TParam], retty, effects, body
   | TypeDefStmt(String, List, List)
+                      // name, type args, variants
   | EffectDeclStmt(String, List)
+                      // effect name, ops
   | HandlerDeclStmt(String, String, List)
+                      // handler name, effect name, arms
   | ExprStmt(Node)
   | ImportStmt(String)
   | RefineStmt(String, Ty, Predicate)
+                      // type Port = Int where ...
 
-// ─── Pat ────────────────────────────────────────────────────
+// ─── Pat (spec 03) ──────────────────────────────────────────
 
 type Pat
   = PVar(String)
@@ -151,7 +173,7 @@ type Pat
   | PCon(String, List)
   | PTuple(List)
   | PList(List)
-  | PRecord(List)
+  | PRecord(List)               // [(fieldname, Pat)]
 
 type LitValue
   = LVInt(Int)
@@ -160,7 +182,7 @@ type LitValue
   | LVBool(Bool)
 
 // ─── Predicate (spec 02) ────────────────────────────────────
-// Structural; solver is a handler in Arc F.1.
+// Structural; solver is a handler swap in Arc F.1.
 
 type Predicate
   = PTrue
@@ -180,6 +202,12 @@ type PExpr
   | PVar(String)
   | PApp(String, List)
 
+// ─── Option ─────────────────────────────────────────────────
+
+type Option
+  = None
+  | Some(a)
+
 // ─── Env (spec 04) ──────────────────────────────────────────
 // Effect-mediated: EnvRead + EnvWrite. Peer with SubstGraph.
 
@@ -187,109 +215,344 @@ type Env
   = Env(List)   // [(name, Scheme, Reason)]
 
 effect EnvRead {
-  env_lookup(String) -> Option              // @resume=OneShot
-  env_snapshot() -> Env                     // @resume=OneShot
+  env_lookup(String) -> Option              @resume=OneShot
+  env_snapshot() -> Env                     @resume=OneShot
 }
 
 effect EnvWrite {
-  env_extend(String, Scheme, Reason) -> ()  // @resume=OneShot
-  env_scope_enter() -> ()                   // @resume=OneShot
-  env_scope_exit() -> ()                    // @resume=OneShot
+  env_extend(String, Scheme, Reason) -> ()  @resume=OneShot
+  env_scope_enter() -> ()                   @resume=OneShot
+  env_scope_exit() -> ()                    @resume=OneShot
 }
 
-type Option
-  = None
-  | Some(a)
-
-// ─── Diagnostic (spec 06, extended) ─────────────────────────
+// ─── Diagnostic (spec 06) ───────────────────────────────────
+// Extended from v1: 6-arg with stable error code, full span,
+// applicability tag. Every perform report(...) names a code
+// whose docs/errors/<CODE>.md entry exists.
 
 effect Diagnostic {
   report(String, String, String, String, Span, String) -> ()
-  // source, code, kind, msg, span, applicability
+  // source, code, kind, msg, span, applicability           @resume=OneShot
 }
 
 // ─── LookupTy (spec 05) ────────────────────────────────────
+// The ONLY route from a TypeHandle to a resolved Ty.
+// Delegates to graph_chase. No cache. No stale data.
 
 effect LookupTy {
-  lookup_ty(Int) -> Ty    // handle → resolved type via graph chase
+  lookup_ty(Int) -> Ty                      @resume=OneShot
 }
 
 // ─── FreshHandle (spec 04/06) ───────────────────────────────
 // One function (instantiate), two handlers:
-// - inference: mint(r) => resume(perform graph_fresh_ty(r))
-// - query: mint(r) => resume(next_display_id(r))
+//   inference: mint(r) => resume(perform graph_fresh_ty(r))
+//   query:     mint(r) => resume(next_display_id(r))
 
 effect FreshHandle {
-  mint(Reason) -> Int     // @resume=OneShot
+  mint(Reason) -> Int                       @resume=OneShot
 }
 
 // ─── Verify (spec 02/06) ────────────────────────────────────
+// Handler swap: Phase 1 default verify_ledger accrues obligations.
+// Arc F.1 verify_smt discharges via Z3/cvc5/Bitwuzla.
 
 effect Verify {
-  verify(Span, Predicate, Reason) -> ()
-  verify_debt() -> List
+  verify(Span, Predicate, Reason) -> ()     @resume=OneShot
+  verify_debt() -> List                     @resume=OneShot
 }
-
-// ─── Query (spec 08) ────────────────────────────────────────
-
-effect Query {
-  ask(Question) -> QueryResult    // @resume=OneShot
-}
-
-type Question
-  = QTypeOf(String)
-  | QTypeAt(Span)
-  | QUnresolved
-  | QSubstChain(Int)
-  | QEffects(String)
-  | QOwnership(String)
-  | QWhy(String)
-  | QVerifyDebt
-  | QUnknown(String)
-
-type QueryResult
-  = QRType(Ty, Reason)
-  | QRUnresolved(List)
-  | QRChain(List)
-  | QREffects(EffRow)
-  | QROwnership(List)
-  | QRWhy(Reason)
-  | QRVerifyDebt(List)
-  | QRError(String)
 
 // ─── Consume (spec 07) ──────────────────────────────────────
+// Ownership as effect. affine_ledger installs per-FnStmt.
 
 effect Consume {
-  consume(String, Span) -> ()    // @resume=OneShot
+  consume(String, Span) -> ()               @resume=OneShot
 }
 
-// ─── Teach (spec 09 — Mentl) ────────────────────────────────
+// ─── Display ────────────────────────────────────────────────
+// Type display as |> chains. These are the canonical printers.
+// They perform graph_chase for TVars — live, never cached.
 
-effect Teach {
-  teach_here(String, Span, Ty) -> ()
-  teach_gradient(Int) -> Option
-  teach_why(Int) -> Reason
-  teach_error(String, Span, Reason) -> Explanation
-  teach_unlock(Annotation) -> Capability
-}
+fn show_type(ty) =
+  match ty {
+    TInt => "Int",
+    TFloat => "Float",
+    TString => "String",
+    TBool => "Bool",
+    TUnit => "()",
+    TList(elem) =>
+      "List("
+        |> str_concat(show_type(elem))
+        |> str_concat(")"),
+    TTuple(elems) =>
+      "("
+        |> str_concat(show_list(elems, show_type, ", "))
+        |> str_concat(")"),
+    TFun(params, ret, row) =>
+      "("
+        |> str_concat(show_list(params, show_tparam, ", "))
+        |> str_concat(") -> ")
+        |> str_concat(show_type(ret))
+        |> str_concat(show_row_suffix(row)),
+    TVar(id) =>
+      "t"
+        |> str_concat(int_to_str(id)),
+    TName(name, args) =>
+      name
+        |> str_concat(show_type_args(args)),
+    TRecord(fields) =>
+      "{ "
+        |> str_concat(show_list(fields, show_field, ", "))
+        |> str_concat(" }"),
+    TRecordOpen(fields, v) =>
+      "{ "
+        |> str_concat(show_list(fields, show_field, ", "))
+        |> str_concat(" | t")
+        |> str_concat(int_to_str(v))
+        |> str_concat(" }"),
+    TRefined(base, pred) =>
+      show_type(base)
+        |> str_concat(" where ")
+        |> str_concat(show_predicate(pred)),
+    TCont(ret, disc) =>
+      "Cont("
+        |> str_concat(show_type(ret))
+        |> str_concat(", ")
+        |> str_concat(show_discipline(disc))
+        |> str_concat(")")
+  }
 
-type Annotation = Annotation(String, Ty)
-type Capability = Capability(String)
-type Explanation = Explanation(String, String, String)  // code, summary, fix
+fn show_tparam(tp) =
+  let TParam(name, ty, own) = tp
+  name
+    |> str_concat(": ")
+    |> str_concat(show_type(ty))
+    |> str_concat(show_ownership(own))
 
-// ─── Synth (Arc F.1) ────────────────────────────────────────
+fn show_ownership(own) =
+  match own {
+    OwInferred => "",
+    OwOwn => " own",
+    OwRef => " ref"
+  }
 
-effect Synth {
-  synth(Int, Ty, List) -> Candidate    // @resume=OneShot
-}
+fn show_discipline(d) =
+  match d {
+    OneShot => "OneShot",
+    MultiShot => "MultiShot",
+    Either => "Either"
+  }
 
-type Candidate
-  = NoCandidate
-  | SynthCandidate(String, Ty)
+fn show_field(field) =
+  let (name, ty) = field
+  name
+    |> str_concat(": ")
+    |> str_concat(show_type(ty))
 
-// ─── Clock family (spec 11) ─────────────────────────────────
+fn show_type_args(args) =
+  if len(args) == 0 { "" }
+  else {
+    "("
+      |> str_concat(show_list(args, show_type, ", "))
+      |> str_concat(")")
+  }
 
-effect Clock { clock_now() -> Int }
-effect Tick { tick() -> Int }
-effect Sample { sample_rate() -> Int }
-effect Deadline { deadline_remaining() -> Int }
+fn show_row_suffix(row) =
+  match row {
+    EfPure => "",
+    _ =>
+      " with "
+        |> str_concat(show_effrow(row))
+  }
+
+fn show_effrow(row) =
+  match row {
+    EfPure => "Pure",
+    EfClosed(names) => show_list(names, id, " + "),
+    EfOpen(names, v) =>
+      show_list(names, id, " + ")
+        |> str_concat(" + t")
+        |> str_concat(int_to_str(v)),
+    EfNeg(inner) =>
+      "!"
+        |> str_concat(show_effrow(inner)),
+    EfSub(a, b) =>
+      show_effrow(a)
+        |> str_concat(" - ")
+        |> str_concat(show_effrow(b)),
+    EfInter(a, b) =>
+      show_effrow(a)
+        |> str_concat(" & ")
+        |> str_concat(show_effrow(b))
+  }
+
+fn show_predicate(pred) =
+  match pred {
+    PTrue => "true",
+    PEq(a, b) =>
+      show_pexpr(a)
+        |> str_concat(" == ")
+        |> str_concat(show_pexpr(b)),
+    PLt(a, b) =>
+      show_pexpr(a)
+        |> str_concat(" < ")
+        |> str_concat(show_pexpr(b)),
+    PLeq(a, b) =>
+      show_pexpr(a)
+        |> str_concat(" <= ")
+        |> str_concat(show_pexpr(b)),
+    PAnd(a, b) =>
+      show_predicate(a)
+        |> str_concat(" && ")
+        |> str_concat(show_predicate(b)),
+    POr(a, b) =>
+      show_predicate(a)
+        |> str_concat(" || ")
+        |> str_concat(show_predicate(b)),
+    PNot(p) =>
+      "!"
+        |> str_concat(show_predicate(p)),
+    PCall(name, args) =>
+      name
+        |> str_concat("(")
+        |> str_concat(show_list(args, show_pexpr, ", "))
+        |> str_concat(")")
+  }
+
+fn show_pexpr(pe) =
+  match pe {
+    PSelf => "self",
+    PInt(n) => int_to_str(n),
+    PFloat(f) => float_to_str(f),
+    PString(s) => str_concat("\"", str_concat(s, "\"")),
+    PVar(v) => v,
+    PApp(name, args) =>
+      name
+        |> str_concat("(")
+        |> str_concat(show_list(args, show_pexpr, ", "))
+        |> str_concat(")")
+  }
+
+fn show_reason(reason) =
+  match reason {
+    Declared(name) =>
+      "declared as "
+        |> str_concat(name),
+    Inferred(ctx) =>
+      "inferred from "
+        |> str_concat(ctx),
+    Fresh(id) =>
+      "fresh t"
+        |> str_concat(int_to_str(id)),
+    OpConstraint(op, left, right) =>
+      "operator "
+        |> str_concat(op)
+        |> str_concat(" constrains ")
+        |> str_concat(show_reason(left))
+        |> str_concat(" with ")
+        |> str_concat(show_reason(right)),
+    VarLookup(name, inner) =>
+      "lookup "
+        |> str_concat(name)
+        |> str_concat(" → ")
+        |> str_concat(show_reason(inner)),
+    FnReturn(name, inner) =>
+      "return of "
+        |> str_concat(name)
+        |> str_concat(" → ")
+        |> str_concat(show_reason(inner)),
+    FnParam(name, idx, inner) =>
+      "param "
+        |> str_concat(int_to_str(idx))
+        |> str_concat(" of ")
+        |> str_concat(name)
+        |> str_concat(" → ")
+        |> str_concat(show_reason(inner)),
+    MatchBranch(a, b) =>
+      "match branch: "
+        |> str_concat(show_reason(a))
+        |> str_concat(" ~ ")
+        |> str_concat(show_reason(b)),
+    ListElement(inner) =>
+      "list element: "
+        |> str_concat(show_reason(inner)),
+    IfBranch(inner) =>
+      "if branch: "
+        |> str_concat(show_reason(inner)),
+    LetBinding(name, inner) =>
+      "let "
+        |> str_concat(name)
+        |> str_concat(" = ")
+        |> str_concat(show_reason(inner)),
+    Unified(a, b) =>
+      show_reason(a)
+        |> str_concat(" unified with ")
+        |> str_concat(show_reason(b)),
+    Instantiation(name, inner) =>
+      "instantiate "
+        |> str_concat(name)
+        |> str_concat(" → ")
+        |> str_concat(show_reason(inner)),
+    UnifyFailed(ta, tb) =>
+      "cannot unify "
+        |> str_concat(show_type(ta))
+        |> str_concat(" with ")
+        |> str_concat(show_type(tb)),
+    Placeholder(span) =>
+      "placeholder at "
+        |> str_concat(show_span(span)),
+    BinOpPlaceholder(op) =>
+      "binop "
+        |> str_concat(op),
+    MissingVar(name) =>
+      "unbound variable: "
+        |> str_concat(name),
+    Refinement(p, q) =>
+      "refinement: "
+        |> str_concat(show_predicate(p))
+        |> str_concat(" ∧ ")
+        |> str_concat(show_predicate(q))
+  }
+
+fn show_span(span) =
+  let Span(sl, sc, el, ec) = span
+  int_to_str(sl)
+    |> str_concat(":")
+    |> str_concat(int_to_str(sc))
+    |> str_concat("-")
+    |> str_concat(int_to_str(el))
+    |> str_concat(":")
+    |> str_concat(int_to_str(ec))
+
+fn show_scheme(sch) =
+  let Forall(vars, ty) = sch
+  if len(vars) == 0 { show_type(ty) }
+  else {
+    "∀"
+      |> str_concat(show_list(vars, fn(v) = str_concat("t", int_to_str(v)), " "))
+      |> str_concat(". ")
+      |> str_concat(show_type(ty))
+  }
+
+fn show_pipe_kind(pk) =
+  match pk {
+    PForward  => "|>",
+    PDiverge  => "<|",
+    PCompose  => "><",
+    PTee      => "~>",
+    PFeedback => "<~"
+  }
+
+// ─── Utilities ──────────────────────────────────────────────
+
+fn show_list(items, render, sep) =
+  if len(items) == 0 { "" }
+  else if len(items) == 1 { render(list_head(items)) }
+  else {
+    render(list_head(items))
+      |> str_concat(sep)
+      |> str_concat(show_list(list_tail(items), render, sep))
+  }
+
+fn id(x) = x
+
+fn mono(ty) = Forall([], ty)
