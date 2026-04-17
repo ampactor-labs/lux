@@ -39,6 +39,36 @@ If you find yourself reaching for a framework, a library, or a new
 mechanism: **the problem is a missing Inka primitive, not a missing
 tool.** Find the primitive.
 
+## 4. Build the wheel. Never wrap the axle.
+
+When the specs define the final form, **build it directly.** Do not
+build a wrapper around the current implementation. Do not bridge,
+shim, adapt, or polyfill v1 into the shape of v2. The rebuild exists
+because v1's structure is wrong — wrapping it preserves the wrong
+structure under a new surface. You get v1's costs (28-minute compile
+cycles, linked-list subst chains, threaded `(env, subst)` tuples)
+with v2's complexity on top.
+
+The specs in `docs/rebuild/00–11` ARE the blueprint. Read the spec.
+Write the code the spec describes. If the spec says SubstGraph is a
+flat array with O(1) chase — write a flat array with O(1) chase. Do
+not write a wrapper that calls v1's `apply(subst, ty)` underneath.
+If the spec says env is effect-mediated — write `perform env_lookup`,
+not a function that takes env as an argument.
+
+**The wheel is the ultimate final form.** The engine is built to meet
+the wheel, not to wrap the axle it will replace. Trust the design.
+Move fast. Break things that need breaking.
+
+This is not abstract advice. On 2026-04-17, the Phase B session spent
+28 minutes waiting for a v1-wrapping query tool to compile through
+the existing pipeline — the exact infrastructure the rebuild was
+designed to delete. The fix was to kill the compile, throw away the
+wrapper, and write the v2 architecture directly from the specs. 2541
+lines in under an hour. The wrapper approach would have produced a
+slower, more fragile tool that still depended on everything scheduled
+for deletion in Phase D.
+
 ---
 
 ## Operational essentials
