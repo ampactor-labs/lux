@@ -1,12 +1,19 @@
-// 09 — Mentl: the teaching substrate as handler consolidation
-// This module provides the central nervous system for all teaching,
-// querying, and error diagnostic surface areas in Inka.
+// Mentl — the teaching substrate (spec 09)
+//
+// The compiler's central nervous system for teaching, querying,
+// and diagnostic surface areas. Every diagnostic, every hover,
+// every --teach annotation flows through Mentl handlers.
+//
+// Mentl is NOT a separate pass. It's tentacles (handlers) on
+// the shared SubstGraph, reading through SubstGraphRead.
+// The gradient insight: "what's the highest-leverage annotation
+// the programmer could add next?"
 
-import "std/compiler/types"
-import "std/compiler/graph"
-import "std/compiler/effects"
+import compiler/types
+import compiler/graph
+import compiler/effects
 
-// --- Mentl Specific ADTs ---
+// ─── Mentl ADTs ─────────────────────────────────────────────
 
 type Annotation
   = APure
@@ -32,102 +39,149 @@ type Patch
 
 type Explanation
   = Explanation(
-      // code: E001, V001, W017, etc.
-      String,
-      // canonical_md: path into docs/errors/<code>.md
-      String,
-      // summary: one-line human-readable
-      String,
-      // fix: MachineApplicable -> concrete patch
-      Option(Patch),
-      // reason_chain: The Why chain that led here
-      Reason
+      String,           // code: E001, V001, W017, etc.
+      String,           // canonical_md: docs/errors/<code>.md
+      String,           // summary: one-line human-readable
+      Option,           // fix: Option(Patch) — MachineApplicable
+      Reason            // reason_chain: the Why chain
     )
 
-// The Teach effect
+// ─── The Teach effect ───────────────────────────────────────
+
 effect Teach {
   teach_here(String, Span, Ty) -> ()               @resume=OneShot
-  teach_gradient(Int) -> Option(Annotation)        @resume=OneShot
-  teach_why(Int) -> Reason                         @resume=OneShot
-  teach_error(String, Span, Reason) -> Explanation @resume=OneShot
-  teach_unlock(Annotation) -> Capability           @resume=OneShot
+  teach_gradient(Int) -> Option                     @resume=OneShot
+  teach_why(Int) -> Reason                          @resume=OneShot
+  teach_error(String, Span, Reason) -> Explanation  @resume=OneShot
+  teach_unlock(Annotation) -> Capability            @resume=OneShot
 }
 
-// --- Handlers ---
+// ─── Handler: mentl_default ─────────────────────────────────
+// Reads SubstGraph and Env through effects. Accumulates
+// annotations for --teach mode and LSP hover.
+// State: annotations (list of accumulated teach_here entries).
 
-// The primary Mentl handler. Reads the SubstGraph and Env through effects.
-handler mentl_default {
+handler mentl_default with annotations = [] {
   teach_here(name, span, ty) => {
-    // Accumulate for LSP hover and --teach mode.
-    resume(())
+    let entry = (name, span, ty)
+    resume(()) with annotations = [entry] ++ annotations
   },
   teach_gradient(handle) => {
-    // Examines the current type + effect row, returns the highest-leverage next annotation.
-    resume(gradient_next(handle))
+    let suggestion = gradient_next(handle)
+    resume(suggestion)
   },
   teach_why(handle) => {
-    // Returns the Reason chain for the binding at handle.
-    // Wraps graph_chase + recursive traversal.
-    resume(why_from_handle(handle))
+    let reason = why_from_handle(handle)
+    resume(reason)
   },
   teach_error(code, span, reason) => {
-    // Pulls canonical explanation from docs/errors/<code>.md
-    let md_path = str_concat("docs/errors/", code, ".md");
-    let summary = load_catalog_summary(code);
-    let explanation = Explanation(code, md_path, summary, None, reason);
+    let summary = catalog_summary(code)
+    let explanation = Explanation(code,
+      "docs/errors/" ++ code ++ ".md",
+      summary, None, reason)
     resume(explanation)
   },
   teach_unlock(annotation) => {
-    // Given an annotation, what does it unlock?
     resume(unlock_capability(annotation))
   }
 }
 
-// The why handler serves as a specific tentacle
-handler why_default {
-  // To be expanded as the Why Engine is fully formalized in Arc F.6
-  // Reads SubstGraphRead + EnvRead
-  // Currently delegates to why_from_handle
-}
-
-// --- Logic ---
+// ─── Gradient logic ─────────────────────────────────────────
+// Examines the type + effect row at a handle.
+// Returns the highest-leverage annotation the programmer
+// could add next. This is the "what should I learn?" insight.
 
 fn gradient_next(handle) = {
-  // Analyzes handle type and effects to suggest an Annotation.
-  // E.g., if a function has no Alloc in its graph, suggest ANotAlloc.
-  None // Stub for Phase C
-}
-
-fn why_from_handle(handle) = {
-  // Reads graph_chase(handle).reason — the Reason tracked in the graph.
-  // Full implementation reads SubstGraphRead.
-  Fresh(handle)
-}
-
-fn load_catalog_summary(code) = {
-  // Reads docs/errors/<code>.md to extract the Summary section.
-  "Summary pending implementation"
-}
-
-fn unlock_capability(annotation) = {
-  match annotation {
-    APure => CMemoize,
-    ANotAlloc => CRealTime,
-    ANotIO => CCompileTimeEval,
-    ANotNetwork => CSandbox,
-    ARefined(n, p) => CEliminateBoundsCheck,
-    AOwn(n) => CDeterministicDrop,
-    ARef(n) => CZeroCopy
+  let node = perform graph_chase(handle)
+  let GNode(kind, _) = node
+  match kind {
+    NBound(ty) => match ty {
+      TFun(params, ret, row) =>
+        row
+          |> suggest_from_row
+          |> fn(row_sugg) =>
+            match row_sugg {
+              Some(_) => row_sugg,
+              None => suggest_from_params(params)
+            },
+      _ => None
+    },
+    _ => None
   }
 }
 
-fn render_explanation(exp) = {
-  let Explanation(code, md, sum, fix, reason) = exp;
-  let base = str_concat(code, " - ", sum);
-  base // Further text rendering happens here
+fn suggest_from_row(row) = match row {
+  EfPure => Some(APure),
+  EfClosed(names) =>
+    if not(string_in_list(names, "Alloc")) { Some(ANotAlloc) }
+    else if not(string_in_list(names, "IO")) { Some(ANotIO) }
+    else { None },
+  EfOpen(_, _) => None,   // Open row — can't suggest yet
+  _ => None
 }
 
-fn render_patch(patch) = {
-  let Patch(span, text) = patch;
-  str_concat("Replace ", format_span(span), " with: ", text)
+fn suggest_from_params(params) =
+  if len(params) == 0 { None }
+  else {
+    let TParam(name, _, own) = list_head(params)
+    match own {
+      OwInferred => Some(AOwn(name)),
+      _ => suggest_from_params(list_tail(params))
+    }
+  }
+
+fn string_in_list(lst, s) =
+  if len(lst) == 0 { false }
+  else if str_eq(list_head(lst), s) == 1 { true }
+  else { string_in_list(list_tail(lst), s) }
+
+// ─── Why engine ─────────────────────────────────────────────
+// Reads graph_chase(handle).reason — the Reason tracked by inference.
+// Full recursive chain traversal.
+
+fn why_from_handle(handle) = {
+  let node = perform graph_chase(handle)
+  let GNode(_, reason) = node
+  reason
+}
+
+// ─── Unlock mapping ─────────────────────────────────────────
+// Given an annotation, what capability does it unlock?
+// This is the teaching payoff: "if you add this, you get that."
+
+fn unlock_capability(annotation) = match annotation {
+  APure => CMemoize,
+  ANotAlloc => CRealTime,
+  ANotIO => CCompileTimeEval,
+  ANotNetwork => CSandbox,
+  ARefined(_, _) => CEliminateBoundsCheck,
+  AOwn(_) => CDeterministicDrop,
+  ARef(_) => CZeroCopy
+}
+
+// ─── Catalog ────────────────────────────────────────────────
+
+fn catalog_summary(code) = match code {
+  "E001" => "Variable not found in scope",
+  "E002" => "Type mismatch",
+  "E003" => "Arity mismatch",
+  "E004" => "Missing return type",
+  "E010" => "Occurs check failed (circular type)",
+  "E100" => "Unresolved type variable at codegen",
+  "E200" => "Exhaustiveness violation",
+  "P001" => "Ownership violation (double consume or ref escape)",
+  "T001" => "Effect row mismatch",
+  "T002" => "Handler does not cover required effects",
+  "V001" => "Verification obligation pending",
+  "W017" => "Unused binding",
+  _ => "Unknown error code: " ++ code
+}
+
+// ─── Render ─────────────────────────────────────────────────
+
+fn render_explanation(exp) = {
+  let Explanation(code, md, summary, fix, reason) = exp
+  code ++ ": " ++ summary
+    |> str_concat("\n  Why: ")
+    |> str_concat(show_reason(reason))
 }

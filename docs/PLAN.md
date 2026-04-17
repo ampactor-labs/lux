@@ -257,17 +257,18 @@ std/
 | graph.jxj | ✅ cascade step 2 | graph_handler with live state, graph_reason_edge, occurs check |
 | effects.jxj | ✅ cascade step 3 | Full Boolean algebra, unify_row, absorb_row, row_is_ground |
 | infer.jxj | ✅ cascade step 4 | unify_row wired, real let-gen, ctor/op registration, show_type errors |
-| lower.jxj | ✅ structurally complete | Fix import style |
-| pipeline.jxj | ✅ cascade step 5 | Real graph_handler + env_handler with handler-state, env_free_vars |
-| mentl.jxj | ⏳ needs fixes | RUser fixed, empty handler, str_concat |
-| own.jxj | ✅ complete | — |
-| verify.jxj | ✅ complete | — |
-| clock.jxj | ✅ complete | — |
+| pipeline.jxj | ✅ cascade step 5+7 | Real handlers, v1 purge, canonical display via imports |
+| lower.jxj | ✅ cascade step 6 | Lambda/Handle/Perform/Pipe lowering, LSuspend, LowExpr spec 05 |
+| own.jxj | ✅ cascade | Real affine_ledger with handler-state, escape check, ownership inference |
+| verify.jxj | ✅ cascade | Real verify_ledger with handler-state, debt classification |
+| mentl.jxj | ✅ cascade | Real mentl_default with gradient, why, unlock, catalog |
+| query.jxj | ✅ cascade | Real query_default with chase_type_deep, find_unresolved, walk_chain |
+| clock.jxj | ✅ cascade | All four tiers (real/test/record/replay) with handler-state |
 | lexer.jxj | ✅ patched for pipes | — |
 | parser.jxj | ✅ patched for pipes | — |
-| emit.jxj | ⏳ not started | Port from std/backend/wasm_emit.jxj |
-| runtime/ | ⏳ not started | Port from std/runtime/memory.jxj |
-| main.jxj | ⏳ not started | Simple entry point |
+| emit.jxj | ⏳ step 8 | Port from std/backend/wasm_emit.jxj |
+| runtime/ | ⏳ step 9 | Port from std/runtime/memory.jxj |
+| main.jxj | ⏳ step 10 | Simple entry point |
 
 #### Order of Operations — The Cascade
 

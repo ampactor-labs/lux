@@ -1,15 +1,17 @@
-// 08 — Query: forensic substrate for the live graph
+// Query — forensic substrate for the live graph (spec 08)
 //
-// This module provides the `lux query` capabilities to inspect
-// the SubstGraph and Env without side effects. It serves as the
-// substrate for Arc F.2 LSP.
+// inka query reads the SubstGraph and Env through effects.
+// No mutations. No side effects. Pure observation of the
+// inference result. This module is the substrate for Arc F.2 LSP.
+//
+// Every question reads through SubstGraphRead + EnvRead.
+// The handler composes with inference via pipeline's ~> chain.
 
-import "std/compiler/types"
-import "std/compiler/graph"
-import "std/compiler/effects"
-import "std/compiler/infer"
+import compiler/types
+import compiler/graph
+import compiler/effects
 
-// --- Question and Result ADTs ---
+// ─── Question and Result ADTs ───────────────────────────────
 
 type Question
   = QTypeOf(String)                     // "type of NAME"
@@ -24,165 +26,165 @@ type Question
 
 type QueryResult
   = QRType(Ty, Reason)
-  | QRUnresolved(List)                  // [(name, Ty, List[Int])]
-  | QRChain(List)                       // [(handle, Node)] — chase hops
+  | QRUnresolved(List)                  // [(name, Ty, List)]
+  | QRChain(List)                       // [(handle, GNode)]
   | QREffects(EffRow)
-  | QROwnership(List)                   // [(name, Ownership)]
+  | QROwnership(List)                   // [TParam]
   | QRWhy(Reason)
   | QRVerifyDebt(List)                  // [(Span, Predicate, Reason)]
   | QRError(String)
 
-// --- The Query Effect ---
+// ─── The Query Effect ───────────────────────────────────────
 
 effect Query {
   ask(Question) -> QueryResult          @resume=OneShot
 }
 
-// --- Query Parsing ---
+// ─── Query Handler ──────────────────────────────────────────
+// The main query executor. Reads graph + env through effects.
+// No handler-local state needed — pure observation.
 
-fn parse_query(q) = {
-  // Regex-lite tokenization over the question string
-  let parts = str_split(q, " ");
-  let len_parts = len(parts);
-  
-  if len_parts == 3 && str_eq(parts[0], "type") == 1 && str_eq(parts[1], "of") == 1 {
-    QTypeOf(parts[2])
-  } else { if len_parts == 3 && str_eq(parts[0], "type") == 1 && str_eq(parts[1], "at") == 1 {
-    QTypeAt(parse_pos(parts[2]))
-  } else { if len_parts == 1 && str_eq(parts[0], "unresolved") == 1 {
-    QUnresolved
-  } else { if len_parts == 4 && str_eq(parts[0], "subst") == 1 && str_eq(parts[1], "trace") == 1 && str_eq(parts[2], "for") == 1 {
-    QSubstChain(parse_tvar(parts[3]))
-  } else { if len_parts == 3 && str_eq(parts[0], "effects") == 1 && str_eq(parts[1], "of") == 1 {
-    QEffects(parts[2])
-  } else { if len_parts == 3 && str_eq(parts[0], "ownership") == 1 && str_eq(parts[1], "of") == 1 {
-    QOwnership(parts[2])
-  } else { if len_parts == 2 && str_eq(parts[0], "why") == 1 {
-    QWhy(parts[1])
-  } else {
-    QUnknown(q)
-  }}}}}}}
-}
-
-fn parse_pos(s) = {
-  // "10:27" -> Span(10, 27, 10, 27)
-  let parts = str_split(s, ":");
-  if len(parts) >= 2 {
-    let line = parse_int(parts[0]);
-    let col = parse_int(parts[1]);
-    Span(line, col, line, col)
-  } else {
-    Span(0, 0, 0, 0)
+handler query_default {
+  ask(q) => match q {
+    QTypeOf(name) => match perform env_lookup(name) {
+      None => resume(QRError("not found: " ++ name)),
+      Some(entry) => {
+        let (scheme, reason) = entry
+        let Forall(qs, ty) = scheme
+        // Chase all TVars to their final bindings
+        let resolved = chase_type_deep(ty)
+        resume(QRType(resolved, reason))
+      }
+    },
+    QTypeAt(span) =>
+      resume(QRError("type-at requires AST span index (Arc F.2)")),
+    QUnresolved => {
+      let Env(entries) = perform env_snapshot()
+      let unresolved = find_unresolved(entries)
+      resume(QRUnresolved(unresolved))
+    },
+    QSubstChain(handle) => {
+      let chain = walk_chain(handle, 0)
+      resume(QRChain(chain))
+    },
+    QEffects(name) => match perform env_lookup(name) {
+      None => resume(QRError("not found: " ++ name)),
+      Some(entry) => {
+        let (scheme, _) = entry
+        let Forall(_, ty) = scheme
+        match ty {
+          TFun(_, _, row) => resume(QREffects(row)),
+          _ => resume(QRError(name ++ " is not a function"))
+        }
+      }
+    },
+    QOwnership(name) => match perform env_lookup(name) {
+      None => resume(QRError("not found: " ++ name)),
+      Some(entry) => {
+        let (scheme, _) = entry
+        let Forall(_, ty) = scheme
+        match ty {
+          TFun(params, _, _) => resume(QROwnership(params)),
+          _ => resume(QRError(name ++ " is not a function"))
+        }
+      }
+    },
+    QWhy(name) => match perform env_lookup(name) {
+      None => resume(QRError("not found: " ++ name)),
+      Some(entry) => {
+        let (_, reason) = entry
+        resume(QRWhy(reason))
+      }
+    },
+    QVerifyDebt => {
+      let debt = perform verify_debt()
+      resume(QRVerifyDebt(debt))
+    },
+    QUnknown(q) => resume(QRError("unknown query: " ++ q))
   }
 }
 
-fn parse_tvar(s) = {
-  // "TVar(42)" -> 42
-  // For now, assume a simple parse from the end or just parse the whole thing if it's an int.
-  // Stubbed for standard library string manipulation.
-  parse_int(s) 
+// ─── Query internals ────────────────────────────────────────
+
+fn chase_type_deep(ty) = match ty {
+  TVar(h) => {
+    let node = perform graph_chase(h)
+    let GNode(kind, _) = node
+    match kind {
+      NBound(inner) => chase_type_deep(inner),
+      _ => ty
+    }
+  },
+  TList(elem) => TList(chase_type_deep(elem)),
+  TTuple(elems) => TTuple(chase_list_deep(elems)),
+  TFun(params, ret, eff) =>
+    TFun(chase_params_deep(params), chase_type_deep(ret), eff),
+  TName(name, args) => TName(name, chase_list_deep(args)),
+  TRefined(base, pred) => TRefined(chase_type_deep(base), pred),
+  _ => ty
 }
 
-// --- Query Handler ---
+fn chase_list_deep(tys) =
+  if len(tys) == 0 { [] }
+  else { [chase_type_deep(list_head(tys))] ++ chase_list_deep(list_tail(tys)) }
 
-// The main query executor. Installs as a handler reading graph and env.
-handler query_default {
-  ask(q) => {
-    match q {
-      QTypeOf(name) => {
-        match perform env_lookup(name) {
-          None => resume(QRError(str_concat("not found: ", name))),
-          Some(env_entry) => {
-            // env_entry is (scheme, reason)
-            let (sch, reason) = env_entry;
-            let ty = instantiate(sch);
-            resume(QRType(ty, reason))
-          }
-        }
+fn chase_params_deep(params) =
+  if len(params) == 0 { [] }
+  else {
+    let TParam(name, ty, own) = list_head(params)
+    [TParam(name, chase_type_deep(ty), own)] ++ chase_params_deep(list_tail(params))
+  }
+
+fn find_unresolved(entries) =
+  if len(entries) == 0 { [] }
+  else {
+    let (name, scheme, reason) = list_head(entries)
+    let Forall(_, ty) = scheme
+    let rest = find_unresolved(list_tail(entries))
+    if has_free_tvar(ty) { [(name, ty, [])] ++ rest }
+    else { rest }
+  }
+
+fn has_free_tvar(ty) = match ty {
+  TVar(h) => {
+    let node = perform graph_chase(h)
+    let GNode(kind, _) = node
+    match kind {
+      NFree(_) => true,
+      NBound(inner) => has_free_tvar(inner),
+      _ => false
+    }
+  },
+  TList(elem) => has_free_tvar(elem),
+  TTuple(elems) => has_free_tvar_list(elems),
+  TFun(params, ret, _) =>
+    has_free_tvar(ret) || has_free_tvar_params(params),
+  TName(_, args) => has_free_tvar_list(args),
+  _ => false
+}
+
+fn has_free_tvar_list(tys) =
+  if len(tys) == 0 { false }
+  else { has_free_tvar(list_head(tys)) || has_free_tvar_list(list_tail(tys)) }
+
+fn has_free_tvar_params(params) =
+  if len(params) == 0 { false }
+  else {
+    let TParam(_, ty, _) = list_head(params)
+    has_free_tvar(ty) || has_free_tvar_params(list_tail(params))
+  }
+
+fn walk_chain(handle, depth) =
+  if depth > 50 { [] }
+  else if handle < 0 { [] }
+  else {
+    let node = perform graph_chase(handle)
+    let GNode(kind, reason) = node
+    match kind {
+      NBound(ty) => match ty {
+        TVar(next) => [(handle, node)] ++ walk_chain(next, depth + 1),
+        _ => [(handle, node)]
       },
-      QTypeAt(span) => {
-        // match find_node_at(ast, span)
-        resume(QRError("QTypeAt not fully implemented without AST context"))
-      },
-      QUnresolved => {
-        resume(QRUnresolved(walk_env_for_unresolved()))
-      },
-      QSubstChain(handle) => {
-        resume(QRChain(walk_chain(handle)))
-      },
-      QEffects(name) => {
-        match perform env_lookup(name) {
-          None => resume(QRError(str_concat("not found: ", name))),
-          Some(env_entry) => {
-            let (sch, _) = env_entry;
-            match instantiate(sch) {
-              TFun(params, ret, row) => resume(QREffects(row)),
-              _ => resume(QRError(str_concat(name, " is not a function")))
-            }
-          }
-        }
-      },
-      QOwnership(name) => {
-        match perform env_lookup(name) {
-          None => resume(QRError(str_concat("not found: ", name))),
-          Some(env_entry) => {
-            let (sch, _) = env_entry;
-            match instantiate(sch) {
-              TFun(params, ret, row) => {
-                // Return mapped ownership
-                resume(QROwnership([]))
-              },
-              _ => resume(QRError(str_concat(name, " is not a function")))
-            }
-          }
-        }
-      },
-      QWhy(name) => {
-        match perform env_lookup(name) {
-          None => resume(QRError(str_concat("not found: ", name))),
-          Some(env_entry) => {
-            let (_, reason) = env_entry;
-            resume(QRWhy(reason))
-          }
-        }
-      },
-      QUnknown(qu) => {
-        resume(QRError(str_concat("unknown query: ", qu)))
-      },
-      _ => resume(QRError("Unhandled query variant"))
+      _ => [(handle, node)]
     }
   }
-}
-
-// --- Internals ---
-
-fn walk_env_for_unresolved() = {
-  // Uses env_snapshot to walk and find unresolved TVars
-  []
-}
-
-fn walk_chain(handle) = {
-  // Follows the GNode links back to trace substitution history
-  []
-}
-
-fn instantiate(sch) = {
-  // FreshHandle handler mints display ids instead of allocating real graph handles.
-  // Delegated to infer.jxj's instantiate in a real setting.
-  TInt
-}
-
-// --- Output Rendering ---
-
-fn render_query_result(result) = {
-  match result {
-    QRType(ty, reason) => "Type Result Rendered",
-    QRUnresolved(list) => "Unresolved Variables",
-    QRChain(list) => "Substitution Trace",
-    QREffects(row) => "Effect Row",
-    QROwnership(list) => "Ownership Status",
-    QRWhy(reason) => "Reason Rendered",
-    QRVerifyDebt(list) => "Verify Debt",
-    QRError(err) => str_concat("Error: ", err)
-  }
-}

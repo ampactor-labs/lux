@@ -9,36 +9,53 @@
 
 import compiler/types
 
-// ─── Verify effect ──────────────────────────────────────────
-// Already declared in types.jxj:
-// effect Verify {
-//   verify(Span, Predicate, Reason) -> ()
-//   verify_debt() -> List
-// }
-
 // ─── Handler: verify_ledger (default Phase C–E) ─────────────
 // Records every obligation. No solving. Countable. Queryable.
+// Uses handler-state: debt (list of (span, predicate, reason)).
+//
+// The handler swap is the thesis proof: same source code,
+// different handler → the program gains formal verification.
 
-handler verify_ledger_handler {
+handler verify_ledger_handler with debt = [] {
   verify(span, predicate, reason) => {
-    // Accumulate: push (span, predicate, reason) onto debt list
-    // The debt list is handler-local state
-    resume(())
+    let entry = (span, predicate, reason)
+    resume(()) with debt = [entry] ++ debt
   },
   verify_debt() => {
-    // Return the accumulated debt list
-    resume([])
+    resume(debt)
   }
 }
 
 // ─── Report debt summary ────────────────────────────────────
 
-fn report_verify_debt(debt) = {
+fn report_verify_debt(debt) =
   if len(debt) == 0 { () }
   else {
-    let n = len(debt)
     perform report("", "V001", "VerificationPending",
-      to_string(n) ++ " verification obligations pending",
+      int_to_str(len(debt)) ++ " verification obligations pending",
       span_zero(), "MaybeIncorrect")
   }
+
+// ─── Debt analysis (for query) ──────────────────────────────
+
+fn debt_by_kind(debt) =
+  if len(debt) == 0 { [] }
+  else {
+    let (span, pred, reason) = list_head(debt)
+    let kind = classify_predicate(pred)
+    [(kind, span, reason)] ++ debt_by_kind(list_tail(debt))
+  }
+
+fn classify_predicate(pred) = match pred {
+  PTrue => "trivial",
+  PNot(_) => "negation",
+  PAnd(_, _) => "conjunction",
+  POr(_, _) => "disjunction",
+  PImplies(_, _) => "implication",
+  PForall(_, _) => "universal",
+  PExists(_, _) => "existential",
+  PEq(_, _) => "equality",
+  PLt(_, _) => "ordering",
+  PIn(_, _) => "membership",
+  _ => "unknown"
 }

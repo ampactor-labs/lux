@@ -6,38 +6,49 @@
 //
 // Structural escape check:
 // a ref-annotated value cannot escape the scope of its borrow.
+//
+// The affine ledger is installed per-function by inference (spec 04).
+// The ownership effect piggybacks on the inference walk — no separate
+// pass. This is the key architectural insight from spec 07.
 
 import compiler/types
 
-// ─── Consume effect ─────────────────────────────────────────
-// Already declared in types.jxj:
-// effect Consume { consume(String, Span) -> () }
-
 // ─── Handler: affine ledger ─────────────────────────────────
 // Tracks which bindings have been consumed. Installed per-function.
+// State: consumed (list of name strings already used).
+//
+// Double consume → P001. ref escape → P001.
 
-handler affine_ledger_handler {
+handler affine_ledger_handler with consumed = [] {
   consume(name, span) => {
-    // Check if name already consumed
-    // If yes: emit P001 OwnershipViolation
-    // If no: record as consumed
-    resume(())
+    if string_in_consumed(consumed, name) {
+      perform report("", "P001", "OwnershipViolation",
+        "binding '" ++ name ++ "' consumed more than once",
+        span, "MachineApplicable")
+      resume(())
+    } else {
+      resume(()) with consumed = [name] ++ consumed
+    }
   }
 }
+
+fn string_in_consumed(lst, s) =
+  if len(lst) == 0 { false }
+  else if str_eq(list_head(lst), s) == 1 { true }
+  else { string_in_consumed(list_tail(lst), s) }
 
 // ─── Escape check ───────────────────────────────────────────
 // A ref binding cannot appear in return position or be captured
 // by a closure that outlives its scope.
 
-fn check_escape(params, body) = {
-  let refs = collect_ref_params(params)
-  if len(refs) == 0 { () }
-  else {
-    check_no_escape(refs, body)
-  }
-}
+fn check_escape(params, body) =
+  params
+    |> collect_ref_params
+    |> fn(refs) =>
+      if len(refs) == 0 { () }
+      else { check_no_escape(refs, body) }
 
-fn collect_ref_params(params) = {
+fn collect_ref_params(params) =
   if len(params) == 0 { [] }
   else {
     let TParam(name, _, own) = list_head(params)
@@ -47,29 +58,88 @@ fn collect_ref_params(params) = {
       _ => rest
     }
   }
-}
 
 fn check_no_escape(refs, body) = {
-  // Walk body, check that no ref name appears in return position
-  // or closure capture. Emit P001 if violated.
-  ()
+  let N(body_expr, span, _) = body
+  match body_expr {
+    NExpr(VarRef(name)) =>
+      if string_in_consumed(refs, name) {
+        perform report("", "P001", "OwnershipViolation",
+          "ref binding '" ++ name ++ "' escapes its scope (returned)",
+          span, "MachineApplicable")
+      } else { () },
+    NExpr(LambdaExpr(_, lambda_body)) =>
+      check_capture_escape(refs, lambda_body),
+    NExpr(BlockExpr(_, final_e)) =>
+      check_no_escape(refs, final_e),
+    NExpr(IfExpr(_, then_e, else_e)) => {
+      check_no_escape(refs, then_e)
+      check_no_escape(refs, else_e)
+    },
+    _ => ()
+  }
+}
+
+fn check_capture_escape(refs, body) = {
+  // Walk lambda body for ref captures that would outlive borrow scope
+  let N(body_expr, span, _) = body
+  match body_expr {
+    NExpr(VarRef(name)) =>
+      if string_in_consumed(refs, name) {
+        perform report("", "P001", "OwnershipViolation",
+          "ref binding '" ++ name ++ "' captured by closure (escapes scope)",
+          span, "MachineApplicable")
+      } else { () },
+    _ => ()
+  }
 }
 
 // ─── Ownership inference ────────────────────────────────────
 // For params with OwInferred: infer based on usage patterns.
-// - Used once in body and not returned -> OwOwn candidate
-// - Used multiple times or returned -> OwRef candidate
-// - Not used -> no ownership annotation needed
+// - Used once in body and not returned → own candidate
+// - Used multiple times or returned → ref candidate
+// - Not used → no ownership annotation needed
 
-fn infer_ownership(params, body) = {
-  // Walk body, count uses per param, determine ownership
-  params
+fn infer_ownership(params, body) =
+  if len(params) == 0 { [] }
+  else {
+    let TParam(name, ty, own) = list_head(params)
+    let inferred_own = match own {
+      OwInferred => infer_single_ownership(name, body),
+      _ => own
+    }
+    [TParam(name, ty, inferred_own)]
+      ++ infer_ownership(list_tail(params), body)
+  }
+
+fn infer_single_ownership(name, body) = {
+  let count = count_uses(name, body)
+  if count == 0 { OwInferred }
+  else if count == 1 { OwOwn }
+  else { OwRef }
 }
 
-// ─── Report ─────────────────────────────────────────────────
-
-fn report_ownership_violation(name, span) = {
-  perform report("", "P001", "OwnershipViolation",
-    "binding '" ++ name ++ "' consumed more than once",
-    span, "MachineApplicable")
+fn count_uses(name, body) = {
+  let N(body_expr, _, _) = body
+  match body_expr {
+    NExpr(VarRef(n)) =>
+      if str_eq(n, name) == 1 { 1 } else { 0 },
+    NExpr(CallExpr(f, args)) =>
+      count_uses(name, f) + count_uses_list(name, args),
+    NExpr(BinOpExpr(_, l, r)) =>
+      count_uses(name, l) + count_uses(name, r),
+    NExpr(IfExpr(c, t, e)) =>
+      count_uses(name, c) + count_uses(name, t) + count_uses(name, e),
+    NExpr(BlockExpr(stmts, final_e)) =>
+      count_uses_list(name, stmts) + count_uses(name, final_e),
+    NExpr(LambdaExpr(_, lb)) =>
+      count_uses(name, lb),
+    NExpr(PipeExpr(_, l, r)) =>
+      count_uses(name, l) + count_uses(name, r),
+    _ => 0
+  }
 }
+
+fn count_uses_list(name, nodes) =
+  if len(nodes) == 0 { 0 }
+  else { count_uses(name, list_head(nodes)) + count_uses_list(name, list_tail(nodes)) }

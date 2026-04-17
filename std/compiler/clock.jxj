@@ -10,89 +10,122 @@
 import compiler/types
 
 // ─── Effects ────────────────────────────────────────────────
-// Four peer effects. Capability negations !Clock, !Tick, !Sample,
-// !Deadline participate in the Boolean row algebra (spec 01).
+// Four peer effects. Declared separately so each can be negated
+// independently in the effect algebra: !Clock, !Tick, etc.
 
-effect Clock { clock_now() -> Int               @resume=OneShot }
-effect Tick { tick() -> Int                      @resume=OneShot }
-effect Sample { sample_rate() -> Int             @resume=OneShot }
-effect Deadline { deadline_remaining() -> Int    @resume=OneShot }
+effect Clock    { clock_now() -> Int               @resume=OneShot }
+effect Tick     { tick() -> Int                    @resume=OneShot }
+effect Sample   { sample_rate() -> Int             @resume=OneShot }
+effect Deadline { deadline_remaining() -> Int      @resume=OneShot }
 
 // ─── Handler tier: real ─────────────────────────────────────
-// Delegates to host for actual time.
+// Delegates to host for actual time. Uses handler-state for
+// tick counter (monotonic, bumped per call).
 
 handler clock_real {
   clock_now() => {
     // Host import: wasi_snapshot_preview1.clock_time_get
-    resume(0)
+    // Returns nanoseconds since epoch
+    resume(perform host_clock_ns())
   }
 }
 
-handler tick_real {
+handler tick_real with counter = 0 {
   tick() => {
-    // Monotonic counter — bumped by pipeline per phase
-    resume(0)
+    let current = counter
+    resume(current) with counter = counter + 1
   }
 }
 
 handler sample_real {
-  sample_rate() => {
-    // Default: 44100 Hz (audio convention)
-    resume(44100)
-  }
+  sample_rate() => resume(44100)    // 44.1kHz audio convention
 }
 
 handler deadline_real {
-  deadline_remaining() => {
-    // No deadline by default — infinite budget
-    resume(999999999)
-  }
+  deadline_remaining() => resume(999999999)   // infinite budget
 }
 
 // ─── Handler tier: test ─────────────────────────────────────
-// Deterministic, replayable.
+// Deterministic, replayable. Fixed values for reproducible tests.
 
-handler clock_test {
+handler clock_test with epoch = 1000 {
   clock_now() => {
-    resume(1000)   // Fixed epoch for deterministic tests
+    resume(epoch) with epoch = epoch + 1
   }
 }
 
-handler tick_test {
+handler tick_test with counter = 0 {
   tick() => {
-    resume(1)   // Always tick 1
+    let current = counter
+    resume(current) with counter = counter + 1
   }
+}
+
+handler sample_test {
+  sample_rate() => resume(48000)    // 48kHz for testing
+}
+
+handler deadline_test {
+  deadline_remaining() => resume(5000)   // 5ms test budget
 }
 
 // ─── Handler tier: record ───────────────────────────────────
 // Wraps real handler, records every value for replay.
+// State: trace (list of recorded values).
 
-fn make_clock_record(real_handler) = {
-  // Returns a handler that delegates to real_handler
-  // and appends each result to a trace log
-  real_handler
+handler clock_record with trace = [] {
+  clock_now() => {
+    let val = perform host_clock_ns()
+    resume(val) with trace = trace ++ [val]
+  }
+}
+
+handler tick_record with counter = 0, trace = [] {
+  tick() => {
+    let current = counter
+    resume(current) with counter = counter + 1, trace = trace ++ [current]
+  }
 }
 
 // ─── Handler tier: replay ───────────────────────────────────
 // Plays back recorded values deterministically.
+// State: remaining (list of values to replay).
 
-fn make_clock_replay(trace) = {
-  // Returns a handler that yields values from trace
-  // in sequence, failing if trace exhausted
-  clock_test   // fallback to test handler
-}
-
-// ─── Deadline integration with <~ feedback ──────────────────
-// When <~ feedback (spec 10) iterates, each iteration can check
-// deadline_remaining() to bail early on tight real-time budgets.
-
-fn with_deadline(budget_ms, body) = {
-  handle { body() } with deadline_budget(budget_ms)
-}
-
-handler deadline_budget(budget_ms) {
-  deadline_remaining() => {
-    // Track elapsed, return remaining
-    resume(budget_ms)
+handler clock_replay with remaining = [] {
+  clock_now() => {
+    if len(remaining) == 0 {
+      perform report("", "T001", "ReplayExhausted",
+        "clock replay trace exhausted",
+        span_zero(), "MaybeIncorrect")
+      resume(0)
+    } else {
+      let val = list_head(remaining)
+      resume(val) with remaining = list_tail(remaining)
+    }
   }
 }
+
+handler tick_replay with remaining = [] {
+  tick() => {
+    if len(remaining) == 0 {
+      resume(0)
+    } else {
+      let val = list_head(remaining)
+      resume(val) with remaining = list_tail(remaining)
+    }
+  }
+}
+
+// ─── Deadline with budget tracking ──────────────────────────
+// When <~ feedback iterates, each iteration checks
+// deadline_remaining() to bail early on tight real-time budgets.
+// State: budget_remaining (decremented per check).
+
+handler deadline_budget with budget_remaining = 0 {
+  deadline_remaining() => {
+    resume(budget_remaining)
+  }
+}
+
+fn with_deadline(budget_ms, computation) =
+  { computation() } ~> deadline_budget
