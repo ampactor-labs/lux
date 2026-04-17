@@ -269,62 +269,308 @@ std/
 | runtime/ | ⏳ not started | Port from std/runtime/memory.jxj |
 | main.jxj | ⏳ not started | Simple entry point |
 
-#### Remaining Work for Phase 1
+#### Order of Operations — The Cascade
 
-**1. ADT Ownership Resolution** (types.jxj, mentl.jxj)
-- Delete stub Annotation/Capability/Explanation/Teach from types.jxj
-  (lines 266-295). Correct versions live in mentl.jxj (spec 09).
-- Delete stub Clock/Tick/Sample/Deadline from types.jxj. Correct
-  versions live in clock.jxj (spec 11).
-- Delete query.jxj (dead duplicate of pipeline.jxj code).
-- Zero duplicate ADTs across the codebase.
+Each step depends on the one before it and empowers the one after.
+This is the most impactful order because each completed piece makes
+the next one expressible in Inka's most powerful form. No step is
+skippable. No step is reorderable. The cascade IS the implementation.
 
-**2. Handler State Threading** (pipeline.jxj)
-- graph_handler: real flat-array state via `with nodes=[], epoch=0, next=0`.
-  `graph_fresh_ty` extends array and bumps next. `graph_bind` sets node
-  and bumps epoch. Occurs check refuses circular binds.
-- env_handler: real scoped binding stack via `with entries=[], scopes=[]`.
-  `env_extend` prepends. `env_scope_enter` pushes len. `env_scope_exit`
-  truncates to mark.
-- This is the critical path. Without state, handlers are inert.
+---
 
-**3. Pipeline Topology** (pipeline.jxj)
-- compile/check/query as `|>` chains with `~>` handler attachment.
-- lower_program uses `~>` (not handle-with block) for consistency.
-- Capability stack comments on every `~>` line.
-- Delete dead query_handler and duplicate parse_query.
+**Step 1: The Foundation — `types.jxj`** (Spec 02, 03, 06)
 
-**4. Fix mentl.jxj**
-- `RUser(handle)` → `Fresh(handle)` (phantom Reason variant).
-- Delete empty `why_default` handler (parse error).
-- `str_concat("a", b, "c")` → `"a" ++ b ++ "c"`.
+*Depends on:* nothing. This is bedrock.
+*Unlocks:* everything — every other file imports types.
 
-**5. Complete graph.jxj**
-- Add `graph_reason_edge(Int, Int) -> Reason` to SubstGraphRead.
-- Add handler arm in graph_handler.
+What to do:
+- Delete stub ADTs that are owned by other files: Annotation,
+  Capability, Explanation, Teach (owned by mentl.jxj per spec 09),
+  Clock, Tick, Sample, Deadline (owned by clock.jxj per spec 11).
+- Verify Ty ADT has: TRefined, TCont, TParam with Ownership.
+- Verify every effect signature matches spec 06 exactly.
+- Verify Node = N(body, span, handle). Span = Span(sl, sc, el, ec).
+- Verify PipeKind has all five: PForward, PDiverge, PCompose, PTee,
+  PFeedback.
+- Delete query.jxj (dead duplicate).
+- **Format:** Express any multi-step ADT construction as `|>` chains.
+  Display functions that transform then format use `|>`. This file
+  is THE vocabulary — every name chosen here echoes everywhere.
 
-**6. Import Consistency**
-- All files: `import "std/compiler/graph"` (quoted, std/ prefix).
+*Exit:* Zero duplicate ADTs across the entire codebase. `types.jxj`
+is the single canonical source of every type, effect, and ADT.
 
-**7. Emit + Runtime + Main**
-- Port wasm_emit.jxj into std/compiler/emit.jxj.
-- Port runtime into std/runtime/memory.jxj (allocator as handler).
-- Write main.jxj entry point.
+---
 
-**8. Error Catalog**
-- Verify every error code referenced in source has a
-  `docs/errors/<CODE>.md` entry.
+**Step 2: The Substrate — `graph.jxj`** (Spec 00)
 
-#### Phase 1 Exit Gate
+*Depends on:* Step 1 (types: NodeKind, GNode, Reason, Ty).
+*Unlocks:* inference, lowering, query — everything reads the graph.
 
-```
-inka_compile bootstrap/tests/counter.jxj → valid WAT
-inka_compile bootstrap/tests/pattern.jxj → valid WAT
-Both WATs run correctly under wasmtime.
-```
+What to do:
+- Flat array. O(1) chase. Epoch + overlay pattern.
+- graph_handler with REAL state threading:
+  `with nodes = [], epoch = 0, next = 0`
+  - `graph_fresh_ty(reason)` → extends array, bumps next, resumes handle
+  - `graph_bind(h, ty, reason)` → sets node kind, bumps epoch
+  - `graph_chase(h)` → follows chain to terminal, O(1) amortized
+  - `graph_reason_edge(h1, h2)` → returns reason connecting two handles
+- Occurs check: before graph_bind, walk ty for free handles containing
+  h. If found, emit E_OccursCheck, refuse bind.
+- **Format:** The handler definition uses `with state = ...` syntax.
+  Chase operations that involve multiple lookups use `|>` chains.
+  The handler IS the first real demonstration of Inka's handler-state
+  pattern — it must be exemplary.
 
-No duplicate ADTs. No duplicate effects. No phantom references.
-All imports use quoted std/ style. Every handler threads real state.
+*Exit:* `graph_handler` accepts `graph_fresh_ty`, `graph_bind`,
+`graph_chase`, `graph_reason_edge`. State is live. A test sequence
+of fresh → bind → chase returns the bound type.
+
+---
+
+**Step 3: The Algebra — `effects.jxj`** (Spec 01)
+
+*Depends on:* Step 1 (types: EffRow ADT).
+*Unlocks:* inference (effect row unification), ownership (!Consume),
+  capability proofs (!Alloc, !Clock), handler subsumption checks.
+
+What to do:
+- Boolean algebra: `+` union, `-` subtraction, `&` intersection,
+  `!` negation, `Pure` = empty row.
+- normalize_row: canonical form for comparison.
+- row_subsumes: `row_a ⊇ row_b` — the gate for handler installation.
+- union_row, diff_row, inter_row: algebraic operations.
+- **Format:** Each algebraic operation reads as a mathematical
+  transformation. Chain normalize → compare → decide via `|>`.
+  This file is pure functions on data — the cleanest possible Inka.
+
+*Exit:* `row_subsumes(EfClosed([Alloc, IO]), EfClosed([IO]))` = true.
+`diff_row(row, EfClosed([Alloc]))` removes Alloc. `!Alloc` negation
+works via normalize + subsumption.
+
+---
+
+**Step 4: The Engine — `infer.jxj`** (Spec 04)
+
+*Depends on:* Step 1 (types), Step 2 (graph — writes bindings into
+  the live graph), Step 3 (effects — unifies effect rows).
+*Unlocks:* lowering (reads the post-inference graph), query (reads
+  env + graph), ownership (runs inside this walk).
+
+What to do:
+- One walk. `infer_expr`, `infer_stmt`, `generalize`, `instantiate`.
+- Unification against the graph (not a sidecar subst).
+- Effect row unification via Step 3's algebra.
+- Ownership tracking runs INSIDE this walk — `perform consume(name)`
+  at every `own`-parameter use (spec 07 piggybacks on spec 04).
+- Error handling: Hazel pattern. Mismatch → NErrorHole, continue.
+  Never halt on a type error.
+- **Format:** The inference walk is the canonical `|>` pipeline
+  through AST nodes. `match node.body { ... }` arms are the dispatch.
+  Effect performs (`perform graph_bind`, `perform env_extend`) replace
+  all argument-threading. This file demonstrates WHY effects eliminate
+  state-passing — it should be dramatically cleaner than the v1
+  `check.jxj` + `infer.jxj` it replaces.
+
+*Exit:* `infer_program(ast)` populates graph handles for every node.
+`perform env_lookup(name)` returns typed schemes. No subst sidecar.
+
+---
+
+**Step 5: The Env — `env_handler` in `pipeline.jxj`** (Spec 04)
+
+*Depends on:* Step 1 (types: Env, Scheme), Step 4 (inference uses
+  EnvRead + EnvWrite effects).
+*Unlocks:* inference can run end-to-end (it needs both graph_handler
+  and env_handler installed to function).
+
+What to do:
+- env_handler with real scoped binding stack:
+  `with entries = [], scopes = []`
+  - `env_extend(name, scheme, reason)` → prepend to entries
+  - `env_lookup(name)` → linear scan, return Option((Scheme, Reason))
+  - `env_scope_enter()` → push len(entries) onto scopes
+  - `env_scope_exit()` → truncate entries to top-of-scopes mark, pop
+- env_with_primitives: install Int, String, Bool, List, Option.
+- **Format:** The handler uses `with state = ...` syntax just like
+  graph_handler. The scoping mechanism (push/pop mark) is elegant
+  Inka — no mutable pointers, just functional list truncation.
+
+*Exit:* env_handler + graph_handler together allow inference to run.
+`env_lookup("x")` after `env_extend("x", ...)` returns the scheme.
+Scoping works: enter → extend → exit → lookup returns None.
+
+---
+
+**Step 6: The Observer — `lower.jxj`** (Spec 05)
+
+*Depends on:* Step 2 (graph — reads via LookupTy), Step 4 (inference
+  populated the graph), Step 5 (env — reads via EnvRead).
+*Unlocks:* emit (consumes LowIR), the proof that inference produced
+  a complete graph.
+
+What to do:
+- Live-observer lowering. Every `lexpr_ty(e)` calls
+  `perform lookup_ty(e.handle)`. No cached types. No subst.
+- Handler elimination: classify_handler (TailResumptive / Linear /
+  MultiShot). Monomorphic calls → direct `call $h_op`. Polymorphic
+  → evidence-passing thunk.
+- No `_ => TUnit` fallback. No wildcard arms. Exhaustive.
+- **Format:** `lower_expr(node)` is a clean `match node.body { ... }`
+  dispatch. The monomorphic check at each CallExpr reads:
+  ```
+  if monomorphic_at(node.handle) { LCall(...) }
+  else { emit_evidence_thunk(...) }
+  ```
+  This is where the graph's power becomes visible — lowering is a
+  PURE READER of the inference substrate, proven read-only by its
+  effect row (`with SubstGraphRead` — no Write).
+
+*Exit:* `lower_program(ast)` produces LowIR. Every node has a handle
+that chases to NBound or NErrorHole. No NFree survives.
+
+---
+
+**Step 7: The Spine — `pipeline.jxj`** (Spec 04, 05, 06, 10)
+
+*Depends on:* Steps 1–6 (all components exist). This is assembly.
+*Unlocks:* the compiler runs end-to-end. Compilation is one
+  expression. `inka query` works.
+
+What to do:
+- `compile`, `check`, `query` as `|>` + `~>` topology:
+  ```
+  fn compile(source) =
+    source
+        |> lex
+        |> parse
+        |> infer_program
+        |> lower_program
+        |> emit_module
+        ~> mentl_default
+        ~> verify_ledger
+        ~> env_handler
+        ~> graph_handler
+        ~> diagnostics_handler
+  ```
+- `check` = same pipeline minus `lower_program |> emit_module`.
+- `query` = same pipeline minus lowering, plus `~> query_handler`.
+- Every `~>` line has a capability-stack comment explaining what
+  effects it handles and what passes through.
+- **Format:** THIS IS THE FILE. The `~>` chain is the visual proof
+  that Inka solves Inka. The handler stack IS the compiler's
+  architecture, visible on the page. Sequential `|>` flows down.
+  Block-scoped `~>` wraps the whole chain. The shape of this file
+  IS the shape of the compiler.
+
+*Exit:* `compile(source)` produces WAT. `check(source)` produces
+diagnostics. `query(source, question)` returns structured answers.
+One expression each.
+
+---
+
+**Step 8: The Emitter — `emit.jxj`** (Spec 05)
+
+*Depends on:* Step 6 (lower — produces LowIR), Step 2 (graph —
+  `ty_to_wasm` reads handles via LookupTy).
+*Unlocks:* actual WASM output. The compiler produces something
+  runnable.
+
+What to do:
+- Port from existing `std/backend/wasm_emit.jxj`.
+- `ty_to_wasm` reads `perform lookup_ty(h)` — live, not cached.
+- Emit WAT text format (not binary — keep debugging easy).
+- **Format:** WASM emission is inherently sequential — `|>` chains
+  of instruction emission. Each function → section → module builds
+  up via `|>`.
+
+*Exit:* `emit_module(low_ir)` produces valid WAT that passes
+`wasm-validate`.
+
+---
+
+**Step 9: The Runtime — `runtime/memory.jxj`** (Spec 06)
+
+*Depends on:* nothing architecturally, but produces the runtime
+  primitives that emitted WASM calls into.
+*Unlocks:* compiled programs actually run.
+
+What to do:
+- Bump allocator as a handler (Alloc effect).
+- String ops: length, concat, compare, slice — all via Memory effect.
+- List ops: cons, head, tail, length — all via Memory effect.
+- **No val_concat. No val_eq.** These are the exact functions that
+  caused v1's type drift. They do not exist.
+- **Format:** Memory operations are `perform load_i32`, `perform
+  store_i32` — clean effect-mediated access. The allocator handler
+  demonstrates `with state = ...` for bump pointer tracking.
+
+*Exit:* String and list operations work in compiled output.
+Bump allocator serves all allocation needs.
+
+---
+
+**Step 10: The Entry — `main.jxj`**
+
+*Depends on:* Steps 7–9 (pipeline, emit, runtime all exist).
+*Unlocks:* `inka.wasm` — the compiler is a runnable binary.
+
+What to do:
+- Read stdin (source code).
+- Call `compile(source)`.
+- Write WAT to stdout.
+- Install top-level handlers: stderr_diagnostics, real Memory.
+- **Format:** This file is ~30 lines. It is the simplest possible
+  Inka program:
+  ```
+  fn main() =
+    read_stdin()
+        |> compile
+        |> write_stdout
+        ~> stderr_diagnostics
+        ~> memory_handler
+  ```
+
+*Exit:* `wasmtime run inka.wasm < source.jxj > output.wat` works.
+
+---
+
+**Step 11: The Catalog — `docs/errors/*.md`**
+
+*Depends on:* Steps 1–10 (every error code used in source exists).
+*Unlocks:* Mentl's teach_error can load canonical explanations.
+
+What to do:
+- Walk every `perform report(...)` call in the codebase.
+- Verify each error code has a `docs/errors/<CODE>.md` entry.
+- Each entry: Summary, Why it matters, Canonical fix, Example.
+- **Format:** Markdown. Elm/Roc/Dafny catalog pattern.
+
+*Exit:* Every error code in source has a catalog entry. Zero orphans.
+
+---
+
+**Step 12: The Proof — Integration**
+
+*Depends on:* All of the above.
+*Unlocks:* Phase 2 (bootstrap translator has something to compile).
+
+What to do:
+- `inka query` on every file in `std/compiler/`.
+- Verify: zero duplicate ADTs, zero phantom references, zero dead
+  imports, every handler threads real state.
+- Run the exit gate tests:
+  ```
+  inka_compile bootstrap/tests/counter.jxj → valid WAT
+  inka_compile bootstrap/tests/pattern.jxj → valid WAT
+  Both WATs run correctly under wasmtime.
+  ```
+- Every file follows Anchor 6: pipe topology expressed, canonical
+  formatting applied, handler composition via `~>`.
+
+*Exit:* Phase 1 is complete. The VFINAL codebase compiles test
+programs to working WASM. Every file is in its most powerful form.
+The cascade is closed. Inka is ready to compile herself.
 
 ---
 
