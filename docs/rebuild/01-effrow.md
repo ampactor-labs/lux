@@ -1,10 +1,9 @@
 # 01 — EffRow: Boolean algebra over effect rows
 
-**Purpose.** Lift the current ternary EffRow (`EfPure | EfClosed | EfOpen`
-in `types.ka:30-33`) to a full Boolean algebra `+ - & !` with Pure as
-identity, so that the gradient's four compilation gates (Pure, !IO,
-!Alloc, !Network) and handler absorption (`body - handled`) fall out of
-one mechanism.
+**Purpose.** A full Boolean algebra over effect rows — `+ - & !` with
+`Pure` as identity — so that the gradient's four compilation gates
+(`Pure`, `!IO`, `!Alloc`, `!Network`) and handler absorption
+(`body - handled`) all fall out of one mechanism.
 
 **Research anchors.**
 - Tang & Lindley POPL 2025 / 2026 — Modal Effect Types, `⟨E₁|E₂⟩(E) =
@@ -16,7 +15,7 @@ one mechanism.
 
 ---
 
-## ADT (extends `types.ka:30-33`)
+## ADT
 
 ```lux
 type EffRow
@@ -131,23 +130,6 @@ Algebra applied at handler elimination:
 - Handler arms themselves perform an extra row (e.g., a Diagnostic
   arm performs `Diagnostic`).
 - Result row = normalize of `(E - F) + extra`.
-
----
-
-## What's preserved from `eff.ka`
-
-The file already implements the `EfPure | EfClosed | EfOpen` core and
-the 3×3 unification matrix. The rebuild keeps:
-- `merge_effects` logic — becomes the `+` operator's reduction.
-- `list_union / list_contains / list_subset / list_diff` (lines 30–
-  183) verbatim. These become methods on normalized row names.
-- `check_effect_constraints / apply_negations` (lines 194–275) — their
-  logic folds into `normalize(EfSub / EfNeg)`.
-
-The rebuild adds:
-- `EfNeg`, `EfSub`, `EfInter` ADT variants.
-- `normalize(row) -> row` function.
-- Unification writes to graph instead of to an `esubst` list.
 
 ---
 

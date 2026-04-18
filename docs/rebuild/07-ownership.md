@@ -1,18 +1,14 @@
 # 07 — Ownership: Consume as an effect, linearity via handler
 
-**Purpose.** Replace the current `own.ka` structural walk (191 lines)
-with an effect-based ownership model. `own` parameters perform
-`Consume` on use; a handler enforces affine linearity. `!Consume`
-proves read-only. `!Alloc` proves no allocation. All derived from the
-Boolean effect algebra (spec 01) — no separate ownership analysis.
-
-**Supersedes.** `own.ka`. Target: ~200 lines effect-based.
+**Purpose.** An effect-based ownership model. `own` parameters perform
+`Consume` on use; a handler (`affine_ledger`) enforces affine
+linearity. `!Consume` proves read-only. `!Alloc` proves no
+allocation. All derived from the Boolean effect algebra (spec 01) —
+no separate ownership analysis.
 
 **Research anchors.**
-- DESIGN.md + `docs/specs/ownership-design.md:29-35` — `own` affine /
-  `ref` scoped as annotation ladder.
-- Perceus / FBIP (PLDI'21, PLDI'24) — precise RC + in-place reuse;
-  Arc F.1 / F.4 groundwork.
+- DESIGN.md (`own` affine / `ref` scoped as annotation ladder).
+- Perceus / FBIP (PLDI'21, PLDI'24) — precise RC + in-place reuse.
 - Vale — immutable region borrowing via `!Mutate`.
 - Polonius 2026 alpha — location-sensitive reachability; pattern for
   ref-escape checking.
@@ -74,7 +70,7 @@ a teaching hint, not an error.
 ## `ref` as structural escape check
 
 `ref` parameters cannot appear in return position. Structural walk
-preserved from `own.ka:162-191`, adapted to Node/Span:
+over Node/Span:
 
 ```lux
 fn check_ref_escape(body, ref_params) =
@@ -177,28 +173,26 @@ and inspecting the resulting TFun's params.
 
 ---
 
-## What we keep from `own.ka`
+## Violation ADT
 
-- `filter_tier / check_unused_own / check_ref_escape / used_has /
-  used_union` (lines 89–156). These become helpers inside the
-  affine_ledger handler and the structural escape walk.
-- The violation ADT:
-  ```lux
-  type OwnershipViolation
-    = ConsumedTwice(String, Span, Span)
-    | RefEscaped(String, Span)
-    | OwnNeverConsumed(String)
-  ```
-  Updated to use Span instead of Int line numbers. Used as payload
-  for `Diagnostic.report` rather than a sidecar collection.
+```lux
+type OwnershipViolation
+  = ConsumedTwice(String, Span, Span)
+  | RefEscaped(String, Span)
+  | OwnNeverConsumed(String)
+```
 
-## What we drop
+Used as payload for `Diagnostic.report`. Not accumulated in a sidecar
+collection — violations flow through the `Diagnostic` effect directly.
 
-- The `walk_expr / walk_stmts / walk_match_arms` functions that
-  returned `(used, violations)` pairs. Used-tracking lives inside the
-  Consume handler state; violations flow through Diagnostic.
-- The standalone `check_ownership(params, body)` entry point. Consume
-  and escape checks run as part of inference's one walk (spec 04).
+## No separate ownership pass
+
+There is no standalone `check_ownership(params, body)` entry point.
+Consume tracking lives in the `affine_ledger` handler's state; escape
+checks run as part of inference's one walk (spec 04). Used-tracking,
+violation emission, and teaching-hint surfacing all compose through
+the effect system rather than a dedicated pass that returns
+`(used, violations)` pairs.
 
 ---
 

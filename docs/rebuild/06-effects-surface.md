@@ -24,7 +24,7 @@ Strings in Arc F.1; Phase 1 treat them as free Strings.
 
 ---
 
-## Preserved from v1 (with metadata added)
+## Compiler-internal effects
 
 ### Infer
 
@@ -37,13 +37,10 @@ effect Infer {
 }
 ```
 
-v1 `infer.ka` is deleted; its logic moves into the handler for this
-effect in `infer.ka`. Underneath, handlers perform SubstGraph ops.
+The `infer.ka` module hosts the handler for these ops; underneath,
+the handler performs SubstGraph ops.
 
-### Diagnostic (extended from `ty.ka:20-22`)
-
-v1 was `report(source, kind, msg, line, col) -> ()`. The rebuild
-extends to 6-arg with `code`, full `span`, and `applicability`:
+### Diagnostic
 
 ```lux
 effect Diagnostic {
@@ -69,7 +66,7 @@ full table and conventions). Every `report(...)` names a code whose
 file exists. Rule: new codes land in the catalog BEFORE their first
 call site.
 
-### ParseError (from `parser.ka:14-16`)
+### ParseError
 
 Op returns a `Node` (holding `NHole`) so parsing continues past the
 error — Hazel pattern per spec 03/04.
@@ -80,7 +77,7 @@ effect ParseError {
 }
 ```
 
-### LowerCtx (from `lower_ir.ka:15-21`)
+### LowerCtx
 
 ```lux
 effect LowerCtx {
@@ -91,7 +88,7 @@ effect LowerCtx {
 }
 ```
 
-### LowVisit (from `lower_ir.ka:27-31`)
+### LowVisit
 
 ```lux
 effect LowVisit {
@@ -101,7 +98,7 @@ effect LowVisit {
 }
 ```
 
-### Iterate (from `std/prelude.ka:10-13`)
+### Iterate
 
 ```lux
 effect Iterate {
@@ -110,9 +107,9 @@ effect Iterate {
 }
 ```
 
-Preserved verbatim; `result()` is the generator-terminator handshake.
+`result()` is the generator-terminator handshake.
 
-### Alloc (from `std/runtime/memory.ka:31-33`)
+### Alloc
 
 ```lux
 effect Alloc { alloc(size: Int) -> Int       @resume=OneShot }
@@ -120,7 +117,7 @@ effect Alloc { alloc(size: Int) -> Int       @resume=OneShot }
 
 Subsumed by `!Alloc` in spec 01.
 
-### Memory (from `std/runtime/memory.ka:21-29`)
+### Memory
 
 ```lux
 effect Memory {
@@ -136,7 +133,7 @@ effect Memory {
 
 WASM-primitive.
 
-### WasmOut (from `std/backend/wasm_collect.ka:36`)
+### WasmOut
 
 ```lux
 effect WasmOut { out(String) -> ()             @resume=OneShot }

@@ -1,17 +1,15 @@
 # 04 — Inference: HM + let-generalization, one walk
 
-**Purpose.** Replace the two-pass `check.ka + infer.ka`
-(`check.ka` 388 lines + `infer.ka` 626 lines = 1014) with a single
-walk that writes bindings directly into the SubstGraph (spec 00) as
-it encounters them. Classic Hindley-Milner with Damas-Milner let-
-generalization. Every expression contributes bindings or binds a
-handle; every FnStmt generalizes.
+**Purpose.** A single walk over the AST, classic Hindley-Milner with
+Damas-Milner let-generalization, that writes bindings directly into
+the SubstGraph (spec 00) as it encounters them. Every expression
+contributes bindings or binds a handle; every FnStmt generalizes.
+Types, effects, and ownership all fall out of this one walk.
 
 **Research anchors.**
-- Salsa 3.0 — the flat-array + epoch + overlay pattern inherited from
-  spec 00 (we don't ship full Salsa in Phase 1).
-- Polonius 2026 alpha — lazy constraint rewrite. Pattern for
-  refinement constraints we don't solve immediately.
+- Salsa 3.0 — flat-array + epoch + overlay pattern (from spec 00).
+- Polonius 2026 alpha — lazy constraint rewrite for refinement
+  constraints not solved immediately.
 - Abstracting Effect Systems ICFP 2024 — soundness template for
   inference against a Boolean effect algebra.
 - Hazel POPL 2024 — total type error localization; inference stays
@@ -28,13 +26,10 @@ fn generalize(fn_node) -> Scheme // quantifies free TVars at FnStmt
 ```
 
 One pass. No separate "check" vs "infer" phases. Outputs are a typed
-AST (handles populated in graph) and an updated Env; the subst NEVER
-escapes as a sidecar value.
-
-**Key difference from v1.** `check_program` in `check.ka` returns
-`(env, subst)` and downstream passes thread the pair. In the rebuild,
-downstream reads the SubstGraph directly through `graph_chase`. The
-tuple is gone.
+AST (handles populated in graph) and an updated Env. The subst does
+not escape as a sidecar value — downstream passes read the SubstGraph
+directly through `graph_chase`. There is no `(env, subst)` tuple
+threaded between passes.
 
 ---
 
@@ -55,14 +50,13 @@ through effects, not threaded as arguments. Inference declares
 lowering and query declare `with EnvRead + SubstGraphRead` only.
 Writer isolation is structural (one writer per kind).
 
-- `env_empty`, `env_with_source`, `env_with_primitives` — kept from
-  `ty.ka`, reshaped as the initial handler state the default
-  `env_default` handler installs at compile entry.
+- `env_empty`, `env_with_source`, `env_with_primitives` — initial
+  handler state the default `env_default` handler installs at compile
+  entry.
 - `env_extend(name, scheme, reason)` — performed via `EnvWrite`.
   Monomorphic bindings wrap as `Forall([], ty)`.
 - `env_lookup(name) -> Option((Scheme, Reason))` — performed via
-  `EnvRead`. Return shape changed from `(String, Scheme, Reason)`
-  with `"not_found"` sentinel to `Option`. Callers destructure
+  `EnvRead`. Callers destructure
   `match perform env_lookup(n) { None => ..., Some((sch, r)) => ... }`.
 - `env_scope_enter()` / `env_scope_exit()` — performed via `EnvWrite`.
   Block-scoped bindings added during inference are popped on exit.
@@ -189,9 +183,9 @@ every `VarRef`:
   the walk.
 - FnStmt exits check the ref-escape tracker against return positions.
 
-The structural walk in `own.ka:162-191` is preserved (escape check);
-the affine-linearity walk is replaced by letting the Consume effect
-handler track linearity (spec 07).
+The structural escape check runs in this walk (see spec 07); affine
+linearity is tracked by the `Consume` effect's handler
+(`affine_ledger`), not by a separate pass.
 
 ---
 
@@ -243,23 +237,8 @@ fn row_is_ground(row: EffRow) -> Bool = match row {
 In a self-hosted Inka compilation, >95% of call sites chase to a
 ground row; the remaining 5% route through evidence-passing. The
 `val_concat` class of bugs originated in v1 where this information
-wasn't derivable from the graph — the rebuild makes it a pure
-function of the handle.
-
----
-
-## What this replaces
-
-From `check.ka`:
-- `check_program`, `check_fn`, `check_expr` — fold into `infer_expr`
-  / `infer_stmt`.
-- Effect row constraint checks — move into unification.
-
-From `infer.ka`:
-- `infer_expr` top level — unified with check; walks are merged.
-- `subst` threading — gone, graph owns it.
-- `generalize` — reformulated against the graph.
-- `instantiate` — reformulated against `graph_fresh_ty`.
+wasn't derivable from the graph; here it is a pure function of the
+handle.
 
 ---
 
@@ -279,9 +258,9 @@ From `infer.ka`:
 - **Bidirectional type checking.** Inka's surface is HM-inferable;
   bidirectional adds annotation burden. Use HM + marked holes (spec
   03) for guidance where annotations help.
-- **Two passes: prescan + infer.** The v1 model. Prescan carries a
-  snapshot that goes stale. Single walk + live graph avoids the
-  snapshot problem.
+- **Two passes: prescan + infer.** Any prescan carries a snapshot
+  that goes stale. Single walk + live graph avoids the snapshot
+  problem by construction.
 - **Constraint-collecting then batch-solve.** Over-engineered for HM.
   The graph IS the constraint store.
 - **Separate effect inference pass.** Effects are in every TFun — you

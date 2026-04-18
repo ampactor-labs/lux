@@ -7,12 +7,11 @@ suggest, LSP hover, verification-obligation surface. Each is one of
 Mentl's tentacles; the shared substrate is the SubstGraph + Env
 (specs 00, 04) read through effects.
 
-**Scope.** This spec consolidates three currently-separate modules —
-`gradient.ka`, `suggest.ka`, `why.ka` — and the Teach effect (spec
-06) into one coherent subsystem: `std/compiler/mentl.ka`. Ships in
-Arc F.6 as the capstone on the rebuild's teaching surface. Structural
-prerequisites (Teach effect signatures, error-catalog wiring) land in
-Phase 1.
+**Scope.** This spec defines the module `std/compiler/mentl.ka` — the
+full teaching surface: gradient logic, Why Engine, suggest, error
+catalog, LSP hover, verification-obligation rendering — plus the
+`Teach` effect (spec 06) it exposes. One module, five ops, eight
+tentacles.
 
 **Research anchors.**
 - Elm / Roc / Dafny error catalogs — stable codes, canonical
@@ -244,22 +243,10 @@ std/compiler/mentl.ka          — the consolidated teaching module
   └── fn render_patch            — Patch → developer-facing diff
 ```
 
-Replaces the currently separate `gradient.ka`, `suggest.ka`,
-`why.ka` by merging them (or, if sizes dictate, coordinating them
-under one entry). The name `mentl.ka` makes the subsystem
-discoverable in the code tree. The mascot earns its keep linguistically.
-
----
-
-## What this consolidates
-
-| Existing | Folded into |
-|---|---|
-| `std/compiler/gradient.ka` | `mentl.ka` → `gradient_next` |
-| `std/compiler/suggest.ka` | `mentl.ka` → suggest handler |
-| `std/compiler/why.ka` | `mentl.ka` → `why_default` |
-| ad-hoc error strings | `docs/errors/*.md` + `load_catalog` |
-| `teach_here` (sole op) | `Teach` effect's five-op surface |
+The single module `mentl.ka` hosts the full teaching substrate —
+gradient logic, Why Engine, suggest surface, error-catalog loading.
+One discoverable name for the subsystem. The mascot earns its keep
+linguistically.
 
 ---
 

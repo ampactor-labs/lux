@@ -5,9 +5,6 @@ by reading types LIVE from the SubstGraph (spec 00). No cached types
 in LowExpr nodes. No per-module subst snapshot. An unresolved handle
 at lower time is a build failure, not a fallback.
 
-**Supersedes.** `lower.ka` (1108 lines), `lower_ir.ka` (207 lines).
-Target combined: ~900 lines.
-
 **Research anchor.** Koka generalized evidence passing (JFP 2022) +
 Koka C backend (2024). When the graph proves a call's handler stack
 is monomorphic, emit `call $h_foo` directly. Kills `val_concat` drift
@@ -65,11 +62,11 @@ type-check at handler install — no runtime policy needed.
 
 ---
 
-## LowIR (from `lower_ir.ka:52-118`)
+## LowIR
 
-Retained verbatim structurally. The ONE change: the Ty field on each
-LowExpr variant is removed; LowExpr carries the node's `TypeHandle`
-(Int). Reads go through `lookup_ty(h)`.
+A WASM-shaped IR. Every LowExpr variant carries the source node's
+`TypeHandle` (Int), never a cached `Ty`. Type reads go through
+`lookup_ty(h)`.
 
 ```lux
 type LowExpr
@@ -112,19 +109,19 @@ fn lexpr_ty(e) = match e {
 }
 ```
 
-The `_ => TUnit` fallback from v1 (`lower_ir.ka:117`) is DELETED. No
-wildcard arm. If a new variant is added, `lexpr_ty` must get a
-matching arm — type-checker exhaustiveness enforces this (no
-preflight rule needed).
+No `_ => TUnit` wildcard fallback. If a new variant is added,
+`lexpr_ty` must get a matching arm — type-checker exhaustiveness
+enforces this by construction.
 
 ---
 
 ## Handler elimination
 
-Classification via `classify_handler` from `lower_ir.ka:147-207` —
-TailResumptive, Linear, MultiShot. The logic is retained unchanged.
+`classify_handler` classifies every handler body as TailResumptive,
+Linear, or MultiShot based on its `resume` pattern. The classification
+drives compilation strategy.
 
-**New behavior.** When a perform's handler context is provably
+**Monomorphic dispatch.** When a perform's handler context is provably
 monomorphic (the effect's handler chain is ground), lowering emits a
 direct call to the handler body rather than indirect dispatch.
 
@@ -135,28 +132,27 @@ Graph check at each perform site:
 - If `EfOpen` (row variable unbound) → emit evidence-passing thunk.
 
 In a self-hosted Inka compilation, >95% of call sites prove
-monomorphic. The remaining 5% take the evidence-passing path; they
-no longer fall through to a runtime type-test dispatcher.
-`val_concat` is unreachable in emitted code.
+monomorphic. The remaining 5% take the evidence-passing path through
+a runtime-known vtable pointer. There is no runtime type-test
+dispatcher; `val_concat` is unreachable in emitted code.
 
 **HandlerTier derives from TCont.discipline.** `HandlerTier`
-(TailResumptive / Linear / MultiShot, preserved from
-`lower_ir.ka:142-145`) is lowering's compilation-strategy
-classification. `TCont.discipline` (spec 02) is the type-level
-contract: the continuation permits this many resumes. The two never
-conflict — a TailResumptive body on a MultiShot continuation is safe
-(resumes once, permitted). The inverse (MultiShot body on a OneShot
-continuation) is a type error caught at handler install.
-`classify_handler` reads `TCont.discipline` as its ground truth and
-specializes downward; `TailResumptive` is a refinement, never a
-widening.
+(TailResumptive / Linear / MultiShot) is lowering's
+compilation-strategy classification. `TCont.discipline` (spec 02) is
+the type-level contract: the continuation permits this many resumes.
+The two never conflict — a TailResumptive body on a MultiShot
+continuation is safe (resumes once, permitted). The inverse
+(MultiShot body on a OneShot continuation) is a type error caught at
+handler install. `classify_handler` reads `TCont.discipline` as its
+ground truth and specializes downward; `TailResumptive` is a
+refinement, never a widening.
 
 ---
 
 ## No subst threading
 
-v1 lowering threaded `(subst, lowered_ast, accum)` through every
-recursive call. DELETED. The lowering walk is clean over typed AST:
+The lowering walk is clean over the typed AST — no `(subst,
+lowered_ast, accum)` tuple threaded through recursive calls:
 
 ```lux
 fn lower_expr(node) -> LowExpr = {
@@ -184,8 +180,8 @@ fn lower_expr(node) -> LowExpr = {
 ```
 
 The only "context" lowering needs — local slot assignments, closure
-upvalue indices — comes from `LowerCtx` (`lower_ir.ka:15-21`), which
-is preserved unchanged. No graph writes, no rebinds, no snapshots.
+upvalue indices — comes from the `LowerCtx` effect (spec 06). No
+graph writes, no rebinds, no snapshots.
 
 ---
 
@@ -209,40 +205,35 @@ is preserved unchanged. No graph writes, no rebinds, no snapshots.
 
 ## Emitter handoff
 
-The emitter (`std/backend/wasm_emit.ka`, preserved) reads LowExpr
-handles the same way:
+The emitter (`std/backend/wasm_emit.ka`) reads LowExpr handles the
+same way:
 
 ```lux
 let wasm_ty = ty_to_wasm(perform lookup_ty(expr.handle))
 ```
 
-`ty_to_wasm` (`lower_ir.ka:121`) stays. It now reads live through
-the handler chain, so a stale subst cannot produce the wrong wasm
-type — because there's no subst to be stale.
+`ty_to_wasm` reads live through the handler chain, so a stale subst
+cannot produce the wrong wasm type — there is no subst to be stale.
 
 ---
 
-## What's deleted
+## What does not exist
 
-- Per-module `subst` threading in `pipeline.ka`'s lowering-facing
-  tuple — gone, graph is handler-scoped.
-- The `_ => TUnit` fallback in `lexpr_ty`.
-- Polymorphic-dispatch match-arm fallback idioms (see feedback
-  memory: "Silent polymorphic dispatch fallback"). No `match _`
+By design, the following are unrepresentable:
+
+- Per-module `subst` threading — the graph is handler-scoped.
+- `_ => TUnit` fallback in `lexpr_ty` — every variant must have an
+  arm; exhaustiveness is enforced.
+- Polymorphic-dispatch match-arm fallback idioms — no `match _`
   without every variant enumerated.
-- The `val_concat` runtime function (`std/runtime/memory.ka`). Phase
-  D's delete list.
-- The `val_eq` runtime function. Same fate.
+- Runtime `val_concat` / `val_eq` type-test dispatchers — dispatch is
+  resolved at compile time via monomorphic proof or evidence passing.
 
 ---
 
 ## Consumed by
 
-- `std/backend/wasm_emit.ka` (preserved) — reads LowExpr, emits WAT.
-- `std/compiler/lower_print.ka` (preserved) — pretty printer.
-- `std/compiler/lowir_walk.ka` (preserved with minor handle-type
-  adapt).
-- `std/compiler/lower_closure.ka` (preserved) — closure conversion.
+- `std/backend/wasm_emit.ka` — reads LowExpr, emits WAT.
 - `07-ownership.md` — ownership escape check operates on typed AST
   (clearer than on LowIR) but reads ownership via TFun's TParam list,
   resolved through `lookup_ty`.

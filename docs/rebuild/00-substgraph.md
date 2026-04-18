@@ -1,10 +1,8 @@
 # 00 — SubstGraph: one live graph, all variables
 
-**Purpose.** Replace the two independent association lists (`s` for type
-substitutions in `ty.ka:226-294`, `es` for effect-row substitutions in
-`eff.ka:57-92`) with a single graph that holds every unknown the
-program produces and exposes a live, O(1) chase interface to all
-downstream observers.
+**Purpose.** A single graph that holds every type and effect-row
+variable the program produces and exposes a live, O(1) chase interface
+to every downstream observer. One substrate, many readers.
 
 **Research anchor.** Salsa 3.0 — flat-array storage with epoch +
 persistent overlay. Astral `ty` Python checker (SYNTHESIS_CROSSWALK.md
@@ -177,9 +175,9 @@ handler install (see the effect split above).
 - **Separate typegraph and rowgraph.** Doubles the fork/overlay
   machinery. One structure for all variables makes cross-kind
   constraints (an effect row containing a TVar) trivial.
-- **Linked-list subst chains.** The v1 model. O(depth) per chase.
-  Abandoned — depth-2 chains already showed up as perf drift at
-  2026-04-15 Arc 2 close.
+- **Linked-list subst chains.** O(depth) per chase. Rejected: even
+  shallow chains accumulate into measurable perf drift, and the
+  flat-array model makes the chase amortized O(1).
 - **Immutable graph + persistent functional updates.** Effect handlers
   already give us scoped state; rebuilding the graph per bind would
   cost more than the mutation.

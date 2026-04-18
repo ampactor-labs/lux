@@ -7,10 +7,6 @@ divergence, parallel composition, side-channel observation, and
 feedback. Effects + handlers + the Boolean row algebra make the
 *semantics* universal; the five verbs make the *shapes* visible.
 
-**Supersedes.** Ad-hoc pipe handling in `parser.ka` / `check.ka`.
-v1 parses `|>` / `<|` but without specified effect / ownership / time
-semantics.
-
 **Research anchors.** DSP signal-flow graphs (Widrow, Oppenheim);
 TensorFlow / PyTorch computation graphs; Koka pipe `x.f.g`; control-
 theoretic block diagrams (feedback edges, informing `<~`); reactive

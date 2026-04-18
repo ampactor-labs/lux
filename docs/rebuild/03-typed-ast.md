@@ -6,10 +6,6 @@ the SubstGraph from spec 00) and a full `Span`, not a point. Type
 resolution is always a live chase via `LookupTy` — never a cached Ty
 field.
 
-**Supersedes.** `parser.ka` currently produces `S(expr, line, col)`
-wrappers (see `parser.ka:21-56` for Expr/Stmt/Pat). The rebuild
-replaces `S` with `N(body, span, handle)`.
-
 **Research anchors.**
 - Hazel POPL 2024 — Total Type Error Localization: ill-typed
   expressions become marked holes; downstream services keep working.
@@ -41,7 +37,7 @@ an N without a handle.
 
 ---
 
-## Expr (updated from `parser.ka:21`)
+## Expr
 
 ```lux
 type Expr
@@ -74,7 +70,7 @@ type PipeKind = PForward | PDiverge | PCompose | PTee | PFeedback
 
 ---
 
-## Stmt (updated from `parser.ka:56`)
+## Stmt
 
 ```lux
 type Stmt
@@ -95,7 +91,7 @@ type Stmt
 
 ---
 
-## Pat (updated from `parser.ka:49`)
+## Pat
 
 ```lux
 type Pat
@@ -164,27 +160,25 @@ errors are not.
 
 ---
 
-## What the current parser already gives us
+## Parser contract
 
-- Recursive descent / Pratt parsing — preserved verbatim.
-- The three top-level ADTs (Expr, Stmt, Pat) — preserved with minor
-  variant additions (PipeExpr already there; Placeholder is new;
-  RefineStmt is new).
-- Error recovery — preserved.
+The parser is recursive descent with Pratt expression parsing. It
+produces three top-level ADTs (Expr, Stmt, Pat) wrapped in `N(body,
+span, handle)`. Every construction point performs
+`perform graph_fresh_ty(Placeholder(span))` to mint a handle at parse
+time; never a null handle field; never a sentinel zero. Error
+recovery is the Hazel pattern — emit a Diagnostic, plant an `NHole`,
+continue parsing.
 
-Changes the rebuild makes in parser.ka:
-- `S(expr, line, col)` → `N(body, span, handle)`.
-- Every construction point calls `perform graph_fresh_ty(...)` to
-  mint a handle at parse time.
-- `?` tokens produce `NHole(next_id)`.
-- `type X = T where P` tokens produce `RefineStmt`.
+Surface forms:
+- `?` tokens → `NHole(next_id)`.
+- `type X = T where P` → `RefineStmt(X, T, P)`.
 
 ---
 
-## Lexer / Parser deltas
+## Lexer / Parser details
 
-These changes land in the lexer and parser. Spec 03
-owns the contract.
+Spec 03 owns the AST contract; the lexer and parser implement it.
 
 **Lexer:**
 - Every token carries `Span(sl, sc, el, ec)` — the end position is
@@ -230,14 +224,13 @@ content.
 
 ## Rejected alternatives
 
-- **Immediate Ty caching on nodes.** See above; graph is live, cache
-  is stale. The entire `val_concat` drift is attributable to caches
-  going stale under substitution.
+- **Immediate Ty caching on nodes.** Graph is live; a cached Ty is
+  stale the moment inference binds a handle transitively reachable
+  from it. Live chase is the only discipline that stays correct.
 - **ANF / CPS at parse.** Premature. Structural AST stays structural;
   spec 05 does the CPS transform for handler elimination.
-- **Projectional editor tokens.** Darklang retreated 2024. Text is
-  canonical; structure is what the parser extracts.
-- **Shared NodeBody across Expr/Stmt/Pat via a single generic wrapper.**
-  Tried in the v1 code (`S` is generic). The rebuild preserves
-  separate ADTs under a single wrapper, which reads better in pattern
-  matches without sacrificing the uniform span/handle discipline.
+- **Projectional editor tokens.** Text is canonical; structure is
+  what the parser extracts.
+- **Fully generic NodeBody across Expr/Stmt/Pat.** Separate ADTs
+  under a single wrapper read better in pattern matches without
+  sacrificing the uniform span/handle discipline.

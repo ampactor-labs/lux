@@ -5,11 +5,6 @@ lex + parse + infer on a single file and answers forensic questions
 against the resulting SubstGraph. Sub-second per query. Substrate for
 Arc F.2 LSP (every LSP method = a Query variant).
 
-**Supersedes.** `std/repl.ka` (blocked on `load_chunk`, rebuilt
-query-first in Phase F.3 when execution returns). Extends
-`docs/specs/repl-query-mode.md` into the Query effect and Ty-aware
-executor.
-
 **Research anchors.**
 - ChatLSP OOPSLA 2024 — typed context for LLM completion. The same
   context Query produces for forensic answers serves LLM editors.
@@ -246,10 +241,11 @@ via spec 00).
 
 ## Rejected alternatives
 
-- **Interactive REPL.** `std/repl.ka` pattern depends on execution
-  (`load_chunk`). Query is strictly observation; execution is F.3.
-- **Cross-file global query.** Module-local first; global later.
-  Keeps the MVP shippable in Phase 1 per commitment #2.
+- **Interactive REPL.** A REPL depends on execution; Query is
+  strictly observation. Execution is the REPL arc's concern (spec
+  F.3), not this spec.
+- **Cross-file global query.** Module-local queries first; global
+  cross-module queries later. Keeps the substrate minimal.
 - **Parsed-once Query object threaded through the pipeline.** Over-
   engineered. Parse on demand; handlers cache if they care.
 - **Query writes constraints and observes resolution.** Tempting for
