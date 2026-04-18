@@ -33,7 +33,7 @@ import compiler/types
 import compiler/effects
 import compiler/infer
 import compiler/lower
-import compiler/emit
+import compiler/backends/wasm
 import compiler/lexer
 import compiler/parser
 import compiler/own
@@ -55,6 +55,7 @@ fn compile(source) =
     ~> mentl_default
     ~> affine_ledger
     ~> verify_ledger
+    ~> lower_scope
     ~> lookup_ty_graph
     ~> env_handler
     ~> graph_handler

@@ -18,7 +18,7 @@
 // `memory_bump` for `memory_arena` to get per-request GC.
 
 import compiler/pipeline
-import compiler/emit
+import compiler/backends/wasm
 import compiler/clock
 
 // ═══ Entry — dispatch on mode ══════════════════════════════════════

@@ -1,0 +1,34 @@
+// tuples.ka — Tuple primitives for the Inka runtime
+//
+// Layout: [field0:i32][field1:i32]...[fieldN-1:i32]
+// Exactly 4 bytes per slot. No length prefix — arity is static per type
+// and is known at compile time. The emitter passes arity as a literal.
+//
+// Tuples are structurally distinct from lists:
+//   - No tag word. No length header. No tree variants.
+//   - Arity fixed at construction. Random access is a single i32.load.
+//   - make_tuple / tuple_set / tuple_get are the complete surface.
+//
+// Effects declared in std/compiler/types.ka — not re-declared here.
+
+import compiler/types
+
+// ═══ Construction ══════════════════════════════════════════════════
+
+// make_tuple: allocate `arity` 4-byte slots (uninitialized).
+// Callers fill slots immediately via tuple_set before the tuple escapes.
+fn make_tuple(arity) with Memory + Alloc =
+  perform alloc(arity * 4)
+
+// ═══ Access ════════════════════════════════════════════════════════
+
+// tuple_set: store val into slot idx (0-indexed). Returns the tuple
+// pointer so calls can be chained:
+//   make_tuple(2) |> tuple_set(0, a) |> tuple_set(1, b)
+fn tuple_set(t, idx, val) with Memory =
+  perform store_i32(t + idx * 4, val)
+  t
+
+// tuple_get: load the value at slot idx.
+fn tuple_get(t, idx) with Memory =
+  perform load_i32(t + idx * 4)

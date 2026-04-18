@@ -1,0 +1,86 @@
+// io.ka — I/O primitives for the Inka runtime
+//
+// All I/O routes through the WASI effect (declared in types.ka).
+// No print-via-syscall magic. No fd_write call sites scattered
+// across the compiler. All of it lives here, behind named functions.
+//
+// WASI iov layout (at a scratch address decided at compile time):
+//   scratch + 0: ptr  (i32) — pointer to the string payload
+//   scratch + 4: len  (i32) — byte count
+//   scratch + 8: nwritten (i32) — receives bytes-written count
+//
+// We use scratch addresses in the low stack area:
+//   0x50 (80): iov record (8 bytes)
+//   0x58 (88): nwritten result (4 bytes)
+//   0x60 (96): small scratch buffer for print_int
+//
+// These are below the 1 MB heap start and never conflict with Inka
+// heap allocations or the bump allocator. The compiler reserves the
+// first 1 MB page for exactly this purpose.
+//
+// Effects declared in std/compiler/types.ka — not re-declared here.
+
+import compiler/types
+import runtime/strings
+
+// ═══ Stdout ════════════════════════════════════════════════════════
+
+// print_string: write a flat Inka string to stdout (fd=1).
+// Layout: the string pointer carries [len:i32][bytes...].
+// We fill the iov record in scratch memory then call fd_write.
+fn print_string(s) with Memory + WASI =
+  let slen = perform load_i32(s)
+  perform store_i32(80, s + 4)
+  perform store_i32(84, slen)
+  perform fd_write(1, 80, 1, 88)
+  ()
+
+// print_int: convert n to a decimal string and write to stdout.
+fn print_int(n) with Memory + Alloc + WASI =
+  let s = int_to_str(n)
+  print_string(s)
+
+// print_newline: write a single newline character (0x0A) to stdout.
+// Uses a one-byte iov at scratch address 96.
+fn print_newline() with Memory + WASI =
+  perform store_i8(96, 10)
+  perform store_i32(80, 96)
+  perform store_i32(84, 1)
+  perform fd_write(1, 80, 1, 88)
+  ()
+
+// ═══ Stderr ════════════════════════════════════════════════════════
+
+// eprint_string: write a flat Inka string to stderr (fd=2).
+fn eprint_string(s) with Memory + WASI =
+  let slen = perform load_i32(s)
+  perform store_i32(80, s + 4)
+  perform store_i32(84, slen)
+  perform fd_write(2, 80, 1, 88)
+  ()
+
+// ═══ Stdin ════════════════════════════════════════════════════════
+
+// read_stdin: slurp all of stdin into a heap-allocated flat string.
+// Reads in 4 KB chunks using a temporary 64 KB buffer (one alloc).
+// Returns a flat Inka string [len:i32][bytes...].
+fn read_stdin() with Memory + Alloc + WASI =
+  let buf = perform alloc(65536)
+  let total = read_stdin_loop(buf, 0)
+  let str = perform alloc(4 + total)
+  perform store_i32(str, total)
+  perform mem_copy(str + 4, buf, total)
+  str
+
+fn read_stdin_loop(buf, offset) with Memory + Alloc + WASI =
+  let nread = read_chunk(buf + offset, 4096)
+  if nread == 0 { offset }
+  else { read_stdin_loop(buf, offset + nread) }
+
+// read_chunk: fill iov at scratch and call fd_read(0 = stdin).
+// Returns the number of bytes actually read (0 = EOF).
+fn read_chunk(buf, size) with Memory + WASI =
+  perform store_i32(80, buf)
+  perform store_i32(84, size)
+  perform fd_read(0, 80, 1, 88)
+  perform load_i32(88)

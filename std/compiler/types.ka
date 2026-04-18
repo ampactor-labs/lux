@@ -136,6 +136,7 @@ type Reason
   | BinOpPlaceholder(String)
   | MissingVar(String)
   | Refinement(Predicate, Predicate)
+  | Located(Span, Reason)      // spec I13 — site-annotated reasoning edge
 
 // ═══ Span (spec 03) — non-negotiable full 4-tuple ══════════════════
 
@@ -338,6 +339,27 @@ effect LookupTy {
 
 effect FreshHandle {
   mint(Reason) -> Int                              @resume=OneShot
+}
+
+// ═══ LowerScope (spec 05 · W7) — lexical frames at lower time ══════
+// Tracks the stack of (locals, captures) frames so VarRef can resolve
+// to LLocal / LUpval / LGlobal at lower time. LambdaExpr computes its
+// captures via collect_free_vars + ls_resolve in the OUTER frame,
+// then ls_enter_frame with (params, captures). Body lowering
+// dispatches every VarRef through ls_resolve. Closure heap records
+// materialize from the captures_exprs list in LMakeClosure.
+
+type Resolution
+  = RLocal          // name is a local of the current frame — emit references $<name>
+  | RUpval(Int)     // name is captured at slot; emit offset-loads from __closure
+  | RGlobal         // top-level name — emit references $<name> as a global
+
+effect LowerScope {
+  ls_enter_frame(List, List) -> ()              @resume=OneShot  // locals, captures (name lists)
+  ls_exit_frame() -> ()                         @resume=OneShot
+  ls_bind_local(String) -> Int                  @resume=OneShot  // append; returns slot
+  ls_resolve(String) -> Resolution              @resume=OneShot
+  ls_register_globals(List) -> ()               @resume=OneShot
 }
 
 // ═══ Verify (spec 02 · 06) — ledger in Phase 1, SMT in Arc F.1 ═════
@@ -617,7 +639,12 @@ fn show_reason(reason) with SubstGraphRead =
       "refinement: "
         |> str_concat(show_predicate(p))
         |> str_concat(" ∧ ")
-        |> str_concat(show_predicate(q))
+        |> str_concat(show_predicate(q)),
+    Located(span, inner) =>
+      "at "
+        |> str_concat(show_span(span))
+        |> str_concat(": ")
+        |> str_concat(show_reason(inner))
   }
 
 fn show_span(span) =

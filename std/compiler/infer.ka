@@ -35,7 +35,7 @@ import compiler/types
 // handle via graph_bind_row. One write; no conflict.
 
 effect InferCtx {
-  inf_enter_fn(Int) -> ()                 @resume=OneShot
+  inf_enter_fn(Int, Span) -> ()           @resume=OneShot
   inf_exit_fn() -> ()                     @resume=OneShot
   inf_add_effect(String) -> ()            @resume=OneShot
   inf_add_row(EffRow) -> ()               @resume=OneShot
@@ -48,16 +48,17 @@ handler infer_ctx with stack = [], declared = [] {
   // stack = [(row_handle, accumulated_row), ...]
   // declared = [(name, negated)] — the current FnStmt's annotation
 
-  inf_enter_fn(h) => {
+  inf_enter_fn(h, fn_span) => {
     resume(())
-      with stack = [(h, EfPure)] ++ stack
+      with stack = [(h, EfPure, fn_span)] ++ stack
   },
 
   inf_exit_fn() => {
     if len(stack) == 0 { resume(()) }
     else {
-      let (row_h, final_row) = list_head(stack)
-      perform graph_bind_row(row_h, final_row, Inferred("fn effect row"))
+      let (row_h, final_row, fn_span) = list_head(stack)
+      perform graph_bind_row(row_h, final_row,
+        Located(fn_span, Inferred("fn effect row")))
       resume(())
         with stack = list_tail(stack)
     }
@@ -66,27 +67,27 @@ handler infer_ctx with stack = [], declared = [] {
   inf_add_effect(name) => {
     if len(stack) == 0 { resume(()) }
     else {
-      let (row_h, current) = list_head(stack)
+      let (row_h, current, fn_span) = list_head(stack)
       let extended = union_row(current, EfClosed([name]))
       resume(())
-        with stack = [(row_h, extended)] ++ list_tail(stack)
+        with stack = [(row_h, extended, fn_span)] ++ list_tail(stack)
     }
   },
 
   inf_add_row(row) => {
     if len(stack) == 0 { resume(()) }
     else {
-      let (row_h, current) = list_head(stack)
+      let (row_h, current, fn_span) = list_head(stack)
       let extended = union_row(current, row)
       resume(())
-        with stack = [(row_h, extended)] ++ list_tail(stack)
+        with stack = [(row_h, extended, fn_span)] ++ list_tail(stack)
     }
   },
 
   inf_current_row() => {
     if len(stack) == 0 { resume(EfPure) }
     else {
-      let (_, current) = list_head(stack)
+      let (_, current, _) = list_head(stack)
       resume(current)
     }
   },
@@ -123,7 +124,7 @@ fn infer_stmt(node) =
     NStmt(LetStmt(pat, expr)) => {
       infer_expr(expr)
       let N(_, _, eh) = expr
-      infer_pat(pat, eh)
+      infer_pat(pat, eh, span)
     },
 
     NStmt(FnStmt(name, params, ret_ann, effs, body_node)) => {
@@ -174,16 +175,16 @@ fn infer_fn(name, params, body_node, handle, span) = {
 
   // Bind the name BEFORE body so recursive calls resolve.
   perform env_extend(name, Forall([], fn_ty), Declared(name))
-  perform graph_bind(handle, fn_ty, Declared(name))
+  perform graph_bind(handle, fn_ty, Located(span, Declared(name)))
 
   // Enter the row-accumulation scope and infer body.
-  perform inf_enter_fn(row_handle)
+  perform inf_enter_fn(row_handle, span)
   infer_expr(body_node)
   perform inf_exit_fn()
 
   // Unify body's type with the declared return.
   let N(_, _, body_handle) = body_node
-  unify(body_handle, ret_handle, FnReturn(name, Inferred("body")))
+  unify(body_handle, ret_handle, span, FnReturn(name, Inferred("body")))
 
   // ─── Declared effects enforcement (gap 1 + 2) ──────────────────
   // If the FnStmt carries a declared effect row, verify the inferred
@@ -200,7 +201,7 @@ fn infer_fn(name, params, body_node, handle, span) = {
       GNode(NRowBound(body_row), _) => {
         if row_subsumes(body_row, declared_row) {
           perform graph_bind_row(row_handle, declared_row,
-            Declared(name))
+            Located(span, Declared(name)))
         } else {
           perform report("", "E_EffectMismatch", "error",
             "function '"
@@ -248,11 +249,11 @@ fn build_declared_from(effs, acc) =
 fn infer_expr(node) =
   let N(body, span, handle) = node
   match body {
-    NExpr(LitInt(_))    => perform graph_bind(handle, TInt,    Inferred("int literal")),
-    NExpr(LitFloat(_))  => perform graph_bind(handle, TFloat,  Inferred("float literal")),
-    NExpr(LitString(_)) => perform graph_bind(handle, TString, Inferred("string literal")),
-    NExpr(LitBool(_))   => perform graph_bind(handle, TBool,   Inferred("bool literal")),
-    NExpr(LitUnit)      => perform graph_bind(handle, TUnit,   Inferred("unit")),
+    NExpr(LitInt(_))    => perform graph_bind(handle, TInt,    Located(span, Inferred("int literal"))),
+    NExpr(LitFloat(_))  => perform graph_bind(handle, TFloat,  Located(span, Inferred("float literal"))),
+    NExpr(LitString(_)) => perform graph_bind(handle, TString, Located(span, Inferred("string literal"))),
+    NExpr(LitBool(_))   => perform graph_bind(handle, TBool,   Located(span, Inferred("bool literal"))),
+    NExpr(LitUnit)      => perform graph_bind(handle, TUnit,   Located(span, Inferred("unit"))),
 
     NExpr(VarRef(name)) => infer_var_ref(name, handle, span),
 
@@ -273,7 +274,7 @@ fn infer_expr(node) =
     NExpr(CallExpr(func, args)) => {
       infer_expr(func)
       infer_expr_list(args)
-      infer_call(func, args, handle)
+      infer_call(func, args, handle, span)
     },
 
     NExpr(IfExpr(cond, then_e, else_e)) => {
@@ -283,9 +284,9 @@ fn infer_expr(node) =
       let N(_, _, ch) = cond
       let N(_, _, th) = then_e
       let N(_, _, eh) = else_e
-      perform graph_bind(ch, TBool, Inferred("if condition"))
-      unify(th, eh, IfBranch(Inferred("branches must match")))
-      perform graph_bind(handle, TVar(th), IfBranch(Inferred("if result")))
+      perform graph_bind(ch, TBool, Located(span, Inferred("if condition")))
+      unify(th, eh, span, IfBranch(Inferred("branches must match")))
+      perform graph_bind(handle, TVar(th), Located(span, IfBranch(Inferred("if result"))))
     },
 
     NExpr(BlockExpr(stmts, final_expr)) => {
@@ -293,7 +294,7 @@ fn infer_expr(node) =
       infer_stmt_list(stmts)
       infer_expr(final_expr)
       let N(_, _, fh) = final_expr
-      perform graph_bind(handle, TVar(fh), Inferred("block result"))
+      perform graph_bind(handle, TVar(fh), Located(span, Inferred("block result")))
       perform env_scope_exit()
     },
 
@@ -307,18 +308,18 @@ fn infer_expr(node) =
       infer_expr_list(elems)
       if len(elems) == 0 {
         let elem_h = perform mint(Inferred("empty list element"))
-        perform graph_bind(handle, TList(TVar(elem_h)), Inferred("empty list"))
+        perform graph_bind(handle, TList(TVar(elem_h)), Located(span, Inferred("empty list")))
       } else {
         let first = list_head(elems)
         let N(_, _, fh) = first
-        unify_list_elems(list_tail(elems), fh)
-        perform graph_bind(handle, TList(TVar(fh)), Inferred("list literal"))
+        unify_list_elems(list_tail(elems), fh, span)
+        perform graph_bind(handle, TList(TVar(fh)), Located(span, Inferred("list literal")))
       }
     },
 
     NExpr(MakeTupleExpr(elems)) => {
       infer_expr_list(elems)
-      perform graph_bind(handle, TTuple(collect_tvar_types(elems)), Inferred("tuple literal"))
+      perform graph_bind(handle, TTuple(collect_tvar_types(elems)), Located(span, Inferred("tuple literal")))
     },
 
     NExpr(PerformExpr(op_name, args)) => {
@@ -335,7 +336,7 @@ fn infer_expr(node) =
       // outer fn's row tracker. The handler IS the subtraction gate.
 
       let body_row_h = perform graph_fresh_row(Inferred("handle body row"))
-      perform inf_enter_fn(body_row_h)
+      perform inf_enter_fn(body_row_h, span)
       infer_expr(body_node)
       perform inf_exit_fn()
 
@@ -343,8 +344,8 @@ fn infer_expr(node) =
 
       // Arms inference in their own nested row scope
       let arm_row_h = perform graph_fresh_row(Inferred("handle arms row"))
-      perform inf_enter_fn(arm_row_h)
-      infer_handler_arms(arms, bh)
+      perform inf_enter_fn(arm_row_h, span)
+      infer_handler_arms(arms, bh, span)
       perform inf_exit_fn()
 
       let handled_names = collect_handled_effects(arms)
@@ -355,13 +356,13 @@ fn infer_expr(node) =
       perform inf_add_row(result_row)
 
       // Handle expression's TYPE is the body's type.
-      perform graph_bind(handle, TVar(bh), Inferred("handle result"))
+      perform graph_bind(handle, TVar(bh), Located(span, Inferred("handle result")))
     },
 
     NExpr(ResumeExpr(val, state_updates)) => {
       infer_expr(val)
       let N(_, _, vh) = val
-      perform graph_bind(handle, TUnit, Inferred("resume"))
+      perform graph_bind(handle, TUnit, Located(span, Inferred("resume")))
     },
 
     NExpr(FieldExpr(rec, field)) => {
@@ -371,16 +372,16 @@ fn infer_expr(node) =
       let row_h = perform graph_fresh_row(Inferred("record row"))
       let expected = TRecordOpen([(field, TVar(field_h))], row_h)
       let expected_h = perform mint(Inferred("record access"))
-      perform graph_bind(expected_h, expected, Inferred("expected record"))
-      unify(rh, expected_h, Inferred("field access"))
-      perform graph_bind(handle, TVar(field_h), Inferred("field type"))
+      perform graph_bind(expected_h, expected, Located(span, Inferred("expected record")))
+      unify(rh, expected_h, span, Inferred("field access"))
+      perform graph_bind(handle, TVar(field_h), Located(span, Inferred("field type")))
     },
 
     NExpr(LambdaExpr(params, body_node)) => {
       perform env_scope_enter()
       let param_handles = mint_params(params, "lambda")
       let row_handle = perform graph_fresh_row(Inferred("lambda effects"))
-      perform inf_enter_fn(row_handle)
+      perform inf_enter_fn(row_handle, span)
       infer_expr(body_node)
       perform inf_exit_fn()
       let N(_, _, bh) = body_node
@@ -388,7 +389,7 @@ fn infer_expr(node) =
         build_param_types(params, param_handles),
         TVar(bh),
         EfOpen([], row_handle)
-      ), Inferred("lambda"))
+      ), Located(span, Inferred("lambda")))
       perform env_scope_exit()
     },
 
@@ -411,12 +412,12 @@ fn infer_var_ref(name, handle, span) =
   match perform env_lookup(name) {
     None => {
       perform report("", "E_MissingVariable", "MissingVariable", name, span, "MaybeIncorrect")
-      perform graph_bind(handle, TVar(handle), MissingVar(name))
+      perform graph_bind(handle, TVar(handle), Located(span, MissingVar(name)))
     },
     Some(entry) => {
       let (scheme, reason) = entry
       let ty = instantiate(scheme)
-      perform graph_bind(handle, ty, VarLookup(name, reason))
+      perform graph_bind(handle, ty, Located(span, VarLookup(name, reason)))
       // If this binding is an `own` parameter, performing consume.
       // The affine_ledger handler enforces linearity.
       check_consume_at_use(name, span)
@@ -433,7 +434,7 @@ fn check_consume_at_use(name, span) = {
 
 // ─── Call — allocate expected fn type, unify, bind result ──────────
 
-fn infer_call(func, args, handle) = {
+fn infer_call(func, args, handle, span) = {
   let N(_, _, fh) = func
   let arg_handles = collect_handles(args)
   let ret_h = perform mint(Inferred("call return"))
@@ -445,10 +446,10 @@ fn infer_call(func, args, handle) = {
     EfOpen([], row_h)
   )
   let expected_h = perform mint(Inferred("expected fn"))
-  perform graph_bind(expected_h, expected, Inferred("expected fn type"))
+  perform graph_bind(expected_h, expected, Located(span, Inferred("expected fn type")))
 
-  unify(fh, expected_h, Inferred("call target"))
-  perform graph_bind(handle, TVar(ret_h), Inferred("call result"))
+  unify(fh, expected_h, span, Inferred("call target"))
+  perform graph_bind(handle, TVar(ret_h), Located(span, Inferred("call result")))
 
   // The callee's effect row flows into the caller's row.
   // After unification, row_h is bound to the callee's row;
@@ -468,7 +469,7 @@ fn infer_perform(op_name, args, handle, span) =
       perform report("", "E_MissingVariable", "MissingVariable",
         "effect op: " |> str_concat(op_name),
         span, "MaybeIncorrect")
-      perform graph_bind(handle, TVar(handle), MissingVar(op_name))
+      perform graph_bind(handle, TVar(handle), Located(span, MissingVar(op_name)))
     },
     Some(entry) => {
       let (scheme, reason) = entry
@@ -476,27 +477,27 @@ fn infer_perform(op_name, args, handle, span) =
       match op_ty {
         TFun(params, ret, row) => {
           // Unify args with op's params
-          unify_args_to_params(args, params)
-          perform graph_bind(handle, ret, VarLookup(op_name, reason))
+          unify_args_to_params(args, params, span)
+          perform graph_bind(handle, ret, Located(span, VarLookup(op_name, reason)))
           // Add the op's effect row to the caller's accumulated row.
           perform inf_add_row(row)
         },
         _ => {
-          perform graph_bind(handle, op_ty, VarLookup(op_name, reason))
+          perform graph_bind(handle, op_ty, Located(span, VarLookup(op_name, reason)))
         }
       }
     }
   }
 
-fn unify_args_to_params(args, params) =
+fn unify_args_to_params(args, params, span) =
   if len(args) == 0 || len(params) == 0 { () }
   else {
     let N(_, _, ah) = list_head(args)
     let TParam(_, pty, _) = list_head(params)
     let expected_h = perform mint(Inferred("arg param"))
-    perform graph_bind(expected_h, pty, Inferred("expected param type"))
-    unify(ah, expected_h, Inferred("arg to param"))
-    unify_args_to_params(list_tail(args), list_tail(params))
+    perform graph_bind(expected_h, pty, Located(span, Inferred("expected param type")))
+    unify(ah, expected_h, span, Inferred("arg to param"))
+    unify_args_to_params(list_tail(args), list_tail(params), span)
   }
 
 // ─── Pipe — the five verbs, each inferred by its topology ──────────
@@ -516,9 +517,9 @@ fn infer_pipe(kind, left, right, handle, span) =
         EfOpen([], row_h)
       )
       let expected_h = perform mint(Inferred("|> expected fn"))
-      perform graph_bind(expected_h, expected, Inferred("|> expected"))
-      unify(rh, expected_h, Inferred("|> target"))
-      perform graph_bind(handle, TVar(ret_h), Inferred("|> result"))
+      perform graph_bind(expected_h, expected, Located(span, Inferred("|> expected")))
+      unify(rh, expected_h, span, Inferred("|> target"))
+      perform graph_bind(handle, TVar(ret_h), Located(span, Inferred("|> result")))
       // callee's row flows into caller's row
       let row_node = perform graph_chase(row_h)
       match row_node {
@@ -532,21 +533,21 @@ fn infer_pipe(kind, left, right, handle, span) =
     PDiverge => {
       let ret_h = perform mint(Inferred("<| tuple of branch outputs"))
       perform graph_bind(handle, TVar(ret_h),
-        Inferred("<| diverge — borrows input to each branch"))
+        Located(span, Inferred("<| diverge — borrows input to each branch")))
     },
 
     // >< parallel compose — independent tracks; outputs tupled.
     // Each branch may consume own values.
     PCompose => {
       perform graph_bind(handle, TTuple([TVar(lh), TVar(rh)]),
-        Inferred(">< parallel compose — independent tracks"))
+        Located(span, Inferred(">< parallel compose — independent tracks")))
     },
 
     // ~> tee — handler attachment. Result type = body type.
     // Row: row(expr ~> h) = (row(expr) - handled(h)) + row(h).
     PTee => {
       perform graph_bind(handle, TVar(lh),
-        Inferred("~> handler attachment"))
+        Located(span, Inferred("~> handler attachment")))
     },
 
     // <~ feedback — requires iterative context (Clock/Sample/Tick).
@@ -558,11 +559,11 @@ fn infer_pipe(kind, left, right, handle, span) =
           perform report("", "E_FeedbackNoContext", "error",
             "<~ requires an iterative context (Clock, Sample, or Tick handler)",
             span, "MachineApplicable")
-          perform graph_bind(handle, TVar(lh), Inferred("<~ no context"))
+          perform graph_bind(handle, TVar(lh), Located(span, Inferred("<~ no context")))
         },
         Some(_) => {
-          unify(lh, rh, Inferred("<~ feedback wiring"))
-          perform graph_bind(handle, TVar(lh), Inferred("<~ feedback"))
+          unify(lh, rh, span, Inferred("<~ feedback wiring"))
+          perform graph_bind(handle, TVar(lh), Located(span, Inferred("<~ feedback")))
         }
       }
     }
@@ -570,7 +571,12 @@ fn infer_pipe(kind, left, right, handle, span) =
 
 // ═══ Unification — graph-direct, Hazel-productive ══════════════════
 
-fn unify(h_a, h_b, reason) = {
+// Every unification carries the span of the AST site that triggered
+// it. `span` threads through the recursive walk; graph_bind writes
+// store `Located(span, reason)` so graph_reason_edge naturally
+// returns `Unified(Located, Located)` per DESIGN Ch 8.
+
+fn unify(h_a, h_b, span, reason) = {
   if h_a == h_b { () }
   else {
     let na = perform graph_chase(h_a)
@@ -579,11 +585,11 @@ fn unify(h_a, h_b, reason) = {
     let GNode(kb, _) = nb
     match ka {
       NFree(_) =>
-        perform graph_bind(h_a, TVar(h_b), reason),
+        perform graph_bind(h_a, TVar(h_b), Located(span, reason)),
       NBound(ta) =>
         match kb {
-          NFree(_)       => perform graph_bind(h_b, TVar(h_a), reason),
-          NBound(tb)     => unify_types(ta, tb, reason),
+          NFree(_)       => perform graph_bind(h_b, TVar(h_a), Located(span, reason)),
+          NBound(tb)     => unify_types(ta, tb, span, reason),
           NErrorHole(_)  => (),
           _              => ()
         },
@@ -593,94 +599,102 @@ fn unify(h_a, h_b, reason) = {
   }
 }
 
-fn unify_types(a, b, reason) =
+fn unify_types(a, b, span, reason) =
   match a {
-    TInt    => expect_same(a, b, reason),
-    TFloat  => expect_same(a, b, reason),
-    TString => expect_same(a, b, reason),
-    TBool   => expect_same(a, b, reason),
-    TUnit   => expect_same(a, b, reason),
+    TInt    => expect_same(a, b, span, reason),
+    TFloat  => expect_same(a, b, span, reason),
+    TString => expect_same(a, b, span, reason),
+    TBool   => expect_same(a, b, span, reason),
+    TUnit   => expect_same(a, b, span, reason),
 
     TVar(ha) =>
       match b {
-        TVar(hb) => unify(ha, hb, reason),
+        TVar(hb) => unify(ha, hb, span, reason),
         _ => {
           if occurs_in(ha, b) {
             perform report("", "E_OccursCheck", "error",
-              "circular type", span_zero(), "MaybeIncorrect")
+              "circular type", span, "MaybeIncorrect")
           } else {
-            perform graph_bind(ha, b, reason)
+            perform graph_bind(ha, b, Located(span, reason))
           }
         }
       },
 
     TList(ea) =>
       match b {
-        TList(eb)  => unify_types(ea, eb, ListElement(reason)),
-        TVar(_)    => unify_types(b, a, reason),
-        _          => type_mismatch(a, b, reason)
+        TList(eb)  => unify_types(ea, eb, span, ListElement(reason)),
+        TVar(_)    => unify_types(b, a, span, reason),
+        _          => type_mismatch(a, b, span, reason)
       },
 
     TTuple(ea) =>
       match b {
-        TTuple(eb) => unify_type_lists(ea, eb, reason),
-        TVar(_)    => unify_types(b, a, reason),
-        _          => type_mismatch(a, b, reason)
+        TTuple(eb) => unify_type_lists(ea, eb, span, reason),
+        TVar(_)    => unify_types(b, a, span, reason),
+        _          => type_mismatch(a, b, span, reason)
       },
 
     TFun(pa, ra, ea) =>
       match b {
         TFun(pb, rb, eb) => {
-          unify_param_lists(pa, pb, reason)
-          unify_types(ra, rb, FnReturn("fn", reason))
-          unify_row(ea, eb, reason)
+          // DESIGN Ch 2 Insight 7: parameters ARE tuples. When arities
+          // match, pair positionally. When one side has a single-param
+          // TTuple(N) and the other has N params, decompose and pair
+          // element-wise. When one side has a single TVar param, bind
+          // it to a TTuple of the other side's param types. The same
+          // rule handles `fn f(a, b) = ...` called via `|>` with a
+          // 2-tuple — no splat operator, no adapter, just structural
+          // pairing that the graph already knows how to do.
+          pair_fn_params(pa, pb, span, reason)
+          unify_types(ra, rb, span, FnReturn("fn", reason))
+          unify_row(ea, eb, span, reason)
         },
-        TVar(_) => unify_types(b, a, reason),
-        _       => type_mismatch(a, b, reason)
+        TVar(_) => unify_types(b, a, span, reason),
+        _       => type_mismatch(a, b, span, reason)
       },
 
     TName(na, aa) =>
       match b {
         TName(nb, ab) =>
           if str_eq(na, nb) == 1 {
-            unify_type_lists(aa, ab, reason)
-          } else { type_mismatch(a, b, reason) },
-        TVar(_) => unify_types(b, a, reason),
-        _       => type_mismatch(a, b, reason)
+            unify_type_lists(aa, ab, span, reason)
+          } else { type_mismatch(a, b, span, reason) },
+        TVar(_) => unify_types(b, a, span, reason),
+        _       => type_mismatch(a, b, span, reason)
       },
 
     TRefined(base_a, pred_a) =>
       match b {
         TRefined(base_b, pred_b) => {
-          unify_types(base_a, base_b, reason)
-          perform verify(span_zero(), PAnd(pred_a, pred_b), Refinement(pred_a, pred_b))
+          unify_types(base_a, base_b, span, reason)
+          perform verify(span, PAnd(pred_a, pred_b), Refinement(pred_a, pred_b))
         },
         _ => {
-          unify_types(base_a, b, reason)
-          perform verify(span_zero(), pred_a, Refinement(pred_a, PTrue))
+          unify_types(base_a, b, span, reason)
+          perform verify(span, pred_a, Refinement(pred_a, PTrue))
         }
       },
 
     TCont(ra, da) =>
       match b {
-        TCont(rb, db) => unify_types(ra, rb, reason),
-        TVar(_)       => unify_types(b, a, reason),
-        _             => type_mismatch(a, b, reason)
+        TCont(rb, db) => unify_types(ra, rb, span, reason),
+        TVar(_)       => unify_types(b, a, span, reason),
+        _             => type_mismatch(a, b, span, reason)
       },
 
     _ =>
       match b {
-        TVar(_) => unify_types(b, a, reason),
-        _       => type_mismatch(a, b, reason)
+        TVar(_) => unify_types(b, a, span, reason),
+        _       => type_mismatch(a, b, span, reason)
       }
   }
 
-fn expect_same(a, b, reason) =
+fn expect_same(a, b, span, reason) =
   match b {
-    TVar(hb) => perform graph_bind(hb, a, reason),
+    TVar(hb) => perform graph_bind(hb, a, Located(span, reason)),
     _ =>
       if same_ground(a, b) { () }
-      else { type_mismatch(a, b, reason) }
+      else { type_mismatch(a, b, span, reason) }
   }
 
 fn same_ground(a, b) = match a {
@@ -692,53 +706,132 @@ fn same_ground(a, b) = match a {
   _       => false
 }
 
-fn unify_type_lists(as_list, bs_list, reason) =
+fn unify_type_lists(as_list, bs_list, span, reason) =
   if len(as_list) == 0 || len(bs_list) == 0 { () }
   else {
-    unify_types(list_head(as_list), list_head(bs_list), reason)
-    unify_type_lists(list_tail(as_list), list_tail(bs_list), reason)
+    unify_types(list_head(as_list), list_head(bs_list), span, reason)
+    unify_type_lists(list_tail(as_list), list_tail(bs_list), span, reason)
   }
 
-fn unify_param_lists(a, b, reason) =
+fn unify_param_lists(a, b, span, reason) =
   if len(a) == 0 || len(b) == 0 { () }
   else {
     let TParam(_, ta, _) = list_head(a)
     let TParam(_, tb, _) = list_head(b)
-    unify_types(ta, tb, reason)
-    unify_param_lists(list_tail(a), list_tail(b), reason)
+    unify_types(ta, tb, span, reason)
+    unify_param_lists(list_tail(a), list_tail(b), span, reason)
   }
 
-fn type_mismatch(a, b, reason) =
+// ─── Parameters ARE tuples (DESIGN Ch 2 Insight 7) ─────────────────
+// pair_fn_params is the one unification rule that lets `|>` deliver a
+// tuple to an N-ary function without a splat operator. Three cases:
+//
+//   len(pa) == len(pb)            — pair positionally (the ordinary path)
+//   len(pa) == 1, head is tuple   — decompose, pair element-wise
+//   len(pa) == 1, head is TVar    — bind TVar to TTuple(pb param types)
+//   symmetric for pb
+//   otherwise                     — arity mismatch
+//
+// Inference doesn't *invent* the rule; it reads the shape and pairs
+// structurally — the same discipline that pairs TInt with TInt or
+// TList(a) with TList(b). A tuple of three elements is structurally
+// compatible with three positional params.
+
+fn pair_fn_params(pa, pb, span, reason) =
+  let la = len(pa)
+  let lb = len(pb)
+  if la == lb { unify_param_lists(pa, pb, span, reason) }
+  else if la == 1 { try_tuple_decompose(list_head(pa), pb, span, reason) }
+  else if lb == 1 { try_tuple_decompose(list_head(pb), pa, span, reason) }
+  else { arity_mismatch(la, lb, span) }
+
+// try_tuple_decompose: given a single param whose type is either a
+// TTuple or a TVar, reconcile it against a multi-param list.
+//   TTuple(elems) of matching arity → pair element-wise with params
+//   TVar(_)                         → unify TVar with TTuple of param types
+//   otherwise                       → arity mismatch
+fn try_tuple_decompose(single_param, many_params, span, reason) =
+  let TParam(_, pty, _) = single_param
+  let lm = len(many_params)
+  match pty {
+    TTuple(elems) =>
+      if len(elems) == lm {
+        unify_tuple_elems_with_params(elems, many_params, span, reason, 0, lm)
+      } else {
+        arity_mismatch(len(elems), lm, span)
+      },
+    TVar(_) => {
+      let tup_ty = TTuple(param_types_flat(many_params))
+      unify_types(pty, tup_ty, span, reason)
+    },
+    _ => arity_mismatch(1, lm, span)
+  }
+
+// Pair tuple element i with param i, flat-indexed to avoid snoc-walk
+// allocation on either input.
+fn unify_tuple_elems_with_params(elems, params, span, reason, i, n) =
+  if i >= n { () }
+  else {
+    let e = list_index(elems, i)
+    let TParam(_, pt, _) = list_index(params, i)
+    unify_types(e, pt, span, reason)
+    unify_tuple_elems_with_params(elems, params, span, reason, i + 1, n)
+  }
+
+// Extract param types into a fresh flat list — O(1) amortized per
+// element via list_set into a pre-sized buffer. The resulting list
+// is tag=0 (flat); any subsequent list_index on it is O(1).
+fn param_types_flat(params) =
+  let n = len(params)
+  param_types_loop(params, 0, n, make_list(n))
+
+fn param_types_loop(params, i, n, acc) =
+  if i >= n { acc }
+  else {
+    let TParam(_, t, _) = list_index(params, i)
+    param_types_loop(params, i + 1, n, list_set(acc, i, t))
+  }
+
+fn arity_mismatch(la, lb, span) =
+  perform report("", "E_TypeMismatch", "TypeMismatch",
+    "function arity mismatch: "
+      |> str_concat(int_to_str(la))
+      |> str_concat(" param(s) vs ")
+      |> str_concat(int_to_str(lb))
+      |> str_concat(" param(s)"),
+    span, "MachineApplicable")
+
+fn type_mismatch(a, b, span, reason) =
   perform report("", "E_TypeMismatch", "TypeMismatch",
     show_type(a)
       |> str_concat(" vs ")
       |> str_concat(show_type(b)),
-    span_zero(), "MachineApplicable")
+    span, "MachineApplicable")
 
 // ═══ BinOp / UnaryOp — classified by operator family ═══════════════
 
 fn infer_binop(handle, op, lh, rh, span) =
   match classify_binop(op) {
     "arithmetic" => {
-      unify(lh, rh, OpConstraint(op, Inferred("left"), Inferred("right")))
-      perform graph_bind(handle, TVar(lh), OpConstraint(op, Inferred("result"), Inferred("operand")))
+      unify(lh, rh, span, OpConstraint(op, Inferred("left"), Inferred("right")))
+      perform graph_bind(handle, TVar(lh), Located(span, OpConstraint(op, Inferred("result"), Inferred("operand"))))
     },
     "comparison" => {
-      unify(lh, rh, OpConstraint(op, Inferred("left"), Inferred("right")))
-      perform graph_bind(handle, TBool, OpConstraint(op, Inferred("comparison"), Declared("bool")))
+      unify(lh, rh, span, OpConstraint(op, Inferred("left"), Inferred("right")))
+      perform graph_bind(handle, TBool, Located(span, OpConstraint(op, Inferred("comparison"), Declared("bool"))))
     },
     "boolean" => {
-      perform graph_bind(lh, TBool, OpConstraint(op, Inferred("left"), Declared("bool")))
-      perform graph_bind(rh, TBool, OpConstraint(op, Inferred("right"), Declared("bool")))
-      perform graph_bind(handle, TBool, OpConstraint(op, Inferred("result"), Declared("bool")))
+      perform graph_bind(lh, TBool, Located(span, OpConstraint(op, Inferred("left"), Declared("bool"))))
+      perform graph_bind(rh, TBool, Located(span, OpConstraint(op, Inferred("right"), Declared("bool"))))
+      perform graph_bind(handle, TBool, Located(span, OpConstraint(op, Inferred("result"), Declared("bool"))))
     },
     "concat" => {
-      unify(lh, rh, OpConstraint(op, Inferred("left"), Inferred("right")))
-      perform graph_bind(handle, TVar(lh), OpConstraint(op, Inferred("concat"), Inferred("operand")))
+      unify(lh, rh, span, OpConstraint(op, Inferred("left"), Inferred("right")))
+      perform graph_bind(handle, TVar(lh), Located(span, OpConstraint(op, Inferred("concat"), Inferred("operand"))))
     },
     _ => {
-      unify(lh, rh, OpConstraint(op, Inferred("left"), Inferred("right")))
-      perform graph_bind(handle, TVar(lh), OpConstraint(op, Inferred("result"), Inferred("operand")))
+      unify(lh, rh, span, OpConstraint(op, Inferred("left"), Inferred("right")))
+      perform graph_bind(handle, TVar(lh), Located(span, OpConstraint(op, Inferred("result"), Inferred("operand"))))
     }
   }
 
@@ -762,21 +855,21 @@ fn classify_binop(op) = match op {
 
 fn infer_unaryop(handle, op, ih, span) = match op {
   "Neg" =>
-    perform graph_bind(handle, TVar(ih), OpConstraint(op, Inferred("negate"), Inferred("operand"))),
+    perform graph_bind(handle, TVar(ih), Located(span, OpConstraint(op, Inferred("negate"), Inferred("operand")))),
   "Not" => {
-    perform graph_bind(ih, TBool, OpConstraint(op, Inferred("not"), Declared("bool")))
-    perform graph_bind(handle, TBool, OpConstraint(op, Inferred("result"), Declared("bool")))
+    perform graph_bind(ih, TBool, Located(span, OpConstraint(op, Inferred("not"), Declared("bool"))))
+    perform graph_bind(handle, TBool, Located(span, OpConstraint(op, Inferred("result"), Declared("bool"))))
   },
   _ =>
-    perform graph_bind(handle, TVar(ih), Inferred("unary op"))
+    perform graph_bind(handle, TVar(ih), Located(span, Inferred("unary op")))
 }
 
 // ═══ Pattern inference ═════════════════════════════════════════════
 
-fn infer_pat(pat, handle) = match pat {
+fn infer_pat(pat, handle, span) = match pat {
   PVar(name) =>
     perform env_extend(name, Forall([], TVar(handle)),
-      LetBinding(name, Inferred("pattern"))),
+      Located(span, LetBinding(name, Inferred("pattern")))),
 
   PWild => (),
 
@@ -787,7 +880,7 @@ fn infer_pat(pat, handle) = match pat {
       LVString(_) => TString,
       LVBool(_)   => TBool
     }
-    perform graph_bind(handle, ty, Inferred("literal pattern"))
+    perform graph_bind(handle, ty, Located(span, Inferred("literal pattern")))
   },
 
   PCon(name, sub_pats) =>
@@ -795,25 +888,25 @@ fn infer_pat(pat, handle) = match pat {
       None =>
         perform report("", "E_MissingVariable", "MissingVariable",
           "constructor: " |> str_concat(name),
-          span_zero(), "MaybeIncorrect"),
+          span, "MaybeIncorrect"),
       Some(entry) => {
         let (scheme, reason) = entry
         let ty = instantiate(scheme)
-        perform graph_bind(handle, ty, VarLookup(name, reason))
+        perform graph_bind(handle, ty, Located(span, VarLookup(name, reason)))
       }
     },
 
-  PTuple(pats) => infer_pat_tuple(pats, handle),
+  PTuple(pats) => infer_pat_tuple(pats, handle, span),
 
   _ => ()
 }
 
-fn infer_pat_tuple(pats, parent_handle) =
+fn infer_pat_tuple(pats, parent_handle, span) =
   if len(pats) == 0 { () }
   else {
     let sub_h = perform mint(Inferred("tuple pattern element"))
-    infer_pat(list_head(pats), sub_h)
-    infer_pat_tuple(list_tail(pats), parent_handle)
+    infer_pat(list_head(pats), sub_h, span)
+    infer_pat_tuple(list_tail(pats), parent_handle, span)
   }
 
 // ═══ Match arms ════════════════════════════════════════════════════
@@ -823,10 +916,10 @@ fn infer_match_arms(arms, scrutinee_h, result_h, span) =
   else {
     let (pat, body) = list_head(arms)
     perform env_scope_enter()
-    infer_pat(pat, scrutinee_h)
+    infer_pat(pat, scrutinee_h, span)
     infer_expr(body)
     let N(_, _, bh) = body
-    unify(bh, result_h, MatchBranch(Inferred("arm body"), Inferred("result")))
+    unify(bh, result_h, span, MatchBranch(Inferred("arm body"), Inferred("result")))
     perform env_scope_exit()
     infer_match_arms(list_tail(arms), scrutinee_h, result_h, span)
   }
@@ -835,7 +928,7 @@ fn infer_match_arms(arms, scrutinee_h, result_h, span) =
 // Each arm's body is inferred; its type unifies with the body's type
 // (so the handle expression has a single consistent result type).
 
-fn infer_handler_arms(arms, body_h) =
+fn infer_handler_arms(arms, body_h, span) =
   if len(arms) == 0 { () }
   else {
     let arm = list_head(arms)
@@ -843,9 +936,9 @@ fn infer_handler_arms(arms, body_h) =
     perform env_scope_enter()
     infer_expr(arm_body)
     let N(_, _, abh) = arm_body
-    unify(abh, body_h, Inferred("handler arm result"))
+    unify(abh, body_h, span, Inferred("handler arm result"))
     perform env_scope_exit()
-    infer_handler_arms(list_tail(arms), body_h)
+    infer_handler_arms(list_tail(arms), body_h, span)
   }
 
 // ═══ Generalization — Damas-Milner let-gen ═════════════════════════
@@ -1108,12 +1201,12 @@ fn collect_tvar_types(nodes) =
     [TVar(h)] ++ collect_tvar_types(list_tail(nodes))
   }
 
-fn unify_list_elems(elems, target_h) =
+fn unify_list_elems(elems, target_h, span) =
   if len(elems) == 0 { () }
   else {
     let N(_, _, eh) = list_head(elems)
-    unify(eh, target_h, ListElement(Inferred("list element")))
-    unify_list_elems(list_tail(elems), target_h)
+    unify(eh, target_h, span, ListElement(Inferred("list element")))
+    unify_list_elems(list_tail(elems), target_h, span)
   }
 
 // Handler absorption helpers — used by HandleExpr inference. The

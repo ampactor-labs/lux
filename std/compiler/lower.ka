@@ -34,7 +34,7 @@ import compiler/effects
 
 type LowExpr
   = LConst(Int, LowValue)
-  | LLocal(Int, Int)                           // handle, slot
+  | LLocal(Int, String)                        // handle, local name (matches LLet storage)
   | LGlobal(Int, String)                       // handle, name
   | LStore(Int, Int, LowExpr)                  // handle, slot, value
   | LLet(Int, String, LowExpr)
@@ -148,7 +148,12 @@ fn lower_expr_body(e, handle, span) = match e {
   LitBool(b)   => LConst(handle, LBool(b)),
   LitUnit      => LConst(handle, LInt(0)),
 
-  VarRef(name) => LGlobal(handle, name),
+  VarRef(name) =>
+    match perform ls_resolve(name) {
+      RLocal       => LLocal(handle, name),
+      RUpval(slot) => LUpval(handle, slot),
+      RGlobal      => LGlobal(handle, name)
+    },
 
   BinOpExpr(op, left, right) =>
     LBinOp(handle, op, lower_expr(left), lower_expr(right)),
@@ -172,8 +177,13 @@ fn lower_expr_body(e, handle, span) = match e {
         [lower_expr(then_e)],
         [lower_expr(else_e)]),
 
-  BlockExpr(stmts, final_e) =>
-    LBlock(handle, lower_stmt_list(stmts) ++ [lower_expr(final_e)]),
+  BlockExpr(stmts, final_e) => {
+    let cp = perform ls_push_scope()
+    let lo_stmts = lower_stmt_list(stmts)
+    let lo_final = lower_expr(final_e)
+    perform ls_pop_scope(cp)
+    LBlock(handle, lo_stmts ++ [lo_final])
+  },
 
   MatchExpr(scrutinee, arms) =>
     LMatch(handle, lower_expr(scrutinee), lower_match_arms(arms)),
@@ -185,14 +195,25 @@ fn lower_expr_body(e, handle, span) = match e {
     LMakeTuple(handle, lower_expr_list(elems)),
 
   LambdaExpr(params, body_node) => {
+    // DESIGN Ch 1: lambdas close over their free variables. Each
+    // lambda gets a unique name derived from its AST handle, so
+    // emit's deep walk lifts every LMakeClosure — top-level or
+    // inline — into a WASM function entry in the `$fns` table.
+    let lambda_name = "lambda_" |> str_concat(int_to_str(handle))
+    let param_names_list = lower_param_names(params)
+    let free_names = collect_free_vars(body_node, param_names_list)
+    let (captures_names, captures_exprs) = resolve_captures_outer(free_names, handle)
+    perform ls_enter_frame(param_names_list, captures_names)
+    let lo_body = lower_expr(body_node)
+    perform ls_exit_frame()
     let fn_ir = LFn(
-      "lambda",
+      lambda_name,
       len(params),
-      lower_param_names(params),
-      [lower_expr(body_node)],
+      param_names_list,
+      [lo_body],
       EfPure
     )
-    LMakeClosure(handle, fn_ir, [])
+    LMakeClosure(handle, fn_ir, captures_exprs)
   },
 
   HandleExpr(body_node, arms) =>
@@ -284,21 +305,36 @@ fn lower_stmt_body(s, handle, span) = match s {
   LetStmt(pat, expr) => {
     let lo = lower_expr(expr)
     match pat {
-      PVar(name) => LLet(handle, name, lo),
-      _          => lo     // non-binding let (destructure handled by emit)
+      PVar(name) => {
+        // Register the name in the current scope. At top level this
+        // is a global (already pre-registered by lower_program); inside
+        // a frame it binds as a local for subsequent VarRef lookups.
+        perform ls_bind_local(name)
+        LLet(handle, name, lo)
+      },
+      _ => lo     // non-binding let (destructure handled by emit)
     }
   },
 
   FnStmt(name, params, _ret_ann, _effs, body_node) => {
+    // Bind the fn's name in the enclosing frame so sibling statements
+    // and recursive references resolve (top-level fns pre-registered
+    // as globals, so this is a no-op outside nested frames).
+    perform ls_bind_local(name)
+    let param_names_list = lower_param_names(params)
+    let free_names = collect_free_vars(body_node, param_names_list)
+    let (captures_names, captures_exprs) = resolve_captures_outer(free_names, handle)
+    perform ls_enter_frame(param_names_list, captures_names)
     let lo_body = lower_expr(body_node)
+    perform ls_exit_frame()
     let fn_ir = LFn(
       name,
       len(params),
-      lower_param_names(params),
+      param_names_list,
       [lo_body],
       EfPure          // row resolved live via lookup_ty(handle)
     )
-    LLet(handle, name, LMakeClosure(handle, fn_ir, []))
+    LLet(handle, name, LMakeClosure(handle, fn_ir, captures_exprs))
   },
 
   TypeDefStmt(_name, _args, _variants)      => LConst(handle, LInt(0)),
@@ -319,8 +355,31 @@ fn lower_match_arms(arms) =
   if len(arms) == 0 { [] }
   else {
     let (pat, body) = list_head(arms)
-    [(lower_pat(pat), lower_expr(body))]
+    let cp = perform ls_push_scope()
+    bind_pat_locals(pat)
+    let lo_body = lower_expr(body)
+    perform ls_pop_scope(cp)
+    [(lower_pat(pat), lo_body)]
       ++ lower_match_arms(list_tail(arms))
+  }
+
+// Bind every PVar in the pattern as a local in the current frame so
+// arm-body VarRef resolution sees pattern-introduced names.
+fn bind_pat_locals(pat) = match pat {
+  PVar(name) => {
+    perform ls_bind_local(name)
+    ()
+  },
+  PCon(_, sub_pats) => bind_pat_locals_list(sub_pats),
+  PTuple(sub_pats)  => bind_pat_locals_list(sub_pats),
+  _                 => ()
+}
+
+fn bind_pat_locals_list(pats) =
+  if len(pats) == 0 { () }
+  else {
+    bind_pat_locals(list_head(pats))
+    bind_pat_locals_list(list_tail(pats))
   }
 
 fn lower_pat(pat) = match pat {
@@ -353,8 +412,21 @@ fn lower_handler_arms(arms) =
   else {
     let arm = list_head(arms)
     let (op_name, args, body) = arm
-    [(op_name, args, lower_expr(body))]
+    // Handler arm args bind into the arm body's scope — push a fresh
+    // locals checkpoint, register each arg, lower body, restore.
+    let cp = perform ls_push_scope()
+    bind_names_as_locals(args)
+    let lo_body = lower_expr(body)
+    perform ls_pop_scope(cp)
+    [(op_name, args, lo_body)]
       ++ lower_handler_arms(list_tail(arms))
+  }
+
+fn bind_names_as_locals(names) =
+  if len(names) == 0 { () }
+  else {
+    perform ls_bind_local(list_head(names))
+    bind_names_as_locals(list_tail(names))
   }
 
 // ═══ Parameter name lowering (for LFn metadata) ════════════════════
@@ -366,12 +438,352 @@ fn lower_param_names(params) =
     [name] ++ lower_param_names(list_tail(params))
   }
 
+// ═══ Free-variable analysis — W7 phase 1 ═══════════════════════════
+// Walks a lambda body collecting every VarRef whose name is not in
+// the lambda's local scope. Nested lambdas augment `bound` with their
+// own params during the walk, so references resolved inside the
+// nested frame are excluded from the OUTER lambda's free set.
+//
+// Returns `List[String]` — just names, deduplicated. At emit time,
+// the closure record's slot N stores the value of captures[N] from
+// the enclosing scope; the lambda body reads them as LUpval(h, N).
+//
+// TODO (W7.1): thread a LowerScope effect so VarRef can emit
+// LUpval(h, slot) for captured names instead of LGlobal. Currently
+// VarRef still lowers to LGlobal — the captures metadata is correct
+// but consumers that inspect it (emit side) must be updated
+// alongside that change. Until then, this populates LMakeClosure's
+// third slot with the intent, ready for the emit-side upgrade.
+//
+// Name set operations use `++` on small string lists — acceptable for
+// typical capture counts (≤ ~5); upgrades to sorted flat arrays under
+// W8.2 when that lands.
+
+fn collect_free_vars(node, bound) =
+  let N(body, _, _) = node
+  match body {
+    NExpr(e) => cfv_expr(e, bound),
+    NStmt(s) => cfv_stmt(s, bound),
+    _        => []
+  }
+
+fn cfv_expr(e, bound) = match e {
+  LitInt(_)    => [],
+  LitFloat(_)  => [],
+  LitString(_) => [],
+  LitBool(_)   => [],
+  LitUnit      => [],
+
+  VarRef(name) =>
+    if cfv_contains(bound, name) { [] }
+    else { [name] },
+
+  BinOpExpr(_, l, r) =>
+    cfv_merge(collect_free_vars(l, bound), collect_free_vars(r, bound)),
+
+  UnaryOpExpr(_, inner) =>
+    collect_free_vars(inner, bound),
+
+  CallExpr(f, args) =>
+    cfv_merge(collect_free_vars(f, bound), cfv_list(args, bound)),
+
+  IfExpr(c, t, e) =>
+    cfv_merge(
+      collect_free_vars(c, bound),
+      cfv_merge(collect_free_vars(t, bound), collect_free_vars(e, bound))
+    ),
+
+  BlockExpr(stmts, final_e) => {
+    let (frees, bound_after) = cfv_stmts(stmts, bound, [])
+    cfv_merge(frees, collect_free_vars(final_e, bound_after))
+  },
+
+  MatchExpr(scrut, arms) =>
+    cfv_merge(collect_free_vars(scrut, bound), cfv_match_arms(arms, bound)),
+
+  MakeListExpr(elems)  => cfv_list(elems, bound),
+  MakeTupleExpr(elems) => cfv_list(elems, bound),
+
+  LambdaExpr(params, body) => {
+    let inner_bound = cfv_merge(bound, cfv_param_names(params))
+    collect_free_vars(body, inner_bound)
+  },
+
+  HandleExpr(body, arms) =>
+    cfv_merge(
+      collect_free_vars(body, bound),
+      cfv_handler_arms(arms, bound)
+    ),
+
+  PerformExpr(_, args) => cfv_list(args, bound),
+  ResumeExpr(val, _)   => collect_free_vars(val, bound),
+  FieldExpr(rec, _)    => collect_free_vars(rec, bound),
+
+  PipeExpr(_, l, r) =>
+    cfv_merge(collect_free_vars(l, bound), collect_free_vars(r, bound)),
+
+  ExprPlaceholder      => [],
+  _                    => []
+}
+
+fn cfv_stmt(s, bound) = match s {
+  LetStmt(_, expr) => collect_free_vars(expr, bound),
+  FnStmt(_, _, _, _, body_node) => collect_free_vars(body_node, bound),
+  ExprStmt(expr)   => collect_free_vars(expr, bound),
+  _                => []
+}
+
+fn cfv_list(nodes, bound) =
+  if len(nodes) == 0 { [] }
+  else {
+    cfv_merge(
+      collect_free_vars(list_head(nodes), bound),
+      cfv_list(list_tail(nodes), bound)
+    )
+  }
+
+// cfv_stmts walks a statement list, threading `bound` through LetStmts
+// so subsequent statements see the new bindings. Returns
+// (accumulated_frees, final_bound).
+fn cfv_stmts(stmts, bound, acc_frees) =
+  if len(stmts) == 0 { (acc_frees, bound) }
+  else {
+    let stmt = list_head(stmts)
+    let N(stmt_body, _, _) = stmt
+    match stmt_body {
+      NStmt(LetStmt(pat, expr)) => {
+        let frees = collect_free_vars(expr, bound)
+        let new_bound = cfv_merge(bound, cfv_pat_binds(pat))
+        cfv_stmts(
+          list_tail(stmts),
+          new_bound,
+          cfv_merge(acc_frees, frees)
+        )
+      },
+      NStmt(FnStmt(name, _, _, _, body_node)) => {
+        // Nested named fn — its name is in scope for siblings and the
+        // final expression (recursive / mutual references resolve via env).
+        let frees = collect_free_vars(body_node, bound)
+        let new_bound = cfv_merge(bound, [name])
+        cfv_stmts(
+          list_tail(stmts),
+          new_bound,
+          cfv_merge(acc_frees, frees)
+        )
+      },
+      _ => {
+        let frees = collect_free_vars(stmt, bound)
+        cfv_stmts(list_tail(stmts), bound, cfv_merge(acc_frees, frees))
+      }
+    }
+  }
+
+fn cfv_match_arms(arms, bound) =
+  if len(arms) == 0 { [] }
+  else {
+    let (pat, body) = list_head(arms)
+    let arm_bound = cfv_merge(bound, cfv_pat_binds(pat))
+    cfv_merge(
+      collect_free_vars(body, arm_bound),
+      cfv_match_arms(list_tail(arms), bound)
+    )
+  }
+
+// Handler arm shape: (op_name, arg_names, body). The arg_names bind
+// inside body; op_name is the effect op being handled (global scope).
+fn cfv_handler_arms(arms, bound) =
+  if len(arms) == 0 { [] }
+  else {
+    let (op_name, arg_names, body) = list_head(arms)
+    let arm_bound = cfv_merge(bound, arg_names)
+    cfv_merge(
+      collect_free_vars(body, arm_bound),
+      cfv_handler_arms(list_tail(arms), bound)
+    )
+  }
+
+fn cfv_param_names(params) =
+  if len(params) == 0 { [] }
+  else {
+    let TParam(name, _, _) = list_head(params)
+    [name] ++ cfv_param_names(list_tail(params))
+  }
+
+fn cfv_pat_binds(pat) = match pat {
+  PVar(name)         => [name],
+  PCon(_, sub_pats)  => cfv_pat_binds_list(sub_pats),
+  PTuple(sub_pats)   => cfv_pat_binds_list(sub_pats),
+  _                  => []
+}
+
+fn cfv_pat_binds_list(pats) =
+  if len(pats) == 0 { [] }
+  else {
+    cfv_merge(cfv_pat_binds(list_head(pats)), cfv_pat_binds_list(list_tail(pats)))
+  }
+
+fn cfv_merge(a, b) =
+  if len(b) == 0 { a }
+  else {
+    let x = list_head(b)
+    let rest = list_tail(b)
+    if cfv_contains(a, x) { cfv_merge(a, rest) }
+    else { cfv_merge(a ++ [x], rest) }
+  }
+
+fn cfv_contains(lst, s) =
+  if len(lst) == 0 { false }
+  else if str_eq(list_head(lst), s) == 1 { true }
+  else { cfv_contains(list_tail(lst), s) }
+
 // ═══ Expression list ═══════════════════════════════════════════════
 
 fn lower_expr_list(nodes) =
   if len(nodes) == 0 { [] }
   else { [lower_expr(list_head(nodes))] ++ lower_expr_list(list_tail(nodes)) }
 
-// ═══ Program lowering ══════════════════════════════════════════════
+// ═══ Capture resolution — W7.1 ═════════════════════════════════════
+// Called at LambdaExpr / FnStmt lower-time, BEFORE entering the new
+// frame. Each free name is resolved against the CURRENT (enclosing)
+// scope via ls_resolve:
+//   RLocal(slot) — name is a local of the enclosing frame; capture
+//                  loads its local slot value.
+//   RUpval(slot) — name was itself captured by the enclosing frame;
+//                  capture loads through __closure offset.
+//   RGlobal      — name is a top-level symbol; NOT captured (always
+//                  reachable). Dropped from the captures list.
+//
+// Returns (captures_names, captures_exprs) — parallel lists with
+// identical length. captures_names feeds ls_enter_frame; captures_exprs
+// feeds LMakeClosure's heap-record materialization at emit time.
 
-fn lower_program(stmts) = lower_stmt_list(stmts)
+fn resolve_captures_outer(names, owner_h) =
+  if len(names) == 0 { ([], []) }
+  else {
+    let name = list_head(names)
+    let res = perform ls_resolve(name)
+    let (rest_names, rest_exprs) = resolve_captures_outer(list_tail(names), owner_h)
+    match res {
+      RGlobal      => (rest_names, rest_exprs),
+      RLocal       =>
+        ([name] ++ rest_names, [LLocal(owner_h, name)] ++ rest_exprs),
+      RUpval(slot) =>
+        ([name] ++ rest_names, [LUpval(owner_h, slot)] ++ rest_exprs)
+    }
+  }
+
+// ═══ Program lowering ══════════════════════════════════════════════
+// Pre-pass: collect every top-level name (FnStmt, LetStmt) and
+// register as globals via ls_register_globals. Then walk stmts; each
+// FnStmt / LambdaExpr pushes its own frame. VarRef resolution in
+// lambda bodies correctly distinguishes local/upval/global.
+
+fn lower_program(stmts) = {
+  let globals = collect_top_level_names(stmts, [])
+  perform ls_register_globals(globals)
+  lower_stmt_list(stmts)
+}
+
+fn collect_top_level_names(stmts, acc) =
+  if len(stmts) == 0 { acc }
+  else {
+    let N(body, _, _) = list_head(stmts)
+    let next = match body {
+      NStmt(FnStmt(name, _, _, _, _))    => acc ++ [name],
+      NStmt(LetStmt(PVar(name), _))      => acc ++ [name],
+      _                                  => acc
+    }
+    collect_top_level_names(list_tail(stmts), next)
+  }
+
+// ═══ lower_scope handler — W7.1 lexical frame stack ════════════════
+// State:
+//   frames  — List of (locals, captures) tuples. Each frame is one
+//             lambda / fn body. The head is the current frame.
+//   globals — List of top-level name strings registered by
+//             lower_program at entry.
+//
+// ls_resolve(name): search current frame's locals (innermost-first
+// priority because push_scope shadowing is captured by slice
+// truncation via push/pop). If not found, current frame's captures.
+// Otherwise RGlobal. Frames below the head are NEVER searched —
+// they belong to the enclosing lambda, which is opaque at this
+// lexical level. Names referenced across frame boundaries MUST be
+// captured (added to the current frame's captures list at enter
+// time).
+
+handler lower_scope with frames = [], globals = [] {
+  ls_enter_frame(locals, captures) => {
+    resume(())
+      with frames = [(locals, captures)] ++ frames
+  },
+
+  ls_exit_frame() => {
+    if len(frames) == 0 { resume(()) }
+    else {
+      resume(())
+        with frames = list_tail(frames)
+    }
+  },
+
+  ls_push_scope() => {
+    if len(frames) == 0 { resume(0) }
+    else {
+      let (locals, _caps) = list_head(frames)
+      resume(len(locals))
+    }
+  },
+
+  ls_pop_scope(checkpoint) => {
+    if len(frames) == 0 { resume(()) }
+    else {
+      let (locals, captures) = list_head(frames)
+      let truncated = list_take_n(locals, checkpoint)
+      resume(())
+        with frames = [(truncated, captures)] ++ list_tail(frames)
+    }
+  },
+
+  ls_bind_local(name) => {
+    if len(frames) == 0 { resume(0) }
+    else {
+      let (locals, captures) = list_head(frames)
+      let slot = len(locals)
+      resume(slot)
+        with frames = [(locals ++ [name], captures)] ++ list_tail(frames)
+    }
+  },
+
+  ls_resolve(name) => {
+    if len(frames) == 0 {
+      resume(RGlobal)
+    } else {
+      let (locals, captures) = list_head(frames)
+      if ls_find_str(locals, name, 0) >= 0 { resume(RLocal) }
+      else {
+        let cap_idx = ls_find_str(captures, name, 0)
+        if cap_idx >= 0 { resume(RUpval(cap_idx)) }
+        else { resume(RGlobal) }
+      }
+    }
+  },
+
+  ls_register_globals(names) => {
+    resume(()) with globals = names
+  }
+}
+
+fn ls_find_str(lst, target, i) =
+  if len(lst) == 0 { -1 }
+  else if str_eq(list_head(lst), target) == 1 { i }
+  else { ls_find_str(list_tail(lst), target, i + 1) }
+
+fn list_take_n(lst, n) =
+  if n == 0 { [] }
+  else { list_take_loop(lst, 0, n, make_list(n)) }
+
+fn list_take_loop(lst, i, n, acc) =
+  if i >= n { acc }
+  else {
+    list_take_loop(lst, i + 1, n, list_set(acc, i, list_index(lst, i)))
+  }

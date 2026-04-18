@@ -750,6 +750,34 @@ the same substrate delivering 4.7ms incremental recompile; Meta's
 Pyrefly engineering confirms module granularity is sufficient for
 real codebases.
 
+**The trail mirrors this substrate.** Every `graph_bind` records a
+`Mutation(handle, old_node)` in a flat trail buffer keyed by a
+length counter `trail_len`. Append is
+`list_set(trail, trail_len, m); trail_len += 1` — O(1) amortized
+via doubling, exactly parallel to `(nodes, next)`. Rollback reads
+`trail[i]` backward from `trail_len` down to the checkpoint,
+applying each inverse, then resets `trail_len = checkpoint`. Entries
+above the counter are stale and get overwritten on the next append
+— no slicing, no allocation, no linked-structure walk. The trail
+IS the oracle's memory (Ch 10.1); any shape other than flat
+substrate + length counter breaks the O(M) rollback guarantee and
+the "hundreds of candidate patches per second" thesis.
+
+**Per-module overlays mirror it too.** Overlay state is three
+parallel flat arrays — `overlay_names`, `overlay_bufs`,
+`overlay_lens` — plus `overlay_count` and `current_overlay_idx`.
+Each `graph_fresh_ty` reads the current overlay's handles-buffer
+via `list_index(overlay_bufs, current_overlay_idx)` and its logical
+length via `list_index(overlay_lens, current_overlay_idx)`, extends
+the handles-buffer by one, writes the new handle, and updates the
+counter — O(1) amortized, no string-scan per register. `graph_fork`
+scans names once per module enter (rare); `graph_snapshot`
+reconstructs `List[(name, handles)]` pairs using tag=4 slice views
+for O(1)-per-overlay snapshots. The same substrate discipline that
+the nodes buffer and the trail follow. One shape, three roles;
+`list_extend_to` in `std/runtime/lists.ka` is the shared primitive
+that grounds all of them.
+
 ### Live chase, not cache
 
 Every type read in the compiler goes through the same effect:
@@ -1635,9 +1663,12 @@ patch as a *proven* fix. It then rolls back the graph.
 The key mechanisms:
 
 - **Trail-based backtracking.** Every `graph_bind` records its prior
-  state in a trail. `graph_rollback(checkpoint)` walks the trail
-  backwards and restores every node. O(M) where M is mutations
-  recorded. Nothing leaks.
+  state in a flat trail buffer (same substrate as the nodes array —
+  Ch 4). `graph_rollback(checkpoint)` reads `trail[i]` backward from
+  `trail_len` down to the checkpoint, applying each inverse, and
+  resets `trail_len = checkpoint`. O(M) exact where M is mutations
+  recorded — one cache-line read per step. Nothing leaks, nothing
+  slices, nothing allocates.
 - **Multi-shot continuation over candidates.** Each candidate is a
   fork of the same continuation. The handler collects results across
   all forks.

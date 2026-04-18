@@ -232,80 +232,80 @@ fn row_subsumes(body_row, gate_row) =
 //   Open(A,v1)/Open(B,v2) → if v1=v2, unify names; else bind v1 to Open(B-A, v2)
 //   Neg / Sub / Inter → normalize first, re-dispatch
 
-fn unify_row(a, b, reason) =
-  unify_row_canonical(normalize_row(a), normalize_row(b), reason)
+fn unify_row(a, b, span, reason) =
+  unify_row_canonical(normalize_row(a), normalize_row(b), span, reason)
 
-fn unify_row_canonical(a, b, reason) =
+fn unify_row_canonical(a, b, span, reason) =
   match a {
     EfPure =>
       match b {
         EfPure => (),
         EfClosed(names) =>
           if len(names) == 0 { () }
-          else { report_purity_mismatch(b) },
+          else { report_purity_mismatch(b, span) },
         EfOpen(names, v) =>
           if len(names) == 0 {
-            perform graph_bind_row(v, EfPure, reason)
+            perform graph_bind_row(v, EfPure, Located(span, reason))
           } else {
-            report_purity_mismatch(b)
+            report_purity_mismatch(b, span)
           },
-        _ => unify_row_canonical(a, normalize_row(b), reason)
+        _ => unify_row_canonical(a, normalize_row(b), span, reason)
       },
     EfClosed(na) =>
       match b {
         EfPure =>
           if len(na) == 0 { () }
-          else { report_purity_mismatch(a) },
+          else { report_purity_mismatch(a, span) },
         EfClosed(nb) =>
           if list_eq_str(na, nb) { () }
-          else { report_effect_mismatch(a, b) },
+          else { report_effect_mismatch(a, b, span) },
         EfOpen(nb, v) =>
           // Closed(A) ~ Open(B, v) → bind v to Closed(A - B)
           let residual = list_diff_str(na, nb) |> closed_or_pure
-          perform graph_bind_row(v, residual, reason),
-        _ => unify_row_canonical(a, normalize_row(b), reason)
+          perform graph_bind_row(v, residual, Located(span, reason)),
+        _ => unify_row_canonical(a, normalize_row(b), span, reason)
       },
     EfOpen(na, va) =>
       match b {
         EfPure =>
           if len(na) == 0 {
-            perform graph_bind_row(va, EfPure, reason)
+            perform graph_bind_row(va, EfPure, Located(span, reason))
           } else {
-            report_purity_mismatch(a)
+            report_purity_mismatch(a, span)
           },
         EfClosed(nb) =>
           // Open(A, v) ~ Closed(B) → bind v to Closed(B - A)
           let residual = list_diff_str(nb, na) |> closed_or_pure
-          perform graph_bind_row(va, residual, reason),
+          perform graph_bind_row(va, residual, Located(span, reason)),
         EfOpen(nb, vb) =>
           if va == vb {
             if list_eq_str(na, nb) { () }
-            else { report_effect_mismatch(a, b) }
+            else { report_effect_mismatch(a, b, span) }
           } else {
             let residual_names = list_diff_str(nb, na)
-            perform graph_bind_row(va, EfOpen(residual_names, vb), reason)
+            perform graph_bind_row(va, EfOpen(residual_names, vb), Located(span, reason))
           },
-        _ => unify_row_canonical(a, normalize_row(b), reason)
+        _ => unify_row_canonical(a, normalize_row(b), span, reason)
       },
-    _ => unify_row_canonical(normalize_row(a), b, reason)
+    _ => unify_row_canonical(normalize_row(a), b, span, reason)
   }
 
-fn report_purity_mismatch(actual) =
+fn report_purity_mismatch(actual, span) =
   perform report(
     "effects", "E_PurityViolated", "error",
     "expected Pure but found effects: "
       |> str_concat(show_effrow(actual)),
-    span_zero(), "MachineApplicable"
+    span, "MachineApplicable"
   )
 
-fn report_effect_mismatch(a, b) =
+fn report_effect_mismatch(a, b, span) =
   perform report(
     "effects", "E_EffectMismatch", "error",
     "effect row mismatch: "
       |> str_concat(show_effrow(a))
       |> str_concat(" vs ")
       |> str_concat(show_effrow(b)),
-    span_zero(), "MachineApplicable"
+    span, "MachineApplicable"
   )
 
 // ═══ Handler absorption ════════════════════════════════════════════

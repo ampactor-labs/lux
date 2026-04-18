@@ -1,0 +1,844 @@
+// backends/wasm.ka — WASM target handler (one peer among native, test, browser)
+//
+// This is not "the emitter." It is one handler on `WasmOut` reading
+// types live from `LookupTy`. A native backend is a different handler
+// for the SAME effect — swap, not rewrite. The compiler has no backend;
+// it has handlers.
+//
+// Declares: with SubstGraphRead + LookupTy + WasmOut + Diagnostic.
+// No SubstGraphWrite. No cached types in LowExpr — every type read
+// routes through perform lookup_ty(h) which chases the graph.
+//
+// Handler elimination lowers 85% of handlers (TailResumptive) to
+// direct `call` instructions at this level; the other 15% (Linear
+// and MultiShot) have already been rewritten into state machines
+// or heap continuation structs by lower.ka.
+
+import compiler/types
+import compiler/graph
+import compiler/effects
+import compiler/lower
+
+// ═══ WasmOut effect — the output sink ══════════════════════════════
+// Every character of emitted WAT goes through perform wat_emit(s).
+// Default handler writes to stdout; a test handler could collect
+// into a buffer; a format handler could pretty-print. Handler swap.
+
+effect WasmOut {
+  wat_emit(String) -> ()                    @resume=OneShot
+}
+
+handler wat_stdout {
+  wat_emit(s) => {
+    print(s)
+    resume(())
+  }
+}
+
+// ═══ ty_to_wasm — live graph → WASM value type ═════════════════════
+// Reads through LookupTy; refinements transparent (erased at runtime).
+
+fn ty_to_wasm(handle) =
+  perform lookup_ty(handle)
+    |> ty_to_wasm_type
+
+fn ty_to_wasm_type(ty) = match ty {
+  TInt              => "i32",
+  TFloat            => "f64",
+  TBool             => "i32",
+  TString           => "i32",   // pointer into linear memory
+  TUnit             => "i32",
+  TList(_)          => "i32",   // pointer
+  TTuple(_)         => "i32",   // pointer
+  TFun(_, _, _)     => "i32",   // table index / closure ptr
+  TVar(_)           => "i32",   // unresolved — sentinel
+  TName(_, _)       => "i32",   // variant pointer
+  TRecord(_)        => "i32",   // record pointer
+  TRecordOpen(_, _) => "i32",
+  TRefined(base, _) => ty_to_wasm_type(base),
+  TCont(_, _)       => "i32"    // continuation pointer
+}
+
+// ═══ emit_module — top-level entry ═════════════════════════════════
+// Walks the lowered program, emitting the full WAT module structure:
+// imports, memory, globals, function table, functions, start. Every
+// output line flows through perform wat_emit.
+
+// W7: every function is emitted with an implicit `__closure` param.
+// Calls go through a function table keyed by i32 index; LMakeClosure
+// stores the index at offset 0 of the closure record; LCall loads
+// the index and uses `call_indirect` with `$ft(N+1)` type (arity
+// includes the `__closure` slot).
+
+fn emit_module(lowered) = {
+  let all_fn_names = collect_fn_names(lowered, [])
+  let top_fn_names = collect_top_level_fn_names(lowered, [])
+  emit_header()
+  emit_type_section(lowered)
+  emit_runtime_imports()
+  emit_memory_decl()
+  emit_fn_table(all_fn_names)
+  emit_fn_index_globals(all_fn_names, 0)
+  emit_top_level_closure_globals(top_fn_names)
+  emit_functions(lowered)
+  emit_init_closures(top_fn_names)
+  emit_start(lowered)
+  emit_footer()
+}
+
+// Deep-walk the lowered program, collecting every LMakeClosure's
+// function name in encounter order. Each name gets a stable table
+// index (its position in this list). Lifts inline lambdas alongside
+// top-level functions — no lambda left behind.
+fn collect_fn_names(lowered, acc) =
+  collect_fn_names_list(lowered, acc)
+
+fn collect_fn_names_list(exprs, acc) =
+  if len(exprs) == 0 { acc }
+  else {
+    let after_head = collect_fn_names_expr(list_head(exprs), acc)
+    collect_fn_names_list(list_tail(exprs), after_head)
+  }
+
+fn collect_fn_names_expr(expr, acc) = match expr {
+  LMakeClosure(_h, LFn(name, _arity, _ps, body, _row), captures) => {
+    let after_body = collect_fn_names_list(body, acc ++ [name])
+    collect_fn_names_list(captures, after_body)
+  },
+  LLet(_h, _n, inner)        => collect_fn_names_expr(inner, acc),
+  LStore(_h, _s, val)        => collect_fn_names_expr(val, acc),
+  LBinOp(_h, _op, l, r)      => collect_fn_names_expr(r, collect_fn_names_expr(l, acc)),
+  LUnaryOp(_h, _op, inner)   => collect_fn_names_expr(inner, acc),
+  LCall(_h, f, args)         => collect_fn_names_list(args, collect_fn_names_expr(f, acc)),
+  LTailCall(_h, f, args)     => collect_fn_names_list(args, collect_fn_names_expr(f, acc)),
+  LReturn(_h, inner)         => collect_fn_names_expr(inner, acc),
+  LIf(_h, c, t, e) => {
+    let a1 = collect_fn_names_expr(c, acc)
+    let a2 = collect_fn_names_list(t, a1)
+    collect_fn_names_list(e, a2)
+  },
+  LBlock(_h, stmts)          => collect_fn_names_list(stmts, acc),
+  LMakeList(_h, elems)       => collect_fn_names_list(elems, acc),
+  LMakeTuple(_h, elems)      => collect_fn_names_list(elems, acc),
+  LMakeVariant(_h, _t, fs)   => collect_fn_names_list(fs, acc),
+  LIndex(_h, b, i, _)        => collect_fn_names_expr(i, collect_fn_names_expr(b, acc)),
+  LMatch(_h, s, _arms)       => collect_fn_names_expr(s, acc),
+  LLoop(_h, body)            => collect_fn_names_list(body, acc),
+  LBreak(_h, v)              => collect_fn_names_expr(v, acc),
+  LSwitch(_h, s, _c)         => collect_fn_names_expr(s, acc),
+  LSuspend(_h, _o, f, args)  => collect_fn_names_list(args, collect_fn_names_expr(f, acc)),
+  LStateSet(_h, _s, v)       => collect_fn_names_expr(v, acc),
+  LRegion(_h, body)          => collect_fn_names_list(body, acc),
+  LHandleWith(_h, b, hn)     => collect_fn_names_expr(hn, collect_fn_names_expr(b, acc)),
+  LFeedback(_h, b, s)        => collect_fn_names_expr(s, collect_fn_names_expr(b, acc)),
+  LPerform(_h, _n, args)     => collect_fn_names_list(args, acc),
+  LHandle(_h, b, _arms)      => collect_fn_names_expr(b, acc),
+  _                          => acc
+}
+
+// Top-level fn names — only top-level LLet-wrapped closures have
+// module-init closure globals. Inline lambdas construct their
+// records at the LMakeClosure emit site (not at module init).
+fn collect_top_level_fn_names(lowered, acc) =
+  if len(lowered) == 0 { acc }
+  else {
+    let head_name = extract_top_fn_name(list_head(lowered))
+    let next = if str_eq(head_name, "") == 1 { acc }
+               else { acc ++ [head_name] }
+    collect_top_level_fn_names(list_tail(lowered), next)
+  }
+
+fn extract_top_fn_name(stmt) = match stmt {
+  LLet(_, name, LMakeClosure(_, _, _)) => name,
+  _                                    => ""
+}
+
+// Emit the function table and elem mapping indices to function
+// labels. Every closure's fn_ptr slot stores the i32 index into
+// this table; `call_indirect (type $ftK)` dispatches by index.
+fn emit_fn_table(fn_names) = {
+  let n = len(fn_names)
+  if n == 0 { () }
+  else {
+    perform wat_emit("  (table $fns ")
+    perform wat_emit(int_to_str(n))
+    perform wat_emit(" funcref)\n")
+    perform wat_emit("  (elem $fns (i32.const 0)")
+    emit_fn_refs(fn_names)
+    perform wat_emit(")\n")
+  }
+}
+
+fn emit_fn_refs(names) =
+  if len(names) == 0 { () }
+  else {
+    perform wat_emit(" $")
+    perform wat_emit(list_head(names))
+    emit_fn_refs(list_tail(names))
+  }
+
+// Per-function table-index globals. At LMakeClosure emit, we push
+// `(global.get $<name>_idx)` to get the i32 table index — no list
+// lookup needed at emit time. One global per top-level function.
+fn emit_fn_index_globals(names, idx) =
+  if len(names) == 0 { () }
+  else {
+    perform wat_emit("  (global $")
+    perform wat_emit(list_head(names))
+    perform wat_emit("_idx i32 (i32.const ")
+    perform wat_emit(int_to_str(idx))
+    perform wat_emit("))\n")
+    emit_fn_index_globals(list_tail(names), idx + 1)
+  }
+
+// Top-level closure globals. Every top-level function gets a closure
+// record at module init. `$<name>` holds the pointer so VarRef to a
+// top-level fn lowers to LGlobal(h, name) → (global.get $<name>)
+// returns a callable closure (0 captures). Initialized with 0 here;
+// populated by `$_init_closures` at start time.
+fn emit_top_level_closure_globals(names) =
+  if len(names) == 0 { () }
+  else {
+    perform wat_emit("  (global $")
+    perform wat_emit(list_head(names))
+    perform wat_emit(" (mut i32) (i32.const 0))\n")
+    emit_top_level_closure_globals(list_tail(names))
+  }
+
+// `$_init_closures`: allocates a closure record for each top-level
+// function and stores its pointer into `$<name>`. Called from
+// `$_start` before `$main`. Top-level closures have 0 captures; the
+// record is 8 bytes: [fn_idx, 0].
+fn emit_init_closures(names) = {
+  perform wat_emit("  (func $_init_closures\n")
+  emit_init_closure_stmts(names)
+  perform wat_emit("  )\n")
+}
+
+fn emit_init_closure_stmts(names) =
+  if len(names) == 0 { () }
+  else {
+    let name = list_head(names)
+    // Store heap_ptr into $<name>, then bump heap_ptr by 8, then
+    // populate the record (fn_idx at offset 0, count=0 at offset 4).
+    perform wat_emit("    (global.get $heap_ptr)\n")
+    perform wat_emit("    (global.set $")
+    perform wat_emit(name)
+    perform wat_emit(")\n")
+    perform wat_emit("    (global.get $heap_ptr)\n")
+    perform wat_emit("    (i32.const 8) (i32.add)\n")
+    perform wat_emit("    (global.set $heap_ptr)\n")
+    perform wat_emit("    (global.get $")
+    perform wat_emit(name)
+    perform wat_emit(")\n")
+    perform wat_emit("    (global.get $")
+    perform wat_emit(name)
+    perform wat_emit("_idx)\n")
+    perform wat_emit("    (i32.store offset=0)\n")
+    perform wat_emit("    (global.get $")
+    perform wat_emit(name)
+    perform wat_emit(")\n")
+    perform wat_emit("    (i32.const 0) (i32.store offset=4)\n")
+    emit_init_closure_stmts(list_tail(names))
+  }
+
+// ═══ Type section — signatures for call_indirect ═══════════════════
+// Every call_indirect references a function type index. We emit a
+// type for each arity the program's call sites use: the program
+// carries calls of arity 0..N where N is determined by walking the
+// lowered IR. In ultimate-form Inka with evidence-passing, the
+// polymorphic-call path uses these same types: the evidence pointer
+// is a normal i32 slot, so effectful calls of arity K use $ft(K+1).
+
+fn emit_type_section(lowered) = {
+  // _start calls main via $ft1 (__closure alone); ensure the table
+  // always contains at least that entry even for programs with no
+  // multi-arg calls.
+  let observed = max_arity_in(lowered, 0)
+  let max_arity = if observed < 1 { 1 } else { observed }
+  emit_type_decls(0, max_arity)
+}
+
+fn max_arity_in(stmts, acc) =
+  if len(stmts) == 0 { acc }
+  else {
+    let bigger = max_int(acc, max_arity_expr(list_head(stmts)))
+    max_arity_in(list_tail(stmts), bigger)
+  }
+
+// Arity counting accounts for W7's implicit `__closure` param: every
+// emitted function takes `__closure` as its first parameter, and
+// every LCall pushes the closure pointer before the user args, so
+// the effective call arity is len(args)+1.
+fn max_arity_expr(expr) = match expr {
+  LCall(_, _, args)         => len(args) + 1,
+  LTailCall(_, _, args)     => len(args) + 1,
+  LSuspend(_, _, _, args)   => len(args) + 1,
+  LPerform(_, _, args)      => len(args),
+  LLet(_, _, inner)         => max_arity_expr(inner),
+  LMakeClosure(_, _, _)     => 0,
+  _                         => 0
+}
+
+fn max_int(a, b) = if a > b { a } else { b }
+
+fn emit_type_decls(i, max) =
+  if i > max { () }
+  else {
+    perform wat_emit("  (type $ft")
+    perform wat_emit(int_to_str(i))
+    perform wat_emit(" (func")
+    emit_param_types(i)
+    perform wat_emit(" (result i32)))\n")
+    emit_type_decls(i + 1, max)
+  }
+
+fn emit_param_types(n) =
+  if n == 0 { () }
+  else {
+    perform wat_emit(" (param i32)")
+    emit_param_types(n - 1)
+  }
+
+fn emit_header() =
+  perform wat_emit("(module\n")
+
+fn emit_footer() =
+  perform wat_emit(")\n")
+
+fn emit_runtime_imports() = {
+  perform wat_emit(
+    "  (import \"wasi_snapshot_preview1\" \"fd_write\"\n"
+  )
+  perform wat_emit(
+    "    (func $fd_write (param i32 i32 i32 i32) (result i32)))\n"
+  )
+  perform wat_emit(
+    "  (import \"wasi_snapshot_preview1\" \"proc_exit\"\n"
+  )
+  perform wat_emit(
+    "    (func $proc_exit (param i32)))\n"
+  )
+}
+
+fn emit_memory_decl() = {
+  perform wat_emit("  (memory (export \"memory\") 32768 65536)\n")
+  perform wat_emit("  (global $heap_ptr (mut i32) (i32.const 1048576))\n")
+}
+
+// emit_functions deep-walks the lowered program and emits a WASM
+// function for every LMakeClosure encountered — top-level
+// `LLet(_, name, LMakeClosure(...))` fns use their outer LLet name;
+// inline lambdas use the handle-based `lambda_<handle>` name assigned
+// in lower.ka. Order matches `collect_fn_names` traversal, so
+// $<name>_idx globals line up with the function table.
+fn emit_functions(lowered) =
+  emit_fns_list(lowered)
+
+fn emit_fns_list(exprs) =
+  if len(exprs) == 0 { () }
+  else {
+    emit_fns_expr(list_head(exprs))
+    emit_fns_list(list_tail(exprs))
+  }
+
+fn emit_fns_expr(expr) = match expr {
+  LMakeClosure(_h, LFn(name, _arity, param_names, body, _row), captures) => {
+    emit_fn_body(name, param_names, body)
+    // Recurse into body + captures for nested lambdas.
+    emit_fns_list(body)
+    emit_fns_list(captures)
+  },
+  LLet(_h, _n, inner)        => emit_fns_expr(inner),
+  LStore(_h, _s, val)        => emit_fns_expr(val),
+  LBinOp(_h, _op, l, r)      => { emit_fns_expr(l); emit_fns_expr(r) },
+  LUnaryOp(_h, _op, inner)   => emit_fns_expr(inner),
+  LCall(_h, f, args)         => { emit_fns_expr(f); emit_fns_list(args) },
+  LTailCall(_h, f, args)     => { emit_fns_expr(f); emit_fns_list(args) },
+  LReturn(_h, inner)         => emit_fns_expr(inner),
+  LIf(_h, c, t, e)           => { emit_fns_expr(c); emit_fns_list(t); emit_fns_list(e) },
+  LBlock(_h, stmts)          => emit_fns_list(stmts),
+  LMakeList(_h, elems)       => emit_fns_list(elems),
+  LMakeTuple(_h, elems)      => emit_fns_list(elems),
+  LMakeVariant(_h, _t, fs)   => emit_fns_list(fs),
+  LIndex(_h, b, i, _)        => { emit_fns_expr(b); emit_fns_expr(i) },
+  LMatch(_h, s, _arms)       => emit_fns_expr(s),
+  LLoop(_h, body)            => emit_fns_list(body),
+  LBreak(_h, v)              => emit_fns_expr(v),
+  LSwitch(_h, s, _c)         => emit_fns_expr(s),
+  LSuspend(_h, _o, f, args)  => { emit_fns_expr(f); emit_fns_list(args) },
+  LStateSet(_h, _s, v)       => emit_fns_expr(v),
+  LRegion(_h, body)          => emit_fns_list(body),
+  LHandleWith(_h, b, hn)     => { emit_fns_expr(b); emit_fns_expr(hn) },
+  LFeedback(_h, b, s)        => { emit_fns_expr(b); emit_fns_expr(s) },
+  LPerform(_h, _n, args)     => emit_fns_list(args),
+  LHandle(_h, b, _arms)      => emit_fns_expr(b),
+  _                          => ()
+}
+
+fn emit_fn_body(name, param_names, body) = {
+  // W7 calling convention: every function takes `__closure` as its
+  // implicit first parameter. Top-level functions ignore it; lambda
+  // bodies read captures via (local.get $__closure) + offset-load.
+  // The `$clos_tmp` local scratches the closure pointer during
+  // LMakeClosure bump-alloc + field stores, and during LCall for
+  // saving the callee closure pointer before argument evaluation.
+  // Every LLet in the body declares a function-level local so
+  // (local.set $<name>) / (local.get $<name>) validate.
+  perform wat_emit("  (func $")
+  perform wat_emit(name)
+  perform wat_emit(" (param $__closure i32)")
+  emit_params(param_names)
+  perform wat_emit(" (result i32)")
+  perform wat_emit(" (local $clos_tmp i32)")
+  emit_let_locals_list(body)
+  perform wat_emit("\n")
+  emit_body(body)
+  perform wat_emit("  )\n")
+}
+
+// Walk the function body to collect every LLet name and declare it
+// as a function-level local. Stops at LMakeClosure boundaries
+// (those are other functions with their own locals). Must cover
+// every LowExpr container that can hold LLet descendants.
+fn emit_let_locals_list(stmts) =
+  if len(stmts) == 0 { () }
+  else {
+    emit_let_locals_expr(list_head(stmts))
+    emit_let_locals_list(list_tail(stmts))
+  }
+
+fn emit_let_locals_expr(expr) = match expr {
+  LLet(_h, name, inner) => {
+    perform wat_emit(" (local $")
+    perform wat_emit(name)
+    perform wat_emit(" i32)")
+    emit_let_locals_expr(inner)
+  },
+  LMakeClosure(_, _, _)     => (),  // function boundary — its locals are its own
+  LBlock(_h, stmts)         => emit_let_locals_list(stmts),
+  LIf(_h, c, t, e)          => {
+    emit_let_locals_expr(c)
+    emit_let_locals_list(t)
+    emit_let_locals_list(e)
+  },
+  LLoop(_h, body)           => emit_let_locals_list(body),
+  LBinOp(_h, _op, l, r)     => { emit_let_locals_expr(l); emit_let_locals_expr(r) },
+  LUnaryOp(_h, _op, inner)  => emit_let_locals_expr(inner),
+  LCall(_h, f, args)        => { emit_let_locals_expr(f); emit_let_locals_list(args) },
+  LTailCall(_h, f, args)    => { emit_let_locals_expr(f); emit_let_locals_list(args) },
+  LReturn(_h, inner)        => emit_let_locals_expr(inner),
+  LStore(_h, _s, val)       => emit_let_locals_expr(val),
+  LMakeList(_h, elems)      => emit_let_locals_list(elems),
+  LMakeTuple(_h, elems)     => emit_let_locals_list(elems),
+  LMakeVariant(_h, _t, fs)  => emit_let_locals_list(fs),
+  LIndex(_h, b, i, _)       => { emit_let_locals_expr(b); emit_let_locals_expr(i) },
+  LMatch(_h, s, _arms)      => emit_let_locals_expr(s),
+  LBreak(_h, v)             => emit_let_locals_expr(v),
+  LSwitch(_h, s, _c)        => emit_let_locals_expr(s),
+  LSuspend(_h, _o, f, args) => { emit_let_locals_expr(f); emit_let_locals_list(args) },
+  LStateSet(_h, _s, v)      => emit_let_locals_expr(v),
+  LRegion(_h, body)         => emit_let_locals_list(body),
+  LHandleWith(_h, b, hn)    => { emit_let_locals_expr(b); emit_let_locals_expr(hn) },
+  LFeedback(_h, b, s)       => { emit_let_locals_expr(b); emit_let_locals_expr(s) },
+  LPerform(_h, _n, args)    => emit_let_locals_list(args),
+  LHandle(_h, b, _arms)     => emit_let_locals_expr(b),
+  _                         => ()
+}
+
+fn emit_params(names) =
+  if len(names) == 0 { () }
+  else {
+    perform wat_emit(" (param $")
+    perform wat_emit(list_head(names))
+    perform wat_emit(" i32)")
+    emit_params(list_tail(names))
+  }
+
+fn emit_body(stmts) =
+  if len(stmts) == 0 { () }
+  else {
+    emit_expr(list_head(stmts))
+    emit_body(list_tail(stmts))
+  }
+
+fn emit_start(_lowered) = {
+  // Initialize top-level closures first, then invoke main. Main is
+  // called via the uniform closure convention: load $main (now a
+  // closure pointer), push it as __closure, load fn_idx, call_indirect.
+  perform wat_emit("  (func $_start\n")
+  perform wat_emit("    (call $_init_closures)\n")
+  perform wat_emit("    (global.get $main)\n")
+  perform wat_emit("    (global.get $main) (i32.load offset=0)\n")
+  perform wat_emit("    (call_indirect (type $ft1))\n")
+  perform wat_emit("    (drop)\n")
+  perform wat_emit("    (call $proc_exit (i32.const 0))\n")
+  perform wat_emit("  )\n")
+  perform wat_emit("  (export \"_start\" (func $_start))\n")
+}
+
+// ═══ emit_expr — LowIR → WAT instructions ══════════════════════════
+// Exhaustive match on every LowExpr variant; no _ fallback.
+
+fn emit_expr(expr) = match expr {
+  LConst(_h, val) => emit_const(val),
+
+  LLocal(_h, name) => {
+    perform wat_emit("    (local.get $")
+    perform wat_emit(name)
+    perform wat_emit(")\n")
+  },
+
+  LGlobal(_h, name) => {
+    perform wat_emit("    (global.get $")
+    perform wat_emit(name)
+    perform wat_emit(")\n")
+  },
+
+  LStore(_h, slot, val) => {
+    emit_expr(val)
+    perform wat_emit("    (local.set $l")
+    perform wat_emit(int_to_str(slot))
+    perform wat_emit(")\n")
+  },
+
+  LLet(_h, name, val) => {
+    emit_expr(val)
+    perform wat_emit("    (local.set $")
+    perform wat_emit(name)
+    perform wat_emit(")\n")
+  },
+
+  LUpval(_h, idx) => {
+    // W7: read captured value from the closure record at offset
+    // 8 + idx*4 (header is [fn_ptr:i32, capture_count:i32]).
+    perform wat_emit("    (local.get $__closure)\n")
+    perform wat_emit("    (i32.load offset=")
+    perform wat_emit(int_to_str(8 + idx * 4))
+    perform wat_emit(")\n")
+  },
+
+  LBinOp(_h, op, l, r) => {
+    emit_expr(l)
+    emit_expr(r)
+    emit_binop(op)
+  },
+
+  LUnaryOp(_h, op, inner) => {
+    emit_expr(inner)
+    emit_unaryop(op)
+  },
+
+  LCall(_h, func, args) => {
+    // W7 closure call convention:
+    //   1. Evaluate closure (puts pointer on stack), save into $clos_tmp.
+    //   2. Push closure ptr as implicit first arg (for __closure).
+    //   3. Push user args.
+    //   4. Load fn_ptr from closure offset 0.
+    //   5. call_indirect with $ft(N+1) — arity includes __closure.
+    emit_expr(func)
+    perform wat_emit("    (local.set $clos_tmp)\n")
+    perform wat_emit("    (local.get $clos_tmp)\n")
+    emit_expr_list(args)
+    perform wat_emit("    (local.get $clos_tmp) (i32.load offset=0)\n")
+    perform wat_emit("    (call_indirect (type $ft")
+    perform wat_emit(int_to_str(len(args) + 1))
+    perform wat_emit("))\n")
+  },
+
+  LTailCall(_h, func, args) => {
+    emit_expr(func)
+    perform wat_emit("    (local.set $clos_tmp)\n")
+    perform wat_emit("    (local.get $clos_tmp)\n")
+    emit_expr_list(args)
+    perform wat_emit("    (local.get $clos_tmp) (i32.load offset=0)\n")
+    perform wat_emit("    (return_call_indirect (type $ft")
+    perform wat_emit(int_to_str(len(args) + 1))
+    perform wat_emit("))\n")
+  },
+
+  LReturn(_h, inner) => {
+    emit_expr(inner)
+    perform wat_emit("    (return)\n")
+  },
+
+  LMakeClosure(_h, LFn(fn_name, _arity, _param_names, _body, _row), captures_exprs) => {
+    // W7 closure record layout:
+    //   offset 0: fn_ptr (i32) — table index into $fns
+    //   offset 4: capture_count (i32)
+    //   offset 8 + 4*i: capture_i
+    //
+    // INKA-NATIVE NOTE: the closure record is conceptually a frozen
+    // handler state — the same shape evidence vectors (W4) will take.
+    // When W4 + W7 converge, `__closure` and `__ev` unify into a
+    // single `__state` implicit param per DESIGN Ch 4 "handler IS
+    // state". For now the record carries captures only; evidence
+    // plumbing (W4) adds an ev_ptr slot alongside.
+    //
+    // Runtime alloc: bump `$heap_ptr`. Ultimate form performs this
+    // through a Memory + Alloc handler (W5 territory); inline here
+    // keeps W7 self-contained and swap-ready.
+    let n = len(captures_exprs)
+    let size = 8 + n * 4
+    // Snapshot heap_ptr into $clos_tmp; bump the global.
+    perform wat_emit("    (global.get $heap_ptr)\n")
+    perform wat_emit("    (local.set $clos_tmp)\n")
+    perform wat_emit("    (global.get $heap_ptr)\n")
+    perform wat_emit("    (i32.const ")
+    perform wat_emit(int_to_str(size))
+    perform wat_emit(") (i32.add)\n")
+    perform wat_emit("    (global.set $heap_ptr)\n")
+    // Store fn_ptr (table index) at offset 0 — reads the per-fn
+    // index global emitted by emit_fn_index_globals.
+    perform wat_emit("    (local.get $clos_tmp)\n")
+    perform wat_emit("    (global.get $")
+    perform wat_emit(fn_name)
+    perform wat_emit("_idx)\n")
+    perform wat_emit("    (i32.store offset=0)\n")
+    // Store capture count at offset 4.
+    perform wat_emit("    (local.get $clos_tmp)\n")
+    perform wat_emit("    (i32.const ")
+    perform wat_emit(int_to_str(n))
+    perform wat_emit(") (i32.store offset=4)\n")
+    // Store each capture at offset 8 + 4*i.
+    emit_capture_stores(captures_exprs, 0)
+    // Result: closure pointer on stack.
+    perform wat_emit("    (local.get $clos_tmp)\n")
+  },
+
+  LIf(_h, cond, then_body, else_body) => {
+    emit_expr(cond)
+    perform wat_emit("    (if (result i32)\n      (then\n")
+    emit_body(then_body)
+    perform wat_emit("      )\n      (else\n")
+    emit_body(else_body)
+    perform wat_emit("      ))\n")
+  },
+
+  LBlock(_h, stmts) => emit_body(stmts),
+
+  LMakeList(_h, elems) => emit_list_literal(elems),
+
+  LMakeTuple(_h, elems) => emit_tuple_literal(elems),
+
+  LMakeVariant(_h, tag, fields) => {
+    emit_expr_list(fields)
+    perform wat_emit("    (i32.const 0) ;; variant ")
+    perform wat_emit(tag)
+    perform wat_emit("\n")
+  },
+
+  LIndex(_h, base, idx, _is_store) => {
+    emit_expr(base)
+    emit_expr(idx)
+    perform wat_emit("    (i32.const 4) (i32.mul) (i32.add)\n")
+    perform wat_emit("    (i32.load)\n")
+  },
+
+  LMatch(_h, scrutinee, _arms) => {
+    emit_expr(scrutinee)
+    perform wat_emit("    ;; match (dispatch emitted by classify_match)\n")
+  },
+
+  LLoop(_h, body) => {
+    perform wat_emit("    (loop\n")
+    emit_body(body)
+    perform wat_emit("    )\n")
+  },
+
+  LBreak(_h, val) => {
+    emit_expr(val)
+    perform wat_emit("    (br 0)\n")
+  },
+
+  LSwitch(_h, scrutinee, _cases) => {
+    emit_expr(scrutinee)
+    perform wat_emit("    ;; switch\n")
+  },
+
+  LSuspend(_h, _op_h, func, args) => {
+    emit_expr_list(args)
+    emit_expr(func)
+    perform wat_emit("    ;; evidence-passing call\n")
+    perform wat_emit("    (call_indirect (type $ft")
+    perform wat_emit(int_to_str(len(args)))
+    perform wat_emit("))\n")
+  },
+
+  LStateGet(_h, slot) => {
+    perform wat_emit("    (global.get $s")
+    perform wat_emit(int_to_str(slot))
+    perform wat_emit(")\n")
+  },
+
+  LStateSet(_h, slot, val) => {
+    emit_expr(val)
+    perform wat_emit("    (global.set $s")
+    perform wat_emit(int_to_str(slot))
+    perform wat_emit(")\n")
+  },
+
+  LRegion(_h, body) => {
+    perform wat_emit("    ;; region enter\n")
+    emit_body(body)
+    perform wat_emit("    ;; region exit\n")
+  },
+
+  LHandleWith(_h, body, _handler) => {
+    emit_expr(body)
+    perform wat_emit("    ;; ~> handler attached (tail-resumptive inlined)\n")
+  },
+
+  LFeedback(_h, body, _spec) => {
+    emit_expr(body)
+    perform wat_emit("    ;; <~ feedback (iterative ctx)\n")
+  },
+
+  LPerform(_h, op_name, args) => {
+    // Perform emits a direct call to the op's installed handler arm.
+    // In monomorphic handler stacks (the common case — lower.ka's
+    // row_is_ground proves it for >95% of call sites) the symbol
+    // `$op_<name>` resolves statically. The polymorphic path goes
+    // through LSuspend, which loads a function pointer from the
+    // evidence vector and uses call_indirect.
+    emit_expr_list(args)
+    perform wat_emit("    (call $op_")
+    perform wat_emit(op_name)
+    perform wat_emit(")\n")
+  },
+
+  LHandle(_h, body, _arms) => {
+    emit_expr(body)
+    perform wat_emit("    ;; handle expression — arms emitted separately\n")
+  }
+}
+
+fn emit_expr_list(exprs) =
+  if len(exprs) == 0 { () }
+  else {
+    emit_expr(list_head(exprs))
+    emit_expr_list(list_tail(exprs))
+  }
+
+// ═══ Constants ═════════════════════════════════════════════════════
+
+fn emit_const(v) = match v {
+  LInt(n) => {
+    perform wat_emit("    (i32.const ")
+    perform wat_emit(int_to_str(n))
+    perform wat_emit(")\n")
+  },
+  LFloat(f) => {
+    perform wat_emit("    (f64.const ")
+    perform wat_emit(float_to_str(f))
+    perform wat_emit(")\n")
+  },
+  LBool(b) =>
+    if b { perform wat_emit("    (i32.const 1)\n") }
+    else { perform wat_emit("    (i32.const 0)\n") },
+  LString(s) => {
+    perform wat_emit("    ;; string: ")
+    perform wat_emit(s)
+    perform wat_emit("\n    (i32.const 0)\n")
+  }
+}
+
+// ═══ BinOp / UnaryOp ═══════════════════════════════════════════════
+
+fn emit_binop(op) = match op {
+  "+"  => perform wat_emit("    (i32.add)\n"),
+  "-"  => perform wat_emit("    (i32.sub)\n"),
+  "*"  => perform wat_emit("    (i32.mul)\n"),
+  "/"  => perform wat_emit("    (i32.div_s)\n"),
+  "%"  => perform wat_emit("    (i32.rem_s)\n"),
+  "==" => perform wat_emit("    (i32.eq)\n"),
+  "!=" => perform wat_emit("    (i32.ne)\n"),
+  "<"  => perform wat_emit("    (i32.lt_s)\n"),
+  ">"  => perform wat_emit("    (i32.gt_s)\n"),
+  "<=" => perform wat_emit("    (i32.le_s)\n"),
+  ">=" => perform wat_emit("    (i32.ge_s)\n"),
+  "&&" => perform wat_emit("    (i32.and)\n"),
+  "||" => perform wat_emit("    (i32.or)\n"),
+  "++" => perform wat_emit("    (call $str_concat)\n"),
+  _    => {
+    perform wat_emit("    ;; unknown binop: ")
+    perform wat_emit(op)
+    perform wat_emit("\n")
+  }
+}
+
+fn emit_unaryop(op) = match op {
+  "Neg" => {
+    perform wat_emit("    (i32.const 0) (i32.sub)\n")
+  },
+  "Not" => perform wat_emit("    (i32.eqz)\n"),
+  _     => {
+    perform wat_emit("    ;; unknown unaryop: ")
+    perform wat_emit(op)
+    perform wat_emit("\n")
+  }
+}
+
+// ═══ List / tuple literals ═════════════════════════════════════════
+
+// Emit the stores for each capture in the closure record.
+// Captures are indexed from 0; each stored at offset 8 + 4*i.
+fn emit_capture_stores(captures, i) =
+  if len(captures) == 0 { () }
+  else {
+    perform wat_emit("    (local.get $clos_tmp)\n")
+    emit_expr(list_head(captures))
+    perform wat_emit("    (i32.store offset=")
+    perform wat_emit(int_to_str(8 + i * 4))
+    perform wat_emit(")\n")
+    emit_capture_stores(list_tail(captures), i + 1)
+  }
+
+fn emit_list_literal(elems) = {
+  // The graph knows the length at compile time; knows the element
+  // type via lookup_ty on each elem's handle; knows the allocation
+  // context from the enclosing row. Literals never need cons — cons
+  // is for lists the graph doesn't yet know (push / ++ / slice
+  // materialize snoc / concat / view tags; runtime/memory.ka's
+  // list_index dispatches on the tag). A literal is all-flat, all-
+  // known.
+  //
+  // Ultimate emission: one allocation, N inline stores. make_list(n)
+  // allocates 8 + n*4 bytes with layout:
+  //   offset 0: length
+  //   offset 4: tag = 0 (flat)
+  //   offset 8 + i*4: element i
+  // list_set(list, idx, val) stores and returns the list pointer, so
+  // the pointer threads on the stack through successive stores. The
+  // result is the list pointer (O(1) indexable via list_index@tag=0).
+  //
+  // When the enclosing row excludes Alloc AND every element is a
+  // pure literal, this whole construction can fold into a static
+  // data segment — no runtime allocation at all. That fold is a
+  // later refinement on this emission; it does not change the
+  // emitted primitive when the fold doesn't apply.
+  let n = len(elems)
+  perform wat_emit("    (i32.const ")
+  perform wat_emit(int_to_str(n))
+  perform wat_emit(")\n")
+  perform wat_emit("    (call $make_list)\n")
+  emit_list_stores(elems, 0)
+}
+
+fn emit_list_stores(elems, idx) =
+  if len(elems) == 0 { () }
+  else {
+    perform wat_emit("    (i32.const ")
+    perform wat_emit(int_to_str(idx))
+    perform wat_emit(")\n")
+    emit_expr(list_head(elems))
+    perform wat_emit("    (call $list_set)\n")
+    emit_list_stores(list_tail(elems), idx + 1)
+  }
+
+fn emit_tuple_literal(elems) = {
+  emit_expr_list(elems)
+  perform wat_emit("    (i32.const ")
+  perform wat_emit(int_to_str(len(elems) * 4))
+  perform wat_emit(") (call $alloc_tuple)\n")
+}

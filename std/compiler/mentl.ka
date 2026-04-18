@@ -183,8 +183,13 @@ fn apply_annotation_tentatively(handle, ann, base_ty) = match ann {
 fn narrow_row(handle, base_ty, narrow) = match base_ty {
   TFun(params, ret, _) => {
     let narrowed = TFun(params, ret, narrow)
+    // Speculative apply; the trail reverts this bind on rollback.
+    // Span is span_zero() because the annotation originates inside
+    // the oracle, not at a user source site. When Annotation values
+    // eventually carry the proposed source span (oracle return path
+    // for Patch), thread it here.
     perform graph_bind(handle, narrowed,
-      Inferred("mentl speculative narrow"))
+      Located(span_zero(), Inferred("mentl speculative narrow")))
   },
   _ => ()
 }
@@ -272,6 +277,8 @@ fn why_from_handle(handle) = {
 fn why_expand(reason, depth) =
   if depth > 20 { reason }
   else match reason {
+    Located(span, inner) =>
+      Located(span, why_expand(inner, depth + 1)),
     Unified(a, b) =>
       Unified(why_expand(a, depth + 1), why_expand(b, depth + 1)),
     OpConstraint(op, l, r) =>
