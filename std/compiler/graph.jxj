@@ -23,6 +23,17 @@ type NodeKind
 type GNode
   = GNode(NodeKind, Reason)   // every node carries its justification
 
+// ─── Mutation trail ─────────────────────────────────────────
+// Every graph_bind records the old node so rollback can restore it.
+// Every graph_fresh records the handle so rollback can un-allocate it.
+// The trail is append-only during forward execution; rollback walks
+// it backwards. This is the foundation of Mentl's oracle.
+
+type Mutation
+  = MSetNode(Int, GNode)     // handle, old_node (before overwrite)
+  | MSetRow(Int, GNode)      // handle, old_node (row variant)
+  | MFreshNode(Int)          // handle that was allocated (undo = shrink)
+
 // ─── SubstGraph structure ───────────────────────────────────
 
 type SubstGraph
@@ -46,6 +57,7 @@ effect SubstGraphRead {
   graph_epoch() -> Int                         @resume=OneShot
   graph_reason_edge(Int, Int) -> Reason        @resume=OneShot
   graph_snapshot() -> SubstGraph               @resume=OneShot
+  graph_push_checkpoint() -> Int               @resume=OneShot
 }
 
 effect SubstGraphWrite {
@@ -54,6 +66,7 @@ effect SubstGraphWrite {
   graph_bind(Int, Ty, Reason) -> ()            @resume=OneShot
   graph_bind_row(Int, EffRow, Reason) -> ()    @resume=OneShot
   graph_fork(String) -> ()                     @resume=OneShot
+  graph_rollback(Int) -> ()                    @resume=OneShot
 }
 
 // ─── graph_handler ──────────────────────────────────────────
@@ -64,8 +77,14 @@ effect SubstGraphWrite {
 // This is the first real demonstration of Inka's handler-state
 // pattern. State is internal to the handler. Callers never see
 // SubstGraph directly — they perform effects.
+//
+// The trail enables Mentl's oracle. Every mutation is recorded.
+// Checkpoint captures len(trail). Rollback restores the graph
+// to any previous checkpoint by walking the trail backwards.
+// This turns the SubstGraph into a speculative substrate:
+// try a hypothesis, check if it unifies, roll back.
 
-handler graph_handler with nodes = [], epoch = 0, next = 0, overlays = [] {
+handler graph_handler with nodes = [], trail = [], epoch = 0, next = 0, overlays = [] {
 
   // ─── Read ops ───────────────────────────────────────────
 
@@ -88,20 +107,28 @@ handler graph_handler with nodes = [], epoch = 0, next = 0, overlays = [] {
     resume(SubstGraph(nodes, epoch, next, overlays))
   },
 
+  // ─── Checkpoint (Mentl oracle) ──────────────────────────
+
+  graph_push_checkpoint() => {
+    resume(len(trail))
+  },
+
   // ─── Write ops ──────────────────────────────────────────
 
   graph_fresh_ty(reason) => {
     let handle = next
     let new_node = GNode(NFree(epoch), reason)
     let new_nodes = nodes ++ [new_node]
-    resume(handle) with nodes = new_nodes, next = next + 1
+    resume(handle) with nodes = new_nodes, next = next + 1,
+      trail = trail ++ [MFreshNode(handle)]
   },
 
   graph_fresh_row(reason) => {
     let handle = next
     let new_node = GNode(NRowFree(epoch), reason)
     let new_nodes = nodes ++ [new_node]
-    resume(handle) with nodes = new_nodes, next = next + 1
+    resume(handle) with nodes = new_nodes, next = next + 1,
+      trail = trail ++ [MFreshNode(handle)]
   },
 
   graph_bind(handle, ty, reason) => {
@@ -117,21 +144,37 @@ handler graph_handler with nodes = [], epoch = 0, next = 0, overlays = [] {
       )
       resume(())
     } else {
+      let old_node = graph_node_at(nodes, handle)
       let bound_node = GNode(NBound(ty), reason)
       let new_nodes = graph_set_node(nodes, handle, bound_node)
-      resume(()) with nodes = new_nodes, epoch = epoch + 1
+      resume(()) with nodes = new_nodes, epoch = epoch + 1,
+        trail = trail ++ [MSetNode(handle, old_node)]
     }
   },
 
   graph_bind_row(handle, row, reason) => {
+    let old_node = graph_node_at(nodes, handle)
     let bound_node = GNode(NRowBound(row), reason)
     let new_nodes = graph_set_node(nodes, handle, bound_node)
-    resume(()) with nodes = new_nodes, epoch = epoch + 1
+    resume(()) with nodes = new_nodes, epoch = epoch + 1,
+      trail = trail ++ [MSetRow(handle, old_node)]
   },
 
   graph_fork(module_name) => {
     let overlay_entry = (module_name, [])
     resume(()) with overlays = overlays ++ [overlay_entry]
+  },
+
+  // ─── Rollback (Mentl oracle) ────────────────────────────
+  // Walk the trail backwards from current length to target.
+  // Each mutation is undone: MSetNode restores old node,
+  // MFreshNode shrinks the graph, MSetRow restores old row.
+
+  graph_rollback(target_idx) => {
+    let restored = revert_trail(nodes, trail, len(trail), target_idx, next)
+    let (new_nodes, new_next) = restored
+    resume(()) with nodes = new_nodes, next = new_next,
+      trail = trail_slice(trail, target_idx)
   }
 }
 
@@ -247,6 +290,42 @@ fn occurs_in_fields(handle, fields) =
     occurs_in(handle, ty)
       || occurs_in_fields(handle, list_tail(fields))
   }
+
+// ─── Trail revert ───────────────────────────────────────────
+// Walk the trail backwards from current position to target checkpoint.
+// Each mutation type has a precise inverse:
+//   MSetNode(h, old) → restore nodes[h] to old
+//   MSetRow(h, old)  → restore nodes[h] to old (same operation)
+//   MFreshNode(h)    → decrement next (un-allocate the handle)
+
+fn revert_trail(nodes, trail, current, target, next_handle) =
+  if current <= target { (nodes, next_handle) }
+  else {
+    let idx = current - 1
+    let mutation = list_at_trail(trail, idx)
+    match mutation {
+      MSetNode(h, old_node) =>
+        revert_trail(
+          graph_set_node(nodes, h, old_node),
+          trail, idx, target, next_handle
+        ),
+      MSetRow(h, old_node) =>
+        revert_trail(
+          graph_set_node(nodes, h, old_node),
+          trail, idx, target, next_handle
+        ),
+      MFreshNode(h) =>
+        revert_trail(nodes, trail, idx, target, next_handle - 1)
+    }
+  }
+
+fn list_at_trail(trail, idx) =
+  if idx == 0 { list_head(trail) }
+  else { list_at_trail(list_tail(trail), idx - 1) }
+
+fn trail_slice(trail, target) =
+  if target == 0 { [] }
+  else { [list_head(trail)] ++ trail_slice(list_tail(trail), target - 1) }
 
 // ─── String set operations ──────────────────────────────────
 

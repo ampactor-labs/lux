@@ -68,12 +68,133 @@ fn query_source(source, question) =
     let result = perform ask(q)
     render_query_result(result)
   }
-    ~> query_default // Renamed from query_handler since query.jxj exports query_default
-    ~> mentl_default // Added Mentl here as well for diagnostic support
+    ~> query_default
+    ~> mentl_default
     ~> verify_ledger_handler
     ~> env_handler
     ~> graph_handler
     ~> diagnostics_handler
+
+// ─── teach_source: inference + Mentl oracle gradient ────────
+// Runs inference, then asks Mentl's oracle for the highest-
+// leverage annotation the developer could add next.
+// Returns a human-readable gradient recommendation.
+
+fn teach_source(source) =
+  {
+    let ast = source |> frontend
+    infer_program(ast)
+
+    // Walk all function handles and ask Mentl for gradients
+    let gradients = collect_function_gradients(ast)
+    render_gradients(gradients)
+  }
+    ~> synth_enumerative
+    ~> mentl_oracle
+    ~> verify_ledger_handler
+    ~> env_handler
+    ~> graph_handler
+    ~> diagnostics_handler
+
+fn collect_function_gradients(ast) =
+  if len(ast) == 0 { [] }
+  else {
+    let node = list_head(ast)
+    let N(body, _, handle) = node
+    let gradient = match body {
+      NStmt(FnStmt(name, _, _, _, _)) => {
+        let result = perform teach_gradient(handle)
+        [(name, result)]
+      },
+      _ => []
+    }
+    gradient ++ collect_function_gradients(list_tail(ast))
+  }
+
+fn render_gradients(gradients) =
+  if len(gradients) == 0 { "All functions are at maximum annotation level.\n" }
+  else {
+    let (name, result) = list_head(gradients)
+    name ++ ": " ++ render_gradient(result) ++ "\n"
+      |> str_concat(render_gradients(list_tail(gradients)))
+  }
+
+// ─── audit_capabilities: prove capability boundaries ────────
+// Walks a program's AST and effect annotations.
+// Reports which effects each function performs and which it negates.
+// This is the Subtractive Sandboxing proof.
+
+fn audit_capabilities(target) =
+  {
+    let source = perform read_file(target)
+    let ast = source |> frontend
+    infer_program(ast)
+
+    // Walk every function, report its effect row
+    let report = audit_functions(ast)
+    render_audit(report)
+  }
+    ~> mentl_default
+    ~> verify_ledger_handler
+    ~> env_handler
+    ~> graph_handler
+    ~> diagnostics_handler
+
+fn audit_functions(ast) =
+  if len(ast) == 0 { [] }
+  else {
+    let node = list_head(ast)
+    let N(body, _, handle) = node
+    let entry = match body {
+      NStmt(FnStmt(name, _, _, _, _)) => {
+        let ty = perform lookup_ty(handle)
+        [(name, ty)]
+      },
+      _ => []
+    }
+    entry ++ audit_functions(list_tail(ast))
+  }
+
+fn render_audit(entries) =
+  if len(entries) == 0 { "" }
+  else {
+    let (name, ty) = list_head(entries)
+    let row_str = match ty {
+      TFun(_, _, row) => show_effrow(row),
+      _ => "pure"
+    }
+    name ++ ": " ++ row_str ++ "\n"
+      |> str_concat(render_audit(list_tail(entries)))
+  }
+
+// ─── Package effect ─────────────────────────────────────────
+// Module resolution as effect. Handlers provide the fetch strategy.
+// local_cache checks .inka/cache/. registry_hub fetches from registry.
+// The ~> chain in main.jxj composes them: try local first, then remote.
+
+effect Package {
+  fetch_module(String) -> String            @resume=OneShot
+  // module path -> module source
+}
+
+handler local_cache {
+  fetch_module(path) => {
+    let cached = perform read_cached(path)
+    match cached {
+      Some(source) => resume(source),
+      None => resume(perform fetch_module(path))   // delegate to next handler
+    }
+  }
+}
+
+handler registry_hub {
+  fetch_module(path) => {
+    // In ultimate form: fetch from network registry
+    // For now: delegate to filesystem
+    let source = perform read_file(path)
+    resume(source)
+  }
+}
 
 // ─── Lower program ─────────────────────────────────────────
 

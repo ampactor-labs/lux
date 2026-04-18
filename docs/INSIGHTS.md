@@ -18,25 +18,26 @@ Every consumer of that knowledge is a handler:
 - **Codegen** — the handler that turns type knowledge into machine code
 - **LSP** — the handler that turns type knowledge into hover info
 - **Teaching** — the handler that turns type knowledge into the gradient
-
-## The Second Truth: Topology is Emitted, Not Computed
-
-*The structure of reality is built into the direction you traverse it.*
-
-In WASM/Inka, our arrays are Snoc Trees to guarantee $O(1)$ functional appends. But `list_head` returns the *last* element. If you iterate sequentially using `list_head` and `list_tail`, your program fundamentally executes backwards.
-
-Instead of writing $O(N^2)$ recursive loops to fetch indices, or $O(N)$ code to reverse arrays in memory, we exploit the call stack:
-**The Recurse-First Topology**: Walk to the deepest node first before emitting any code. As the stack unwinds, your traversal naturally reverses, returning $O(1)$ elements in mathematically pure forward-execution order without a single allocation or state variable. The structure handles itself!
 - **Errors** — the handler that turns type knowledge into diagnostics
 - **The user** — the handler that turns type knowledge into understanding
 
 One inference. Many handlers. Same mechanism as everything else in Inka.
 
-When info doesn't flow through effects, a gap opens. Every effect that
-carries knowledge closes one. Before every action: does the info exist?
-Does it flow? Through an effect? Is the flow observable? Verified? Visible?
+## The Second Truth: Zero-Cost Linearity & Scoped Arenas
 
-The light doesn't need to be carried. It needs to be LET THROUGH.
+*Memory is not a hidden runtime system. It is physical, and it is governed by effect algebras.*
+
+We do not use Garbage Collectors, nor do we use immutable "Snoc Trees" to fake immutability. The compiler emits raw, in-place, zero-allocation mutations in flat contiguous linear memory. 
+
+- **The Alloc Effect:** Memory allocation is just an effect. By wrapping memory-heavy operations in a `temp_arena` handler, gigabytes of memory are instantly dropped in $O(1)$ time simply by letting the handler scope drop. No sweeping GC passes.
+- **Escape Analysis via Region Inference:** To prevent the Use-After-Free bugs of C++ arenas, the compiler natively enforces lifetime bounds through hidden Region variables (`Tofte-Talpin`). If a returned pointer outlives its `Alloc` handler scope, the compiler forces a hard error. 
+
+## The Third Truth: The Duty of Inference is Reification
+
+*Abstract algebra must materialize into physical pointers.*
+
+`infer.jxj` does not just "type-check" code. Its ultimate duty is to physically synthesize hidden Evidence Dictionaries (vtables) for unhandled effects. It intercepts function definitions with unhandled effects and rewrites their ASTs to accept an opaque Evidence Vector (`*const ()`). At `handle` blocks, it synthesizes the concrete dictionary. 
+Polymorphic effects are turned into static, zero-cost WASM `call_indirect` dependency injection. We get the performance of monomorphization without the C++ code bloat.
 
 ---
 
@@ -396,28 +397,14 @@ should work, run it, see the light.
 
 ---
 
-## Records, Not Packages
+## Packaging is Handlers
 
-A handler is a record: `{ op: |args| resume(...), ... }`. A module exports
-functions. Functions are values. A "package" is a record you import by path.
+There is no package manager. There are no JSON or TOML manifests. There is no external constraint solver. The compiler IS the package manager.
 
-```lux
-import compiler/ty    // gives you a record of functions
-import dsp/filters    // gives you a record of functions
-```
-
-The effect signature IS the API contract. `!IO` is a proof, not a promise.
-`!Network` means provably no network access — enforced by the type system,
-not a sandbox, not a policy file. A module with `with Compute, Log`
-literally cannot perform IO. The compiler proves it.
-
-What a package manager solves, Inka solves with what it already has:
-- **Discovery** — the effect signature tells you what a module does
-- **Trust** — `!IO` is a proof, not a promise
-- **Versioning** — types match → it works; types don't → compile error
-- **Resolution** — `import` is a path; paths compose; no solver needed
-
-Distribution is `git clone`. Not a language feature.
+- **The Manifest**: The `~>` chain in your `main()` function is the executable, type-checked manifest. 
+- **Version Solving**: The type-checker handles versions natively by structurally unifying effect signatures. Breaking API or effect changes inherently fail unification.
+- **The `Package` Effect**: The compiler doesn't perform raw file reads. It emits `perform fetch(hash)`. Repositories and local caches are just registry handlers (`~> local_cache >< github_hub`) layered over the compilation.
+- **Subtractive Sandboxing**: `inka audit` walks the `~>` chain, tracing the exact dataflow of the Causality Web. It performs Effect Tree-Shaking to mathematically sever unused capabilities (like `Network`) from bloated registry imports, proving absolute security.
 
 ---
 
@@ -1667,6 +1654,36 @@ catches it because `<|` is visible in the AST.
 
 `><` has fully independent tracks. Each branch can consume its own
 input. No crossover, no affine restriction.
+
+### Parameters ARE Tuples. `|>` Is a Wire. There Is No Splatting.
+
+This is a settled truth. It is NOT a design question. Never re-open it.
+
+A function `fn f(a, b, c)` has type `(A, B, C) -> D`. The parameter
+list IS a tuple. Calling `f(x, y, z)` is applying the tuple `(x, y, z)`.
+
+`|>` is transparent: it passes whatever is on the left to whatever is
+on the right. It does not unwrap. It does not reassemble. It is a wire.
+
+When `<|` or `><` produce a tuple `(A, B)` and you `|> merge`, the
+inference engine unifies the tuple type against the function's parameter
+types. This is not "auto-splatting" — it is structural unification.
+The same mechanism that unifies `TInt` with `TInt`.
+
+```lux
+// <| produces (Low, Mid, High). mix_3 takes three arguments.
+// Inference unifies (Low, Mid, High) with (Low, Mid, High) -> Out.
+// This Just Works.
+input <| (low_pass, band_pass, high_pass) |> mix_3
+
+// If you want the tuple as a single value, say so:
+input <| (low_pass, band_pass, high_pass) |> fn(bands) => log(bands)
+// Inference unifies (Low, Mid, High) with ((Low, Mid, High)) -> Out.
+// fn(bands) has ONE parameter of tuple type. This also Just Works.
+```
+
+The developer controls arity through their function signature.
+No language rule needed. No special case. One mechanism.
 
 ---
 

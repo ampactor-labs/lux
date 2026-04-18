@@ -86,63 +86,248 @@ handler mentl_default with annotations = [] {
   }
 }
 
-// ─── Gradient logic ─────────────────────────────────────────
-// Examines the type + effect row at a handle.
-// Returns the highest-leverage annotation the programmer
-// could add next. This is the "what should I learn?" insight.
+// ─── The Oracle ─────────────────────────────────────────────
+// Mentl's gradient doesn't guess. It PROVES.
+// Checkpoint the graph → speculatively apply annotation →
+// run unification → record pass/fail → roll back.
+// Only PROVEN annotations are returned.
+//
+// This is what makes Mentl more than a linter. This is what
+// makes the compiler more than a compiler. The graph trail
+// (graph.jxj) enables speculative mutation. Mentl uses it
+// to explore the annotation space and prove which moves
+// are valid. The developer gets certainty, not suggestions.
 
 fn gradient_next(handle) = {
   let node = perform graph_chase(handle)
   let GNode(kind, _) = node
   match kind {
     NBound(ty) => match ty {
-      TFun(params, ret, row) =>
-        row
-          |> suggest_from_row
-          |> fn(row_sugg) =>
-            match row_sugg {
-              Some(_) => row_sugg,
-              None => suggest_from_params(params)
-            },
+      TFun(params, ret, row) => {
+        // The candidate annotations to test
+        let candidates = [APure, ANotAlloc, ANotIO, ANotNetwork]
+        let param_candidates = ownership_candidates(params)
+        let all_candidates = candidates ++ param_candidates
+
+        // Speculatively test each one
+        let proven = try_each_annotation(handle, all_candidates)
+
+        // Return the highest-leverage proven annotation
+        pick_highest_leverage(proven)
+      },
       _ => None
     },
     _ => None
   }
 }
 
-fn suggest_from_row(row) = match row {
-  EfPure => Some(APure),
-  EfClosed(names) =>
-    if not(string_in_list(names, "Alloc")) { Some(ANotAlloc) }
-    else if not(string_in_list(names, "IO")) { Some(ANotIO) }
-    else { None },
-  EfOpen(_, _) => None,   // Open row — can't suggest yet
-  _ => None
-}
-
-fn suggest_from_params(params) =
-  if len(params) == 0 { None }
+// Try each annotation: checkpoint → apply → verify → rollback.
+// Returns a list of (Annotation, Capability) pairs that PASSED.
+fn try_each_annotation(handle, candidates) =
+  if len(candidates) == 0 { [] }
   else {
-    let TParam(name, _, own) = list_head(params)
-    match own {
-      OwInferred => Some(AOwn(name)),
-      _ => suggest_from_params(list_tail(params))
+    let ann = list_head(candidates)
+    let rest = list_tail(candidates)
+
+    // Checkpoint the graph
+    let cp = perform graph_push_checkpoint()
+
+    // Speculatively apply the annotation
+    perform graph_apply_annotation(handle, ann)
+
+    // Check if the graph still unifies
+    let result = perform graph_try_unify_all()
+
+    // Roll back regardless of result
+    perform graph_rollback(cp)
+
+    // Record if it succeeded
+    let rest_results = try_each_annotation(handle, rest)
+    match result {
+      Some(_) => [(ann, unlock_capability(ann))] ++ rest_results,
+      None => rest_results
     }
   }
+
+// Generate ownership annotation candidates from params
+fn ownership_candidates(params) =
+  if len(params) == 0 { [] }
+  else {
+    let TParam(name, _, own) = list_head(params)
+    let rest = ownership_candidates(list_tail(params))
+    match own {
+      OwInferred => [AOwn(name), ARef(name)] ++ rest,
+      _ => rest
+    }
+  }
+
+// Pick the highest-leverage annotation from proven results.
+// Priority: !Alloc (real-time) > !IO (compile-time) > !Network
+// (sandbox) > Pure (memoize) > Own (drop) > Ref (zerocopy).
+fn pick_highest_leverage(proven) =
+  if len(proven) == 0 { None }
+  else {
+    let best = find_by_priority(proven, [
+      ANotAlloc, ANotIO, ANotNetwork, APure
+    ])
+    match best {
+      Some(_) => best,
+      None => Some(list_head(proven))
+    }
+  }
+
+fn find_by_priority(proven, priorities) =
+  if len(priorities) == 0 { None }
+  else {
+    let target = list_head(priorities)
+    match find_annotation(proven, target) {
+      Some(pair) => Some(pair),
+      None => find_by_priority(proven, list_tail(priorities))
+    }
+  }
+
+fn find_annotation(proven, target) =
+  if len(proven) == 0 { None }
+  else {
+    let (ann, cap) = list_head(proven)
+    if annotation_eq(ann, target) { Some((ann, cap)) }
+    else { find_annotation(list_tail(proven), target) }
+  }
+
+fn annotation_eq(a, b) = match a {
+  APure => match b { APure => true, _ => false },
+  ANotAlloc => match b { ANotAlloc => true, _ => false },
+  ANotIO => match b { ANotIO => true, _ => false },
+  ANotNetwork => match b { ANotNetwork => true, _ => false },
+  _ => false
+}
 
 fn string_in_list(lst, s) =
   if len(lst) == 0 { false }
   else if str_eq(list_head(lst), s) == 1 { true }
   else { string_in_list(list_tail(lst), s) }
 
-// ─── Why engine ─────────────────────────────────────────────
-// Reads graph_chase(handle).reason — the Reason tracked by inference.
-// Full recursive chain traversal.
+// ─── The Why Engine ─────────────────────────────────────────
+// Reads the full reason chain from the graph. Not just the
+// top-level reason — the RECURSIVE chain. Every reason points
+// to other reasons. The chain goes all the way back to source.
+//
+// When the developer asks "why is this TInt?", they get:
+//   handle 7 is TInt because:
+//     → operator "+" constrains left and right to match
+//       → left (handle 3) is TInt because:
+//         → int literal 42 at line 5, col 12
+//
+// There are no gaps. There is no "trust me."
 
 fn why_from_handle(handle) = {
   let node = perform graph_chase(handle)
   let GNode(_, reason) = node
-  reason
+  why_expand(reason, 0)
+}
+
+// Recursively expand a reason chain, following handle references.
+// Depth-limited to prevent infinite loops on circular reasons.
+fn why_expand(reason, depth) =
+  if depth > 20 { reason }
+  else match reason {
+    Unified(a, b) =>
+      Unified(why_expand(a, depth + 1), why_expand(b, depth + 1)),
+    OpConstraint(op, left, right) =>
+      OpConstraint(op, why_expand(left, depth + 1), why_expand(right, depth + 1)),
+    VarLookup(name, inner) =>
+      VarLookup(name, why_expand(inner, depth + 1)),
+    FnReturn(name, inner) =>
+      FnReturn(name, why_expand(inner, depth + 1)),
+    FnParam(name, idx, inner) =>
+      FnParam(name, idx, why_expand(inner, depth + 1)),
+    MatchBranch(a, b) =>
+      MatchBranch(why_expand(a, depth + 1), why_expand(b, depth + 1)),
+    ListElement(inner) =>
+      ListElement(why_expand(inner, depth + 1)),
+    IfBranch(inner) =>
+      IfBranch(why_expand(inner, depth + 1)),
+    LetBinding(name, inner) =>
+      LetBinding(name, why_expand(inner, depth + 1)),
+    Instantiation(name, inner) =>
+      Instantiation(name, why_expand(inner, depth + 1)),
+    Fresh(id) => {
+      // Chase the handle to see if it resolved
+      let node = perform graph_chase(id)
+      let GNode(_, resolved_reason) = node
+      match resolved_reason {
+        Fresh(_) => reason,     // Still unresolved, stop here
+        _ => why_expand(resolved_reason, depth + 1)
+      }
+    },
+    _ => reason   // Leaf reasons: Declared, Inferred, MissingVar, etc.
+  }
+
+// ─── The Synth Handler ──────────────────────────────────────
+// Program synthesis from type constraints.
+// Any proposer (enumerative, SMT, LLM) plugs in as a handler.
+// Mentl VERIFIES each candidate against the type + effect algebra.
+//
+// The key insight: every AI coding tool today is a PROPOSER.
+// It guesses. Mentl doesn't guess — it explores the constraint
+// space using the compiler's own multi-shot continuation, and
+// it PROVES each candidate is correct against the type system,
+// effect algebra, and refinement predicates.
+
+handler synth_enumerative {
+  propose(target_ty, allowed_effects, context) => {
+    // Get raw candidates from the enumerator
+    let raw = perform enumerate_inhabitants(target_ty, allowed_effects, context)
+
+    // Verify each candidate using checkpoint/rollback
+    let verified = verify_each(raw)
+    resume(verified)
+  },
+
+  verify_candidate(candidate) => {
+    let cp = perform graph_push_checkpoint()
+    perform graph_inject_candidate(candidate)
+    let result = perform graph_try_unify_all()
+    perform graph_rollback(cp)
+    match result {
+      Some(_) => resume(true),
+      None => resume(false)
+    }
+  }
+}
+
+fn verify_each(candidates) =
+  if len(candidates) == 0 { [] }
+  else {
+    let c = list_head(candidates)
+    let rest = verify_each(list_tail(candidates))
+    let ok = perform verify_candidate(c)
+    if ok { [c] ++ rest }
+    else { rest }
+  }
+
+// ─── Teach Synthesize ───────────────────────────────────────
+// When the developer writes fn f(x) = ?, Mentl fills the hole.
+// Uses Synth effect to propose candidates, verifies each one,
+// returns the best match.
+
+fn teach_synthesize(hole_handle, context) = {
+  let node = perform graph_chase(hole_handle)
+  let GNode(kind, _) = node
+  match kind {
+    NBound(ty) => {
+      let row = extract_row(ty)
+      let candidates = perform propose(ty, row, context)
+      if len(candidates) == 0 { None }
+      else { Some(list_head(candidates)) }
+    },
+    _ => None
+  }
+}
+
+fn extract_row(ty) = match ty {
+  TFun(_, _, row) => row,
+  _ => EfPure
 }
 
 // ─── Unlock mapping ─────────────────────────────────────────
@@ -165,7 +350,7 @@ fn catalog_summary(code) = match code {
   "E001" => "Variable not found in scope",
   "E002" => "Type mismatch",
   "E003" => "Arity mismatch",
-  "E004" => "Missing return type",
+  "E004" => "Affine violation: own value used through <| (use >< for independent tracks)",
   "E010" => "Occurs check failed (circular type)",
   "E100" => "Unresolved type variable at codegen",
   "E200" => "Exhaustiveness violation",
@@ -174,6 +359,8 @@ fn catalog_summary(code) = match code {
   "T002" => "Handler does not cover required effects",
   "V001" => "Verification obligation pending",
   "W017" => "Unused binding",
+  "E_FeedbackNoContext" => "<~ requires an iterative context (Clock, Sample, or Tick handler)",
+  "E_PurityViolated" => "Function performs effects that violate its declared purity",
   _ => "Unknown error code: " ++ code
 }
 
@@ -184,4 +371,36 @@ fn render_explanation(exp) = {
   code ++ ": " ++ summary
     |> str_concat("\n  Why: ")
     |> str_concat(show_reason(reason))
+}
+
+fn render_gradient(result) = match result {
+  None => "No annotation unlocks available at this point.",
+  Some(pair) => {
+    let (ann, cap) = pair
+    "💡 Adding "
+      |> str_concat(show_annotation(ann))
+      |> str_concat(" would unlock: ")
+      |> str_concat(show_capability(cap))
+  }
+}
+
+fn show_annotation(ann) = match ann {
+  APure => "Pure",
+  ANotAlloc => "!Alloc",
+  ANotIO => "!IO",
+  ANotNetwork => "!Network",
+  ARefined(name, _) => "refined " ++ name,
+  AOwn(name) => "own " ++ name,
+  ARef(name) => "ref " ++ name
+}
+
+fn show_capability(cap) = match cap {
+  CMemoize => "Memoization (pure function caching)",
+  CParallelize => "Automatic parallelization",
+  CCompileTimeEval => "Compile-time evaluation",
+  CRealTime => "Real-time safe (proven zero allocation)",
+  CSandbox => "Sandbox (proven no network access)",
+  CEliminateBoundsCheck => "Bounds check elimination",
+  CZeroCopy => "Zero-copy (proven no ownership transfer)",
+  CDeterministicDrop => "Deterministic drop (proven single use)"
 }

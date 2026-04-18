@@ -268,6 +268,43 @@ effect Consume {
   consume(String, Span) -> ()               @resume=OneShot
 }
 
+// ─── Synth (Mentl oracle) ───────────────────────────────────
+// Program synthesis from type constraints. The mechanism that
+// lets Mentl synthesize decoders, interpolators, hole-fillers.
+// Any proposer (enumerative, SMT, LLM) plugs in as a handler.
+// Mentl VERIFIES each candidate against the type + effect algebra.
+
+effect Synth {
+  propose(Ty, EffRow, List) -> List          @resume=OneShot
+  // type, allowed effects, context -> verified candidates
+  verify_candidate(Node) -> Bool             @resume=OneShot
+  // inject candidate, run unification, report pass/fail
+  enumerate_inhabitants(Ty, EffRow, List) -> List  @resume=MultiShot
+  // type, allowed effects, context -> raw candidates (pre-verify)
+}
+
+// ─── GraphSpeculate (Mentl oracle) ──────────────────────────
+// Speculative operations on the SubstGraph. Used by Mentl's
+// oracle for try-and-rollback annotation testing.
+
+effect GraphSpeculate {
+  graph_try_unify_all() -> Option            @resume=OneShot
+  // Run full unification check, return Ok/Err
+  graph_inject_candidate(Node) -> ()         @resume=OneShot
+  // Temporarily inject a candidate AST node
+  graph_apply_annotation(Int, Annotation) -> ()  @resume=OneShot
+  // Speculatively apply an annotation to a handle's effect row
+}
+
+// ─── IterativeContext (spec 10 — <~ feedback) ───────────────
+// <~ requires a Clock/Sample/Tick handler. Absence is a type error.
+// Inference checks for this before allowing feedback wiring.
+
+effect IterativeContext {
+  check_iterative_context() -> Option        @resume=OneShot
+  // Returns Some(handler_info) if iterative context exists, None otherwise
+}
+
 // ─── Display ────────────────────────────────────────────────
 // Type display as |> chains. These are the canonical printers.
 // They perform graph_chase for TVars — live, never cached.

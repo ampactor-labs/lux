@@ -55,11 +55,21 @@ as the fifth variant. Parser delta in Phase 1.
 
 ```
 input |> stage1 |> stage2 |> output
-(a, b, c) |> merge_fn   // merge_fn: fn((A, B, C)) -> D
+(a, b, c) |> merge_fn   // merge_fn: fn(A, B, C) -> D
 ```
 
-Data flows left-to-right; downstream takes upstream's output. Tuple
-on the left converges into a multi-arity receiver.
+Data flows left-to-right; downstream takes upstream's output.
+`|>` is a transparent wire — it passes whatever is on the left to
+whatever is on the right. It does not unwrap tuples or repack values.
+
+When `<|` or `><` produce a tuple `(A, B, C)` and the next `|>`
+delivers it to `merge_fn: fn(A, B, C) -> D`, the inference engine
+structurally unifies the tuple type against the function's parameter
+list. Parameters ARE tuples. This is not "auto-splatting" — it is
+the same structural unification that unifies `TInt` with `TInt`.
+If `merge_fn` is defined as `fn(triple)` (one parameter), it receives
+the tuple as a single value. The developer controls arity through
+their function signature. No language rule needed.
 
 - **Row:** `row(x |> f |> g) = row(x) + row(f) + row(g)`.
 - **Ownership:** `own` consumed-and-moved per stage.

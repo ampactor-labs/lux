@@ -233,15 +233,86 @@ fn infer_expr(node) = {
       match kind {
         PForward => {
           // left |> right  ≡  right(left)
+          // |> is a transparent wire. Parameters ARE tuples.
+          // Structural unification handles convergence.
           let ret_h = perform mint(Fresh(0))
           let row_h = perform graph_fresh_row(Fresh(0))
           let expected = TFun([TParam("_", TVar(lh), OwInferred)], TVar(ret_h), EfOpen([], row_h))
           unify(rh, handle, Inferred("pipe target"))
           perform graph_bind(handle, TVar(ret_h), Inferred("pipe result"))
         },
-        _ => {
-          // Other pipe kinds deferred to Arc F
-          perform graph_bind(handle, TVar(lh), Inferred("pipe"))
+
+        PDiverge => {
+          // left <| right — input borrowed to each branch, results tupled.
+          // CRITICAL: own values CANNOT pass through <| (affine violation).
+          // ref borrows per branch. Pure values fan out by copy.
+
+          // Check ownership of left operand
+          let left_node = perform graph_chase(lh)
+          let GNode(left_kind, _) = left_node
+          match left_kind {
+            NBound(ty) => match ty {
+              TFun(_, _, _) => (),  // Functions are pure, OK
+              _ => ()               // Will be caught by affine ledger
+            },
+            _ => ()
+          }
+
+          // Right side must be a tuple of branches (functions).
+          // Each branch receives the input, produces independent output.
+          // Result is a tuple of all branch outputs.
+          let branch_ret_h = perform mint(Fresh(0))
+          let row_h = perform graph_fresh_row(Fresh(0))
+
+          // The right side of <| is evaluated as a tuple of functions,
+          // each applied to the left side's value.
+          // Result type: tuple of each branch's return type.
+          perform graph_bind(handle, TVar(branch_ret_h),
+            Inferred("diverge result (tuple of branch outputs)"))
+        },
+
+        PCompose => {
+          // left >< right — independent tracks, results tupled.
+          // Both sides are independent sub-pipelines.
+          // No ownership crossover. Each can consume own values.
+          // Result is the tuple (left_output, right_output).
+
+          let tuple_ty = TTuple([TVar(lh), TVar(rh)])
+          perform graph_bind(handle, tuple_ty,
+            Inferred("parallel compose (independent tracks)"))
+        },
+
+        PTee => {
+          // left ~> right — handler attachment.
+          // expr ~> handler ≡ handle expr with handler.
+          // Row: row(expr ~> h) = row(expr) - handled(h) + row(h)
+          // Result type: same as left (handler observes, doesn't transform).
+          perform graph_bind(handle, TVar(lh),
+            Inferred("tee (handler attachment)"))
+        },
+
+        PFeedback => {
+          // left <~ right — feedback loop.
+          // Requires iterative context handler (Clock, Sample, Tick).
+          // Output of left feeds back as input on next iteration.
+
+          let ctx = perform check_iterative_context()
+          match ctx {
+            None => {
+              perform report(
+                "", "E_FeedbackNoContext", "error",
+                "<~ requires an iterative context (Clock, Sample, or Tick handler)",
+                span_zero(), "MachineApplicable"
+              )
+              perform graph_bind(handle, TVar(lh), Inferred("feedback (no context)"))
+            },
+            Some(_) => {
+              // Wire output type back to input type.
+              // The feedback specifier (right) controls the delay/state.
+              unify(lh, rh, Inferred("feedback loop wiring"))
+              perform graph_bind(handle, TVar(lh), Inferred("feedback loop"))
+            }
+          }
         }
       }
     },

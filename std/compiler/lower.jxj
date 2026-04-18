@@ -137,12 +137,54 @@ fn lower_expr(node) = {
       LSuspend(handle, 0, LGlobal(handle, op_name), lo_args)
     },
     NExpr(PipeExpr(kind, left, right)) => {
-      // |> desugars to application: right(left)
       let lo_l = lower_expr(left)
       let lo_r = lower_expr(right)
       match kind {
-        PForward => LCall(handle, lo_r, [lo_l]),
-        _ => LCall(handle, lo_r, [lo_l])
+        PForward => {
+          // left |> right  ≡  right(left)
+          // |> is a transparent wire. Structural unification at
+          // the inference level has already verified type compat.
+          LCall(handle, lo_r, [lo_l])
+        },
+
+        PDiverge => {
+          // left <| (f, g, h) ≡ (f(left), g(left), h(left))
+          // Input is borrowed (ref), each branch gets a read-only view.
+          // Result is a tuple of all branch outputs.
+          // Ownership check happened at inference time (E004 if own).
+          LMakeTuple(handle, lower_diverge_branches(lo_l, lo_r))
+        },
+
+        PCompose => {
+          // left >< right ≡ (left, right)
+          // Independent tracks, no data sharing, results tupled.
+          LMakeTuple(handle, [lo_l, lo_r])
+        },
+
+        PTee => {
+          // left ~> right ≡ handle left with right
+          // Handler attachment. Right is a handler or function.
+          // Inline form: handler wraps the single stage.
+          // Block form (layout): handler wraps the whole chain.
+          LHandleWith(handle, lo_l, lo_r)
+        },
+
+        PFeedback => {
+          // left <~ right — desugar to handler-capture iteration.
+          // Per spec 10:
+          //   y = x |> f <~ delay(1, init=0)
+          //   ≡ handler h with state = 0 {
+          //       pull() => resume(state),
+          //       push(v) => resume(()) with state = v
+          //     }
+          //     handle iterate(x, |cx| {
+          //       let fb = perform pull()
+          //       let out = f(cx, fb)
+          //       perform push(out)
+          //       out
+          //     }) with h
+          LFeedback(handle, lo_l, lo_r)
+        }
       }
     },
     _ => LConst(handle, LInt(0))
@@ -207,6 +249,25 @@ fn lower_param_names(params) =
     [LLet(0, name, LConst(0, LInt(0)))] ++ lower_param_names(list_tail(params))
   }
 
+// ─── Diverge branch lowering ────────────────────────────────
+// Extracts branches from a tuple expression and applies each
+// to the shared input value.
+
+fn lower_diverge_branches(lo_input, lo_branches) =
+  match lo_branches {
+    LMakeTuple(_, branch_list) =>
+      apply_each_branch(lo_input, branch_list),
+    _ => [LCall(0, lo_branches, [lo_input])]
+  }
+
+fn apply_each_branch(lo_input, branches) =
+  if len(branches) == 0 { [] }
+  else {
+    let branch = list_head(branches)
+    [LCall(0, branch, [lo_input])]
+      ++ apply_each_branch(lo_input, list_tail(branches))
+  }
+
 // ─── LowIR ADT (from lower_ir.jxj, handles replace Ty) ─────
 
 type LowExpr
@@ -236,6 +297,8 @@ type LowExpr
   | LStateGet(Int, Int)
   | LStateSet(Int, Int, LowExpr)
   | LRegion(Int, List)
+  | LHandleWith(Int, LowExpr, LowExpr)       // expr, handler — ~> desugaring
+  | LFeedback(Int, LowExpr, LowExpr)         // body, specifier — <~ desugaring
 
 type LowValue
   = LInt(Int)

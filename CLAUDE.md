@@ -1,6 +1,43 @@
 # Inka (formerly Lux) — CLAUDE.md  |  File extension: `.jxj`
 
-> **Six anchors. Read them before every non-trivial action.**
+> **Seven anchors. Read them before every non-trivial action.**
+
+---
+
+## 0. This is dream code. lux3.wasm is not the arbiter.
+
+**The codebase in `std/compiler/` is the ULTIMATE FORM.** It is not
+constrained by what the legacy bootstrap compiler (`lux3.wasm`) can
+parse, compile, or execute. `lux3.wasm` is fundamentally flawed and
+is no longer an appropriate measure of correctness.
+
+**Each file assumes every other file is already perfect.** When
+writing `infer.jxj`, assume `graph.jxj` provides perfect $O(1)$
+chase with trail backtracking. When writing `mentl.jxj`, assume the
+graph substrate supports speculative mutation and rollback. When
+writing `lower.jxj`, assume inference has synthesized all evidence
+dictionaries and state machine annotations. Write the code you
+WISH existed. The architecture will rise to meet it.
+
+**Verification is by simulation, walkthrough, and audit — not by
+compilation.** We soft-verify through role-play, tracing the data
+flow through handler chains, checking effect row algebra by hand,
+and walking the topology on the page. Only after we are confident
+in overall perfection do we build the bootstrap translator. The
+bootstrap is a separate, disposable concern (see PLAN.md).
+
+**Mentl is not a feature. It is the thesis made flesh.** Mentl must
+render all modern agentic coding AI obsolete. Through the gradient
+(one annotation → one capability unlock), the Why Engine (full
+reasoning chains), and multi-shot continuation (speculative search
+over solution spaces), Mentl is an oracle that PROVES its
+suggestions — not an LLM that guesses. The compiler IS the AI.
+The AI coding tools the industry pays for are proposers; Inka
+verifies. Subscription gets disintermediated at the architectural
+level.
+
+**Never measure against the old compiler. Measure against the
+vision. The vision is INSIGHTS.md.**
 
 ---
 
@@ -211,7 +248,7 @@ trailer, no inline mentions. Write commits as Morgan wrote them alone.
 
 ## Crystallized Insights (load-bearing truths)
 
-Six insights from INSIGHTS.md that bind all implementation:
+Seven insights from INSIGHTS.md that bind all implementation:
 
 1. **The Handler Chain Is a Capability Stack.** `~>` ordering is a
    trust hierarchy. Outermost = least trusted. Compiler-proven.
@@ -225,6 +262,11 @@ Six insights from INSIGHTS.md that bind all implementation:
    more powerful than Rust + Haskell + Koka + Austral combined.
 6. **The Graph IS the Program.** SubstGraph + Env is the universal
    representation. Everything else is a handler projection.
+7. **Parameters ARE Tuples. `|>` Is a Wire.** `fn f(a, b)` has type
+   `(A, B) -> C`. `<|` and `><` produce tuples. `|>` passes them
+   through. Inference structurally unifies. There is no "splatting"
+   question. The developer controls arity via their function
+   signature. One mechanism. Never re-open this.
 
 ---
 
