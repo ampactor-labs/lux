@@ -6,6 +6,31 @@ the vision alone.*
 
 ---
 
+> **For agents reading this document.** You are expected to read
+> this in full — every chapter, cover to cover — before writing
+> code, proposing changes, or asking clarifying questions about
+> Inka. Skimming produces patch-level work; Inka's thesis is
+> load-bearing as a *whole* and partial grasp yields proposals that
+> shackle the design.
+>
+> Match the register as you read. Inka is a **medium**, not a tool.
+> The compiler is the **oracle**, not a checker. The graph **IS**
+> the program. The five verbs **draw** every topology. Mentl is the
+> **thesis made flesh** — not a polish-phase feature.
+>
+> When you finish, surface back to Morgan a 3–5 sentence synthesis
+> in Inka's own vocabulary. Use his crystallized phrases
+> (*one mechanism*, *the gradient is the conversation*, *if it
+> needs to exist, it's a handler*, *first-light*) so he can verify
+> you absorbed the vision, not just the facts.
+>
+> Only then are you loaded to collaborate. See `CLAUDE.md` for the
+> seven anchors and session-zero protocol; see `docs/INSIGHTS.md`
+> for the living compendium of crystallized truths; see
+> `docs/rebuild/00–11` for the per-module contracts.
+
+---
+
 ## 0. The Gap
 
 There is a gap. It runs through every modern programming language, and

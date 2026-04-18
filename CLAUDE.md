@@ -1,5 +1,55 @@
 # Inka (formerly Lux) — CLAUDE.md  |  File extension: `.ka`
 
+---
+
+## ⚠ Session Zero — read this before anything else ⚠
+
+**If this is your first message in the session, do this first, in order:**
+
+1. **Read `docs/DESIGN.md` end-to-end.** All ~14.6k words. Twelve
+   chapters. No skimming. It is the canonical manifesto and it is
+   the only artifact in the repo that loads Inka's register as a
+   whole. Partial grasp of Inka produces patch-level work that
+   shackles the design; Morgan has been burned by this repeatedly.
+2. **Read the specific rebuild spec in `docs/rebuild/00–11/` for any
+   module you intend to touch.** The specs are per-module
+   declarative contracts. Follow them literally.
+3. **Surface back a 3–5 sentence synthesis** to Morgan in Inka's
+   own vocabulary (*the medium*, *the one mechanism: graph +
+   handler*, *the five verbs*, *Mentl as oracle*, *the gradient is
+   the conversation*). Use his crystallized phrases where they fit.
+4. **Only then propose, ask, or edit.** Do not propose a patch, a
+   clarifying question, or an edit before steps 1–3 are complete.
+
+**Red-flag thoughts — STOP immediately if you catch yourself:**
+
+- "Let me propose a fix." (Anchor 2 — restructure or stop.)
+- "Is X a global?" or any flat yes/no about scope, type, field
+  presence. (Anchor 1 — ask the graph.)
+- "For now..." / "Until Y ships..." / "In the short term..."
+  (Anchor 2 — later cleanup is a myth.)
+- "Can `lux3.wasm` parse this?" (Anchor 0 — dream code. lux3.wasm
+  is not the arbiter.)
+- "Let me cite a `.jxj` file." (Extension is `.ka`. `.jxj` is
+  archaeology.)
+- "I'll add a library / framework / tool for this." (Anchor 3 —
+  Inka solves Inka. Find the primitive.)
+
+**Persistent memory** lives at
+`/home/suds/.claude/projects/-home-suds-Projects-inka/memory/`.
+`MEMORY.md` is always in your context; the individual memory files
+(`user_profile.md`, `feedback_*.md`, `project_*.md`) explain who
+Morgan is, how he wants to collaborate, and what disciplines he has
+validated. Read them when relevant; update them when you learn
+something new.
+
+**The vision document is `docs/DESIGN.md`. The execution roadmap is
+`docs/PLAN.md`. The living compendium of crystallized truths is
+`docs/INSIGHTS.md`. The seven anchors below are the minimum
+discipline; the vision is what makes the discipline coherent.**
+
+---
+
 > **Seven anchors. Read them before every non-trivial action.**
 
 ---
