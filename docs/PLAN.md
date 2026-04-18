@@ -3,18 +3,26 @@
 > **THE plan.** Singular, authoritative, evolvable. Edits land as
 > commits; supersedes everything. No other document overrides this one.
 
-## Status — 2026-04-17
+## Status — 2026-04-18
 
-- **Specs: ✅ complete.** Twelve specs in `docs/rebuild/00–11`.
-- **VFINAL codebase: ⏳ in progress.** Core files written. Handler
-  state threading, ADT deduplication, and pipeline alignment pending.
-- **Bootstrap translator: ⏳ not started.** Follows VFINAL completion.
-- **Error catalog: ✅ shipped.** 12 files in `docs/errors/`.
+- **Specs.** Twelve specs in `docs/rebuild/00–11`. Read them as
+  declarative contracts; update them when the code teaches us
+  something better.
+- **VFINAL codebase.** The shape currently in tree cascades each
+  module assuming perfection of its neighbors — types · graph ·
+  effects · infer · lower · pipeline · emit · own · verify ·
+  mentl · query · clock · lexer · parser · main. No module is
+  sealed; every file is still free to evolve.
+- **Bootstrap translator.** Not started; follows VFINAL
+  stabilization.
+- **Error catalog.** String-coded (prefix-kind + self-documenting
+  suffix). See `docs/errors/README.md` for the convention.
 - **Language rename:** Lux → **Inka** (mascot: **Mentl**, an octopus).
 - **File extension:** `.ka` — the last two letters of Inka. Short,
-  ergonomic, phonetically tied to the language name. Minimal collision:
-  only the obsolete Karma physics engine (Unreal 2 era) ever claimed
-  it; no active programming language, no active MIME type.
+  ergonomic, phonetically tied to the language name. Minimal
+  collision: only the obsolete Karma physics engine (Unreal 2 era)
+  ever claimed it; no active programming language, no active MIME
+  type.
 
 ---
 
@@ -251,26 +259,29 @@ std/
   main.ka           — Entry point: read stdin, compile, emit WAT.
 ```
 
-#### What's Done
+#### Shape currently in tree
 
-| File | Status | Notes |
+Each module carries the current best-known form for its one
+responsibility. Improvements are welcome — rewriting a module in
+a more powerful form is a valid commit.
+
+| File | Owns | Current form |
 |---|---|---|
-| types.ka | ✅ cascade step 1 | Zero duplicate ADTs, display fns via \|>, canonical vocabulary |
-| graph.ka | ✅ cascade step 2 | graph_handler with live state, graph_reason_edge, occurs check |
-| effects.ka | ✅ cascade step 3 | Full Boolean algebra, unify_row, absorb_row, row_is_ground |
-| infer.ka | ✅ cascade step 4 | unify_row wired, real let-gen, ctor/op registration, show_type errors |
-| pipeline.ka | ✅ cascade step 5+7 | Real handlers, v1 purge, canonical display via imports |
-| lower.ka | ✅ cascade step 6 | Lambda/Handle/Perform/Pipe lowering, LSuspend, LowExpr spec 05 |
-| own.ka | ✅ cascade | Real affine_ledger with handler-state, escape check, ownership inference |
-| verify.ka | ✅ cascade | Real verify_ledger with handler-state, debt classification |
-| mentl.ka | ✅ cascade | Real mentl_default with gradient, why, unlock, catalog |
-| query.ka | ✅ cascade | Real query_default with chase_type_deep, find_unresolved, walk_chain |
-| clock.ka | ✅ cascade | All four tiers (real/test/record/replay) with handler-state |
-| lexer.ka | ✅ patched for pipes | — |
-| parser.ka | ✅ patched for pipes | — |
-| emit.ka | ✅ cascade step 8 | ty_to_wasm via LookupTy, WAT structure emission, LowIR dispatch |
-| runtime/ | ✅ production | 625-line battle-tested runtime (bootstraps self-hosted compiler) |
-| main.ka | ✅ cascade step 10 | compile/check/query modes, ~30 lines each |
+| types.ka | vocabulary + cross-cutting effect signatures | ADTs and effect decls only; no foreign owners |
+| graph.ka | SubstGraph substrate | graph_handler with nodes/trail/epoch/next/overlays; O(1) chase amortized; trail-revert for Mentl's oracle |
+| effects.ka | Boolean row algebra | normalize / union / diff / inter / neg / subsumes / unify / absorb / ground — all pure |
+| infer.ka | the one walk | HM + let-generalization; InferCtx for row accumulation; performs consume at own-uses; TRefined → verify |
+| pipeline.ka | the spine | compile / check / query / teach / audit as \|> + ~> topologies; env_handler, lookup_ty_graph, diagnostics_handler |
+| lower.ka | live-observer lowering | LookupTy chases live; row_is_ground gates monomorphic dispatch; exhaustive match |
+| emit.ka | LowIR → WAT handler | WasmOut effect; ty_to_wasm through LookupTy |
+| own.ka | ownership as Consume | affine_ledger + ref-escape walk + usage-based classifier |
+| verify.ka | refinement obligations | verify_ledger accumulates; Arc F.1 swaps in verify_smt |
+| mentl.ka | the oracle | Teach (5 ops) + Synth (3 ops); speculative gradient via checkpoint/rollback; Why Engine over reason DAG |
+| query.ka | read-only introspection | Question / QueryResult; query_default with chase_type_deep, walk_chain |
+| clock.ka | four peer time effects + IterativeContext | real / test / record / replay tiers each |
+| lexer.ka | tokens with full spans | (sl, sc, el, ec); Newline first-class; all five pipe operators tokenized |
+| parser.ka | produces types.ka Node directly | handle minted at parse via graph_fresh_ty; Hazel NHole on error |
+| main.ka | entry / dispatch | mode dispatch; outermost handler stack is the visible sandbox boundary |
 
 #### Order of Operations — The Cascade
 
@@ -287,15 +298,18 @@ skippable. No step is reorderable. The cascade IS the implementation.
 *Unlocks:* everything — every other file imports types.
 
 What to do:
-- Delete stub ADTs that are owned by other files: Annotation,
-  Capability, Explanation, Teach (owned by mentl.ka per spec 09),
-  Clock, Tick, Sample, Deadline (owned by clock.ka per spec 11).
+- Own ONLY shared vocabulary here. Annotation / Capability /
+  Explanation / Teach live in `mentl.ka` (spec 09); Clock / Tick /
+  Sample / Deadline / IterativeContext live in `clock.ka` (spec 11);
+  Question / QueryResult / Query live in `query.ka` (spec 08);
+  EffRow algebra lives in `effects.ka` (spec 01); SubstGraph
+  machinery lives in `graph.ka` (spec 00). `types.ka` names the
+  ADTs and effect signatures; other files own the behaviour.
 - Verify Ty ADT has: TRefined, TCont, TParam with Ownership.
-- Verify every effect signature matches spec 06 exactly.
+- Verify every effect signature matches spec 06.
 - Verify Node = N(body, span, handle). Span = Span(sl, sc, el, ec).
 - Verify PipeKind has all five: PForward, PDiverge, PCompose, PTee,
   PFeedback.
-- Delete query.ka (dead duplicate).
 - **Format:** Express any multi-step ADT construction as `|>` chains.
   Display functions that transform then format use `|>`. This file
   is THE vocabulary — every name chosen here echoes everywhere.
@@ -372,8 +386,7 @@ What to do:
   through AST nodes. `match node.body { ... }` arms are the dispatch.
   Effect performs (`perform graph_bind`, `perform env_extend`) replace
   all argument-threading. This file demonstrates WHY effects eliminate
-  state-passing — it should be dramatically cleaner than the v1
-  `check.ka` + `infer.ka` it replaces.
+  state-passing.
 
 *Exit:* `infer_program(ast)` populates graph handles for every node.
 `perform env_lookup(name)` returns typed schemes. No subst sidecar.
@@ -647,17 +660,11 @@ make Inka unprecedented. Phase 1 lays the structural foundation for
 every arc. Each arc is a handler swap, a new handler, or an
 extension to the graph. No arc requires rewriting the compiler core.
 
-**Authoritative design documents** in `docs/rebuild/F-notes/`:
-
-| F-note | Arc | Key design |
-|---|---|---|
-| `incremental-compilation.md` | F.7 | `.kai` interface files, content-hash, Salsa red-green |
-| `multi-shot-continuations.md` | F.3, F.4 | Replay/Fork/StateMachine, `!Alloc` prevents fork |
-| `packaging-design.md` | F.9 | `Package` effect, `inka audit`, effect sigs = semver |
-| `scoped-memory.md` | F.4 | `temp_arena`, diagnostic arenas, thread-local Alloc |
-| `dsp-pain-points.md` | F.10 | Handler parameters, effect intersection |
-| `ml-pain-points.md` | F.10 | Handler composition, state-as-return-value |
-| `lux-ml-design.md` | F.10 | 960-line ML framework: autodiff, compilation gates |
+Arc designs live in `docs/DESIGN.md` (chapter 9 — *What Dissolves*)
+and in this document's per-arc sections below. When an arc picks up,
+capture the concrete implementation in the relevant rebuild spec or
+in a dedicated design doc at that time — the arcs are sketched here,
+not locked.
 
 ### Arc F.1 — Refinement Verification
 
@@ -795,10 +802,11 @@ native speed. DSP handlers meet real-time deadlines.
 The teaching substrate crystallized. The AI-obsolescence thesis
 made concrete.
 
-**What it does:** Merge gradient.ka, suggest.ka, why.ka into
-one coherent `mentl.ka` with five-op Teach surface. Every error
-has a canonical explanation. Every hover shows the Why chain.
-Every annotation suggestion shows what capability it unlocks.
+**What it does:** Crystallize `mentl.ka` further. The five-op Teach
+surface and the speculative oracle ship in Phase 1 as the structural
+substrate; F.6 expands the reasoning depth (longer Why-chains,
+richer error catalog, higher-leverage gradient suggestions) and
+tightens the applicability tags on Mentl-proposed patches.
 
 - **Research:** Elm/Roc/Dafny error catalogs, Hazel marked holes.
 - **Spec:** 09-mentl.md.
@@ -945,9 +953,6 @@ Machine learning as proof of thesis. The ten mechanisms composed.
   minus tape recording. No DRY violation.
 - **Numeric polymorphism.** `Num` typeclass: one `sum` for all
   numeric types instead of `sum`/`sumf` split.
-
-- **F-notes:** `lux-ml-design.md` (960 lines), `ml-pain-points.md`,
-  `dsp-pain-points.md`
 
 **What it unlocks:** The performance and native control of Rust
 with the ergonomics of a functional language. Same model code trains
@@ -1262,8 +1267,7 @@ Seven load-bearing truths that guide all implementation:
 |---|---|
 | **docs/PLAN.md** | THIS FILE. The single roadmap. |
 | **docs/rebuild/00–11** | The 12 executable specs. |
-| **docs/rebuild/F-notes/** | 7 detailed design docs for post-first-light arcs. |
-| **docs/INSIGHTS.md** | Core truths. Seven crystallized insights. |
-| **docs/DESIGN.md** | Language manifesto. |
-| **docs/errors/** | Error catalog (E/V/W/T/P codes). |
-| **CLAUDE.md** | Six session anchors for AI assistants. |
+| **docs/INSIGHTS.md** | Core truths. Living compendium. |
+| **docs/DESIGN.md** | Language manifesto. Chapter 9 describes the F-arcs at thesis level. |
+| **docs/errors/** | Error catalog (prefix-kind string codes). |
+| **CLAUDE.md** | Session Zero + seven anchors for AI assistants. |

@@ -364,7 +364,7 @@ already does. In Inka, that's wrong by construction.
 A bug is an example that crashes. Debugging is making the example smaller.
 
 ```
-wasm_check.ka (crashes)
+failing_program.ka (crashes)
   → lex_test.ka (crashes — just the lexer)
     → lex_pattern.ka (crashes — simulated lexer)
       → mutual2.ka (crashes — 4 inner functions)

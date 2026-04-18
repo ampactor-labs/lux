@@ -34,7 +34,7 @@ handler verify_ledger with debt = [] {
 fn report_verify_debt(debt) =
   if len(debt) == 0 { () }
   else {
-    perform report("", "V001", "VerificationPending",
+    perform report("", "V_Pending", "VerificationPending",
       int_to_str(len(debt))
         |> str_concat(" verification obligations pending"),
       span_zero(), "MaybeIncorrect")

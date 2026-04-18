@@ -1,4 +1,4 @@
-# W017 — Suggestion
+# W_Suggestion
 
 **Kind:** Warning (informational; does not halt build)
 **Emitted by:** Mentl's suggest tentacle (spec 09)
@@ -26,7 +26,7 @@ feedback loop.
 ## Example
 
 ```
-E001 at line 2: 'nam' not in scope
-W017 suggestion: did you mean 'name'? (edit distance 1)
+E_MissingVariable at line 2: 'nam' not in scope
+W_Suggestion: did you mean 'name'? (edit distance 1)
   fix (MachineApplicable): replace 'nam' with 'name' at line 2 col 15
 ```

@@ -170,7 +170,7 @@ handler tick_record with counter = 0, trace = [] {
 handler clock_replay with remaining_trace = [] {
   clock_now() =>
     if len(remaining_trace) == 0 {
-      perform report("", "T001", "ReplayExhausted",
+      perform report("", "E_ReplayExhausted", "error",
         "clock replay trace exhausted",
         span_zero(), "MaybeIncorrect")
       resume(Instant(0))

@@ -1,4 +1,4 @@
-# E100 — UnresolvedType
+# E_UnresolvedType
 
 **Kind:** Error (compiler-internal)
 **Emitted by:** lower (spec 05, `lookup_ty_graph` handler)
@@ -28,7 +28,7 @@ NOT a type error in the user's code — it's a gap in the compiler.
 ## Example
 
 ```
-E100 at line 42, col 7: UnresolvedType
+E_UnresolvedType at line 42, col 7
   handle 142 @epoch=5
   trace: bound in infer_expr at BinOpExpr("+"), never closed
   this is a compiler bug; run:

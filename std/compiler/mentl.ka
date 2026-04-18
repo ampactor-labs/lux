@@ -365,19 +365,23 @@ fn unlock_capability(annotation) = match annotation {
 // Explanation including the path into the catalog.
 
 fn catalog_summary(code) = match code {
-  "E001"                => "Variable not found in scope",
-  "E002"                => "Type mismatch",
-  "E003"                => "Arity mismatch",
-  "E004"                => "Ownership violation (double consume or ref escape)",
-  "E010"                => "Occurs check failed (circular type)",
-  "E100"                => "Unresolved type variable at codegen",
-  "E200"                => "Refinement obligation rejected",
-  "E_OccursCheck"       => "Circular type",
-  "E_PurityViolated"    => "Function performs effects that violate declared purity",
-  "E_EffectMismatch"    => "Effect row mismatch",
-  "E_FeedbackNoContext" => "<~ requires an iterative context (Clock, Sample, or Tick handler)",
-  "V001"                => "Verification obligation pending",
-  "W017"                => "Unused binding",
+  "E_MissingVariable"     => "Variable not found in scope",
+  "E_TypeMismatch"        => "Type mismatch",
+  "E_PatternInexhaustive" => "Match does not cover every variant",
+  "E_OwnershipViolation"  => "Double consume or ref escape",
+  "E_OccursCheck"         => "Circular type (infinite type)",
+  "E_UnresolvedType"      => "Type handle unresolved at codegen",
+  "E_RefinementRejected"  => "Refinement obligation rejected by solver",
+  "E_PurityViolated"      => "Function performs effects that violate declared purity",
+  "E_EffectMismatch"      => "Effect row mismatch",
+  "E_FeedbackNoContext"   => "<~ requires an iterative context (Clock, Sample, or Tick handler)",
+  "E_ReplayExhausted"     => "Replay trace exhausted — recording too short or divergent run",
+  "P_ExpectedToken"       => "Parser expected a specific token",
+  "P_UnexpectedToken"     => "Parser hit a token that admits no production",
+  "V_Pending"             => "Verification obligation recorded, awaiting solver",
+  "W_Suggestion"          => "Probable fix available (did-you-mean, synth)",
+  "T_Gradient"            => "Annotation would unlock a capability",
+  "T_ContinuationEscapes" => "Multi-shot continuation captured inside arena",
   _ => "Unknown error code: " |> str_concat(code)
 }
 

@@ -1,4 +1,4 @@
-# E002 — TypeMismatch
+# E_TypeMismatch
 
 **Kind:** Error
 **Emitted by:** inference (spec 04, `unify_shapes`)
@@ -31,7 +31,7 @@ expressions and why they were tied.
 fn double(x: Int) -> Int = x * 2
 
 let result = double("hello")
-// E002 at line 3: expected Int, got String
+// E_TypeMismatch at line 3: expected Int, got String
 //   reason: parameter 'x' of 'double' declared Int
 //           call site passes String literal
 //   fix: pass an Int, or change 'double' parameter type

@@ -324,7 +324,7 @@ fn infer_expr(node) =
 fn infer_var_ref(name, handle, span) =
   match perform env_lookup(name) {
     None => {
-      perform report("", "E001", "MissingVariable", name, span, "MaybeIncorrect")
+      perform report("", "E_MissingVariable", "MissingVariable", name, span, "MaybeIncorrect")
       perform graph_bind(handle, TVar(handle), MissingVar(name))
     },
     Some(entry) => {
@@ -379,7 +379,7 @@ fn infer_call(func, args, handle) = {
 fn infer_perform(op_name, args, handle, span) =
   match perform env_lookup(op_name) {
     None => {
-      perform report("", "E001", "MissingVariable",
+      perform report("", "E_MissingVariable", "MissingVariable",
         "effect op: " |> str_concat(op_name),
         span, "MaybeIncorrect")
       perform graph_bind(handle, TVar(handle), MissingVar(op_name))
@@ -623,7 +623,7 @@ fn unify_param_lists(a, b, reason) =
   }
 
 fn type_mismatch(a, b, reason) =
-  perform report("", "E002", "TypeMismatch",
+  perform report("", "E_TypeMismatch", "TypeMismatch",
     show_type(a)
       |> str_concat(" vs ")
       |> str_concat(show_type(b)),
@@ -707,7 +707,7 @@ fn infer_pat(pat, handle) = match pat {
   PCon(name, sub_pats) =>
     match perform env_lookup(name) {
       None =>
-        perform report("", "E001", "MissingVariable",
+        perform report("", "E_MissingVariable", "MissingVariable",
           "constructor: " |> str_concat(name),
           span_zero(), "MaybeIncorrect"),
       Some(entry) => {

@@ -1,4 +1,4 @@
-# E001 — MissingVariable
+# E_MissingVariable
 
 **Kind:** Error
 **Emitted by:** inference (spec 04, `VarRef` handling)
@@ -18,8 +18,8 @@ at runtime if ever reached.
 
 ## Canonical fix
 
-- Check spelling. Mentl's suggest tentacle (W017) runs Levenshtein
-  over in-scope names and surfaces the closest match.
+- Check spelling. Mentl's suggest tentacle (`W_Suggestion`) runs
+  Levenshtein over in-scope names and surfaces the closest match.
 - Check imports. The name may live in a module you haven't imported.
 - Check scope. A binding in an inner block is not visible at the
   outer scope.
@@ -30,6 +30,6 @@ at runtime if ever reached.
 fn greet(name: String) -> String =
   "Hello, " ++ nam    // <- typo
 
-// E001 at line 2: 'nam' not in scope
-// suggestion (W017): did you mean 'name'?
+// E_MissingVariable at line 2: 'nam' not in scope
+// suggestion (W_Suggestion): did you mean 'name'?
 ```

@@ -46,7 +46,7 @@ the handler performs SubstGraph ops.
 effect Diagnostic {
   report(
     source: String,
-    code: String,                // stable error code (E001, W017, ...)
+    code: String,                // stable string code (E_MissingVariable, W_Suggestion, …)
     kind: String,
     msg: String,
     span: Span,
@@ -157,6 +157,7 @@ effect SubstGraphRead {
   graph_epoch() -> Int                       @resume=OneShot
   graph_reason_edge(Int, Int) -> Reason      @resume=OneShot
   graph_snapshot() -> SubstGraph             @resume=OneShot
+  graph_push_checkpoint() -> Int             @resume=OneShot
 }
 ```
 
@@ -169,11 +170,19 @@ effect SubstGraphWrite {
   graph_bind(Int, Ty, Reason) -> ()          @resume=OneShot
   graph_bind_row(Int, EffRow, Reason) -> ()  @resume=OneShot
   graph_fork(String) -> ()                   @resume=OneShot
+  graph_rollback(Int) -> ()                  @resume=OneShot
 }
 ```
 
 The Read/Write split IS the "one writer" invariant. Inference
 declares both; lowering and query declare Read only. See spec 00.
+
+`graph_push_checkpoint` + `graph_rollback` are the speculative
+surface that powers Mentl's oracle loop (spec 09): capture trail
+length, apply tentative writes, roll back to restore the graph. The
+checkpoint itself is read-only (it returns the current trail length
+without mutating), so `SubstGraphRead` exposes it; only `rollback`
+writes.
 
 ### EnvRead (spec 04)
 
@@ -208,8 +217,9 @@ effect Verify {
 ```
 
 Handler swap: **Phase 1** default `verify_ledger` accrues
-obligations (emits `V001`); **Arc F.1** `verify_smt` discharges via
-Z3/cvc5/Bitwuzla (emits `E200` on reject). No stub. See spec 02.
+obligations (emits `V_Pending`); **Arc F.1** `verify_smt` discharges
+via Z3/cvc5/Bitwuzla (emits `E_RefinementRejected` on reject). No
+stub. See spec 02.
 
 ### LookupTy (spec 05)
 
@@ -252,16 +262,24 @@ effect Teach {
 Five tentacles on the inference substrate. `Annotation`, `Capability`,
 `Explanation` ADTs defined in spec 09.
 
-### Synth (Arc F.1 wires real handlers)
+### Synth (Mentl oracle — spec 09)
+
+Three ops: a high-level proposal op, a candidate-level verification
+op, and a multi-shot raw enumerator. Enumerative / SMT / LLM / user
+proposers all plug in as peer handlers; the compiler verifies each
+candidate against the type + effect algebra before it reaches the
+user.
 
 ```lux
 effect Synth {
-  synth(Int, Ty, Context) -> Candidate       @resume=OneShot
+  propose(Ty, EffRow, Context) -> List                @resume=OneShot
+  verify_candidate(Node) -> Bool                      @resume=OneShot
+  enumerate_inhabitants(Ty, EffRow, Context) -> List  @resume=MultiShot
 }
 ```
 
-Phase 1 default returns `NoCandidate`; Arc F.1 plugs in Canonical /
-Synquid / LLM proposers as peer handlers verified by the compiler.
+Phase 1 ships `synth_enumerative` as the default; Arc F.1 adds SMT
+and LLM handlers as `~>` stages in front of it.
 
 ### FreshHandle (spec 04)
 
@@ -273,6 +291,48 @@ effect FreshHandle {
 
 Parameterizes `instantiate`: inference mints via `graph_fresh_ty`;
 query mints display ids. One function, two handlers.
+
+### InferCtx (infer-local — spec 04)
+
+Inference-internal effect, declared and handled inside `infer.ka`.
+Accumulates each function's effect row during body traversal so the
+row binds to its handle in one write at scope exit (graph_bind is
+one-write-per-handle; rows grow in handler state, not in the graph).
+
+```lux
+effect InferCtx {
+  inf_enter_fn(Int) -> ()                    @resume=OneShot
+  inf_exit_fn() -> ()                        @resume=OneShot
+  inf_add_effect(String) -> ()               @resume=OneShot
+  inf_add_row(EffRow) -> ()                  @resume=OneShot
+  inf_current_row() -> EffRow                @resume=OneShot
+}
+```
+
+### IterativeContext (spec 11 · spec 10)
+
+`<~` feedback requires an ambient Clock / Tick / Sample handler.
+Inference performs `check_iterative_context()` at every `<~` site;
+absence is `E_FeedbackNoContext`. Owner: `clock.ka`.
+
+```lux
+effect IterativeContext {
+  check_iterative_context() -> Option        @resume=OneShot
+}
+```
+
+### HostClock (spec 11)
+
+The real tier of `Clock` delegates to the host via `HostClock`.
+WASM builds map `host_clock_ns` to WASI `clock_time_get` at emit.
+Test / record / replay tiers never perform this op — they handle
+`Clock` directly without the host hop.
+
+```lux
+effect HostClock {
+  host_clock_ns() -> Int                     @resume=OneShot
+}
+```
 
 ---
 

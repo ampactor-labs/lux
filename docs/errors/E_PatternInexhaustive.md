@@ -1,4 +1,4 @@
-# E003 — PatternInexhaustive
+# E_PatternInexhaustive
 
 **Kind:** Error
 **Emitted by:** inference (match exhaustiveness check)
@@ -34,6 +34,6 @@ fn to_hex(c: Color) -> String = match c {
   Red => "#ff0000",
   Green => "#00ff00"
 }
-// E003 at line 3: missing variant: Blue
+// E_PatternInexhaustive at line 3: missing variant: Blue
 // fix: add `Blue => "#0000ff"` arm
 ```

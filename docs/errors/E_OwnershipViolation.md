@@ -1,4 +1,4 @@
-# E004 — OwnershipError
+# E_OwnershipViolation
 
 **Kind:** Error
 **Emitted by:** `own.ka` (affine_ledger handler, spec 07)
@@ -31,7 +31,7 @@ borrow. The fix depends on the caller's intent.
 ```lux
 fn process(own buf: Buffer) -> () = {
   save(buf)       // consumes buf
-  log(buf)        // E004: 'buf' consumed twice
+  log(buf)        // E_OwnershipViolation: 'buf' consumed twice
                   //   first use at line 2
                   //   fix: log before save, or clone before save
 }
@@ -39,6 +39,6 @@ fn process(own buf: Buffer) -> () = {
 
 ```lux
 fn get_ref(ref x: Int) -> Int = x
-// E004 at line 1: 'x' is a ref parameter that escapes through return
+// E_OwnershipViolation at line 1: 'x' is a ref parameter that escapes through return
 //   fix: change `ref x` to `own x`, or return a copy not the ref
 ```

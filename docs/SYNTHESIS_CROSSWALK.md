@@ -26,7 +26,7 @@ Six of eight pillars are Lux. Two bring ideas worth adopting:
 
 | Pillar | Verdict | Where it lives in Lux |
 |---|---|---|
-| I. Projectional AST | 🆕 new | `ARCS.md` → *Arc 4+* / *Projectional AST* |
+| I. Projectional AST | ❌ rejected | text is canonical; Darklang retreated 2024, Hazel stays research |
 | II. Algebraic Effects | ✅ already Lux | `DESIGN.md` → *One Mechanism* |
 | III. Data-Oriented Design + SIMD | 🔀 convergent | `!Alloc` covers allocation; Spans/SIMD are new |
 | IV. Ownership Inference | ✅ already Lux | `specs/ownership-design.md` |
@@ -373,7 +373,7 @@ per-definition is overkill (Pyrefly engineering confirms at Meta scale).
 - **WASIp3 async ABI**: `IO + Async` row → WASIp3 async imports, no caller coloring. [Preview](https://www.fermyon.com/blog/looking-ahead-to-wasip3).
 - **Direct WASM binary emission** (Thunderseethe 2024): typed section builder emitting LEB128. [Reference](https://thunderseethe.dev/posts/emit-base/).
 - **Lexa** (OOPSLA 2024): direct stack-switching for lexical handlers; linear vs quadratic. [Paper](https://cs.uwaterloo.ca/~yizhou/papers/lexa-oopsla2024.pdf).
-- **Native-backend ranking** (hand-rolled x86 > QBE > Cranelift > LLVM): see `docs/ARCS.md` Arc 4+.
+- **Native-backend ranking** (hand-rolled x86 > QBE > Cranelift > LLVM): see `docs/PLAN.md` Arc F.5.
 - **Roc surgical linker + dev-backend split**: release (LLVM/QBE) + dev (bespoke) for interactive latency. [Roc](https://sycl.it/agenda/day2/roc-surgical-linker/).
 
 ### Tier 3 — reframes (no redesign, citations)

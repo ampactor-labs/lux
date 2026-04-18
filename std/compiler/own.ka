@@ -23,7 +23,7 @@ handler affine_ledger with used = [], used_sites = [] {
   consume(name, span) => {
     if string_in_list(used, name) {
       let first = find_first_span(used_sites, name)
-      perform report("", "E004", "OwnershipViolation",
+      perform report("", "E_OwnershipViolation", "OwnershipViolation",
         "'"
           |> str_concat(name)
           |> str_concat("' consumed twice (first at ")
@@ -80,7 +80,7 @@ fn walk_return_positions(refs, node) =
   match body {
     NExpr(VarRef(name)) =>
       if string_in_list(refs, name) {
-        perform report("", "E004", "OwnershipViolation",
+        perform report("", "E_OwnershipViolation", "OwnershipViolation",
           "ref binding '"
             |> str_concat(name)
             |> str_concat("' escapes its scope (returned)"),

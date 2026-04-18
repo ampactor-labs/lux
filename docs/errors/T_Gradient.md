@@ -1,4 +1,4 @@
-# T001 — Teach
+# T_Gradient
 
 **Kind:** Teach (informational; gradient nudge)
 **Emitted by:** Mentl's teach tentacle (spec 09 `teach_gradient`)
@@ -20,15 +20,16 @@ code naturally evolves from loose prototype to verified production
 
 ## Canonical fix
 
-None required. T001 is informational. If the capability matters to
-you, add the annotation. If not, ignore — no accumulating warnings,
-no escalation. Mentl emits at most one T001 per binding per compile,
-and only when `inka --teach` is active (silent in normal compile).
+None required. `T_Gradient` is informational. If the capability
+matters to you, add the annotation. If not, ignore — no accumulating
+warnings, no escalation. Mentl emits at most one `T_Gradient` per
+binding per compile, and only when `inka teach` is active (silent in
+normal compile).
 
 ## Example
 
 ```
-T001 at line 12: 'normalize' is Pure-capable
+T_Gradient at line 12: 'normalize' is Pure-capable
   adding `with Pure` would unlock:
     • memoization (same input → same output, guaranteed)
     • parallelization (no side effects)
@@ -38,7 +39,7 @@ T001 at line 12: 'normalize' is Pure-capable
 ```
 
 ```
-T001 at line 30: 'process_audio' is !Alloc-capable
+T_Gradient at line 30: 'process_audio' is !Alloc-capable
   adding `with !Alloc` would unlock:
     • real-time audio safety (no GC pauses)
     • GPU / kernel offload eligibility

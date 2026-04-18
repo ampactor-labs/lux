@@ -1,4 +1,4 @@
-# V001 — VerificationPending
+# V_Pending
 
 **Kind:** Info (not Error, not Warning)
 **Emitted by:** `verify_ledger` handler (spec 06 `Verify`)
@@ -19,8 +19,8 @@ refinements silently.** Obligations are first-class structural
 debt, queryable via `inka query <file> "verification debt"`.
 
 When Arc F.1 lands, the default handler swaps to `verify_smt` and
-each pending obligation is discharged or promoted to E200
-`RefinementRejected`. Source code does not change.
+each pending obligation is discharged or promoted to
+`E_RefinementRejected`. Source code does not change.
 
 ## What this tells you
 
@@ -38,7 +38,7 @@ None required in Phase 1. If you want early verification:
 ## Example
 
 ```
-V001: 7 verification obligations pending
+V_Pending: 7 verification obligations pending
   line 12:  port: Port → 1 <= self <= 65535
   line 27:  index: Nat → self >= 0
   line 42:  name: NonEmpty → len(self) > 0

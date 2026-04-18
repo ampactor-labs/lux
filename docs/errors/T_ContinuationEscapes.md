@@ -1,4 +1,4 @@
-# T002 — ContinuationEscapesArena
+# T_ContinuationEscapes
 
 **Kind:** Teach / Warning (hardens to Error when F.4 semantics finalize)
 **Emitted by:** Arc F.4 handler (scoped arenas × multi-shot continuations)
@@ -16,8 +16,8 @@ is applied.
 This is Inka's open research contribution (D.1 per PLAN.md). Affect
 POPL 2025 gives the type machinery (one-shot vs. multi-shot at the
 type level); spec 02's `TCont(ret, discipline)` carries it. Arc F.4
-resolves the runtime semantics. Until then, Mentl surfaces T002 to
-make the interaction visible.
+resolves the runtime semantics. Until then, Mentl surfaces
+`T_ContinuationEscapes` to make the interaction visible.
 
 ## Canonical fix
 
@@ -41,5 +41,6 @@ handle transform(signal) with arena {
 }
 ```
 
-When F.4 semantics lock, T002 hardens into an error with the above
-three fixes shipped as machine-applicable patches.
+When F.4 semantics lock, `T_ContinuationEscapes` hardens into an
+error with the above three fixes shipped as machine-applicable
+patches.

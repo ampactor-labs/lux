@@ -179,7 +179,7 @@ handler lookup_ty_graph {
       NBound(t)        => resume(t),
       NErrorHole(_)    => resume(TName("ERROR_HOLE", [])),
       NFree(epoch) => {
-        perform report("", "E100", "UnresolvedType",
+        perform report("", "E_UnresolvedType", "UnresolvedType",
           "handle "
             |> str_concat(int_to_str(h))
             |> str_concat(" @epoch=")

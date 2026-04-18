@@ -1,4 +1,4 @@
-# E200 — RefinementRejected
+# E_RefinementRejected
 
 **Kind:** Error
 **Emitted by:** Arc F.1 `verify_smt` handler (spec 06 `Verify`)
@@ -34,7 +34,7 @@ Mentl surfaces the unsat core and the call chain. Three options:
 ## Example
 
 ```
-E200 at line 12: RefinementRejected
+E_RefinementRejected at line 12
   predicate: 1 <= self && self <= 65535
   on: port argument to bind_tcp(port: Port)
   counterexample: port = 0 (from read_int on line 8)

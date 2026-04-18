@@ -54,7 +54,7 @@ fn skip_sep(tokens, pos) = {
 fn expect(tokens, pos, kind) =
   if at(tokens, pos, kind) { pos + 1 }
   else {
-    perform report("", "P001", "ParseError",
+    perform report("", "P_ExpectedToken", "ParseError",
       "expected "
         |> str_concat(kind)
         |> str_concat(", got ")
@@ -508,7 +508,7 @@ fn parse_primary(tokens, pos) = {
     (nexpr(UnaryOpExpr("Not", inner), span), p)
   }
   else {
-    perform report("", "P002", "ParseError",
+    perform report("", "P_UnexpectedToken", "ParseError",
       "unexpected token: " |> str_concat(k),
       span, "MaybeIncorrect")
     let id = fresh_ph(span)

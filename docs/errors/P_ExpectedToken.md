@@ -1,13 +1,16 @@
-# P001 — ParseError
+# P_ExpectedToken
 
 **Kind:** Error
-**Emitted by:** lexer + parser (spec 06 `ParseError` effect)
+**Emitted by:** parser (spec 03, `expect` helper)
 **Applicability:** MaybeIncorrect
 
 ## Summary
 
-The parser encountered a token sequence it could not fit into the
-grammar at this position.
+The parser expected a specific token at this position and saw a
+different one. This is the structured version: a concrete expected
+vs. got pair. See `P_UnexpectedToken` for the open-ended variant
+(the parser hit a token it cannot fit anywhere in the current
+grammar state).
 
 ## Why it matters
 
@@ -27,14 +30,14 @@ cases:
 - Typo in a keyword.
 
 Mentl's suggest tentacle runs edit-distance on keyword typos and
-offers W017 patches when confident.
+offers `W_Suggestion` patches when confident.
 
 ## Example
 
 ```
-P001 at line 7 col 3: ParseError
-  expected: expression after `=`
-  got:      `}` (closing brace)
-  likely:   missing `unit` value or bare `()` as body
+P_ExpectedToken at line 7 col 3
+  expected: Eq
+  got:      RBrace
+  likely:   missing `()` body or stray closing brace
   fix:      add expression before closing brace
 ```
