@@ -701,6 +701,8 @@ fn emit_fn_body(name, param_names, body) = {
   emit_params(param_names)
   perform wat_emit(" (result i32)")
   perform wat_emit(" (local $state_tmp i32)")
+  perform wat_emit(" (local $variant_tmp i32)")
+  perform wat_emit(" (local $scrut_tmp i32)")
   emit_let_locals_list(body)
   perform wat_emit("\n")
   emit_body(body)
@@ -743,7 +745,10 @@ fn emit_let_locals_expr(expr) = match expr {
   LMakeTuple(_h, elems)     => emit_let_locals_list(elems),
   LMakeVariant(_h, _t, fs)  => emit_let_locals_list(fs),
   LIndex(_h, b, i, _)       => { emit_let_locals_expr(b); emit_let_locals_expr(i) },
-  LMatch(_h, s, _arms)      => emit_let_locals_expr(s),
+  LMatch(_h, s, arms)       => {
+    emit_let_locals_expr(s)
+    emit_let_locals_arms(arms)
+  },
   LBreak(_h, v)             => emit_let_locals_expr(v),
   LSwitch(_h, s, _c)        => emit_let_locals_expr(s),
   LSuspend(_h, _o, f, args) => { emit_let_locals_expr(f); emit_let_locals_list(args) },
@@ -767,6 +772,38 @@ fn emit_let_locals_expr(expr) = match expr {
   LUpval(_, _)              => (),
   LStateGet(_, _)           => ()
 }
+
+// LMatch arm walker: each pattern-bound LPVar becomes a function-level
+// local so the (local.set $name) inside emit_match_arms validates.
+// Bodies are walked for nested LLet locals as usual.
+fn emit_let_locals_arms(arms) =
+  if len(arms) == 0 { () }
+  else {
+    let (pat, body) = list_head(arms)
+    emit_let_locals_pat(pat)
+    emit_let_locals_expr(body)
+    emit_let_locals_arms(list_tail(arms))
+  }
+
+fn emit_let_locals_pat(pat) = match pat {
+  LPVar(name) => {
+    perform wat_emit(" (local $")
+    perform wat_emit(name)
+    perform wat_emit(" i32)")
+  },
+  LPCon(_, _, sub_pats) => emit_let_locals_pat_list(sub_pats),
+  LPTuple(sub_pats)     => emit_let_locals_pat_list(sub_pats),
+  LPList(sub_pats)      => emit_let_locals_pat_list(sub_pats),
+  LPWild                => (),
+  LPLit(_)              => ()
+}
+
+fn emit_let_locals_pat_list(pats) =
+  if len(pats) == 0 { () }
+  else {
+    emit_let_locals_pat(list_head(pats))
+    emit_let_locals_pat_list(list_tail(pats))
+  }
 
 fn emit_params(names) =
   if len(names) == 0 { () }
@@ -947,11 +984,34 @@ fn emit_expr(expr) = match expr {
 
   LMakeTuple(_h, elems) => emit_tuple_literal(elems),
 
-  LMakeVariant(_h, tag, fields) => {
-    emit_expr_list(fields)
-    perform wat_emit("    (i32.const 0) ;; variant ")
-    perform wat_emit(tag)
-    perform wat_emit("\n")
+  LMakeVariant(_h, tag_id, fields) => {
+    // ADT variant layout (mirrors LMakeClosure's record shape):
+    //   offset 0: tag_id (i32) — discriminator
+    //   offset 4 + 4*i: field_i — each erased to i32 by ty_to_wasm
+    //
+    // Uniform heap allocation — even nullary variants pay 4 bytes
+    // for the tag. The nullary-sentinel optimization is deferred
+    // because it requires sentinel-vs-pointer discrimination in
+    // mixed-variant types (e.g., `Maybe = Nothing | Just(a)`),
+    // which depends on a heap-base invariant the substrate does
+    // not yet expose. Match emission consequently uses a uniform
+    // (i32.load offset=0) tag fetch — sound for every shape.
+    // Bool stays primitive TBool until that invariant lands.
+    //
+    // emit_alloc routes through the EmitMemory swap surface —
+    // bump today; arena / future GC swap without touching here.
+    let n = len(fields)
+    let size = 4 + n * 4
+    perform emit_alloc(size, "variant_tmp")
+    // Store tag at offset 0.
+    perform wat_emit("    (local.get $variant_tmp)\n")
+    perform wat_emit("    (i32.const ")
+    perform wat_emit(int_to_str(tag_id))
+    perform wat_emit(") (i32.store offset=0)\n")
+    // Store each field at offset 4 + 4*i.
+    emit_variant_field_stores(fields, 0)
+    // Result: variant pointer on stack.
+    perform wat_emit("    (local.get $variant_tmp)\n")
   },
 
   LIndex(_h, base, idx, _is_store) => {
@@ -961,9 +1021,21 @@ fn emit_expr(expr) = match expr {
     perform wat_emit("    (i32.load)\n")
   },
 
-  LMatch(_h, scrutinee, _arms) => {
+  LMatch(_h, scrutinee, arms) => {
+    // ADT match dispatch: cascading if-else over arm tag comparisons.
+    // Per arm:
+    //   - LPCon(_, tag, sub_pats): load tag at offset=0, compare to
+    //     tag_id. On match: bind each LPVar sub-pattern from offset
+    //     4 + 4*i; emit body.
+    //   - LPWild / LPVar at top-level: always-match terminal arm.
+    //   - LPLit: scalar equality check on scrutinee directly.
+    //   - LPTuple / LPList: not yet emitted — fall through. Filling
+    //     these is a downstream step (record/list pattern wiring).
+    // Empty arm list emits (unreachable) — exhaustiveness violation
+    // at runtime, complementing the inference-time check.
     emit_expr(scrutinee)
-    perform wat_emit("    ;; match (dispatch emitted by classify_match)\n")
+    perform wat_emit("    (local.set $scrut_tmp)\n")
+    emit_match_arms(arms)
   },
 
   LLoop(_h, body) => {
@@ -1177,6 +1249,117 @@ fn emit_capture_stores(captures, i) =
     perform wat_emit(")\n")
     emit_capture_stores(list_tail(captures), i + 1)
   }
+
+// Emit the stores for each field in an ADT variant record.
+// Fields are indexed from 0; each stored at offset 4 + 4*i (offset 0
+// holds the tag_id). Mirrors emit_capture_stores; the only delta is
+// the base offset (4 vs 8) — closures reserve slot 1 for capture
+// count, variants don't.
+fn emit_variant_field_stores(fields, i) =
+  if len(fields) == 0 { () }
+  else {
+    perform wat_emit("    (local.get $variant_tmp)\n")
+    emit_expr(list_head(fields))
+    perform wat_emit("    (i32.store offset=")
+    perform wat_emit(int_to_str(4 + i * 4))
+    perform wat_emit(")\n")
+    emit_variant_field_stores(list_tail(fields), i + 1)
+  }
+
+// ═══ Match arm dispatch (H3) ═══════════════════════════════════════
+// Cascading if-else over arm patterns. Every emitted arm leaves the
+// arm body's i32 result on the stack (the match's value), so the
+// whole cascade has uniform (result i32) discipline.
+fn emit_match_arms(arms) =
+  if len(arms) == 0 {
+    perform wat_emit("    (unreachable)\n")
+  } else {
+    let (pat, body) = list_head(arms)
+    let rest = list_tail(arms)
+    match pat {
+      LPCon(_name, tag, sub_pats) => {
+        perform wat_emit("    (local.get $scrut_tmp)\n")
+        perform wat_emit("    (i32.load offset=0)\n")
+        perform wat_emit("    (i32.const ")
+        perform wat_emit(int_to_str(tag))
+        perform wat_emit(")\n")
+        perform wat_emit("    (i32.eq)\n")
+        perform wat_emit("    (if (result i32)\n      (then\n")
+        emit_pat_field_binds(sub_pats, 0)
+        emit_expr(body)
+        perform wat_emit("      )\n      (else\n")
+        emit_match_arms(rest)
+        perform wat_emit("      ))\n")
+      },
+      LPLit(lv) => {
+        perform wat_emit("    (local.get $scrut_tmp)\n")
+        emit_low_value_const(lv)
+        perform wat_emit("    (i32.eq)\n")
+        perform wat_emit("    (if (result i32)\n      (then\n")
+        emit_expr(body)
+        perform wat_emit("      )\n      (else\n")
+        emit_match_arms(rest)
+        perform wat_emit("      ))\n")
+      },
+      LPVar(name) => {
+        // Always-match: bind whole scrutinee, emit body, end cascade.
+        perform wat_emit("    (local.get $scrut_tmp)\n")
+        perform wat_emit("    (local.set $")
+        perform wat_emit(name)
+        perform wat_emit(")\n")
+        emit_expr(body)
+      },
+      LPWild => {
+        // Always-match: emit body, end cascade.
+        emit_expr(body)
+      },
+      LPTuple(_) => emit_match_arms(rest),
+      LPList(_)  => emit_match_arms(rest)
+    }
+  }
+
+// Per-arm field binding: for each LPVar sub-pattern at index i, emit
+// (local.get $scrut_tmp) (i32.load offset=4+4*i) (local.set $name).
+// Wildcards bind nothing; nested constructor patterns are not yet
+// destructured (shallow-pattern v1).
+fn emit_pat_field_binds(sub_pats, i) =
+  if len(sub_pats) == 0 { () }
+  else {
+    let p = list_head(sub_pats)
+    match p {
+      LPVar(name) => {
+        perform wat_emit("    (local.get $scrut_tmp)\n")
+        perform wat_emit("    (i32.load offset=")
+        perform wat_emit(int_to_str(4 + i * 4))
+        perform wat_emit(")\n")
+        perform wat_emit("    (local.set $")
+        perform wat_emit(name)
+        perform wat_emit(")\n")
+      },
+      LPWild     => (),
+      LPLit(_)   => (),
+      LPCon(_, _, _) => (),    // nested ADT destructure — TODO
+      LPTuple(_) => (),
+      LPList(_)  => ()
+    }
+    emit_pat_field_binds(list_tail(sub_pats), i + 1)
+  }
+
+// Emit a low-value as an i32-erased const (used by LPLit dispatch).
+fn emit_low_value_const(lv) = match lv {
+  LInt(n) => {
+    perform wat_emit("    (i32.const ")
+    perform wat_emit(int_to_str(n))
+    perform wat_emit(")\n")
+  },
+  LBool(b) => {
+    perform wat_emit("    (i32.const ")
+    perform wat_emit(if b { "1" } else { "0" })
+    perform wat_emit(")\n")
+  },
+  LFloat(_)  => perform wat_emit("    (i32.const 0) ;; float literal pattern unsupported\n"),
+  LString(_) => perform wat_emit("    (i32.const 0) ;; string literal pattern unsupported\n")
+}
 
 fn emit_list_literal(elems) = {
   // The graph knows the length at compile time; knows the element

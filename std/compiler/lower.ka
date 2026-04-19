@@ -49,7 +49,7 @@ type LowExpr
   | LBlock(Int, List)
   | LMakeList(Int, List)
   | LMakeTuple(Int, List)
-  | LMakeVariant(Int, String, List)            // constructor application
+  | LMakeVariant(Int, Int, List)               // handle, tag_id, field exprs
   | LIndex(Int, LowExpr, LowExpr, Bool)
   | LMatch(Int, LowExpr, List)
   | LLoop(Int, List)
@@ -88,9 +88,10 @@ type LowFn
 type LowPat
   = LPVar(String)
   | LPWild
-  | LPCon(String, List)
+  | LPCon(String, Int, List)         // name, tag_id (from ConstructorScheme), sub-pats
   | LPTuple(List)
   | LPLit(LowValue)
+  | LPList(List)                     // list pattern — runtime-tag dispatch (runtime/lists.ka)
 
 // ═══ Handle projection — one arm per variant, no fallback ══════════
 
@@ -144,6 +145,29 @@ fn monomorphic_at(h) with LookupTy =
     _               => true
   }
 
+// SchemeKind peek — read the construction-origin metadata an env
+// entry carries. None when the name isn't bound (a missing-var diag
+// has already fired at infer time; lower's path falls through to the
+// default LGlobal/LCall shape).
+fn env_kind_of(name) =
+  match perform env_lookup(name) {
+    None        => None,
+    Some(entry) => {
+      let (_, _, kind) = entry
+      Some(kind)
+    }
+  }
+
+// Default call lowering — the CallExpr dispatch falls back to this
+// when the callee isn't a SchemeKind-recognized constructor or op.
+fn lower_call_default(handle, f, fh, lo_args) =
+  let lo_f = lower_expr(f)
+  if monomorphic_at(handle) {
+    LCall(handle, lo_f, lo_args)
+  } else {
+    LSuspend(handle, fh, lo_f, lo_args)
+  }
+
 // ═══ Lower walk — exhaustive, live ═════════════════════════════════
 
 fn lower_expr(node) =
@@ -168,10 +192,20 @@ fn lower_expr_body(e, handle, span) = match e {
     // captured value's type (the local's handle from binding time),
     // not the VarRef's own handle. Fall back to VarRef's handle for
     // RGlobal where there's no separate local-binding handle.
+    //
+    // SchemeKind dispatch (H3): a VarRef whose env entry is a
+    // nullary ConstructorScheme is a value-position constructor
+    // reference (`None`, `True`, `False`). Lower it as
+    // LMakeVariant(handle, tag, []) — emit emits the sentinel
+    // i32.const form for nullary tags.
     match res {
       RLocal       => LLocal(local_h, name),
       RUpval(slot) => LUpval(local_h, slot),
-      RGlobal      => LGlobal(handle, name)
+      RGlobal      => match env_kind_of(name) {
+        Some(ConstructorScheme(tag_id, _)) =>
+          LMakeVariant(handle, tag_id, []),
+        _ => LGlobal(handle, name)
+      }
     }
   },
 
@@ -182,13 +216,24 @@ fn lower_expr_body(e, handle, span) = match e {
     LUnaryOp(handle, op, lower_expr(inner)),
 
   CallExpr(f, args) => {
-    let lo_f = lower_expr(f)
+    // SchemeKind dispatch (H3): when the callee is a VarRef whose
+    // env entry is a ConstructorScheme, the call is value-side
+    // ADT instantiation — emit LMakeVariant with the registered
+    // tag_id, not LCall through a non-existent fn-table entry.
+    // EffectOpScheme dispatch promotes a bare `op_name(args)` call
+    // to LPerform; explicit `perform op_name(args)` already takes
+    // the PerformExpr path. Plain function calls fall through.
     let lo_args = lower_expr_list(args)
-    if monomorphic_at(handle) {
-      LCall(handle, lo_f, lo_args)
-    } else {
-      let N(_, _, fh) = f
-      LSuspend(handle, fh, lo_f, lo_args)
+    let N(fbody, _, fh) = f
+    match fbody {
+      NExpr(VarRef(name)) => match env_kind_of(name) {
+        Some(ConstructorScheme(tag_id, _)) =>
+          LMakeVariant(handle, tag_id, lo_args),
+        Some(EffectOpScheme(_)) =>
+          LPerform(handle, name, lo_args),
+        _ => lower_call_default(handle, f, fh, lo_args)
+      },
+      _ => lower_call_default(handle, f, fh, lo_args)
     }
   },
 
@@ -476,9 +521,19 @@ fn lower_pat(pat) = match pat {
   PVar(name)       => LPVar(name),
   PWild            => LPWild,
   PLit(v)          => LPLit(lower_lit_value(v)),
-  PCon(name, sub)  => LPCon(name, lower_pats(sub)),
+  PCon(name, sub)  => {
+    // Resolve the constructor's tag_id at lower time. Emit dispatches
+    // on the int tag without re-walking the env. A name without an
+    // env entry (already a missing-var diagnostic from infer) gets
+    // tag = -1; emit treats that arm as never-match.
+    let tag = match env_kind_of(name) {
+      Some(ConstructorScheme(t, _)) => t,
+      _                             => -1
+    }
+    LPCon(name, tag, lower_pats(sub))
+  },
   PTuple(sub)      => LPTuple(lower_pats(sub)),
-  PList(sub)       => LPCon("List", lower_pats(sub)),
+  PList(sub)       => LPList(lower_pats(sub)),
   PRecord(_)       => LPWild     // records destructured via field index at emit
 }
 

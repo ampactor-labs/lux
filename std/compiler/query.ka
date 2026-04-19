@@ -57,7 +57,7 @@ handler query_default {
       match perform env_lookup(name) {
         None => resume(QRError("not found: " |> str_concat(name))),
         Some(entry) => {
-          let (scheme, reason) = entry
+          let (scheme, reason, _kind) = entry
           let Forall(_, ty) = scheme
           resume(QRType(chase_type_deep(ty), reason))
         }
@@ -80,7 +80,7 @@ handler query_default {
       match perform env_lookup(name) {
         None => resume(QRError("not found: " |> str_concat(name))),
         Some(entry) => {
-          let (scheme, _) = entry
+          let (scheme, _, _) = entry
           let Forall(_, ty) = scheme
           match chase_type_deep(ty) {
             TFun(_, _, row) => resume(QREffects(row)),
@@ -95,7 +95,7 @@ handler query_default {
       match perform env_lookup(name) {
         None => resume(QRError("not found: " |> str_concat(name))),
         Some(entry) => {
-          let (scheme, _) = entry
+          let (scheme, _, _) = entry
           let Forall(_, ty) = scheme
           match chase_type_deep(ty) {
             TFun(params, _, _) => resume(QROwnership(params)),
@@ -110,7 +110,7 @@ handler query_default {
       match perform env_lookup(name) {
         None => resume(QRError("not found: " |> str_concat(name))),
         Some(entry) => {
-          let (_, reason) = entry
+          let (_, reason, _) = entry
           resume(QRWhy(reason))
         }
       },
@@ -180,7 +180,7 @@ fn chase_fields_deep(fields) =
 fn find_unresolved(entries) =
   if len(entries) == 0 { [] }
   else {
-    let (name, scheme, _reason) = list_head(entries)
+    let (name, scheme, _reason, _kind) = list_head(entries)
     let Forall(_, ty) = scheme
     let rest = find_unresolved(list_tail(entries))
     if has_free_tvar(ty) { [(name, ty, [])] ++ rest }

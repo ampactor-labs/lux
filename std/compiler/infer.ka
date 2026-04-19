@@ -171,7 +171,7 @@ fn infer_stmt(node) =
     NStmt(ImportStmt(_)) => (),
 
     NStmt(RefineStmt(name, base_ty, pred)) => {
-      perform env_extend(name, Forall([], TRefined(base_ty, pred)), Declared(name))
+      perform env_extend(name, Forall([], TRefined(base_ty, pred)), Declared(name), FnScheme)
       perform verify(span, pred, Refinement(pred, PTrue))
     },
 
@@ -197,7 +197,7 @@ fn infer_fn(name, params, body_node, handle, span) = {
   )
 
   // Bind the name BEFORE body so recursive calls resolve.
-  perform env_extend(name, Forall([], fn_ty), Declared(name))
+  perform env_extend(name, Forall([], fn_ty), Declared(name), FnScheme)
   perform graph_bind(handle, fn_ty, Located(span, Declared(name)))
 
   // Enter the row-accumulation scope and infer body.
@@ -278,7 +278,7 @@ fn infer_fn(name, params, body_node, handle, span) = {
 
   // Generalize and re-extend.
   let scheme = generalize(handle)
-  perform env_extend(name, scheme, Declared(name))
+  perform env_extend(name, scheme, Declared(name), FnScheme)
 }
 
 // Build an EffRow from a declared `(name, negated)` list. Negated
@@ -530,7 +530,7 @@ fn infer_var_ref(name, handle, span) =
       perform graph_bind(handle, TVar(handle), Located(span, MissingVar(name)))
     },
     Some(entry) => {
-      let (scheme, reason) = entry
+      let (scheme, reason, _kind) = entry
       let ty = instantiate(scheme)
       perform graph_bind(handle, ty, Located(span, VarLookup(name, reason)))
       // If this binding is an `own` parameter, performing consume.
@@ -587,7 +587,7 @@ fn infer_perform(op_name, args, handle, span) =
       perform graph_bind(handle, TVar(handle), Located(span, MissingVar(op_name)))
     },
     Some(entry) => {
-      let (scheme, reason) = entry
+      let (scheme, reason, _kind) = entry
       let op_ty = instantiate(scheme)
       match op_ty {
         TFun(params, ret, row) => {
@@ -1062,7 +1062,8 @@ fn infer_unaryop(handle, op, ih, span) = match op {
 fn infer_pat(pat, handle, span) = match pat {
   PVar(name) =>
     perform env_extend(name, Forall([], TVar(handle)),
-      Located(span, LetBinding(name, Inferred("pattern")))),
+      Located(span, LetBinding(name, Inferred("pattern"))),
+      FnScheme),
 
   PWild => (),
 
@@ -1083,9 +1084,26 @@ fn infer_pat(pat, handle, span) = match pat {
           "constructor: " |> str_concat(name),
           span, "MaybeIncorrect"),
       Some(entry) => {
-        let (scheme, reason) = entry
+        // ConstructorScheme bindings carry one of two ty shapes:
+        //   nullary  → TName(type_name, args)         — bind scrutinee to it
+        //   fielded  → TFun(params, TName(...), Pure) — bind scrutinee to RETURN,
+        //                                                 sub_pats to PARAMS.
+        // FnScheme bindings reaching here are user-level matches on a
+        // plain function value — degenerate but harmless; bind the
+        // scrutinee to the looked-up type and skip sub-pat plumbing.
+        let (scheme, reason, _kind) = entry
         let ty = instantiate(scheme)
-        perform graph_bind(handle, ty, Located(span, VarLookup(name, reason)))
+        match ty {
+          TFun(params, ret_ty, _row) => {
+            perform graph_bind(handle, ret_ty,
+              Located(span, VarLookup(name, reason)))
+            bind_pcon_subpats(params, sub_pats, span, reason, name)
+          },
+          _ => {
+            perform graph_bind(handle, ty,
+              Located(span, VarLookup(name, reason)))
+          }
+        }
       }
     },
 
@@ -1106,9 +1124,45 @@ fn infer_pat_tuple(pats, parent_handle, span) =
     infer_pat_tuple(list_tail(pats), parent_handle, span)
   }
 
+// Bind each PCon sub-pattern to its corresponding constructor param
+// type. Mints a fresh handle per sub-pat so PVar bindings carry a
+// distinct entry into env. Param-list / sub-pat length mismatch falls
+// through silently — surfaced separately as E_ConstructorArity (TODO).
+fn bind_pcon_subpats(params, sub_pats, span, reason, ctor_name) =
+  if len(params) == 0 || len(sub_pats) == 0 { () }
+  else {
+    let TParam(_, pty, _) = list_head(params)
+    let sub_h = perform mint(VarLookup(ctor_name, reason))
+    perform graph_bind(sub_h, pty,
+      Located(span, VarLookup(ctor_name, reason)))
+    infer_pat(list_head(sub_pats), sub_h, span)
+    bind_pcon_subpats(list_tail(params), list_tail(sub_pats),
+      span, reason, ctor_name)
+  }
+
 // ═══ Match arms ════════════════════════════════════════════════════
 
-fn infer_match_arms(arms, scrutinee_h, result_h, span) =
+fn infer_match_arms(arms, scrutinee_h, result_h, span) = {
+  infer_match_arm_iter(arms, scrutinee_h, result_h, span)
+  // Exhaustiveness check (H3): if no wildcard arm covers the
+  // remainder, every constructor of the scrutinee's declaring type
+  // must appear among the arms. ConstructorScheme(_, total_variants)
+  // makes this a graph read — no per-type registry needed.
+  let covered = collect_arm_tags(arms, [])
+  let total = arms_total_variants(arms)
+  let has_wild = arms_have_wildcard(arms)
+  if total > 0 && len(covered) < total && !has_wild {
+    perform report("", "E_PatternInexhaustive", "PatternInexhaustive",
+      "match misses "
+        |> str_concat(int_to_str(total - len(covered)))
+        |> str_concat(" of ")
+        |> str_concat(int_to_str(total))
+        |> str_concat(" variants — add the missing arms or a wildcard"),
+      span, "MachineApplicable")
+  }
+}
+
+fn infer_match_arm_iter(arms, scrutinee_h, result_h, span) =
   if len(arms) == 0 { () }
   else {
     let (pat, body) = list_head(arms)
@@ -1118,7 +1172,65 @@ fn infer_match_arms(arms, scrutinee_h, result_h, span) =
     let N(_, _, bh) = body
     unify(bh, result_h, span, MatchBranch(Inferred("arm body"), Inferred("result")))
     perform env_scope_exit()
-    infer_match_arms(list_tail(arms), scrutinee_h, result_h, span)
+    infer_match_arm_iter(list_tail(arms), scrutinee_h, result_h, span)
+  }
+
+// Walk arms, gathering each PCon's tag_id (deduped via set_insert).
+// Non-PCon arms (wildcards, vars, lits) contribute no tag.
+fn collect_arm_tags(arms, acc) =
+  if len(arms) == 0 { acc }
+  else {
+    let (pat, _body) = list_head(arms)
+    let next = match pat {
+      PCon(name, _) => match perform env_lookup(name) {
+        Some(entry) => {
+          let (_, _, kind) = entry
+          match kind {
+            ConstructorScheme(tag, _) => set_insert(acc, int_to_str(tag)),
+            _                         => acc
+          }
+        },
+        None => acc
+      },
+      _ => acc
+    }
+    collect_arm_tags(list_tail(arms), next)
+  }
+
+// Read total_variants from any one PCon arm's ConstructorScheme.
+// All variants of a single declaring type carry the same total; the
+// FIRST hit is sufficient. Returns 0 when no PCon arm is present
+// (e.g., literal-only match) — the exhaustiveness check skips.
+fn arms_total_variants(arms) =
+  if len(arms) == 0 { 0 }
+  else {
+    let (pat, _body) = list_head(arms)
+    match pat {
+      PCon(name, _) => match perform env_lookup(name) {
+        Some(entry) => {
+          let (_, _, kind) = entry
+          match kind {
+            ConstructorScheme(_, total) => total,
+            _                           => arms_total_variants(list_tail(arms))
+          }
+        },
+        None => arms_total_variants(list_tail(arms))
+      },
+      _ => arms_total_variants(list_tail(arms))
+    }
+  }
+
+// Wildcard detection: PWild or PVar at the top level catches
+// everything the prior arms don't.
+fn arms_have_wildcard(arms) =
+  if len(arms) == 0 { false }
+  else {
+    let (pat, _body) = list_head(arms)
+    match pat {
+      PWild    => true,
+      PVar(_)  => true,
+      _        => arms_have_wildcard(list_tail(arms))
+    }
   }
 
 // ═══ Handler arm inference ═════════════════════════════════════════
@@ -1340,7 +1452,7 @@ fn mint_params_at(params, owner_name, idx) =
   else {
     let TParam(name, _, _) = list_head(params)
     let h = perform mint(FnParam(owner_name, idx, Fresh(0)))
-    perform env_extend(name, Forall([], TVar(h)), Declared(name))
+    perform env_extend(name, Forall([], TVar(h)), Declared(name), FnScheme)
     [h] ++ mint_params_at(list_tail(params), owner_name, idx + 1)
   }
 
@@ -1360,22 +1472,27 @@ fn build_inferred_params(handles) =
   }
 
 fn register_type_constructors(type_name, type_args, variants) =
+  register_variants_at(type_name, type_args, variants, 0, len(variants))
+
+fn register_variants_at(type_name, type_args, variants, tag_id, total) =
   if len(variants) == 0 { () }
   else {
-    register_one_variant(type_name, type_args, list_head(variants))
-    register_type_constructors(type_name, type_args, list_tail(variants))
+    register_one_variant(type_name, type_args, list_head(variants), tag_id, total)
+    register_variants_at(type_name, type_args, list_tail(variants), tag_id + 1, total)
   }
 
-fn register_one_variant(type_name, type_args, variant) = {
+fn register_one_variant(type_name, type_args, variant, tag_id, total) = {
   let (ctor_name, field_types) = variant
   let result_ty = TName(type_name, type_args)
+  let kind = ConstructorScheme(tag_id, total)
   if len(field_types) == 0 {
-    perform env_extend(ctor_name, Forall([], result_ty), Declared(ctor_name))
+    perform env_extend(ctor_name, Forall([], result_ty),
+      Declared(ctor_name), kind)
   } else {
     let params = build_ctor_params(field_types, 0)
     perform env_extend(ctor_name,
       Forall([], TFun(params, result_ty, EfPure)),
-      Declared(ctor_name))
+      Declared(ctor_name), kind)
   }
 }
 
@@ -1399,7 +1516,8 @@ fn register_one_op(effect_name, op) = {
   let params = build_ctor_params(param_types, 0)
   perform env_extend(op_name,
     Forall([], TFun(params, ret_type, mk_ef_closed([effect_name]))),
-    Declared(op_name))
+    Declared(op_name),
+    EffectOpScheme(effect_name))
 }
 
 fn register_handler(hname, ename, arms) = {
@@ -1409,7 +1527,8 @@ fn register_handler(hname, ename, arms) = {
   let row_h = perform graph_fresh_row(Inferred("handler row"))
   perform env_extend(hname,
     Forall([], TName("Handler", [TName(ename, [])])),
-    Declared(hname))
+    Declared(hname),
+    FnScheme)
 }
 
 // ═══ Utilities ═════════════════════════════════════════════════════
@@ -1475,7 +1594,7 @@ fn effect_names_of_op(op_name) =
   match perform env_lookup(op_name) {
     None => [],
     Some(entry) => {
-      let (scheme, _) = entry
+      let (scheme, _, _) = entry
       let Forall(_, ty) = scheme
       match ty {
         TFun(_, _, row) => row_names(row),

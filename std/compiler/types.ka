@@ -68,6 +68,28 @@ type ResumeDiscipline
 type Scheme
   = Forall(List, Ty)
 
+// SchemeKind discriminates env entries by their CONSTRUCTION ORIGIN.
+// Same Scheme shape, three different downstream stories: lower
+// dispatches on this — FnScheme → LCall/LSuspend, ConstructorScheme
+// → LMakeVariant with a known tag_id, EffectOpScheme → LPerform with
+// the declaring effect already attributed. The graph stores the
+// distinction directly rather than re-deriving it from type shape.
+//
+// ConstructorScheme(tag_id, total_variants):
+//   tag_id is this variant's ordinal within its declaring type
+//     (0-based, deterministic from declaration order).
+//   total_variants is the count over the declaring type — enables
+//     pattern-exhaustiveness as a graph read at infer_match_arms.
+//
+// EffectOpScheme(effect_name) is the declaring effect's name.
+// `perform op_name(args)` reads this to know which effect this op
+// participates in without re-inspecting the row.
+
+type SchemeKind
+  = FnScheme
+  | ConstructorScheme(Int, Int)
+  | EffectOpScheme(String)
+
 // ═══ Effect row algebra (spec 01) ══════════════════════════════════
 // The Boolean algebra lives as functions in effects.ka; the ADT
 // lives here so every module that speaks types can speak rows.
@@ -412,19 +434,21 @@ type Option
 // ═══ Env (spec 04) — effect-mediated, peer of SubstGraph ═══════════
 // Scoped bindings via push/pop mark. Env is never passed as argument.
 // Every read performs env_lookup; every write performs env_extend.
+// Entries are 4-tuples (name, Scheme, Reason, SchemeKind) — SchemeKind
+// carries construction-origin metadata that lower dispatches on.
 
 type Env
-  = Env(List)   // [(name, Scheme, Reason)]
+  = Env(List)   // [(name, Scheme, Reason, SchemeKind)]
 
 effect EnvRead {
-  env_lookup(String) -> Option                     @resume=OneShot
-  env_snapshot() -> Env                            @resume=OneShot
+  env_lookup(String) -> Option                       @resume=OneShot
+  env_snapshot() -> Env                              @resume=OneShot
 }
 
 effect EnvWrite {
-  env_extend(String, Scheme, Reason) -> ()         @resume=OneShot
-  env_scope_enter() -> ()                          @resume=OneShot
-  env_scope_exit() -> ()                           @resume=OneShot
+  env_extend(String, Scheme, Reason, SchemeKind) -> ()  @resume=OneShot
+  env_scope_enter() -> ()                               @resume=OneShot
+  env_scope_exit() -> ()                                @resume=OneShot
 }
 
 // ═══ SubstGraph effects (spec 00) ══════════════════════════════════

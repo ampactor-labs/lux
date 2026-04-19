@@ -140,9 +140,9 @@ handler env_handler with entries = [], scopes = [] {
   env_snapshot() =>
     resume(Env(entries)),
 
-  env_extend(name, scheme, reason) =>
+  env_extend(name, scheme, reason, kind) =>
     resume(())
-      with entries = [(name, scheme, reason)] ++ entries,
+      with entries = [(name, scheme, reason, kind)] ++ entries,
 
   env_scope_enter() =>
     resume(())
@@ -161,8 +161,8 @@ handler env_handler with entries = [], scopes = [] {
 fn env_find(entries, name) =
   if len(entries) == 0 { None }
   else {
-    let (k, scheme, reason) = list_head(entries)
-    if str_eq(k, name) { Some((scheme, reason)) }
+    let (k, scheme, reason, kind) = list_head(entries)
+    if str_eq(k, name) { Some((scheme, reason, kind)) }
     else { env_find(list_tail(entries), name) }
   }
 
