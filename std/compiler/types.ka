@@ -156,6 +156,64 @@ fn span_contains(outer, inner) =
   (osl < isl || (osl == isl && osc <= isc))
     && (oel > iel || (oel == iel && oec >= iec))
 
+// ═══ Tokens (spec 03 + SYNTAX.md) ══════════════════════════════════
+// Tokens are the lexer's output; the parser's input. The wrapper
+// pattern mirrors AST nodes: structured value + positional metadata.
+// `N(NodeBody, Span, Int)` for nodes; `Tok(TokenKind, Span)` for
+// tokens. Same shape, two layers. Accessors are uniform across both.
+//
+// TokenKind enumerates the 69 lexical forms specified in SYNTAX.md
+// — 24 keywords, 5 identifiers/literals (with payload), 15 two-char
+// operators, 23 single-char operators/punctuation, 2 layout. The
+// parser dispatches via exhaustive `match Tok(kind, _) { … }`;
+// adding a TokenKind variant fails compilation across every match
+// site until the variant is handled (H6's discipline at the lexical
+// layer).
+
+type Token = Tok(TokenKind, Span)
+
+type TokenKind
+  // ─── Keywords (24) ───────────────────────────────────────────────
+  = TFn | TLet | TIf | TElse | TMatch | TType
+  | TEffect | THandle | THandler | TWith
+  | TResume | TPerform
+  | TFor | TIn | TLoop | TBreak | TContinue | TReturn
+  | TImport | TWhere
+  | TOwn | TRef | TPure
+  | TTrue | TFalse
+
+  // ─── Identifiers and literals (5, with payload) ──────────────────
+  | TIdent(String)
+  | TInt(Int)
+  | TFloat(Float)
+  | TString(String)
+  | TDocComment(String)             // /// — emitted ONLY when triple-slash
+                                    //   detected; attaches to next decl
+
+  // ─── Two-character operators (15) ────────────────────────────────
+  | TEqEq | TBangEq | TLtEq | TGtEq          // comparison
+  | TArrow | TFatArrow                       // -> and =>
+  | TPlusPlus                                // ++ concat
+  | TPipeGt | TLtPipe | TGtLt | TTildeGt | TLtTilde   // five verbs
+  | TAndAnd | TOrOr                          // logical
+  | TColonColon                              // :: (path separator, future)
+
+  // ─── Single-character operators and punctuation (23) ─────────────
+  | TLParen | TRParen | TLBrace | TRBrace | TLBracket | TRBracket
+  | TComma | TDot | TColon | TSemicolon
+  | TPlus | TMinus | TStar | TSlash | TPercent
+  | TEq | TLt | TGt | TBang
+  | TPipe | TTilde | TAt | TQuestion
+
+  // ─── Layout / structural (2) ─────────────────────────────────────
+  | TNewline                        // semantic per DESIGN Ch 2 / `~>` form
+  | TEof                            // end of input — always last
+
+// Token accessors — uniform with N-pattern accessors.
+
+fn token_kind(t) = let Tok(k, _) = t; k
+fn token_span(t) = let Tok(_, s) = t; s
+
 // ═══ Typed AST (spec 03) ═══════════════════════════════════════════
 // Every expression site is an N(body, span, handle). The handle is
 // allocated at parse time via graph_fresh_ty(Placeholder(span)) and
