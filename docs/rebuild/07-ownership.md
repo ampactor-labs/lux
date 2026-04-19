@@ -19,7 +19,13 @@ no separate ownership analysis.
 
 ```lux
 effect Consume {
-  consume(name: String, span: Span) -> ()    @resume=OneShot
+  consume(name: String, span: Span) -> ()        @resume=OneShot
+  // Branching ops (W2) — `><` and `<|` run their branches under the
+  // same outer scope; these ops carve a scope into parallel
+  // sub-frames so cross-branch consumes can be pairwise-checked.
+  branch_enter() -> ()                           @resume=OneShot
+  branch_divider(span: Span) -> ()               @resume=OneShot
+  branch_exit(span: Span) -> ()                  @resume=OneShot
 }
 ```
 
@@ -29,6 +35,15 @@ node; the span flows as op payload — no `current_span` handler state,
 no separate dynamic-scope effect. The handler records the event in
 a per-fn linearity ledger and retains the span for diagnostic
 emission.
+
+**Branching protocol.** For `a >< b` and `a <| (b, c, …)`,
+inference brackets sub-branch inference with `branch_enter` /
+`branch_divider` / `branch_exit`. The handler snapshots `used` at
+`branch_enter`, captures each branch's delta at `branch_divider` (and
+resets `used` to the snapshot so the next branch sees the original
+scope), and at `branch_exit` pairwise-checks deltas — any name in
+two branches' intersection emits E_OwnershipViolation at the branching
+verb's span. The stack shape supports nested branching naturally.
 
 ---
 

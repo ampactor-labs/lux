@@ -452,6 +452,7 @@ fn catalog_summary(code) = match code {
   "E_RefinementRejected"  => "Refinement obligation rejected by solver",
   "E_PurityViolated"      => "Function performs effects that violate declared purity",
   "E_EffectMismatch"      => "Effect row mismatch",
+  "E_HandlerUninstallable" => "Handler arms require effects not admitted by the enclosing declaration",
   "E_FeedbackNoContext"   => "<~ requires an iterative context (Clock, Sample, or Tick handler)",
   "E_ReplayExhausted"     => "Replay trace exhausted — recording too short or divergent run",
   "P_ExpectedToken"       => "Parser expected a specific token",

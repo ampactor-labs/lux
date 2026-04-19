@@ -82,13 +82,38 @@ fn op_prec(k) =
        || str_eq(k, "Percent") == 1 { 12 }
   else { 0 }
 
-fn op_to_pipe_kind(k) =
-  if str_eq(k, "PipeGt") == 1  { Some(PForward) }
+// Layout-sensitive pipe-kind mapping (I11). Per DESIGN Ch 2, `~>`
+// splits by whether a newline directly precedes it:
+//   newline-before-~>  → PTeeBlock  — wraps the whole prior chain
+//   no-newline         → PTeeInline — wraps the preceding stage
+// The block form carries the LOWEST pipe precedence so it binds
+// outside of everything on its left; the inline form keeps the
+// high precedence (10) so it tightens around the preceding stage.
+// All non-~> operators ignore the saw_newline flag.
+fn op_to_pipe_kind_layout(k, saw_newline) =
+  if str_eq(k, "TildeGt") == 1 {
+    if saw_newline { Some(PTeeBlock) } else { Some(PTeeInline) }
+  }
+  else if str_eq(k, "PipeGt") == 1  { Some(PForward) }
   else if str_eq(k, "LtPipe") == 1  { Some(PDiverge) }
   else if str_eq(k, "GtLt") == 1    { Some(PCompose) }
-  else if str_eq(k, "TildeGt") == 1 { Some(PTee) }
   else if str_eq(k, "LtTilde") == 1 { Some(PFeedback) }
   else { None }
+
+// Effective precedence: block-form ~> lowers to 1 so it binds
+// looser than every other pipe verb and every binary operator,
+// capturing the whole preceding chain as its body. Inline form
+// keeps the base precedence.
+fn effective_prec(k, saw_newline) =
+  if str_eq(k, "TildeGt") == 1 && saw_newline { 1 }
+  else { op_prec(k) }
+
+fn skip_ws_tracked(tokens, pos) =
+  skip_ws_tracked_loop(tokens, pos, false)
+
+fn skip_ws_tracked_loop(tokens, pos, saw) =
+  if at(tokens, pos, "Newline") { skip_ws_tracked_loop(tokens, pos + 1, true) }
+  else { (saw, pos) }
 
 fn op_string(k) =
   if str_eq(k, "Plus") == 1 { "+" }
@@ -415,15 +440,15 @@ fn parse_binop(tokens, pos, min_prec) = {
 }
 
 fn binop_loop(tokens, left, pos, min_prec) = {
-  let p = skip_ws(tokens, pos)
+  let (saw_newline, p) = skip_ws_tracked(tokens, pos)
   let k = kind_at(tokens, p)
-  let prec = op_prec(k)
+  let prec = effective_prec(k, saw_newline)
   if prec >= min_prec && prec > 0 {
     let op_span = span_at(tokens, p)
     let (right, p2) = parse_binop(tokens, p + 1, prec + 1)
     let N(_, left_span, _) = left
     let combined_span = span_join(left_span, op_span)
-    let node = match op_to_pipe_kind(k) {
+    let node = match op_to_pipe_kind_layout(k, saw_newline) {
       Some(pk) => nexpr(PipeExpr(pk, left, right), combined_span),
       None     => nexpr(BinOpExpr(op_string(k), left, right), combined_span)
     }

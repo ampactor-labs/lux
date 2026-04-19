@@ -33,17 +33,22 @@ acyclic uses the other four.
 ## Grammar (extends spec 03 `PipeKind`)
 
 ```lux
+// ~> splits by layout (I11): PTeeBlock when a newline precedes it
+// (wraps whole prior chain); PTeeInline when no newline (wraps
+// preceding stage). Parser carries the split; inference and
+// lowering treat both identically.
 type PipeKind
   = PForward       // |>
   | PDiverge       // <|
   | PCompose       // ><
-  | PTee           // ~>
+  | PTeeBlock      // ~>  block-form (newline-before)
+  | PTeeInline     // ~>  inline-form (no-newline)
   | PFeedback      // <~
 ```
 
-Spec 03 already has `PForward`, `PDiverge` (renamed from `PBackward`
-— audit correction), `PCompose`, `PTee`; this spec adds `PFeedback`
-as the fifth variant. Parser delta in Phase 1.
+Spec 03 has the full six-variant shape (PTee split into PTeeBlock
++ PTeeInline per I11). Parser handles the layout distinction; all
+non-~> pipes thread through unchanged.
 
 ---
 

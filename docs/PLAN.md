@@ -308,8 +308,9 @@ What to do:
 - Verify Ty ADT has: TRefined, TCont, TParam with Ownership.
 - Verify every effect signature matches spec 06.
 - Verify Node = N(body, span, handle). Span = Span(sl, sc, el, ec).
-- Verify PipeKind has all five: PForward, PDiverge, PCompose, PTee,
-  PFeedback.
+- Verify PipeKind has all six: PForward, PDiverge, PCompose,
+  PTeeBlock, PTeeInline, PFeedback. (PTee splits into Block/Inline
+  per I11 newline-sensitive layout.)
 - **Format:** Express any multi-step ADT construction as `|>` chains.
   Display functions that transform then format use `|>`. This file
   is THE vocabulary — every name chosen here echoes everywhere.

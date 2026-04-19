@@ -19,7 +19,15 @@ import runtime/strings
 // the handler would statically prevent the arms from recursing
 // through consume — the Boolean algebra gate.
 
-handler affine_ledger with used = [], used_sites = [] {
+// State:
+//   used          — flat sorted set of consumed names (O(log N) membership)
+//   used_sites    — insertion-ordered [(name, span)] for first-use diagnosis
+//   branches      — stack of (base, deltas) frames for >< and <| branching.
+//                   Each frame saves `used` at branch_enter; tracks each
+//                   branch's captured delta; branch_exit pairwise-checks
+//                   and merges. Stack shape naturally supports nested
+//                   branches (e.g. (a >< b) >< c).
+handler affine_ledger with used = [], used_sites = [], branches = [] {
 
   consume(name, span) => {
     if set_contains(used, name) {
@@ -41,8 +49,102 @@ handler affine_ledger with used = [], used_sites = [] {
         with used = set_insert(used, name),
              used_sites = [(name, span)] ++ used_sites
     }
+  },
+
+  // branch_enter — snapshot the current `used` as the frame's base;
+  // deltas list starts empty. Nested branches push onto the stack.
+  branch_enter() => {
+    resume(())
+      with branches = [(used, [])] ++ branches
+  },
+
+  // branch_divider — called between branches of `><` or between
+  // non-last branches of `<|`. Captures the just-finished branch's
+  // delta (names consumed in this branch, i.e. used \ base), appends
+  // to the frame's deltas list, then resets `used` to base so the
+  // next branch sees the original scope.
+  branch_divider(_span) => {
+    if len(branches) == 0 { resume(()) }
+    else {
+      let (base, deltas) = list_head(branches)
+      let delta = set_diff(used, base)
+      resume(())
+        with used = base,
+             branches = [(base, [delta] ++ deltas)] ++ list_tail(branches)
+    }
+  },
+
+  // branch_exit — captures the last branch's delta, pairwise-checks
+  // collisions against already-captured deltas (each collision is an
+  // E_OwnershipViolation at the branch site), merges all deltas into
+  // `used` as base ∪ union(deltas), pops the frame.
+  branch_exit(span) => {
+    if len(branches) == 0 { resume(()) }
+    else {
+      let (base, prior_deltas) = list_head(branches)
+      let last_delta = set_diff(used, base)
+      let all_deltas = [last_delta] ++ prior_deltas
+      report_branch_collisions(all_deltas, span)
+      resume(())
+        with used = set_union(base, union_all_deltas(all_deltas)),
+             branches = list_tail(branches)
+    }
   }
 }
+
+// Flat-array union across all branch deltas. Every delta is already
+// a sorted set (maintained by set_insert during consume), so folding
+// set_union across them preserves the invariant.
+fn union_all_deltas(deltas) =
+  union_all_deltas_loop(deltas, 0, len(deltas), [])
+
+fn union_all_deltas_loop(deltas, i, n, acc) =
+  if i >= n { acc }
+  else {
+    union_all_deltas_loop(
+      deltas, i + 1, n,
+      set_union(acc, list_index(deltas, i))
+    )
+  }
+
+// Pairwise collision check across branch deltas. For each pair
+// (delta_i, delta_j) with i < j, any name in their intersection was
+// consumed in TWO parallel branches — an affine violation. We report
+// each colliding name once per pair; a name consumed in three
+// branches surfaces as (1,2), (1,3), (2,3) triples, each naming the
+// branch pair in its own diagnostic. Span is the branching verb's
+// span — the site where the violation becomes observable.
+fn report_branch_collisions(deltas, span) =
+  report_collisions_outer(deltas, 0, len(deltas), span)
+
+fn report_collisions_outer(deltas, i, n, span) =
+  if i >= n { () }
+  else {
+    report_collisions_inner(deltas, i, i + 1, n, span)
+    report_collisions_outer(deltas, i + 1, n, span)
+  }
+
+fn report_collisions_inner(deltas, i, j, n, span) =
+  if j >= n { () }
+  else {
+    let delta_i = list_index(deltas, i)
+    let delta_j = list_index(deltas, j)
+    let collisions = set_intersect(delta_i, delta_j)
+    report_each_collision(collisions, 0, len(collisions), span)
+    report_collisions_inner(deltas, i, j + 1, n, span)
+  }
+
+fn report_each_collision(names, i, n, span) =
+  if i >= n { () }
+  else {
+    let name = list_index(names, i)
+    perform report("", "E_OwnershipViolation", "OwnershipViolation",
+      "'"
+        |> str_concat(name)
+        |> str_concat("' consumed in two parallel branches"),
+      span, "MachineApplicable")
+    report_each_collision(names, i + 1, n, span)
+  }
 
 fn find_first_span(sites, name) =
   find_first_span_loop(sites, name, 0, len(sites))

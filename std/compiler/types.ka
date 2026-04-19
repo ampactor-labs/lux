@@ -201,12 +201,29 @@ type Expr
 // Shape IS the computation graph. Formatter (a handler) emits
 // sequential ops at left edge; convergent ops at indented center.
 
+// ~> splits by layout (DESIGN Ch 2): newline-before-~> = PTeeBlock
+// wraps the whole prior chain; no newline = PTeeInline wraps only
+// the preceding stage. The parser encodes the distinction by
+// adjusting ~>'s effective precedence; inference and lowering treat
+// both variants identically (the parser has already built the
+// correct tree shape).
 type PipeKind
   = PForward      // |>   converge — transparent wire
   | PDiverge      // <|   fanout — borrows input to all branches
   | PCompose      // ><   parallel compose — independent inputs, tupled
-  | PTee          // ~>   handler-attach — capability stack
+  | PTeeBlock     // ~>   block form — wraps whole preceding chain
+  | PTeeInline    // ~>   inline form — wraps preceding stage only
   | PFeedback     // <~   feedback — closes cycle under ambient clock
+
+// FeedbackSpec (spec I10) — the RHS shape of `<~`. Recognized by
+// inference to desugar the feedback verb into a stateful handler
+// capturing previous output as state. Three variants cover the
+// DESIGN Ch 6 DSP/control surface: a Z^-1 delay line, a
+// state-carrying closure, and a digital filter of N taps.
+type FeedbackSpec
+  = FbState(Ty)                   // typed state cell; RHS is a carrier
+  | FbDelay(Int)                  // unit-delay lookback of N samples
+  | FbFilter(Int, List)           // N-tap filter with coefficient list
 
 // ─── Stmt (spec 03) ────────────────────────────────────────────────
 
@@ -383,9 +400,19 @@ effect Verify {
 // Every use of an own-parameter performs consume(name, span).
 // affine_ledger enforces linearity; declares with !Consume so its
 // own arms cannot recurse through consume. Structural gate.
+//
+// Branching ops (W2) implement the `><` / `<|` branching ledger:
+// at branch_enter, the handler stashes `used` as a base; branch_divider
+// captures the delta since base, stashes it in the frame, resets used
+// to base; branch_exit captures the final branch's delta, pairwise-
+// checks collisions (same name consumed in two branches →
+// E_OwnershipViolation), unions all deltas into used, pops the frame.
 
 effect Consume {
   consume(String, Span) -> ()                      @resume=OneShot
+  branch_enter() -> ()                             @resume=OneShot
+  branch_divider(Span) -> ()                       @resume=OneShot
+  branch_exit(Span) -> ()                          @resume=OneShot
 }
 
 // ═══ Display — one projection, effect-mediated, live-chasing ═══════
@@ -676,11 +703,12 @@ fn show_scheme(sch) with SubstGraphRead =
 
 fn show_pipe_kind(pk) =
   match pk {
-    PForward  => "|>",
-    PDiverge  => "<|",
-    PCompose  => "><",
-    PTee      => "~>",
-    PFeedback => "<~"
+    PForward    => "|>",
+    PDiverge    => "<|",
+    PCompose    => "><",
+    PTeeBlock   => "~>",
+    PTeeInline  => "~>",
+    PFeedback   => "<~"
   }
 
 // ═══ Utilities — the smallest primitives that keep this file pure ══

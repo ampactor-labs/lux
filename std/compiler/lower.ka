@@ -274,10 +274,16 @@ fn lower_pipe(kind, left, right, handle) = {
     PCompose =>
       LMakeTuple(handle, [lo_l, lo_r]),
 
-    // ~> tee — handler attachment (inline OR block form).
-    // Emit resolves the scope from source layout; LIR just marks the
-    // attachment. LHandleWith(handle, body, handler).
-    PTee =>
+    // ~> tee — handler attachment. The parser has already built the
+    // correct tree shape: PTeeBlock for newline-before-~> (wraps the
+    // whole prior chain), PTeeInline for no-newline (wraps the
+    // preceding stage). At the LIR level both lower identically —
+    // LHandleWith(handle, body, handler) — because the body's shape
+    // is already baked into the tree; emit reads the scope from the
+    // expression layout, not from a LIR variant.
+    PTeeBlock =>
+      LHandleWith(handle, lo_l, lo_r),
+    PTeeInline =>
       LHandleWith(handle, lo_l, lo_r),
 
     // <~ feedback — requires iterative context. Emit desugars to a
