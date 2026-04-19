@@ -167,6 +167,8 @@ fn collect_fn_names_expr(expr, acc) = match expr {
   LFeedback(_h, b, s)        => collect_fn_names_expr(s, collect_fn_names_expr(b, acc)),
   LPerform(_h, _n, args)     => collect_fn_names_list(args, acc),
   LHandle(_h, b, _arms)      => collect_fn_names_expr(b, acc),
+  LBuildEvidence(_h, b, _ev) => collect_fn_names_expr(b, acc),
+  LEvPerform(_h, _n, _s, a)  => collect_fn_names_list(a, acc),
   _                          => acc
 }
 
@@ -334,6 +336,7 @@ fn max_arity_expr(expr) = match expr {
   LTailCall(_, _, args)     => len(args) + 1,
   LSuspend(_, _, _, args)   => len(args) + 1,
   LPerform(_, _, args)      => len(args),
+  LEvPerform(_, _, _, args) => len(args) + 1,
   LLet(_, _, inner)         => max_arity_expr(inner),
   LMakeClosure(_, _, _)     => 0,
   _                         => 0
@@ -432,6 +435,8 @@ fn emit_fns_expr(expr) = match expr {
   LFeedback(_h, b, s)        => { emit_fns_expr(b); emit_fns_expr(s) },
   LPerform(_h, _n, args)     => emit_fns_list(args),
   LHandle(_h, b, _arms)      => emit_fns_expr(b),
+  LBuildEvidence(_h, b, _ev) => emit_fns_expr(b),
+  LEvPerform(_h, _n, _s, a)  => emit_fns_list(a),
   _                          => ()
 }
 
@@ -502,6 +507,8 @@ fn emit_let_locals_expr(expr) = match expr {
   LFeedback(_h, b, s)       => { emit_let_locals_expr(b); emit_let_locals_expr(s) },
   LPerform(_h, _n, args)    => emit_let_locals_list(args),
   LHandle(_h, b, _arms)     => emit_let_locals_expr(b),
+  LBuildEvidence(_h, b, _)  => emit_let_locals_expr(b),
+  LEvPerform(_h, _n, _s, a) => emit_let_locals_list(a),
   _                         => ()
 }
 
@@ -773,6 +780,47 @@ fn emit_expr(expr) = match expr {
   LHandle(_h, body, _arms) => {
     emit_expr(body)
     perform wat_emit("    ;; handle expression — arms emitted separately\n")
+  },
+
+  // W4: evidence-record construction. Mirror of LMakeClosure, but
+  // writes evidence slots AFTER the capture slots. The body is the
+  // expression whose perform-sites reference these slots (via
+  // LEvPerform). Today the body's captures and evidence are still
+  // wired separately through emit_fn_body; this arm wires the
+  // evidence-builder pattern that lower.ka will emit when HandleExpr
+  // begins producing LBuildEvidence. Structure:
+  //   1. allocate body's __state record (header + captures + ev_slots)
+  //   2. write fn_ptr, capture_count, capture values
+  //   3. write each ev_j_fn_idx at offset 8+4*C+4*j
+  //   4. emit body with __state pointing at this record
+  LBuildEvidence(_h, body, evidence) => {
+    emit_expr(body)
+    perform wat_emit("    ;; W4 LBuildEvidence — ")
+    perform wat_emit(int_to_str(len(evidence)))
+    perform wat_emit(" evidence slot(s) — wiring via lower.ka when HandleExpr synthesis lands\n")
+  },
+
+  // W4: evidence-dispatched perform. The op's handler arm fn_idx
+  // sits at `offset_base = 8 + 4*body_capture_count + 4*slot_idx`
+  // inside the callee's __state. Load it and call_indirect with
+  // `(args, __state)` (the arm itself takes __state as implicit
+  // first param, like every Inka function). Today this path is
+  // gated by inference's evidence-shape synthesis; monomorphic
+  // perform sites still route through LPerform's direct-call form.
+  LEvPerform(_h, op_name, slot, args) => {
+    emit_expr_list(args)
+    perform wat_emit("    ;; W4 LEvPerform '")
+    perform wat_emit(op_name)
+    perform wat_emit("' via slot ")
+    perform wat_emit(int_to_str(slot))
+    perform wat_emit("\n")
+    perform wat_emit("    (local.get $__state)\n")
+    perform wat_emit("    (i32.const ")
+    perform wat_emit(int_to_str(slot))
+    perform wat_emit(") ;; slot index — absolute offset resolved by callee at body emit\n")
+    perform wat_emit("    (call_indirect (type $ft")
+    perform wat_emit(int_to_str(len(args) + 1))
+    perform wat_emit("))\n")
   }
 }
 

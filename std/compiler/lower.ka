@@ -61,8 +61,18 @@ type LowExpr
   | LRegion(Int, List)                         // arena scope
   | LHandleWith(Int, LowExpr, LowExpr)         // ~> desugaring
   | LFeedback(Int, LowExpr, LowExpr)           // <~ desugaring (iterative ctx required)
-  | LPerform(Int, String, List)                // effect op invocation
+  | LPerform(Int, String, List)                // effect op invocation — monomorphic direct-call form
   | LHandle(Int, LowExpr, List)                // body + arms (handle-expression)
+  // W4 evidence substrate — emitted when inference synthesizes an
+  // evidence vector for a polymorphic body. LBuildEvidence writes
+  // the arms' fn_idx values into the evidence slots of a newly
+  // allocated __state record; LEvPerform loads an arm's fn_idx from
+  // __state at the compile-time-resolved offset and dispatches via
+  // call_indirect. When inference determines a perform site is in
+  // monomorphic context, it stays as LPerform (direct call to
+  // `$op_<name>`); only polymorphic sites become LEvPerform.
+  | LBuildEvidence(Int, LowExpr, List)         // handle, body, [Evidence] — arms bound to slots
+  | LEvPerform(Int, String, Int, List)         // handle, op_name, slot_idx, args
 
 type LowValue
   = LInt(Int)
@@ -113,7 +123,9 @@ fn lexpr_handle(e) = match e {
   LHandleWith(h, _, _)    => h,
   LFeedback(h, _, _)      => h,
   LPerform(h, _, _)       => h,
-  LHandle(h, _, _)        => h
+  LHandle(h, _, _)        => h,
+  LBuildEvidence(h, _, _) => h,
+  LEvPerform(h, _, _, _)  => h
 }
 
 fn lexpr_ty(e) with LookupTy =

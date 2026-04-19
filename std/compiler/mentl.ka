@@ -460,6 +460,7 @@ fn catalog_summary(code) = match code {
   "V_Pending"             => "Verification obligation recorded, awaiting solver",
   "W_Suggestion"          => "Probable fix available (did-you-mean, synth)",
   "T_Gradient"            => "Annotation would unlock a capability",
+  "T_OverDeclared"        => "Function declares a wider effect row than its body uses — tighten to unlock capabilities",
   "T_ContinuationEscapes" => "Multi-shot continuation captured inside arena",
   _ => "Unknown error code: " |> str_concat(code)
 }

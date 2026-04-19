@@ -225,6 +225,26 @@ type FeedbackSpec
   | FbDelay(Int)                  // unit-delay lookback of N samples
   | FbFilter(Int, List)           // N-tap filter with coefficient list
 
+// Evidence (spec W4) — runtime witness of an effect-to-handler-arm
+// binding. A polymorphic function that performs `op_name` dispatches
+// via an evidence slot: the caller threads the evidence record into
+// the callee via `__state`, and the callee loads the arm's fn_idx
+// from slot `slot_idx` and invokes it through call_indirect.
+//
+// DESIGN Ch 4 "handler IS state" — closure captures and evidence
+// slots are both frozen handler state, projections of the same
+// underlying record. `__state`'s layout:
+//   offset 0        : fn_ptr (i32, table index)
+//   offset 4        : capture_count (i32)
+//   offset 8+4*i    : capture_i          (for i in 0..capture_count)
+//   offset 8+4*C+4*j: evidence_j_fn_idx  (for j in 0..ev_count, C = capture_count)
+// The body's ev_count and capture_count are known at emit time;
+// LEvPerform's offset arithmetic is compile-time-resolved.
+type Evidence
+  = Ev(String, Int)   // op_name, slot_idx — the slot in __state where
+                      // the arm's fn_idx was written by the caller's
+                      // LBuildEvidence.
+
 // ─── Stmt (spec 03) ────────────────────────────────────────────────
 
 type Stmt

@@ -218,22 +218,56 @@ fn infer_fn(name, params, body_node, handle, span) = {
 
   let declared_effs = perform inf_declared_effs()
   if len(declared_effs) > 0 {
-    let declared_row = build_declared_row(declared_effs)
+    // D3 — `with Pure` is absolute: body row must be EfPure (not
+    // merely ⊆ some sugar row named "Pure"). When Pure appears
+    // anywhere in declared_effs, the declared row collapses to
+    // EfPure and any other declared names are a contradiction (a
+    // single warning later will surface them precisely).
+    let has_pure = has_pure_declared(declared_effs)
+    let declared_row =
+      if has_pure { EfPure }
+      else        { build_declared_row(declared_effs) }
     let bound = perform graph_chase(row_handle)
     match bound {
       GNode(NRowBound(body_row), _) => {
         if row_subsumes(body_row, declared_row) {
+          // D2 — when body_row is STRICTLY narrower than declared_row
+          // (body ⊆ declared and declared ⊄ body), the fn is
+          // over-declared — it reserves more capabilities than it
+          // uses. Emit T_OverDeclared as a teaching warning so the
+          // author can tighten the signature and unlock the tighter
+          // row's capabilities (memoization for EfPure, real-time
+          // for !Alloc, etc.).
+          if row_subsumes(declared_row, body_row) { () }
+          else {
+            perform report("", "T_OverDeclared", "warning",
+              "function '"
+                |> str_concat(name)
+                |> str_concat("' declares ")
+                |> str_concat(show_effrow(declared_row))
+                |> str_concat(" but body only uses ")
+                |> str_concat(show_effrow(body_row))
+                |> str_concat(" — tighten the signature to unlock capabilities"),
+              span, "MachineApplicable")
+          }
           perform graph_bind_row(row_handle, declared_row,
             Located(span, Declared(name)))
         } else {
-          perform report("", "E_EffectMismatch", "error",
+          let code = if has_pure { "E_PurityViolated" } else { "E_EffectMismatch" }
+          let summary = if has_pure {
+            "function '"
+              |> str_concat(name)
+              |> str_concat("' declares Pure but body performs ")
+              |> str_concat(show_effrow(body_row))
+          } else {
             "function '"
               |> str_concat(name)
               |> str_concat("' declares ")
               |> str_concat(show_effrow(declared_row))
               |> str_concat(" but body inferred ")
-              |> str_concat(show_effrow(body_row)),
-            span, "MachineApplicable")
+              |> str_concat(show_effrow(body_row))
+          }
+          perform report("", code, "error", summary, span, "MachineApplicable")
         }
       },
       _ => ()
@@ -253,6 +287,22 @@ fn infer_fn(name, params, body_node, handle, span) = {
 
 fn build_declared_row(effs) =
   build_declared_from(effs, EfPure)
+
+// `with Pure` detection (D3). If any declared entry names "Pure",
+// the row is absolute-EfPure regardless of other entries (which
+// would be contradictory with Pure). Kept separate from
+// build_declared_row so diagnostics can still show the raw
+// declaration list if needed.
+fn has_pure_declared(effs) =
+  has_pure_declared_loop(effs, 0, len(effs))
+
+fn has_pure_declared_loop(effs, i, n) =
+  if i >= n { false }
+  else {
+    let (name, _) = list_index(effs, i)
+    if str_eq(name, "Pure") == 1 { true }
+    else { has_pure_declared_loop(effs, i + 1, n) }
+  }
 
 fn build_declared_from(effs, acc) =
   if len(effs) == 0 { acc }
