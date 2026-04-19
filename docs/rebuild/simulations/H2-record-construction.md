@@ -350,6 +350,175 @@ shape with EmitMemory swap. PRecord matches load each named field.
 
 ---
 
+## Post-H3 / H3.1 implications (riffle-back)
+
+This walkthrough was drafted before H3 + H3.1 landed. The substrate
+H2 lands ON has shifted; the layered moves above are still right,
+but their JUSTIFICATION crystallizes when read against what's in
+place. Capturing the riffles before implementation prevents the
+wheel of fluent code from spinning the design back into a previous
+shape.
+
+### What's now load-bearing in place
+
+- **Heap-uniform allocation pattern.** H3's LMakeVariant uses
+  `emit_alloc(size, "variant_tmp")` with field stores at offsets
+  4 + 4*i. LMakeClosure (Phase A) uses the same shape with offset
+  8 + 4*i. LMakeRecord becomes the third instance — same dispatch,
+  offsets at 0 + 4*i. **Three call sites, one emit_alloc swap
+  surface**. The EmitMemory handler routes bytes for all three;
+  arena / GC swaps land at one site.
+
+- **LMatch cascade with field binding.** H3's emit_match_arms +
+  emit_pat_field_binds is the template. LPRecord becomes a new
+  always-match arm that calls a record-field-bind variant
+  (offsets are field-positional, no tag check). The cascade
+  structure is unchanged.
+
+- **W6 LFieldLoad already wired.** `p.name` already lowers and
+  emits — the missing piece was the construction site. H2 closes
+  the loop the prior W6 work opened. **`p.name` is dead code today
+  in the sense that nothing has ever produced a `p` for it to read.
+  H2 produces the `p`.**
+
+- **SchemeKind dispatch (H3) extends.** lower's CallExpr already
+  inspects env-entry SchemeKind. Adding `RecordSchemeKind(fields)`
+  for nominal-record names follows the same shape — one new arm in
+  the dispatch. Same pattern, no new mechanism.
+
+  *Decision:* this walkthrough's design says **structural-only
+  records** (no declaration syntax). RecordSchemeKind would only be
+  needed if Inka adds nominal records (`type Person = {...}`). For
+  H2 v1, skip it. If the showcase needs nominal forms, the SchemeKind
+  arm lands as a follow-up — H2.3.
+
+### Crystallization: EffName algebra ⇔ field row algebra
+
+H3.1 introduced `name_set_*` operations on List<EffName>: sorted
+insert, union, intersect, diff, subset, disjoint, eq, contains.
+H2's TRecord/TRecordOpen unification needs the SAME shape over
+List<(field_name, ty)> with the field_name as the sort key.
+
+Today there are TWO instances of this algebra:
+- `set_*` (runtime/strings.ka) on List<String>
+- `name_set_*` (effects.ka) on List<EffName>
+
+H2 makes it THREE — `field_set_*` on List<(String, Ty)> sorted by
+String. Three is the minimum sample size where the abstraction
+earns its weight. **The natural follow-up after H2 lands is to
+factor a generic ordered-set algebra parametric over (element,
+key-extractor, key-comparator).** Rosie's Rule of Three: name two
+parallel implementations, factor at the third.
+
+For H2 itself: KEEP three parallel implementations (faster to land
+without disrupting two prior modules). The factoring is its own
+follow-up, post-H5 once Mentl's audit has had a chance to surface
+which uses share enough structure.
+
+### Frame consolidation (Ω.5) becomes mechanical
+
+Ω.5 turns `lower_scope`'s parallel arrays
+`(locals_names, locals_handles, captures_names, captures_handles)`
+into one record. After H2:
+
+```
+type LowerFrame = {
+  locals: List, local_handles: List, local_order: List,
+  captures: List, capture_handles: List, capture_order: List
+}
+
+handler lower_scope with frames = [], globals = [] {
+  ls_bind_local(name, h) =>
+    let frame = list_head(frames)
+    let updated = frame with {
+      locals: set_insert(frame.locals, name),
+      local_handles: frame.local_handles ++ [h],
+      local_order: frame.local_order ++ [name]
+    }
+    resume(()) with frames = [updated] ++ list_tail(frames)
+}
+```
+
+The `frame with {field: new}` syntax is the FUNCTIONAL UPDATE form
+mentioned in DESIGN. **H2.2 (functional update) becomes the
+predicate for Ω.5's clean landing.** Without functional update,
+Ω.5 reverts to "rebuild the record from scratch each
+mutation" — verbose. With it, Ω.5 is a one-page sweep.
+
+*Decision:* keep H2 v1 as record CONSTRUCTION + access + pattern
+(no update). H2.2 (with-update) lands as a follow-up before Ω.5.
+The full chain is H2 → H2.2 → Ω.5 — three small commits, each
+verified by walking the next one's prerequisite shape.
+
+### Single-variant ADTs are records (Mentl audit gradient)
+
+After H2, Mentl can prove a structural equivalence:
+```
+type Wrapper = Wrap(Int, String)        // single-variant ADT
+                  ↕
+type Wrapper = {a: Int, b: String}      // record (with named fields)
+```
+
+Both occupy the same slot in the type-system's ABSTRACTION space.
+The record version drops the runtime tag (4 bytes per instance) and
+gains named field access (`.a` vs `match w { Wrap(a, _) => a }`).
+
+**Implication for H5:** Mentl's catalog gains a new candidate —
+"this single-variant ADT could be a record" with a precise refactor
+(name → field) and a precise win (4 bytes/instance saved + readable
+access). **The substrate makes this Mentl-discoverable BECAUSE H2
+lands**. No special audit code needed; the catalog enumerates
+shapes that have a structural equivalent.
+
+### Records in handler state (post-cascade enhancement)
+
+Today handler state is multiple `with x = ..., y = ...` slots.
+After H2 + H2.2, handler state could be ONE record per handler:
+
+```
+handler counter with state = {count: 0, max: 100} {
+  tick() =>
+    let s = state
+    if s.count < s.max {
+      resume(())
+        with state = state with {count: s.count + 1}
+    } else { resume(()) }
+}
+```
+
+Cleaner than parallel state slots. **Not in H2's scope** — but the
+SUBSTRATE for it lands here. Worth surfacing because once Mentl's
+audit notices "this handler has 3+ state slots" it can suggest
+record consolidation. The Ω.5 lower_scope refactor is the canonical
+example.
+
+### Records as the Mentl AuditReport substrate (H5)
+
+H5 needs an `AuditReport` shape — a record of `{score: Int,
+evidence: List, candidates: List, summary: String}`. After H2, this
+is a literal record. Mentl's editor surfaces (Proof Lens, Gradient
+ghost text) introspect the report by FIELD NAME — `report.score`,
+`report.candidates`. **Without H2, AuditReport would be a tuple or
+parallel arrays. After H2, it's a record — the editor's
+field-by-field projection becomes natural.**
+
+### Recap: what each prior handle gave H2
+
+| From | What H2 inherits |
+|---|---|
+| W6 (Phase E) | LFieldLoad + offset resolution — no change needed |
+| H3 | LMakeVariant heap-alloc template; emit_match cascade + LP* dispatch shape; SchemeKind extension pattern |
+| H3.1 | Row algebra over a structured-key list — third instance follows the second's shape |
+| H6 | infer_pat exhaustive enumeration; PRecord arm gets a real implementation, not a wildcard absorb |
+| Phase A | EmitMemory swap surface; field-canonicalize sort invariant |
+
+H2 is not new mechanism — it's the **third heap-allocated
+fixed-layout shape** the substrate already supports. The work is
+in proving the symmetry holds and in the ~80 lines of glue that
+make the symmetry visible.
+
+---
+
 ## Estimated scope
 
 - ~5 files touched: types.ka (MakeRecordExpr variant), parser.ka
