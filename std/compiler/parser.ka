@@ -286,15 +286,29 @@ fn op_string(k) = match k {
 
 // ═══ Program — top-level loop ══════════════════════════════════════
 
-fn parse_program(tokens) =
-  parse_stmt_list(tokens, 0, [])
+// Buffer-pattern helper for recursive parse loops. Each parse loop
+// allocates an initial buffer, threads (buf, count) through tail-
+// recursion, and slices at the end. O(N) total allocation per loop
+// regardless of element count.
+fn push_node(buf, count, node) = {
+  let extended = list_extend_to(buf, count + 1)
+  let written  = list_set(extended, count, node)
+  (written, count + 1)
+}
 
-fn parse_stmt_list(tokens, pos, acc) = {
+fn parse_program(tokens) = {
+  let buf = make_list(16)
+  let (final_buf, final_count, _) = parse_stmt_list(tokens, 0, buf, 0)
+  slice(final_buf, 0, final_count)
+}
+
+fn parse_stmt_list(tokens, pos, buf, count) = {
   let p = skip_ws(tokens, pos)
-  if at(tokens, p, TEof) { acc }
+  if at(tokens, p, TEof) { (buf, count, p) }
   else {
     let (stmt, next) = parse_stmt(tokens, p)
-    parse_stmt_list(tokens, skip_sep(tokens, next), acc ++ [stmt])
+    let (b1, c1) = push_node(buf, count, stmt)
+    parse_stmt_list(tokens, skip_sep(tokens, next), b1, c1)
   }
 }
 
@@ -349,18 +363,22 @@ fn parse_fn_params(tokens, pos) = {
   let p = skip_ws(tokens, pos)
   if at(tokens, p, TRParen) { ([], p + 1) }
   else {
+    let buf = make_list(4)
     let (first, p2) = parse_one_param(tokens, p)
-    parse_params_tail(tokens, p2, [first])
+    let (b1, c1) = push_node(buf, 0, first)
+    let (final_buf, final_count, final_pos) = parse_params_tail(tokens, p2, b1, c1)
+    (slice(final_buf, 0, final_count), final_pos)
   }
 }
 
-fn parse_params_tail(tokens, pos, acc) = {
+fn parse_params_tail(tokens, pos, buf, count) = {
   let p = skip_ws(tokens, pos)
   if at(tokens, p, TComma) {
     let (next, p2) = parse_one_param(tokens, skip_ws(tokens, p + 1))
-    parse_params_tail(tokens, p2, acc ++ [next])
+    let (b1, c1) = push_node(buf, count, next)
+    parse_params_tail(tokens, p2, b1, c1)
   } else {
-    (acc, expect(tokens, p, TRParen))
+    (buf, count, expect(tokens, p, TRParen))
   }
 }
 
@@ -480,7 +498,7 @@ fn parse_variant_fields(tokens, pos) = {
 fn parse_effect_decl(tokens, pos) = {
   let start = span_at(tokens, pos)
   let name = ident_at(tokens, pos)
-  let p = expect(tokens, skip_ws(tokens, pos + 1), "LBrace")
+  let p = expect(tokens, skip_ws(tokens, pos + 1), TLBrace)
   let (ops, p2) = parse_effect_ops(tokens, skip_ws(tokens, p))
   (nstmt(EffectDeclStmt(name, ops), start), p2)
 }
@@ -490,7 +508,7 @@ fn parse_effect_ops(tokens, pos) = {
   if at(tokens, p, TRBrace) { ([], p + 1) }
   else {
     let op_name = ident_at(tokens, p)
-    let p2 = expect(tokens, skip_ws(tokens, p + 1), "LParen")
+    let p2 = expect(tokens, skip_ws(tokens, p + 1), TLParen)
     let (param_tys, p3) = parse_op_params(tokens, skip_ws(tokens, p2))
     let p4 = skip_ws(tokens, p3)
     let (ret_ty, p5) =
@@ -525,7 +543,7 @@ fn parse_op_params(tokens, pos) = {
 fn parse_handler_decl(tokens, pos) = {
   let start = span_at(tokens, pos)
   let name = ident_at(tokens, pos)
-  let p = expect(tokens, skip_ws(tokens, pos + 1), "LBrace")
+  let p = expect(tokens, skip_ws(tokens, pos + 1), TLBrace)
   let (arms, p2) = parse_handler_arms(tokens, skip_ws(tokens, p))
   (nstmt(HandlerDeclStmt(name, "", arms), start), p2)
 }
@@ -535,9 +553,9 @@ fn parse_handler_arms(tokens, pos) = {
   if at(tokens, p, TRBrace) { ([], p + 1) }
   else {
     let op_name = ident_at(tokens, p)
-    let p2 = expect(tokens, skip_ws(tokens, p + 1), "LParen")
+    let p2 = expect(tokens, skip_ws(tokens, p + 1), TLParen)
     let (args, p3) = parse_arg_names(tokens, skip_ws(tokens, p2))
-    let p4 = expect(tokens, skip_ws(tokens, p3), "FatArrow")
+    let p4 = expect(tokens, skip_ws(tokens, p3), TFatArrow)
     let (body, p5) = parse_expr(tokens, skip_ws(tokens, p4))
     let p6 = skip_sep(tokens, p5)
     let (rest, p7) = parse_handler_arms(tokens, p6)
@@ -700,57 +718,64 @@ fn parse_paren_or_tuple(tokens, pos, start_span) = {
     let (first, p2) = parse_expr(tokens, p)
     let p3 = skip_ws(tokens, p2)
     if at(tokens, p3, TComma) {
-      let (rest, p4) = parse_tuple_tail(tokens, skip_ws(tokens, p3 + 1), [first])
-      (nexpr(MakeTupleExpr(rest), start_span), p4)
+      let buf = make_list(4)
+      let (b1, c1) = push_node(buf, 0, first)
+      let (final_buf, final_count, final_pos) =
+        parse_tuple_tail(tokens, skip_ws(tokens, p3 + 1), b1, c1)
+      (nexpr(MakeTupleExpr(slice(final_buf, 0, final_count)), start_span), final_pos)
     } else {
       (first, expect(tokens, p3, TRParen))
     }
   }
 }
 
-fn parse_tuple_tail(tokens, pos, acc) = {
+fn parse_tuple_tail(tokens, pos, buf, count) = {
   let p = skip_ws(tokens, pos)
-  if at(tokens, p, TRParen) { (acc, p + 1) }
+  if at(tokens, p, TRParen) { (buf, count, p + 1) }
   else {
     let (elem, p2) = parse_expr(tokens, p)
+    let (b1, c1) = push_node(buf, count, elem)
     let p3 = skip_ws(tokens, p2)
     if at(tokens, p3, TComma) {
-      parse_tuple_tail(tokens, skip_ws(tokens, p3 + 1), acc ++ [elem])
+      parse_tuple_tail(tokens, skip_ws(tokens, p3 + 1), b1, c1)
     } else {
-      (acc ++ [elem], expect(tokens, p3, TRParen))
+      (b1, c1, expect(tokens, p3, TRParen))
     }
   }
 }
 
 fn parse_list_literal(tokens, pos, start_span) = {
-  let (elems, p) = parse_list_elems(tokens, pos, [])
-  (nexpr(MakeListExpr(elems), start_span), p)
+  let buf = make_list(4)
+  let (final_buf, final_count, p) = parse_list_elems(tokens, pos, buf, 0)
+  (nexpr(MakeListExpr(slice(final_buf, 0, final_count)), start_span), p)
 }
 
-fn parse_list_elems(tokens, pos, acc) = {
+fn parse_list_elems(tokens, pos, buf, count) = {
   let p = skip_ws(tokens, pos)
-  if at(tokens, p, TRBracket) { (acc, p + 1) }
+  if at(tokens, p, TRBracket) { (buf, count, p + 1) }
   else {
     let (elem, p2) = parse_expr(tokens, p)
+    let (b1, c1) = push_node(buf, count, elem)
     let p3 = skip_ws(tokens, p2)
     if at(tokens, p3, TComma) {
-      parse_list_elems(tokens, skip_ws(tokens, p3 + 1), acc ++ [elem])
+      parse_list_elems(tokens, skip_ws(tokens, p3 + 1), b1, c1)
     } else {
-      (acc ++ [elem], expect(tokens, p3, TRBracket))
+      (b1, c1, expect(tokens, p3, TRBracket))
     }
   }
 }
 
 fn parse_block_expr(tokens, pos, start_span) = {
-  let (stmts, final_e, p) = parse_block_body(tokens, pos, [])
-  (nexpr(BlockExpr(stmts, final_e), start_span), p)
+  let buf = make_list(8)
+  let (final_buf, final_count, final_e, p) = parse_block_body(tokens, pos, buf, 0)
+  (nexpr(BlockExpr(slice(final_buf, 0, final_count), final_e), start_span), p)
 }
 
-fn parse_block_body(tokens, pos, acc) = {
+fn parse_block_body(tokens, pos, buf, count) = {
   let p = skip_ws(tokens, pos)
   if at(tokens, p, TRBrace) {
     let start = span_at(tokens, p)
-    (acc, nexpr(LitUnit, start), p + 1)
+    (buf, count, nexpr(LitUnit, start), p + 1)
   } else {
     let is_decl = match kind_at(tokens, p) {
       TLet => true,
@@ -759,16 +784,17 @@ fn parse_block_body(tokens, pos, acc) = {
     }
     if is_decl {
       let (stmt, p2) = parse_stmt(tokens, p)
-      parse_block_body(tokens, skip_sep(tokens, p2), acc ++ [stmt])
+      let (b1, c1) = push_node(buf, count, stmt)
+      parse_block_body(tokens, skip_sep(tokens, p2), b1, c1)
     } else {
       let (expr, p2) = parse_expr(tokens, p)
       let p3 = skip_ws(tokens, p2)
       if at(tokens, p3, TRBrace) {
-        (acc, expr, p3 + 1)
+        (buf, count, expr, p3 + 1)
       } else {
         let start = span_at(tokens, p)
-        parse_block_body(tokens, skip_sep(tokens, p3),
-          acc ++ [nstmt(ExprStmt(expr), start)])
+        let (b1, c1) = push_node(buf, count, nstmt(ExprStmt(expr), start))
+        parse_block_body(tokens, skip_sep(tokens, p3), b1, c1)
       }
     }
   }
@@ -802,21 +828,24 @@ fn parse_if(tokens, pos, span) = {
 
 fn parse_match(tokens, pos, span) = {
   let (scrutinee, p) = parse_expr(tokens, pos)
-  let p2 = expect(tokens, skip_ws(tokens, p), "LBrace")
-  let (arms, p3) = parse_match_arms(tokens, skip_ws(tokens, p2), [])
-  (nexpr(MatchExpr(scrutinee, arms), span), p3)
+  let p2 = expect(tokens, skip_ws(tokens, p), TLBrace)
+  let buf = make_list(4)
+  let (final_buf, final_count, p3) =
+    parse_match_arms(tokens, skip_ws(tokens, p2), buf, 0)
+  (nexpr(MatchExpr(scrutinee, slice(final_buf, 0, final_count)), span), p3)
 }
 
-fn parse_match_arms(tokens, pos, acc) = {
+fn parse_match_arms(tokens, pos, buf, count) = {
   let p = skip_ws(tokens, pos)
-  if at(tokens, p, TRBrace) { (acc, p + 1) }
+  if at(tokens, p, TRBrace) { (buf, count, p + 1) }
   else {
     let (pat, p2) = parse_pat(tokens, p)
-    let p3 = expect(tokens, skip_ws(tokens, p2), "FatArrow")
+    let p3 = expect(tokens, skip_ws(tokens, p2), TFatArrow)
     let (body, p4) = parse_expr(tokens, skip_ws(tokens, p3))
     let p5 = skip_ws(tokens, p4)
     let p6 = if at(tokens, p5, TComma) { p5 + 1 } else { p5 }
-    parse_match_arms(tokens, skip_ws(tokens, p6), acc ++ [(pat, body)])
+    let (b1, c1) = push_node(buf, count, (pat, body))
+    parse_match_arms(tokens, skip_ws(tokens, p6), b1, c1)
   }
 }
 
@@ -857,30 +886,32 @@ fn parse_perform(tokens, pos, span) = {
 }
 
 fn parse_resume(tokens, pos, span) = {
-  let p = expect(tokens, skip_ws(tokens, pos), "LParen")
+  let p = expect(tokens, skip_ws(tokens, pos), TLParen)
   let (val, p2) = parse_expr(tokens, skip_ws(tokens, p))
-  let p3 = expect(tokens, skip_ws(tokens, p2), "RParen")
+  let p3 = expect(tokens, skip_ws(tokens, p2), TRParen)
   (nexpr(ResumeExpr(val, []), span), p3)
 }
 
 fn parse_lambda(tokens, pos, span) = {
-  let (params, p) = parse_lambda_params(tokens, pos, [])
+  let buf = make_list(4)
+  let (final_buf, final_count, p) = parse_lambda_params(tokens, pos, buf, 0)
   let (body, p2) = parse_expr(tokens, skip_ws(tokens, p))
-  (nexpr(LambdaExpr(params, body), span), p2)
+  (nexpr(LambdaExpr(slice(final_buf, 0, final_count), body), span), p2)
 }
 
-fn parse_lambda_params(tokens, pos, acc) = {
+fn parse_lambda_params(tokens, pos, buf, count) = {
   let p = skip_ws(tokens, pos)
-  if at(tokens, p, TPipe) { (acc, p + 1) }
+  if at(tokens, p, TPipe) { (buf, count, p + 1) }
   else {
     let name = ident_at(tokens, p)
     let h = fresh_ph(span_at(tokens, p))
     let param = TParam(name, TVar(h), Inferred)
+    let (b1, c1) = push_node(buf, count, param)
     let p2 = skip_ws(tokens, p + 1)
     if at(tokens, p2, TComma) {
-      parse_lambda_params(tokens, skip_ws(tokens, p2 + 1), acc ++ [param])
+      parse_lambda_params(tokens, skip_ws(tokens, p2 + 1), b1, c1)
     } else {
-      (acc ++ [param], expect(tokens, p2, TPipe))
+      (b1, c1, expect(tokens, p2, TPipe))
     }
   }
 }
@@ -985,8 +1016,11 @@ fn parse_type_ty(tokens, pos) = match kind_at(tokens, pos) {
       let (first, p2) = parse_type_ty(tokens, p)
       let p3 = skip_ws(tokens, p2)
       if at(tokens, p3, TComma) {
-        let (rest, p4) = parse_type_ty_tail(tokens, skip_ws(tokens, p3 + 1), [first])
-        (TTuple(rest), p4)
+        let buf = make_list(4)
+        let (b1, c1) = push_node(buf, 0, first)
+        let (final_buf, final_count, p4) =
+          parse_type_ty_tail(tokens, skip_ws(tokens, p3 + 1), b1, c1)
+        (TTuple(slice(final_buf, 0, final_count)), p4)
       } else {
         (first, expect(tokens, p3, TRParen))
       }
@@ -995,16 +1029,17 @@ fn parse_type_ty(tokens, pos) = match kind_at(tokens, pos) {
   _ => (TUnit, pos + 1)
 }
 
-fn parse_type_ty_tail(tokens, pos, acc) = {
+fn parse_type_ty_tail(tokens, pos, buf, count) = {
   let p = skip_ws(tokens, pos)
-  if at(tokens, p, TRParen) { (acc, p + 1) }
+  if at(tokens, p, TRParen) { (buf, count, p + 1) }
   else {
     let (ty, p2) = parse_type_ty(tokens, p)
+    let (b1, c1) = push_node(buf, count, ty)
     let p3 = skip_ws(tokens, p2)
     if at(tokens, p3, TComma) {
-      parse_type_ty_tail(tokens, skip_ws(tokens, p3 + 1), acc ++ [ty])
+      parse_type_ty_tail(tokens, skip_ws(tokens, p3 + 1), b1, c1)
     } else {
-      (acc ++ [ty], expect(tokens, p3, TRParen))
+      (b1, c1, expect(tokens, p3, TRParen))
     }
   }
 }
