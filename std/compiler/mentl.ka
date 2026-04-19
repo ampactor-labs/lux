@@ -176,9 +176,9 @@ fn try_each_annotation_loop(handle, candidates, base_ty, i, n, buf, buf_len) =
 
 fn apply_annotation_tentatively(handle, ann, base_ty) = match ann {
   APure(sp)          => narrow_row(handle, base_ty, EfPure, sp),
-  ANotAlloc(sp)      => narrow_row(handle, base_ty, EfNeg(mk_ef_closed(["Alloc"])), sp),
-  ANotIO(sp)         => narrow_row(handle, base_ty, EfNeg(mk_ef_closed(["IO"])), sp),
-  ANotNetwork(sp)    => narrow_row(handle, base_ty, EfNeg(mk_ef_closed(["Network"])), sp),
+  ANotAlloc(sp)      => narrow_row(handle, base_ty, EfNeg(mk_ef_closed([ENamed("Alloc")])), sp),
+  ANotIO(sp)         => narrow_row(handle, base_ty, EfNeg(mk_ef_closed([ENamed("IO")])), sp),
+  ANotNetwork(sp)    => narrow_row(handle, base_ty, EfNeg(mk_ef_closed([ENamed("Network")])), sp),
   ARefined(_, pred, sp) => {
     // Narrowing the type via refinement — perform verify against the
     // narrowed predicate. Ledger captures; rollback removes.

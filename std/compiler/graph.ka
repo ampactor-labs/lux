@@ -260,8 +260,8 @@ fn merge_row(names, row) =
     EfPure =>
       if len(names) == 0 { EfPure }
       else { mk_ef_closed(names) },
-    EfClosed(inner)  => mk_ef_closed(set_union(names, inner)),
-    EfOpen(inner, v) => mk_ef_open(set_union(names, inner), v),
+    EfClosed(inner)  => mk_ef_closed(name_set_union(names, inner)),
+    EfOpen(inner, v) => mk_ef_open(name_set_union(names, inner), v),
     _ => row
   }
 
@@ -459,9 +459,10 @@ fn overlays_to_pairs_loop(names, bufs, lens, count, i, acc) =
     )
   }
 
-// ═══ String set ops — sorted-flat substrate (W8.2 / Phase-A2) ═════
-// merge_row now calls `set_union` and `set_contains` directly via
-// the runtime/strings primitives. Smart constructors (mk_ef_closed,
-// mk_ef_open in effects.ka) enforce sort invariant at construction,
-// so no boundary canonicalize is needed. The local adapter wrappers
-// are gone — every caller uses the substrate primitive directly.
+// ═══ Effect-name set ops (H3.1) ═══════════════════════════════════
+// merge_row routes through `name_set_union` from effects.ka — the
+// row entries are EffName values, not strings. Smart constructors
+// (mk_ef_closed, mk_ef_open) enforce sort invariant at construction,
+// so no boundary canonicalize is needed. The local string-set
+// adapters are gone — string-set primitives still serve own.ka and
+// other linear-binding consumers.

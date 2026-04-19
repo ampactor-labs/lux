@@ -29,9 +29,9 @@ import runtime/strings
 // graph stores rows in the form they were constructed; constructors
 // enforce the invariant the algebra depends on.
 
-fn mk_ef_closed(names) = EfClosed(set_canonicalize(names))
+fn mk_ef_closed(names) = EfClosed(name_set_canonicalize(names))
 
-fn mk_ef_open(names, v) = EfOpen(set_canonicalize(names), v)
+fn mk_ef_open(names, v) = EfOpen(name_set_canonicalize(names), v)
 
 // Record-field smart constructor: sort (field_name, ty) pairs by
 // field name, dedup by name (last write wins). Empty list → empty
@@ -437,12 +437,229 @@ fn row_is_ground(row) =
 // algebraic ops (union/intersect/diff/etc.), use the set_* names
 // directly.
 
-fn sort_unique(names)        = set_canonicalize(names)
-fn insert_sorted(sorted, x)  = set_insert(sorted, x)
+// (string-set adapters retained for non-row callers — none today)
 
-fn list_intersect(a, b)      = set_intersect(a, b)
-fn list_diff_str(a, b)       = set_diff(a, b)
-fn list_subset_str(sub, sup) = set_subset(sub, sup)
-fn list_disjoint(a, b)       = set_disjoint(a, b)
-fn list_eq_str(a, b)         = set_eq(a, b)
-fn string_in_list(lst, s)    = set_contains(lst, s)
+fn sort_unique(names)        = name_set_canonicalize(names)
+fn insert_sorted(sorted, x)  = name_set_insert(sorted, x)
+
+fn list_intersect(a, b)      = name_set_intersect(a, b)
+fn list_diff_str(a, b)       = name_set_diff(a, b)
+fn list_subset_str(sub, sup) = name_set_subset(sub, sup)
+fn list_disjoint(a, b)       = name_set_disjoint(a, b)
+fn list_eq_str(a, b)         = name_set_eq(a, b)
+fn string_in_list(lst, s)    = name_set_contains(lst, s)
+
+// ═══ EffName comparators ═══════════════════════════════════════════
+// Effect-name equality = name match AND (parameterized) arg lists
+// pointwise equal. Ordering = name lex order; ties broken by arg
+// list lex order. The substrate-wide sorted-deduped invariant on
+// row entries depends on these two functions producing total order.
+
+fn eff_name_eq(a, b) = match a {
+  ENamed(an) => match b {
+    ENamed(bn)               => str_eq(an, bn),
+    EParameterized(_, _)     => false
+  },
+  EParameterized(an, aa) => match b {
+    ENamed(_)                => false,
+    EParameterized(bn, ba)   => str_eq(an, bn) && eff_args_eq(aa, ba)
+  }
+}
+
+fn eff_args_eq(a, b) =
+  if len(a) != len(b) { false }
+  else { eff_args_eq_loop(a, b, 0, len(a)) }
+
+fn eff_args_eq_loop(a, b, i, n) =
+  if i >= n { true }
+  else if eff_arg_eq(list_index(a, i), list_index(b, i)) {
+    eff_args_eq_loop(a, b, i + 1, n)
+  } else { false }
+
+fn eff_arg_eq(a, b) = match a {
+  EAInt(n)    => match b {
+    EAInt(m)    => n == m,
+    EAFloat(_)  => false,
+    EAString(_) => false
+  },
+  EAFloat(_)  => match b {
+    EAInt(_)    => false,
+    EAFloat(_)  => false,    // float equality at compile time deferred
+    EAString(_) => false
+  },
+  EAString(s) => match b {
+    EAInt(_)    => false,
+    EAFloat(_)  => false,
+    EAString(t) => str_eq(s, t)
+  }
+}
+
+// Total order: ENamed < EParameterized when names differ; same name
+// orders by arg list. Bare ENamed("Sample") < EParameterized("Sample",
+// _) so a bare/parameterized mix has a stable canonical order.
+fn eff_name_lt(a, b) = match a {
+  ENamed(an) => match b {
+    ENamed(bn)               => str_lt(an, bn),
+    EParameterized(bn, _)    =>
+      if str_eq(an, bn) { true } else { str_lt(an, bn) }
+  },
+  EParameterized(an, aa) => match b {
+    ENamed(bn) =>
+      if str_eq(an, bn) { false } else { str_lt(an, bn) },
+    EParameterized(bn, ba) =>
+      if str_eq(an, bn) { eff_args_lt(aa, ba) } else { str_lt(an, bn) }
+  }
+}
+
+fn eff_args_lt(a, b) =
+  eff_args_lt_loop(a, b, 0, len(a), len(b))
+
+fn eff_args_lt_loop(a, b, i, na, nb) =
+  if i >= na { na < nb }
+  else if i >= nb { false }
+  else {
+    let ai = list_index(a, i)
+    let bi = list_index(b, i)
+    if eff_arg_eq(ai, bi) {
+      eff_args_lt_loop(a, b, i + 1, na, nb)
+    } else {
+      eff_arg_lt(ai, bi)
+    }
+  }
+
+fn eff_arg_lt(a, b) = match a {
+  EAInt(n)    => match b {
+    EAInt(m)    => n < m,
+    EAFloat(_)  => true,
+    EAString(_) => true
+  },
+  EAFloat(_)  => match b {
+    EAInt(_)    => false,
+    EAFloat(_)  => false,
+    EAString(_) => true
+  },
+  EAString(s) => match b {
+    EAInt(_)    => false,
+    EAFloat(_)  => false,
+    EAString(t) => str_lt(s, t)
+  }
+}
+
+// ═══ Row-name set algebra ══════════════════════════════════════════
+// Sorted-flat List<EffName> set ops. Mirror runtime/strings.ka's
+// set_* surface but compare with eff_name_eq / eff_name_lt. Local to
+// effects.ka because EffName is row-internal vocabulary.
+//
+// All functions assume sorted input; canonicalize at the row's
+// construction boundary (mk_ef_closed / mk_ef_open) the same way the
+// string-set substrate handles boundary canonicalization.
+
+fn name_set_canonicalize(names) =
+  name_set_canonicalize_loop(names, 0, len(names), [])
+
+fn name_set_canonicalize_loop(names, i, n, acc) =
+  if i >= n { acc }
+  else {
+    name_set_canonicalize_loop(names, i + 1, n,
+      name_set_insert(acc, list_index(names, i)))
+  }
+
+fn name_set_insert(sorted, name) =
+  let n = len(sorted)
+  let pos = name_find_pos(sorted, name, 0, n)
+  if pos < n {
+    let existing = list_index(sorted, pos)
+    if eff_name_eq(existing, name) { sorted }
+    else {
+      let buf = make_list(n + 1)
+      let prefix = list_copy_into(sorted, buf, 0, pos)
+      let with_ins = list_set(prefix, pos, name)
+      name_copy_suffix_shifted(sorted, with_ins, pos, pos, n)
+    }
+  } else {
+    let buf = make_list(n + 1)
+    let copied = list_copy_into(sorted, buf, 0, n)
+    list_set(copied, n, name)
+  }
+
+fn name_find_pos(sorted, name, i, n) =
+  if i >= n { n }
+  else {
+    let existing = list_index(sorted, i)
+    if eff_name_lt(existing, name) {
+      name_find_pos(sorted, name, i + 1, n)
+    } else { i }
+  }
+
+fn name_copy_suffix_shifted(src, dst, src_idx, dst_idx, n) =
+  if src_idx >= n { dst }
+  else {
+    name_copy_suffix_shifted(
+      src, list_set(dst, dst_idx + 1, list_index(src, src_idx)),
+      src_idx + 1, dst_idx + 1, n
+    )
+  }
+
+fn name_set_union(a, b) =
+  name_set_union_loop(a, b, 0, len(b), name_set_canonicalize(a))
+
+fn name_set_union_loop(a, b, i, n, acc) =
+  if i >= n { acc }
+  else {
+    name_set_union_loop(a, b, i + 1, n,
+      name_set_insert(acc, list_index(b, i)))
+  }
+
+fn name_set_intersect(a, b) =
+  name_set_intersect_loop(a, b, 0, len(a), [])
+
+fn name_set_intersect_loop(a, b, i, n, acc) =
+  if i >= n { acc }
+  else {
+    let x = list_index(a, i)
+    let next = if name_set_contains(b, x) {
+      name_set_insert(acc, x)
+    } else { acc }
+    name_set_intersect_loop(a, b, i + 1, n, next)
+  }
+
+fn name_set_diff(a, b) =
+  name_set_diff_loop(a, b, 0, len(a), [])
+
+fn name_set_diff_loop(a, b, i, n, acc) =
+  if i >= n { acc }
+  else {
+    let x = list_index(a, i)
+    let next = if name_set_contains(b, x) { acc }
+    else { name_set_insert(acc, x) }
+    name_set_diff_loop(a, b, i + 1, n, next)
+  }
+
+fn name_set_subset(sub, sup) =
+  name_set_subset_loop(sub, sup, 0, len(sub))
+
+fn name_set_subset_loop(sub, sup, i, n) =
+  if i >= n { true }
+  else if name_set_contains(sup, list_index(sub, i)) {
+    name_set_subset_loop(sub, sup, i + 1, n)
+  } else { false }
+
+fn name_set_disjoint(a, b) =
+  name_set_disjoint_loop(a, b, 0, len(a))
+
+fn name_set_disjoint_loop(a, b, i, n) =
+  if i >= n { true }
+  else if name_set_contains(b, list_index(a, i)) { false }
+  else { name_set_disjoint_loop(a, b, i + 1, n) }
+
+fn name_set_eq(a, b) =
+  if len(a) != len(b) { false }
+  else { name_set_subset(a, b) }
+
+fn name_set_contains(set, name) =
+  name_set_contains_loop(set, name, 0, len(set))
+
+fn name_set_contains_loop(set, name, i, n) =
+  if i >= n { false }
+  else if eff_name_eq(list_index(set, i), name) { true }
+  else { name_set_contains_loop(set, name, i + 1, n) }

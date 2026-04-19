@@ -98,11 +98,30 @@ type SchemeKind
 
 type EffRow
   = EfPure                          // identity: no effects
-  | EfClosed(List)                  // sorted, deduped set of effect names
-  | EfOpen(List, Int)               // known names + row-variable handle
+  | EfClosed(List)                  // sorted, deduped List<EffName>
+  | EfOpen(List, Int)               // known List<EffName> + row-variable handle
   | EfNeg(EffRow)                   // !E — any effect not in E
   | EfSub(EffRow, EffRow)           // E - F — always reduces to E & !F
   | EfInter(EffRow, EffRow)         // E & F — set intersection
+
+// Effect names carry optional install-time arguments. `with IO` is
+// ENamed("IO"); `with Sample(44100)` is EParameterized("Sample",
+// [EAInt(44100)]). Two parameterized rows match only when both NAME
+// and ARGS coincide — `Sample(44100)` ≠ `Sample(48000)`. The
+// distinction lives at the type level only; emit erases the args.
+//
+// EffArg covers scalar literal arguments. Identifier / expression
+// arguments (`Clock(monotonic)`) are a v2 extension — out of scope
+// for the H3.1 substrate landing.
+
+type EffName
+  = ENamed(String)
+  | EParameterized(String, List)    // name + List<EffArg>
+
+type EffArg
+  = EAInt(Int)
+  | EAFloat(Float)
+  | EAString(String)
 
 // ═══ SubstGraph vocabulary (spec 00) ═══════════════════════════════
 // Substrate owned by graph.ka. The ADTs live here because every
@@ -686,11 +705,11 @@ fn show_row_suffix(row) with SubstGraphRead =
 fn show_effrow(row) with SubstGraphRead =
   match row {
     EfPure            => "Pure",
-    EfClosed(names)   => show_list(names, id, " + "),
+    EfClosed(names)   => show_list(names, show_eff_name, " + "),
     EfOpen(names, v)  =>
       if len(names) == 0 { show_handle(v) }
       else {
-        show_list(names, id, " + ")
+        show_list(names, show_eff_name, " + ")
           |> str_concat(" + ")
           |> str_concat(show_handle(v))
       },
@@ -706,6 +725,21 @@ fn show_effrow(row) with SubstGraphRead =
         |> str_concat(" & ")
         |> str_concat(show_effrow(b))
   }
+
+fn show_eff_name(name) = match name {
+  ENamed(n)                  => n,
+  EParameterized(n, args)    =>
+    n
+      |> str_concat("(")
+      |> str_concat(show_list(args, show_eff_arg, ", "))
+      |> str_concat(")")
+}
+
+fn show_eff_arg(arg) = match arg {
+  EAInt(n)    => int_to_str(n),
+  EAFloat(_)  => "<float>",
+  EAString(s) => "\"" |> str_concat(s) |> str_concat("\"")
+}
 
 fn show_predicate(pred) =
   match pred {

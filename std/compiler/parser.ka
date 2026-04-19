@@ -403,11 +403,14 @@ fn parse_one_param(tokens, pos) = {
   }
 }
 
+// Effect lists use `+` per SYNTAX.md (`with E1 + E2 + !E3`). Each
+// entry parses through parse_one_effect; the row is built from this
+// list at infer time (build_declared_row).
 fn parse_effect_list(tokens, pos) = {
   let (name, negated, p) = parse_one_effect(tokens, pos)
   let entry = (name, negated)
   let p2 = skip_ws(tokens, p)
-  if at(tokens, p2, TComma) {
+  if at(tokens, p2, TPlus) {
     let (rest, p3) = parse_effect_list(tokens, skip_ws(tokens, p2 + 1))
     ([entry] ++ rest, p3)
   } else {
@@ -415,12 +418,54 @@ fn parse_effect_list(tokens, pos) = {
   }
 }
 
+// Parse a single effect entry — bare `IO`, negated `!IO`,
+// parameterized `Sample(44100)`, or negated parameterized
+// `!Sample(44100)`. Args are scalar literals (int/float/string);
+// identifier / expression args land in a v2 walkthrough.
 fn parse_one_effect(tokens, pos) = {
   let (negated, p) =
     if at(tokens, pos, TBang) { (true, pos + 1) }
     else { (false, pos) }
   let name = ident_at(tokens, p)
-  (name, negated, p + 1)
+  let p1 = p + 1
+  let p2 = skip_ws(tokens, p1)
+  if at(tokens, p2, TLParen) {
+    let (args, p3) = parse_eff_args(tokens, skip_ws(tokens, p2 + 1))
+    (EParameterized(name, args), negated, p3)
+  } else {
+    (ENamed(name), negated, p1)
+  }
+}
+
+fn parse_eff_args(tokens, pos) = {
+  let p = skip_ws(tokens, pos)
+  if at(tokens, p, TRParen) { ([], p + 1) }
+  else {
+    let buf = make_list(2)
+    let (first, p2) = parse_one_eff_arg(tokens, p)
+    let (b1, c1) = push_node(buf, 0, first)
+    let (final_buf, final_count, final_pos) =
+      parse_eff_args_tail(tokens, p2, b1, c1)
+    (slice(final_buf, 0, final_count), final_pos)
+  }
+}
+
+fn parse_eff_args_tail(tokens, pos, buf, count) = {
+  let p = skip_ws(tokens, pos)
+  if at(tokens, p, TComma) {
+    let (next, p2) = parse_one_eff_arg(tokens, skip_ws(tokens, p + 1))
+    let (b1, c1) = push_node(buf, count, next)
+    parse_eff_args_tail(tokens, p2, b1, c1)
+  } else {
+    (buf, count, expect(tokens, p, TRParen))
+  }
+}
+
+fn parse_one_eff_arg(tokens, pos) = match kind_at(tokens, pos) {
+  TInt(n)    => (EAInt(n), pos + 1),
+  TFloat(f)  => (EAFloat(f), pos + 1),
+  TString(s) => (EAString(s), pos + 1),
+  _          => (EAInt(0), pos + 1)    // diagnostic deferred — see error catalog
 }
 
 // ─── let ───────────────────────────────────────────────────────────

@@ -78,7 +78,9 @@ handler infer_ctx with stack = [], declared = [], handler_stack = [] {
     if len(stack) == 0 { resume(()) }
     else {
       let (row_h, current, fn_span) = list_head(stack)
-      let extended = union_row(current, mk_ef_closed([name]))
+      // `name` is a String (legacy callers); wrap as bare ENamed.
+      // Parameterized effects flow through inf_add_row instead.
+      let extended = union_row(current, mk_ef_closed([ENamed(name)]))
       resume(())
         with stack = [(row_h, extended, fn_span)] ++ list_tail(stack)
     }
@@ -292,7 +294,9 @@ fn build_declared_row(effs) =
 // the row is absolute-EfPure regardless of other entries (which
 // would be contradictory with Pure). Kept separate from
 // build_declared_row so diagnostics can still show the raw
-// declaration list if needed.
+// declaration list if needed. Pure is invariably bare ENamed —
+// `with Pure(arg)` is meaningless and parses as a regular
+// parameterized effect that does NOT trigger the Pure collapse.
 fn has_pure_declared(effs) =
   has_pure_declared_loop(effs, 0, len(effs))
 
@@ -300,8 +304,11 @@ fn has_pure_declared_loop(effs, i, n) =
   if i >= n { false }
   else {
     let (name, _) = list_index(effs, i)
-    if str_eq(name, "Pure") { true }
-    else { has_pure_declared_loop(effs, i + 1, n) }
+    match name {
+      ENamed(s) => if str_eq(s, "Pure") { true }
+                   else { has_pure_declared_loop(effs, i + 1, n) },
+      _         => has_pure_declared_loop(effs, i + 1, n)
+    }
   }
 
 fn build_declared_from(effs, acc) =
@@ -1514,8 +1521,11 @@ fn register_effect_ops(effect_name, ops) =
 fn register_one_op(effect_name, op) = {
   let (op_name, param_types, ret_type) = op
   let params = build_ctor_params(param_types, 0)
+  // The op's row is the bare effect name; install-time `with Name(args)`
+  // attaches args at the install site, not at op declaration. Op-level
+  // params binding to install args is a v2 extension.
   perform env_extend(op_name,
-    Forall([], TFun(params, ret_type, mk_ef_closed([effect_name]))),
+    Forall([], TFun(params, ret_type, mk_ef_closed([ENamed(effect_name)]))),
     Declared(op_name),
     EffectOpScheme(effect_name))
 }
@@ -1576,7 +1586,7 @@ fn unify_list_elems(elems, target_h, span) =
 // reification; until then the handled-name set is the most specific
 // marker available.
 fn handler_stack_tag(handled_names) =
-  "handle:" |> str_concat(show_list(handled_names, id, "|"))
+  "handle:" |> str_concat(show_list(handled_names, show_eff_name, "|"))
 
 fn collect_handled_effects(arms) =
   collect_handled_from(arms, [])
