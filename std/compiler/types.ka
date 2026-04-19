@@ -351,7 +351,7 @@ effect FreshHandle {
 
 type Resolution
   = RLocal          // name is a local of the current frame — emit references $<name>
-  | RUpval(Int)     // name is captured at slot; emit offset-loads from __closure
+  | RUpval(Int)     // name is captured at slot; emit offset-loads from __state
   | RGlobal         // top-level name — emit references $<name> as a global
 
 effect LowerScope {

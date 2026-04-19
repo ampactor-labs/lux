@@ -144,21 +144,25 @@ fn gradient_next(handle) = {
 // Returns [(Annotation, Capability)] for annotations that passed.
 
 fn try_each_annotation(handle, candidates, base_ty) =
-  if len(candidates) == 0 { [] }
-  else {
-    let ann = list_head(candidates)
-    let rest = list_tail(candidates)
+  let n = len(candidates)
+  let buf = make_list(n)
+  let proven_len = try_each_annotation_loop(handle, candidates, base_ty, 0, n, buf, 0)
+  let trimmed = make_list(proven_len)
+  list_copy_into(buf, trimmed, 0, proven_len)
 
+fn try_each_annotation_loop(handle, candidates, base_ty, i, n, buf, buf_len) =
+  if i >= n { buf_len }
+  else {
+    let ann = list_index(candidates, i)
     let cp = perform graph_push_checkpoint()
     apply_annotation_tentatively(handle, ann, base_ty)
     let ok = verify_after_apply(handle)
     perform graph_rollback(cp)
-
-    let tail_results = try_each_annotation(handle, rest, base_ty)
     if ok {
-      [(ann, unlock_capability(ann))] ++ tail_results
+      let new_buf = list_set(buf, buf_len, (ann, unlock_capability(ann)))
+      try_each_annotation_loop(handle, candidates, base_ty, i + 1, n, new_buf, buf_len + 1)
     } else {
-      tail_results
+      try_each_annotation_loop(handle, candidates, base_ty, i + 1, n, buf, buf_len)
     }
   }
 
@@ -217,13 +221,26 @@ fn verify_after_apply(handle) = {
 }
 
 fn ownership_candidates(params) =
-  if len(params) == 0 { [] }
+  let flat = list_to_flat(params)
+  let n = len(flat)
+  // Each Inferred param yields 2 candidates (AOwn + ARef); size the
+  // buffer for the maximum (2n), then trim to the actual count.
+  let buf = make_list(n * 2)
+  let filled = ownership_candidates_loop(flat, 0, n, buf, 0)
+  let trimmed = make_list(filled)
+  list_copy_into(buf, trimmed, 0, filled)
+
+fn ownership_candidates_loop(params, i, n, buf, buf_len) =
+  if i >= n { buf_len }
   else {
-    let TParam(name, _, own) = list_head(params)
-    let rest = ownership_candidates(list_tail(params))
+    let TParam(name, _, own) = list_index(params, i)
     match own {
-      Inferred => [AOwn(name), ARef(name)] ++ rest,
-      _        => rest
+      Inferred => {
+        let after_own = list_set(buf, buf_len, AOwn(name))
+        let after_ref = list_set(after_own, buf_len + 1, ARef(name))
+        ownership_candidates_loop(params, i + 1, n, after_ref, buf_len + 2)
+      },
+      _ => ownership_candidates_loop(params, i + 1, n, buf, buf_len)
     }
   }
 
@@ -233,26 +250,32 @@ fn pick_highest_leverage(proven) =
     let best = find_by_priority(proven, [ANotAlloc, ANotIO, ANotNetwork, APure])
     match best {
       Some(_) => best,
-      None    => Some(list_head(proven))
+      None    => Some(list_index(proven, 0))
     }
   }
 
 fn find_by_priority(proven, priorities) =
-  if len(priorities) == 0 { None }
+  find_by_priority_loop(proven, priorities, 0, len(priorities))
+
+fn find_by_priority_loop(proven, priorities, i, n) =
+  if i >= n { None }
   else {
-    let target = list_head(priorities)
+    let target = list_index(priorities, i)
     match find_annotation(proven, target) {
       Some(pair) => Some(pair),
-      None       => find_by_priority(proven, list_tail(priorities))
+      None       => find_by_priority_loop(proven, priorities, i + 1, n)
     }
   }
 
 fn find_annotation(proven, target) =
-  if len(proven) == 0 { None }
+  find_annotation_loop(proven, target, 0, len(proven))
+
+fn find_annotation_loop(proven, target, i, n) =
+  if i >= n { None }
   else {
-    let (ann, cap) = list_head(proven)
+    let (ann, cap) = list_index(proven, i)
     if annotation_eq(ann, target) { Some((ann, cap)) }
-    else { find_annotation(list_tail(proven), target) }
+    else { find_annotation_loop(proven, target, i + 1, n) }
   }
 
 fn annotation_eq(a, b) = match a {
@@ -349,12 +372,24 @@ handler synth_enumerative {
 }
 
 fn verify_each(candidates) =
-  if len(candidates) == 0 { [] }
+  let n = len(candidates)
+  let buf = make_list(n)
+  let kept = verify_each_loop(candidates, 0, n, buf, 0)
+  let trimmed = make_list(kept)
+  list_copy_into(buf, trimmed, 0, kept)
+
+fn verify_each_loop(candidates, i, n, buf, buf_len) =
+  if i >= n { buf_len }
   else {
-    let c = list_head(candidates)
-    let tail = verify_each(list_tail(candidates))
-    if perform verify_candidate(c) { [c] ++ tail }
-    else { tail }
+    let c = list_index(candidates, i)
+    if perform verify_candidate(c) {
+      verify_each_loop(
+        candidates, i + 1, n,
+        list_set(buf, buf_len, c), buf_len + 1
+      )
+    } else {
+      verify_each_loop(candidates, i + 1, n, buf, buf_len)
+    }
   }
 
 // ═══ teach_synthesize — fill a hole with a proven candidate ════════
@@ -366,7 +401,7 @@ fn teach_synthesize(hole_handle, context) = {
       let row = extract_row(ty)
       let candidates = perform propose(ty, row, context)
       if len(candidates) == 0 { None }
-      else { Some(list_head(candidates)) }
+      else { Some(list_index(candidates, 0)) }
     },
     _ => None
   }

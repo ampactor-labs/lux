@@ -52,6 +52,8 @@ fn compile(source) =
     |> infer_program
     |> lower_program
     |> emit_module
+    ~> wat_stdout
+    ~> emit_memory_bump
     ~> mentl_default
     ~> affine_ledger
     ~> verify_ledger

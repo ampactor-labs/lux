@@ -649,7 +649,7 @@ fn lower_expr_list(nodes) =
 //   RLocal(slot) — name is a local of the enclosing frame; capture
 //                  loads its local slot value.
 //   RUpval(slot) — name was itself captured by the enclosing frame;
-//                  capture loads through __closure offset.
+//                  capture loads through __state offset.
 //   RGlobal      — name is a top-level symbol; NOT captured (always
 //                  reachable). Dropped from the captures list.
 //

@@ -35,6 +35,41 @@ handler wat_stdout {
   }
 }
 
+// ═══ EmitMemory effect — alloc strategy as a handler swap ══════════
+// `perform emit_alloc(size, target_local)` emits the WAT sequence
+// that allocates `size` bytes and stores the resulting pointer into
+// `$<target_local>`. Different memory strategies install different
+// handlers:
+//
+//   emit_memory_bump   — monotonic bump from $heap_ptr
+//   emit_memory_arena  — region-tracked alloc with O(1) drop on scope exit (W5)
+//   emit_memory_gc     — full collector with header tags (post-first-light)
+//
+// Anchor 5: "if it needs to exist, it's a handler." Bump-alloc is
+// the default, but the backend's memory model is now a one-handler
+// swap — DESIGN 7.3 "the handler IS the backend" extends to memory
+// strategy without disturbing closure layout, list construction, or
+// any other allocation site.
+
+effect EmitMemory {
+  emit_alloc(Int, String) -> ()             @resume=OneShot
+}
+
+handler emit_memory_bump {
+  emit_alloc(size, target_local) => {
+    perform wat_emit("    (global.get $heap_ptr)\n")
+    perform wat_emit("    (local.set $")
+    perform wat_emit(target_local)
+    perform wat_emit(")\n")
+    perform wat_emit("    (global.get $heap_ptr)\n")
+    perform wat_emit("    (i32.const ")
+    perform wat_emit(int_to_str(size))
+    perform wat_emit(") (i32.add)\n")
+    perform wat_emit("    (global.set $heap_ptr)\n")
+    resume(())
+  }
+}
+
 // ═══ ty_to_wasm — live graph → WASM value type ═════════════════════
 // Reads through LookupTy; refinements transparent (erased at runtime).
 
@@ -64,11 +99,11 @@ fn ty_to_wasm_type(ty) = match ty {
 // imports, memory, globals, function table, functions, start. Every
 // output line flows through perform wat_emit.
 
-// W7: every function is emitted with an implicit `__closure` param.
+// W7: every function is emitted with an implicit `__state` param.
 // Calls go through a function table keyed by i32 index; LMakeClosure
 // stores the index at offset 0 of the closure record; LCall loads
 // the index and uses `call_indirect` with `$ft(N+1)` type (arity
-// includes the `__closure` slot).
+// includes the `__state` slot).
 
 fn emit_module(lowered) = {
   let all_fn_names = collect_fn_names(lowered, [])
@@ -272,7 +307,7 @@ fn hex_digit(d) = match d {
 // is a normal i32 slot, so effectful calls of arity K use $ft(K+1).
 
 fn emit_type_section(lowered) = {
-  // _start calls main via $ft1 (__closure alone); ensure the table
+  // _start calls main via $ft1 (__state alone); ensure the table
   // always contains at least that entry even for programs with no
   // multi-arg calls.
   let observed = max_arity_in(lowered, 0)
@@ -287,8 +322,8 @@ fn max_arity_in(stmts, acc) =
     max_arity_in(list_tail(stmts), bigger)
   }
 
-// Arity counting accounts for W7's implicit `__closure` param: every
-// emitted function takes `__closure` as its first parameter, and
+// Arity counting accounts for W7's implicit `__state` param: every
+// emitted function takes `__state` as its first parameter, and
 // every LCall pushes the closure pointer before the user args, so
 // the effective call arity is len(args)+1.
 fn max_arity_expr(expr) = match expr {
@@ -398,20 +433,20 @@ fn emit_fns_expr(expr) = match expr {
 }
 
 fn emit_fn_body(name, param_names, body) = {
-  // W7 calling convention: every function takes `__closure` as its
+  // W7 calling convention: every function takes `__state` as its
   // implicit first parameter. Top-level functions ignore it; lambda
-  // bodies read captures via (local.get $__closure) + offset-load.
-  // The `$clos_tmp` local scratches the closure pointer during
+  // bodies read captures via (local.get $__state) + offset-load.
+  // The `$state_tmp` local scratches the closure pointer during
   // LMakeClosure bump-alloc + field stores, and during LCall for
   // saving the callee closure pointer before argument evaluation.
   // Every LLet in the body declares a function-level local so
   // (local.set $<name>) / (local.get $<name>) validate.
   perform wat_emit("  (func $")
   perform wat_emit(name)
-  perform wat_emit(" (param $__closure i32)")
+  perform wat_emit(" (param $__state i32)")
   emit_params(param_names)
   perform wat_emit(" (result i32)")
-  perform wat_emit(" (local $clos_tmp i32)")
+  perform wat_emit(" (local $state_tmp i32)")
   emit_let_locals_list(body)
   perform wat_emit("\n")
   emit_body(body)
@@ -486,7 +521,7 @@ fn emit_body(stmts) =
 fn emit_start(_lowered) = {
   // Top-level closures are static data — no init routine. _start
   // invokes main through its static closure: load $main pointer,
-  // push as __closure, load fn_idx from offset 0, call_indirect.
+  // push as __state, load fn_idx from offset 0, call_indirect.
   perform wat_emit("  (func $_start\n")
   perform wat_emit("    (global.get $main)\n")
   perform wat_emit("    (global.get $main) (i32.load offset=0)\n")
@@ -532,7 +567,7 @@ fn emit_expr(expr) = match expr {
   LUpval(_h, idx) => {
     // W7: read captured value from the closure record at offset
     // 8 + idx*4 (header is [fn_ptr:i32, capture_count:i32]).
-    perform wat_emit("    (local.get $__closure)\n")
+    perform wat_emit("    (local.get $__state)\n")
     perform wat_emit("    (i32.load offset=")
     perform wat_emit(int_to_str(8 + idx * 4))
     perform wat_emit(")\n")
@@ -551,16 +586,16 @@ fn emit_expr(expr) = match expr {
 
   LCall(_h, func, args) => {
     // W7 closure call convention:
-    //   1. Evaluate closure (puts pointer on stack), save into $clos_tmp.
-    //   2. Push closure ptr as implicit first arg (for __closure).
+    //   1. Evaluate closure (puts pointer on stack), save into $state_tmp.
+    //   2. Push closure ptr as implicit first arg (for __state).
     //   3. Push user args.
     //   4. Load fn_ptr from closure offset 0.
-    //   5. call_indirect with $ft(N+1) — arity includes __closure.
+    //   5. call_indirect with $ft(N+1) — arity includes __state.
     emit_expr(func)
-    perform wat_emit("    (local.set $clos_tmp)\n")
-    perform wat_emit("    (local.get $clos_tmp)\n")
+    perform wat_emit("    (local.set $state_tmp)\n")
+    perform wat_emit("    (local.get $state_tmp)\n")
     emit_expr_list(args)
-    perform wat_emit("    (local.get $clos_tmp) (i32.load offset=0)\n")
+    perform wat_emit("    (local.get $state_tmp) (i32.load offset=0)\n")
     perform wat_emit("    (call_indirect (type $ft")
     perform wat_emit(int_to_str(len(args) + 1))
     perform wat_emit("))\n")
@@ -568,10 +603,10 @@ fn emit_expr(expr) = match expr {
 
   LTailCall(_h, func, args) => {
     emit_expr(func)
-    perform wat_emit("    (local.set $clos_tmp)\n")
-    perform wat_emit("    (local.get $clos_tmp)\n")
+    perform wat_emit("    (local.set $state_tmp)\n")
+    perform wat_emit("    (local.get $state_tmp)\n")
     emit_expr_list(args)
-    perform wat_emit("    (local.get $clos_tmp) (i32.load offset=0)\n")
+    perform wat_emit("    (local.get $state_tmp) (i32.load offset=0)\n")
     perform wat_emit("    (return_call_indirect (type $ft")
     perform wat_emit(int_to_str(len(args) + 1))
     perform wat_emit("))\n")
@@ -583,40 +618,44 @@ fn emit_expr(expr) = match expr {
   },
 
   LMakeClosure(_h, LFn(fn_name, _arity, _param_names, _body, _row), captures_exprs) => {
-    // W7 closure record layout:
+    // W7 state record layout (closure form — captures only; W4
+    // grows additional slots for evidence in-place, no convention
+    // change):
     //   offset 0: fn_ptr (i32) — table index into $fns
     //   offset 4: capture_count (i32)
     //   offset 8 + 4*i: capture_i
     //
-    // INKA-NATIVE NOTE: the closure record is conceptually a frozen
-    // handler state — the same shape evidence vectors (W4) will take.
-    // When W4 + W7 converge, `__closure` and `__ev` unify into a
-    // single `__state` implicit param per DESIGN Ch 4 "handler IS
-    // state". For now the record carries captures only; evidence
-    // plumbing (W4) adds an ev_ptr slot alongside.
+    // INKA-NATIVE: the record is a frozen handler state; the
+    // calling convention's `$__state` implicit param IS this
+    // record. Evidence (W4) extends the slot kinds inside the same
+    // record — no second implicit param, no parallel convention.
+    // DESIGN Ch 4 "handler IS state" — closure and evidence are
+    // both projections of the same shape.
     //
-    // Runtime alloc: bump `$heap_ptr`. Ultimate form performs this
-    // through a Memory + Alloc handler (W5 territory); inline here
-    // keeps W7 self-contained and swap-ready.
+    // Allocation routes through `perform emit_alloc(size, target)`,
+    // dispatched by the installed EmitMemory handler. The bump
+    // strategy (`emit_memory_bump`) inlines `$heap_ptr` arithmetic;
+    // future arena / gc handlers swap the WAT without touching
+    // this site.
     let n = len(captures_exprs)
     let size = 8 + n * 4
-    emit_alloc_to_local(size, "clos_tmp")
+    perform emit_alloc(size, "state_tmp")
     // Store fn_ptr (table index) at offset 0 — reads the per-fn
     // index global emitted by emit_fn_index_globals.
-    perform wat_emit("    (local.get $clos_tmp)\n")
+    perform wat_emit("    (local.get $state_tmp)\n")
     perform wat_emit("    (global.get $")
     perform wat_emit(fn_name)
     perform wat_emit("_idx)\n")
     perform wat_emit("    (i32.store offset=0)\n")
     // Store capture count at offset 4.
-    perform wat_emit("    (local.get $clos_tmp)\n")
+    perform wat_emit("    (local.get $state_tmp)\n")
     perform wat_emit("    (i32.const ")
     perform wat_emit(int_to_str(n))
     perform wat_emit(") (i32.store offset=4)\n")
     // Store each capture at offset 8 + 4*i.
     emit_capture_stores(captures_exprs, 0)
     // Result: closure pointer on stack.
-    perform wat_emit("    (local.get $clos_tmp)\n")
+    perform wat_emit("    (local.get $state_tmp)\n")
   },
 
   LIf(_h, cond, then_body, else_body) => {
@@ -794,31 +833,12 @@ fn emit_unaryop(op) = match op {
 
 // ═══ List / tuple literals ═════════════════════════════════════════
 
-// Bump-allocate `size` bytes from $heap_ptr; store the result
-// pointer into the named local. The named-function indirection is
-// the swap point for the future Memory handler (W5): a `bump`
-// handler emits this; an `arena` handler emits a region-tracked
-// allocation; a `gc` handler emits a different sequence entirely.
-// The closure layout above stays unchanged because the alloc
-// primitive is the swap surface.
-fn emit_alloc_to_local(size, target_local) = {
-  perform wat_emit("    (global.get $heap_ptr)\n")
-  perform wat_emit("    (local.set $")
-  perform wat_emit(target_local)
-  perform wat_emit(")\n")
-  perform wat_emit("    (global.get $heap_ptr)\n")
-  perform wat_emit("    (i32.const ")
-  perform wat_emit(int_to_str(size))
-  perform wat_emit(") (i32.add)\n")
-  perform wat_emit("    (global.set $heap_ptr)\n")
-}
-
 // Emit the stores for each capture in the closure record.
 // Captures are indexed from 0; each stored at offset 8 + 4*i.
 fn emit_capture_stores(captures, i) =
   if len(captures) == 0 { () }
   else {
-    perform wat_emit("    (local.get $clos_tmp)\n")
+    perform wat_emit("    (local.get $state_tmp)\n")
     emit_expr(list_head(captures))
     perform wat_emit("    (i32.store offset=")
     perform wat_emit(int_to_str(8 + i * 4))

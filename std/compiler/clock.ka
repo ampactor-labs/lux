@@ -148,50 +148,68 @@ handler deadline_test {
 // Wraps the real handler; captures every value. Produces a trace
 // usable by the replay handler.
 
-handler clock_record with trace = [] {
+// Record handlers append to flat trace buffers via list_extend_to —
+// O(1) amortized per tick. The trace_len counter is the logical
+// length; entries above it are stale (matching the trail substrate
+// in graph.ka). Replay handlers consume by advancing read_idx into
+// the trace, never popping — the trace itself is immutable through
+// the replay so callers can re-replay or inspect post hoc.
+
+handler clock_record with trace = [], trace_len = 0 {
   clock_now() => {
     let now = perform host_clock_ns()
+    let new_trace = trace
+      |> list_extend_to(trace_len + 1)
+      |> list_set(trace_len, now)
     resume(Instant(now))
-      with trace = trace ++ [now]
+      with trace = new_trace, trace_len = trace_len + 1
   },
   clock_sleep(_d) => resume(())
 }
 
-handler tick_record with counter = 0, trace = [] {
-  tick() =>
+handler tick_record with counter = 0, trace = [], trace_len = 0 {
+  tick() => {
+    let new_trace = trace
+      |> list_extend_to(trace_len + 1)
+      |> list_set(trace_len, counter)
     resume(())
       with counter = counter + 1,
-           trace = trace ++ [counter],
+           trace = new_trace,
+           trace_len = trace_len + 1
+  },
   current_tick() => resume(counter)
 }
 
 // ═══ Tier 4: replay — reads from a recorded trace ══════════════════
+// Replay maintains a read cursor into an immutable trace buffer.
+// Advancing the cursor is O(1); the trace is preserved so post-hoc
+// inspection (and re-replay) is structurally available.
 
-handler clock_replay with remaining_trace = [] {
+handler clock_replay with trace = [], read_idx = 0 {
   clock_now() =>
-    if len(remaining_trace) == 0 {
+    if read_idx >= len(trace) {
       perform report("", "E_ReplayExhausted", "error",
         "clock replay trace exhausted",
         span_zero(), "MaybeIncorrect")
       resume(Instant(0))
     } else {
-      let val = list_head(remaining_trace)
+      let val = list_index(trace, read_idx)
       resume(Instant(val))
-        with remaining_trace = list_tail(remaining_trace)
+        with read_idx = read_idx + 1
     },
   clock_sleep(_d) => resume(())
 }
 
-handler tick_replay with remaining_trace = [] {
+handler tick_replay with trace = [], read_idx = 0 {
   tick() =>
-    if len(remaining_trace) == 0 { resume(()) }
+    if read_idx >= len(trace) { resume(()) }
     else {
       resume(())
-        with remaining_trace = list_tail(remaining_trace)
+        with read_idx = read_idx + 1
     },
   current_tick() =>
-    if len(remaining_trace) == 0 { resume(0) }
-    else { resume(list_head(remaining_trace)) }
+    if read_idx >= len(trace) { resume(0) }
+    else { resume(list_index(trace, read_idx)) }
 }
 
 // ═══ Deadline budgeting — tight real-time loops ════════════════════

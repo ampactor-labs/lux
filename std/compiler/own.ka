@@ -41,11 +41,14 @@ handler affine_ledger with used = [], used_sites = [] {
 }
 
 fn find_first_span(sites, name) =
-  if len(sites) == 0 { span_zero() }
+  find_first_span_loop(sites, name, 0, len(sites))
+
+fn find_first_span_loop(sites, name, i, n) =
+  if i >= n { span_zero() }
   else {
-    let (n, s) = list_head(sites)
-    if str_eq(n, name) == 1 { s }
-    else { find_first_span(list_tail(sites), name) }
+    let (entry_name, entry_span) = list_index(sites, i)
+    if str_eq(entry_name, name) == 1 { entry_span }
+    else { find_first_span_loop(sites, name, i + 1, n) }
   }
 
 // W8.2: shared sorted-set membership via std/runtime/strings.ka.
@@ -68,13 +71,24 @@ fn check_ref_escape(params, body) =
          else { walk_return_positions(refs, body) }
 
 fn collect_ref_params(params) =
-  if len(params) == 0 { [] }
+  let flat = list_to_flat(params)
+  let n = len(flat)
+  collect_ref_params_loop(flat, 0, n, make_list(n), 0)
+
+fn collect_ref_params_loop(params, i, n, acc, acc_len) =
+  if i >= n {
+    // Trim acc to actual ref count.
+    let trimmed = make_list(acc_len)
+    list_copy_into(acc, trimmed, 0, acc_len)
+  }
   else {
-    let TParam(name, _, own) = list_head(params)
-    let rest = collect_ref_params(list_tail(params))
+    let TParam(name, _, own) = list_index(params, i)
     match own {
-      Ref => [name] ++ rest,
-      _   => rest
+      Ref => {
+        let new_acc = list_set(acc, acc_len, name)
+        collect_ref_params_loop(params, i + 1, n, new_acc, acc_len + 1)
+      },
+      _   => collect_ref_params_loop(params, i + 1, n, acc, acc_len)
     }
   }
 
@@ -108,11 +122,14 @@ fn walk_return_positions(refs, node) =
   }
 
 fn walk_match_arms(refs, arms) =
-  if len(arms) == 0 { () }
+  walk_match_arms_loop(refs, arms, 0, len(arms))
+
+fn walk_match_arms_loop(refs, arms, i, n) =
+  if i >= n { () }
   else {
-    let (_, body) = list_head(arms)
+    let (_, body) = list_index(arms, i)
     walk_return_positions(refs, body)
-    walk_match_arms(refs, list_tail(arms))
+    walk_match_arms_loop(refs, arms, i + 1, n)
   }
 
 // ═══ Ownership inference for Inferred params ═══════════════════════
@@ -122,15 +139,22 @@ fn walk_match_arms(refs, arms) =
 //   ≥ 2 uses    → Ref (borrowed multiple times)
 
 fn infer_ownership(params, body) =
-  if len(params) == 0 { [] }
+  let flat = list_to_flat(params)
+  let n = len(flat)
+  infer_ownership_loop(flat, body, 0, n, make_list(n))
+
+fn infer_ownership_loop(params, body, i, n, acc) =
+  if i >= n { acc }
   else {
-    let TParam(name, ty, own) = list_head(params)
+    let TParam(name, ty, own) = list_index(params, i)
     let inferred = match own {
       Inferred => classify_usage(name, body),
       _        => own
     }
-    [TParam(name, ty, inferred)]
-      ++ infer_ownership(list_tail(params), body)
+    infer_ownership_loop(
+      params, body, i + 1, n,
+      list_set(acc, i, TParam(name, ty, inferred))
+    )
   }
 
 fn classify_usage(name, body) = {
@@ -172,15 +196,26 @@ fn count_uses(name, node) =
   }
 
 fn count_uses_list(name, nodes) =
-  if len(nodes) == 0 { 0 }
+  count_uses_list_loop(name, nodes, 0, len(nodes), 0)
+
+fn count_uses_list_loop(name, nodes, i, n, acc) =
+  if i >= n { acc }
   else {
-    count_uses(name, list_head(nodes))
-      + count_uses_list(name, list_tail(nodes))
+    count_uses_list_loop(
+      name, nodes, i + 1, n,
+      acc + count_uses(name, list_index(nodes, i))
+    )
   }
 
 fn count_match_arms(name, arms) =
-  if len(arms) == 0 { 0 }
+  count_match_arms_loop(name, arms, 0, len(arms), 0)
+
+fn count_match_arms_loop(name, arms, i, n, acc) =
+  if i >= n { acc }
   else {
-    let (_, body) = list_head(arms)
-    count_uses(name, body) + count_match_arms(name, list_tail(arms))
+    let (_, body) = list_index(arms, i)
+    count_match_arms_loop(
+      name, arms, i + 1, n,
+      acc + count_uses(name, body)
+    )
   }
