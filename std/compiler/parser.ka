@@ -24,63 +24,209 @@ fn npat(p, span)  = N(NPat(p), span, fresh_ph(span))
 fn nhole(id, span) = N(NHole(id), span, fresh_ph(span))
 
 // ═══ Token navigation ══════════════════════════════════════════════
+// Tokens are typed: `Tok(TokenKind, Span)`. Helpers extract payload
+// or compare kinds. Per SYNTAX.md, dispatch uses exhaustive match
+// on TokenKind variants — no string equality at parse time.
 
+// kind_at returns the TokenKind variant at position pos (or TEof if past end).
 fn kind_at(tokens, pos) =
-  if pos >= len(tokens) { "Eof" }
-  else { tok_kind(tokens[pos]) }
+  if pos >= len(tokens) { TEof }
+  else { token_kind(tokens[pos]) }
 
-fn val_at(tokens, pos) =
-  if pos >= len(tokens) { "" }
-  else { tok_val(tokens[pos]) }
-
+// span_at returns the span of the token at position pos.
 fn span_at(tokens, pos) =
   if pos >= len(tokens) { span_zero() }
-  else { tok_span(tokens[pos]) }
+  else { token_span(tokens[pos]) }
 
-fn at(tokens, pos, kind) =
-  str_eq(kind_at(tokens, pos), kind) == 1
-
-fn skip_ws(tokens, pos) =
-  if at(tokens, pos, "Newline") { skip_ws(tokens, pos + 1) }
-  else { pos }
-
-fn skip_sep(tokens, pos) = {
-  let k = kind_at(tokens, pos)
-  if str_eq(k, "Semicolon") == 1 || str_eq(k, "Newline") == 1 {
-    skip_sep(tokens, pos + 1)
-  } else { pos }
+// kind_eq compares two TokenKind values for variant identity. Used
+// at the few sites where dispatch needs a passed-in kind value;
+// most sites just pattern-match directly via `match kind_at(...)`.
+fn kind_eq(a, b) = match a {
+  TFn        => match b { TFn        => true, _ => false },
+  TLet       => match b { TLet       => true, _ => false },
+  TIf        => match b { TIf        => true, _ => false },
+  TElse      => match b { TElse      => true, _ => false },
+  TMatch     => match b { TMatch     => true, _ => false },
+  TType      => match b { TType      => true, _ => false },
+  TEffect    => match b { TEffect    => true, _ => false },
+  THandle    => match b { THandle    => true, _ => false },
+  THandler   => match b { THandler   => true, _ => false },
+  TWith      => match b { TWith      => true, _ => false },
+  TResume    => match b { TResume    => true, _ => false },
+  TPerform   => match b { TPerform   => true, _ => false },
+  TFor       => match b { TFor       => true, _ => false },
+  TIn        => match b { TIn        => true, _ => false },
+  TLoop      => match b { TLoop      => true, _ => false },
+  TBreak     => match b { TBreak     => true, _ => false },
+  TContinue  => match b { TContinue  => true, _ => false },
+  TReturn    => match b { TReturn    => true, _ => false },
+  TImport    => match b { TImport    => true, _ => false },
+  TWhere     => match b { TWhere     => true, _ => false },
+  TOwn       => match b { TOwn       => true, _ => false },
+  TRef       => match b { TRef       => true, _ => false },
+  TPure      => match b { TPure      => true, _ => false },
+  TTrue      => match b { TTrue      => true, _ => false },
+  TFalse     => match b { TFalse     => true, _ => false },
+  TIdent(_)  => match b { TIdent(_)  => true, _ => false },
+  TInt(_)    => match b { TInt(_)    => true, _ => false },
+  TFloat(_)  => match b { TFloat(_)  => true, _ => false },
+  TString(_) => match b { TString(_) => true, _ => false },
+  TDocComment(_) => match b { TDocComment(_) => true, _ => false },
+  TEqEq      => match b { TEqEq      => true, _ => false },
+  TBangEq    => match b { TBangEq    => true, _ => false },
+  TLtEq      => match b { TLtEq      => true, _ => false },
+  TGtEq      => match b { TGtEq      => true, _ => false },
+  TArrow     => match b { TArrow     => true, _ => false },
+  TFatArrow  => match b { TFatArrow  => true, _ => false },
+  TPlusPlus  => match b { TPlusPlus  => true, _ => false },
+  TPipeGt    => match b { TPipeGt    => true, _ => false },
+  TLtPipe    => match b { TLtPipe    => true, _ => false },
+  TGtLt      => match b { TGtLt      => true, _ => false },
+  TTildeGt   => match b { TTildeGt   => true, _ => false },
+  TLtTilde   => match b { TLtTilde   => true, _ => false },
+  TAndAnd    => match b { TAndAnd    => true, _ => false },
+  TOrOr      => match b { TOrOr      => true, _ => false },
+  TColonColon => match b { TColonColon => true, _ => false },
+  TLParen    => match b { TLParen    => true, _ => false },
+  TRParen    => match b { TRParen    => true, _ => false },
+  TLBrace    => match b { TLBrace    => true, _ => false },
+  TRBrace    => match b { TRBrace    => true, _ => false },
+  TLBracket  => match b { TLBracket  => true, _ => false },
+  TRBracket  => match b { TRBracket  => true, _ => false },
+  TComma     => match b { TComma     => true, _ => false },
+  TDot       => match b { TDot       => true, _ => false },
+  TColon     => match b { TColon     => true, _ => false },
+  TSemicolon => match b { TSemicolon => true, _ => false },
+  TPlus      => match b { TPlus      => true, _ => false },
+  TMinus     => match b { TMinus     => true, _ => false },
+  TStar      => match b { TStar      => true, _ => false },
+  TSlash     => match b { TSlash     => true, _ => false },
+  TPercent   => match b { TPercent   => true, _ => false },
+  TEq        => match b { TEq        => true, _ => false },
+  TLt        => match b { TLt        => true, _ => false },
+  TGt        => match b { TGt        => true, _ => false },
+  TBang      => match b { TBang      => true, _ => false },
+  TPipe      => match b { TPipe      => true, _ => false },
+  TTilde     => match b { TTilde     => true, _ => false },
+  TAt        => match b { TAt        => true, _ => false },
+  TQuestion  => match b { TQuestion  => true, _ => false },
+  TNewline   => match b { TNewline   => true, _ => false },
+  TEof       => match b { TEof       => true, _ => false }
 }
 
+// at: predicate form of kind_eq for a position-and-expected pair.
+fn at(tokens, pos, kind) = kind_eq(kind_at(tokens, pos), kind)
+
+fn skip_ws(tokens, pos) =
+  match kind_at(tokens, pos) {
+    TNewline => skip_ws(tokens, pos + 1),
+    _        => pos
+  }
+
+fn skip_sep(tokens, pos) =
+  match kind_at(tokens, pos) {
+    TSemicolon => skip_sep(tokens, pos + 1),
+    TNewline   => skip_sep(tokens, pos + 1),
+    _          => pos
+  }
+
+// show_token_kind: human-readable name for diagnostics.
+fn show_token_kind(k) = match k {
+  TFn => "fn", TLet => "let", TIf => "if", TElse => "else",
+  TMatch => "match", TType => "type", TEffect => "effect",
+  THandle => "handle", THandler => "handler", TWith => "with",
+  TResume => "resume", TPerform => "perform",
+  TFor => "for", TIn => "in", TLoop => "loop", TBreak => "break",
+  TContinue => "continue", TReturn => "return",
+  TImport => "import", TWhere => "where",
+  TOwn => "own", TRef => "ref", TPure => "Pure",
+  TTrue => "true", TFalse => "false",
+  TIdent(s) => s,
+  TInt(_) => "<int>", TFloat(_) => "<float>", TString(_) => "<string>",
+  TDocComment(_) => "<doc-comment>",
+  TEqEq => "==", TBangEq => "!=", TLtEq => "<=", TGtEq => ">=",
+  TArrow => "->", TFatArrow => "=>", TPlusPlus => "++",
+  TPipeGt => "|>", TLtPipe => "<|", TGtLt => "><",
+  TTildeGt => "~>", TLtTilde => "<~",
+  TAndAnd => "&&", TOrOr => "||", TColonColon => "::",
+  TLParen => "(", TRParen => ")",
+  TLBrace => "{", TRBrace => "}",
+  TLBracket => "[", TRBracket => "]",
+  TComma => ",", TDot => ".", TColon => ":", TSemicolon => ";",
+  TPlus => "+", TMinus => "-", TStar => "*", TSlash => "/", TPercent => "%",
+  TEq => "=", TLt => "<", TGt => ">", TBang => "!",
+  TPipe => "|", TTilde => "~", TAt => "@", TQuestion => "?",
+  TNewline => "<newline>", TEof => "<eof>"
+}
+
+// expect: consume the given kind or report a parse error.
 fn expect(tokens, pos, kind) =
   if at(tokens, pos, kind) { pos + 1 }
   else {
     perform report("", "P_ExpectedToken", "ParseError",
       "expected "
-        |> str_concat(kind)
+        |> str_concat(show_token_kind(kind))
         |> str_concat(", got ")
-        |> str_concat(kind_at(tokens, pos)),
+        |> str_concat(show_token_kind(kind_at(tokens, pos))),
       span_at(tokens, pos), "MaybeIncorrect")
     pos
   }
 
-// ═══ Operator precedence table ═════════════════════════════════════
+// Payload extractors — return defaults if the kind doesn't match.
+// Most call sites should pattern-match directly via `match
+// kind_at(tokens, pos) { TIdent(s) => …, TInt(n) => …, … }`;
+// these helpers are for the few sites (e.g., parse_fn extracting
+// the function name after dispatching past TFn) where the parent
+// has already verified the variant and just needs the payload.
+fn ident_at(tokens, pos) =
+  match kind_at(tokens, pos) {
+    TIdent(s) => s,
+    _         => ""
+  }
 
-fn op_prec(k) =
-  if str_eq(k, "OrOr") == 1 { 1 }
-  else if str_eq(k, "AndAnd") == 1 { 2 }
-  else if str_eq(k, "EqEq") == 1 || str_eq(k, "BangEq") == 1 { 3 }
-  else if str_eq(k, "Lt") == 1 || str_eq(k, "Gt") == 1
-       || str_eq(k, "LtEq") == 1 || str_eq(k, "GtEq") == 1 { 4 }
-  else if str_eq(k, "PlusPlus") == 1 { 5 }
-  else if str_eq(k, "GtLt") == 1 { 6 }
-  else if str_eq(k, "PipeGt") == 1 { 7 }
-  else if str_eq(k, "LtPipe") == 1 { 8 }
-  else if str_eq(k, "LtTilde") == 1 { 9 }
-  else if str_eq(k, "TildeGt") == 1 { 10 }
-  else if str_eq(k, "Plus") == 1 || str_eq(k, "Minus") == 1 { 11 }
-  else if str_eq(k, "Star") == 1 || str_eq(k, "Slash") == 1
-       || str_eq(k, "Percent") == 1 { 12 }
-  else { 0 }
+fn int_at(tokens, pos) =
+  match kind_at(tokens, pos) {
+    TInt(n) => n,
+    _       => 0
+  }
+
+fn float_at(tokens, pos) =
+  match kind_at(tokens, pos) {
+    TFloat(f) => f,
+    _         => 0.0
+  }
+
+fn string_at(tokens, pos) =
+  match kind_at(tokens, pos) {
+    TString(s) => s,
+    _          => ""
+  }
+
+// ═══ Operator precedence table ═════════════════════════════════════
+// Per SYNTAX.md's canonical table. Higher number = tighter binding.
+
+fn op_prec(k) = match k {
+  TOrOr      => 1,
+  TAndAnd    => 2,
+  TEqEq      => 3,
+  TBangEq    => 3,
+  TLt        => 4,
+  TGt        => 4,
+  TLtEq      => 4,
+  TGtEq      => 4,
+  TPlusPlus  => 5,
+  TGtLt      => 6,
+  TPipeGt    => 7,
+  TLtPipe    => 8,
+  TLtTilde   => 9,
+  TTildeGt   => 10,
+  TPlus      => 11,
+  TMinus     => 11,
+  TStar      => 12,
+  TSlash     => 12,
+  TPercent   => 12,
+  _          => 0
+}
 
 // Layout-sensitive pipe-kind mapping (I11). Per DESIGN Ch 2, `~>`
 // splits by whether a newline directly precedes it:
@@ -89,48 +235,54 @@ fn op_prec(k) =
 // The block form carries the LOWEST pipe precedence so it binds
 // outside of everything on its left; the inline form keeps the
 // high precedence (10) so it tightens around the preceding stage.
-// All non-~> operators ignore the saw_newline flag.
-fn op_to_pipe_kind_layout(k, saw_newline) =
-  if str_eq(k, "TildeGt") == 1 {
-    if saw_newline { Some(PTeeBlock) } else { Some(PTeeInline) }
-  }
-  else if str_eq(k, "PipeGt") == 1  { Some(PForward) }
-  else if str_eq(k, "LtPipe") == 1  { Some(PDiverge) }
-  else if str_eq(k, "GtLt") == 1    { Some(PCompose) }
-  else if str_eq(k, "LtTilde") == 1 { Some(PFeedback) }
-  else { None }
+fn op_to_pipe_kind_layout(k, saw_newline) = match k {
+  TTildeGt => if saw_newline { Some(PTeeBlock) } else { Some(PTeeInline) },
+  TPipeGt  => Some(PForward),
+  TLtPipe  => Some(PDiverge),
+  TGtLt    => Some(PCompose),
+  TLtTilde => Some(PFeedback),
+  _        => None
+}
 
 // Effective precedence: block-form ~> lowers to 1 so it binds
 // looser than every other pipe verb and every binary operator,
 // capturing the whole preceding chain as its body. Inline form
 // keeps the base precedence.
-fn effective_prec(k, saw_newline) =
-  if str_eq(k, "TildeGt") == 1 && saw_newline { 1 }
-  else { op_prec(k) }
+fn effective_prec(k, saw_newline) = match k {
+  TTildeGt => if saw_newline { 1 } else { op_prec(k) },
+  _        => op_prec(k)
+}
 
 fn skip_ws_tracked(tokens, pos) =
   skip_ws_tracked_loop(tokens, pos, false)
 
 fn skip_ws_tracked_loop(tokens, pos, saw) =
-  if at(tokens, pos, "Newline") { skip_ws_tracked_loop(tokens, pos + 1, true) }
-  else { (saw, pos) }
+  match kind_at(tokens, pos) {
+    TNewline => skip_ws_tracked_loop(tokens, pos + 1, true),
+    _        => (saw, pos)
+  }
 
-fn op_string(k) =
-  if str_eq(k, "Plus") == 1 { "+" }
-  else if str_eq(k, "Minus") == 1 { "-" }
-  else if str_eq(k, "Star") == 1 { "*" }
-  else if str_eq(k, "Slash") == 1 { "/" }
-  else if str_eq(k, "Percent") == 1 { "%" }
-  else if str_eq(k, "PlusPlus") == 1 { "++" }
-  else if str_eq(k, "EqEq") == 1 { "==" }
-  else if str_eq(k, "BangEq") == 1 { "!=" }
-  else if str_eq(k, "Lt") == 1 { "<" }
-  else if str_eq(k, "Gt") == 1 { ">" }
-  else if str_eq(k, "LtEq") == 1 { "<=" }
-  else if str_eq(k, "GtEq") == 1 { ">=" }
-  else if str_eq(k, "AndAnd") == 1 { "&&" }
-  else if str_eq(k, "OrOr") == 1 { "||" }
-  else { k }
+// op_string: render TokenKind as the source-form operator string
+// (for BinOpExpr's String op field). Maps each operator kind to
+// its canonical lexical form. Non-operator kinds fall through to
+// show_token_kind for debugging.
+fn op_string(k) = match k {
+  TPlus      => "+",
+  TMinus     => "-",
+  TStar      => "*",
+  TSlash     => "/",
+  TPercent   => "%",
+  TPlusPlus  => "++",
+  TEqEq      => "==",
+  TBangEq    => "!=",
+  TLt        => "<",
+  TGt        => ">",
+  TLtEq      => "<=",
+  TGtEq      => ">=",
+  TAndAnd    => "&&",
+  TOrOr      => "||",
+  _          => show_token_kind(k)
+}
 
 // ═══ Program — top-level loop ══════════════════════════════════════
 
@@ -139,7 +291,7 @@ fn parse_program(tokens) =
 
 fn parse_stmt_list(tokens, pos, acc) = {
   let p = skip_ws(tokens, pos)
-  if at(tokens, p, "Eof") { acc }
+  if at(tokens, p, TEof) { acc }
   else {
     let (stmt, next) = parse_stmt(tokens, p)
     parse_stmt_list(tokens, skip_sep(tokens, next), acc ++ [stmt])
@@ -148,15 +300,14 @@ fn parse_stmt_list(tokens, pos, acc) = {
 
 // ═══ Statements ════════════════════════════════════════════════════
 
-fn parse_stmt(tokens, pos) = {
-  let k = kind_at(tokens, pos)
-  if str_eq(k, "Fn") == 1           { parse_fn(tokens, pos + 1) }
-  else if str_eq(k, "Let") == 1     { parse_let(tokens, pos + 1) }
-  else if str_eq(k, "Type") == 1    { parse_type_decl(tokens, pos + 1) }
-  else if str_eq(k, "Effect") == 1  { parse_effect_decl(tokens, pos + 1) }
-  else if str_eq(k, "Handler") == 1 { parse_handler_decl(tokens, pos + 1) }
-  else if str_eq(k, "Import") == 1  { parse_import(tokens, pos + 1) }
-  else {
+fn parse_stmt(tokens, pos) = match kind_at(tokens, pos) {
+  TFn       => parse_fn(tokens, pos + 1),
+  TLet      => parse_let(tokens, pos + 1),
+  TType     => parse_type_decl(tokens, pos + 1),
+  TEffect   => parse_effect_decl(tokens, pos + 1),
+  THandler  => parse_handler_decl(tokens, pos + 1),
+  TImport   => parse_import(tokens, pos + 1),
+  _         => {
     let start_span = span_at(tokens, pos)
     let (expr, next) = parse_expr(tokens, pos)
     (nstmt(ExprStmt(expr), start_span), next)
@@ -167,13 +318,13 @@ fn parse_stmt(tokens, pos) = {
 
 fn parse_fn(tokens, pos) = {
   let start = span_at(tokens, pos)
-  let name = val_at(tokens, pos)
-  let p = expect(tokens, pos + 1, "LParen")
+  let name = ident_at(tokens, pos)
+  let p = expect(tokens, pos + 1, TLParen)
   let (params, p2) = parse_fn_params(tokens, p)
 
   let p3 = skip_ws(tokens, p2)
   let (ret_node, p4) =
-    if at(tokens, p3, "Arrow") {
+    if at(tokens, p3, TArrow) {
       parse_type_expr(tokens, skip_ws(tokens, p3 + 1))
     } else {
       (nexpr(LitUnit, start), p3)
@@ -181,14 +332,14 @@ fn parse_fn(tokens, pos) = {
 
   let p5 = skip_ws(tokens, p4)
   let (effs, p6) =
-    if at(tokens, p5, "With") {
+    if at(tokens, p5, TWith) {
       parse_effect_list(tokens, skip_ws(tokens, p5 + 1))
     } else {
       ([], p5)
     }
 
   let p7 = skip_ws(tokens, p6)
-  let p8 = if at(tokens, p7, "Eq") { p7 + 1 } else { p7 }
+  let p8 = if at(tokens, p7, TEq) { p7 + 1 } else { p7 }
   let (body, p9) = parse_body(tokens, skip_ws(tokens, p8))
 
   (nstmt(FnStmt(name, params, ret_node, effs, body), start), p9)
@@ -196,7 +347,7 @@ fn parse_fn(tokens, pos) = {
 
 fn parse_fn_params(tokens, pos) = {
   let p = skip_ws(tokens, pos)
-  if at(tokens, p, "RParen") { ([], p + 1) }
+  if at(tokens, p, TRParen) { ([], p + 1) }
   else {
     let (first, p2) = parse_one_param(tokens, p)
     parse_params_tail(tokens, p2, [first])
@@ -205,25 +356,25 @@ fn parse_fn_params(tokens, pos) = {
 
 fn parse_params_tail(tokens, pos, acc) = {
   let p = skip_ws(tokens, pos)
-  if at(tokens, p, "Comma") {
+  if at(tokens, p, TComma) {
     let (next, p2) = parse_one_param(tokens, skip_ws(tokens, p + 1))
     parse_params_tail(tokens, p2, acc ++ [next])
   } else {
-    (acc, expect(tokens, p, "RParen"))
+    (acc, expect(tokens, p, TRParen))
   }
 }
 
 fn parse_one_param(tokens, pos) = {
-  let v = val_at(tokens, pos)
-  let (own_marker, p) =
-    if str_eq(v, "own") == 1 { (Own, skip_ws(tokens, pos + 1)) }
-    else if str_eq(v, "ref") == 1 { (Ref, skip_ws(tokens, pos + 1)) }
-    else { (Inferred, pos) }
+  let (own_marker, p) = match kind_at(tokens, pos) {
+    TOwn => (Own, skip_ws(tokens, pos + 1)),
+    TRef => (Ref, skip_ws(tokens, pos + 1)),
+    _    => (Inferred, pos)
+  }
 
-  let name = val_at(tokens, p)
+  let name = ident_at(tokens, p)
   let p2 = skip_ws(tokens, p + 1)
 
-  if at(tokens, p2, "Colon") {
+  if at(tokens, p2, TColon) {
     let (ty, p3) = parse_type_ty(tokens, skip_ws(tokens, p2 + 1))
     (TParam(name, ty, own_marker), p3)
   } else {
@@ -238,7 +389,7 @@ fn parse_effect_list(tokens, pos) = {
   let (name, negated, p) = parse_one_effect(tokens, pos)
   let entry = (name, negated)
   let p2 = skip_ws(tokens, p)
-  if at(tokens, p2, "Comma") {
+  if at(tokens, p2, TComma) {
     let (rest, p3) = parse_effect_list(tokens, skip_ws(tokens, p2 + 1))
     ([entry] ++ rest, p3)
   } else {
@@ -248,9 +399,9 @@ fn parse_effect_list(tokens, pos) = {
 
 fn parse_one_effect(tokens, pos) = {
   let (negated, p) =
-    if at(tokens, pos, "Bang") { (true, pos + 1) }
+    if at(tokens, pos, TBang) { (true, pos + 1) }
     else { (false, pos) }
-  let name = val_at(tokens, p)
+  let name = ident_at(tokens, p)
   (name, negated, p + 1)
 }
 
@@ -260,11 +411,11 @@ fn parse_let(tokens, pos) = {
   let start = span_at(tokens, pos)
   let (pat, p) = parse_pat(tokens, pos)
   let p2 = skip_ws(tokens, p)
-  let p3 = if at(tokens, p2, "Colon") {
+  let p3 = if at(tokens, p2, TColon) {
     let (_, p_ty) = parse_type_ty(tokens, skip_ws(tokens, p2 + 1))
     skip_ws(tokens, p_ty)
   } else { p2 }
-  let p4 = expect(tokens, p3, "Eq")
+  let p4 = expect(tokens, p3, TEq)
   let (val, p5) = parse_expr(tokens, skip_ws(tokens, p4))
   (nstmt(LetStmt(pat, val), start), p5)
 }
@@ -273,13 +424,13 @@ fn parse_let(tokens, pos) = {
 
 fn parse_type_decl(tokens, pos) = {
   let start = span_at(tokens, pos)
-  let name = val_at(tokens, pos)
+  let name = ident_at(tokens, pos)
   let p = skip_ws(tokens, pos + 1)
-  let p2 = if at(tokens, p, "Eq") { skip_ws(tokens, p + 1) } else { p }
+  let p2 = if at(tokens, p, TEq) { skip_ws(tokens, p + 1) } else { p }
 
-  let base_val = val_at(tokens, p2)
+  let base_val = ident_at(tokens, p2)
   let probe = skip_ws(tokens, p2 + 1)
-  if at(tokens, probe, "Where") {
+  if at(tokens, probe, TWhere) {
     let (base_ty, _p3) = parse_type_ty(tokens, p2)
     let (pred, p4) = parse_predicate(tokens, skip_ws(tokens, probe + 1))
     (nstmt(RefineStmt(name, base_ty, pred), start), p4)
@@ -291,17 +442,17 @@ fn parse_type_decl(tokens, pos) = {
 
 fn parse_variants(tokens, pos) = {
   let p = skip_ws(tokens, pos)
-  let vname = val_at(tokens, p)
+  let vname = ident_at(tokens, p)
   let p2 = p + 1
   let (fields, p3) =
-    if at(tokens, p2, "LParen") {
+    if at(tokens, p2, TLParen) {
       parse_variant_fields(tokens, skip_ws(tokens, p2 + 1))
     } else {
       ([], p2)
     }
   let variant = (vname, fields)
   let p4 = skip_ws(tokens, p3)
-  if at(tokens, p4, "Pipe") {
+  if at(tokens, p4, TPipe) {
     let (rest, p5) = parse_variants(tokens, skip_ws(tokens, p4 + 1))
     ([variant] ++ rest, p5)
   } else {
@@ -311,15 +462,15 @@ fn parse_variants(tokens, pos) = {
 
 fn parse_variant_fields(tokens, pos) = {
   let p = skip_ws(tokens, pos)
-  if at(tokens, p, "RParen") { ([], p + 1) }
+  if at(tokens, p, TRParen) { ([], p + 1) }
   else {
     let (ty, p2) = parse_type_ty(tokens, p)
     let p3 = skip_ws(tokens, p2)
-    if at(tokens, p3, "Comma") {
+    if at(tokens, p3, TComma) {
       let (rest, p4) = parse_variant_fields(tokens, skip_ws(tokens, p3 + 1))
       ([ty] ++ rest, p4)
     } else {
-      ([ty], expect(tokens, p3, "RParen"))
+      ([ty], expect(tokens, p3, TRParen))
     }
   }
 }
@@ -328,7 +479,7 @@ fn parse_variant_fields(tokens, pos) = {
 
 fn parse_effect_decl(tokens, pos) = {
   let start = span_at(tokens, pos)
-  let name = val_at(tokens, pos)
+  let name = ident_at(tokens, pos)
   let p = expect(tokens, skip_ws(tokens, pos + 1), "LBrace")
   let (ops, p2) = parse_effect_ops(tokens, skip_ws(tokens, p))
   (nstmt(EffectDeclStmt(name, ops), start), p2)
@@ -336,14 +487,14 @@ fn parse_effect_decl(tokens, pos) = {
 
 fn parse_effect_ops(tokens, pos) = {
   let p = skip_ws(tokens, pos)
-  if at(tokens, p, "RBrace") { ([], p + 1) }
+  if at(tokens, p, TRBrace) { ([], p + 1) }
   else {
-    let op_name = val_at(tokens, p)
+    let op_name = ident_at(tokens, p)
     let p2 = expect(tokens, skip_ws(tokens, p + 1), "LParen")
     let (param_tys, p3) = parse_op_params(tokens, skip_ws(tokens, p2))
     let p4 = skip_ws(tokens, p3)
     let (ret_ty, p5) =
-      if at(tokens, p4, "Arrow") {
+      if at(tokens, p4, TArrow) {
         parse_type_ty(tokens, skip_ws(tokens, p4 + 1))
       } else {
         (TUnit, p4)
@@ -356,15 +507,15 @@ fn parse_effect_ops(tokens, pos) = {
 
 fn parse_op_params(tokens, pos) = {
   let p = skip_ws(tokens, pos)
-  if at(tokens, p, "RParen") { ([], p + 1) }
+  if at(tokens, p, TRParen) { ([], p + 1) }
   else {
     let (ty, p2) = parse_type_ty(tokens, p)
     let p3 = skip_ws(tokens, p2)
-    if at(tokens, p3, "Comma") {
+    if at(tokens, p3, TComma) {
       let (rest, p4) = parse_op_params(tokens, skip_ws(tokens, p3 + 1))
       ([ty] ++ rest, p4)
     } else {
-      ([ty], expect(tokens, p3, "RParen"))
+      ([ty], expect(tokens, p3, TRParen))
     }
   }
 }
@@ -373,7 +524,7 @@ fn parse_op_params(tokens, pos) = {
 
 fn parse_handler_decl(tokens, pos) = {
   let start = span_at(tokens, pos)
-  let name = val_at(tokens, pos)
+  let name = ident_at(tokens, pos)
   let p = expect(tokens, skip_ws(tokens, pos + 1), "LBrace")
   let (arms, p2) = parse_handler_arms(tokens, skip_ws(tokens, p))
   (nstmt(HandlerDeclStmt(name, "", arms), start), p2)
@@ -381,9 +532,9 @@ fn parse_handler_decl(tokens, pos) = {
 
 fn parse_handler_arms(tokens, pos) = {
   let p = skip_ws(tokens, pos)
-  if at(tokens, p, "RBrace") { ([], p + 1) }
+  if at(tokens, p, TRBrace) { ([], p + 1) }
   else {
-    let op_name = val_at(tokens, p)
+    let op_name = ident_at(tokens, p)
     let p2 = expect(tokens, skip_ws(tokens, p + 1), "LParen")
     let (args, p3) = parse_arg_names(tokens, skip_ws(tokens, p2))
     let p4 = expect(tokens, skip_ws(tokens, p3), "FatArrow")
@@ -396,15 +547,15 @@ fn parse_handler_arms(tokens, pos) = {
 
 fn parse_arg_names(tokens, pos) = {
   let p = skip_ws(tokens, pos)
-  if at(tokens, p, "RParen") { ([], p + 1) }
+  if at(tokens, p, TRParen) { ([], p + 1) }
   else {
-    let name = val_at(tokens, p)
+    let name = ident_at(tokens, p)
     let p2 = skip_ws(tokens, p + 1)
-    if at(tokens, p2, "Comma") {
+    if at(tokens, p2, TComma) {
       let (rest, p3) = parse_arg_names(tokens, skip_ws(tokens, p2 + 1))
       ([name] ++ rest, p3)
     } else {
-      ([name], expect(tokens, p2, "RParen"))
+      ([name], expect(tokens, p2, TRParen))
     }
   }
 }
@@ -418,10 +569,10 @@ fn parse_import(tokens, pos) = {
 }
 
 fn parse_import_path(tokens, pos, acc) = {
-  let name = val_at(tokens, pos)
+  let name = ident_at(tokens, pos)
   let joined = acc |> str_concat(name)
   let p = pos + 1
-  if at(tokens, p, "Slash") {
+  if at(tokens, p, TSlash) {
     parse_import_path(tokens, p + 1,
       joined |> str_concat("/"))
   } else {
@@ -464,38 +615,37 @@ fn parse_postfix(tokens, pos) = {
   postfix_loop(tokens, e, p)
 }
 
-fn postfix_loop(tokens, e, pos) = {
-  let k = kind_at(tokens, pos)
-  if str_eq(k, "LParen") == 1 {
+fn postfix_loop(tokens, e, pos) = match kind_at(tokens, pos) {
+  TLParen => {
     let (args, p2) = parse_call_args(tokens, skip_ws(tokens, pos + 1))
     let N(_, start_span, _) = e
     let end_span = span_at(tokens, p2 - 1)
     postfix_loop(tokens,
       nexpr(CallExpr(e, args), span_join(start_span, end_span)),
       p2)
-  } else if str_eq(k, "Dot") == 1 {
-    let field = val_at(tokens, pos + 1)
+  },
+  TDot => {
+    let field = ident_at(tokens, pos + 1)
     let N(_, start_span, _) = e
     let field_span = span_at(tokens, pos + 1)
     postfix_loop(tokens,
       nexpr(FieldExpr(e, field), span_join(start_span, field_span)),
       pos + 2)
-  } else {
-    (e, pos)
-  }
+  },
+  _ => (e, pos)
 }
 
 fn parse_call_args(tokens, pos) = {
   let p = skip_ws(tokens, pos)
-  if at(tokens, p, "RParen") { ([], p + 1) }
+  if at(tokens, p, TRParen) { ([], p + 1) }
   else {
     let (arg, p2) = parse_expr(tokens, p)
     let p3 = skip_ws(tokens, p2)
-    if at(tokens, p3, "Comma") {
+    if at(tokens, p3, TComma) {
       let (rest, p4) = parse_call_args(tokens, skip_ws(tokens, p3 + 1))
       ([arg] ++ rest, p4)
     } else {
-      ([arg], expect(tokens, p3, "RParen"))
+      ([arg], expect(tokens, p3, TRParen))
     }
   }
 }
@@ -503,85 +653,71 @@ fn parse_call_args(tokens, pos) = {
 // ═══ Primary expressions ═══════════════════════════════════════════
 
 fn parse_primary(tokens, pos) = {
-  let k = kind_at(tokens, pos)
   let span = span_at(tokens, pos)
-  if str_eq(k, "Int") == 1         { parse_int_literal(tokens, pos, span) }
-  else if str_eq(k, "Float") == 1  { parse_float_literal(tokens, pos, span) }
-  else if str_eq(k, "String") == 1 { parse_string_literal(tokens, pos, span) }
-  else if str_eq(k, "True") == 1   { (nexpr(LitBool(true), span), pos + 1) }
-  else if str_eq(k, "False") == 1  { (nexpr(LitBool(false), span), pos + 1) }
-  else if str_eq(k, "Ident") == 1  { (nexpr(VarRef(val_at(tokens, pos)), span), pos + 1) }
-  else if str_eq(k, "Question") == 1 {
-    let id = fresh_ph(span)
-    (nhole(id, span), pos + 1)
+  match kind_at(tokens, pos) {
+    TInt(n)      => (nexpr(LitInt(n), span), pos + 1),
+    TFloat(f)    => (nexpr(LitFloat(f), span), pos + 1),
+    TString(s)   => (nexpr(LitString(s), span), pos + 1),
+    TTrue        => (nexpr(LitBool(true), span), pos + 1),
+    TFalse       => (nexpr(LitBool(false), span), pos + 1),
+    TIdent(name) => (nexpr(VarRef(name), span), pos + 1),
+    TQuestion    => {
+      let id = fresh_ph(span)
+      (nhole(id, span), pos + 1)
+    },
+    TLParen      => parse_paren_or_tuple(tokens, pos + 1, span),
+    TLBracket    => parse_list_literal(tokens, pos + 1, span),
+    TLBrace      => parse_block_expr(tokens, pos + 1, span),
+    TIf          => parse_if(tokens, pos + 1, span),
+    TMatch       => parse_match(tokens, pos + 1, span),
+    THandle      => parse_handle(tokens, pos + 1, span),
+    TPerform     => parse_perform(tokens, pos + 1, span),
+    TResume      => parse_resume(tokens, pos + 1, span),
+    TPipe        => parse_lambda(tokens, pos + 1, span),
+    TMinus       => {
+      let (inner, p) = parse_primary(tokens, pos + 1)
+      (nexpr(UnaryOpExpr("Neg", inner), span), p)
+    },
+    TBang        => {
+      let (inner, p) = parse_primary(tokens, pos + 1)
+      (nexpr(UnaryOpExpr("Not", inner), span), p)
+    },
+    _ => {
+      perform report("", "P_UnexpectedToken", "ParseError",
+        "unexpected token: " |> str_concat(show_token_kind(kind_at(tokens, pos))),
+        span, "MaybeIncorrect")
+      let id = fresh_ph(span)
+      (nhole(id, span), pos + 1)
+    }
   }
-  else if str_eq(k, "LParen") == 1 { parse_paren_or_tuple(tokens, pos + 1, span) }
-  else if str_eq(k, "LBracket") == 1 { parse_list_literal(tokens, pos + 1, span) }
-  else if str_eq(k, "LBrace") == 1 { parse_block_expr(tokens, pos + 1, span) }
-  else if str_eq(k, "If") == 1     { parse_if(tokens, pos + 1, span) }
-  else if str_eq(k, "Match") == 1  { parse_match(tokens, pos + 1, span) }
-  else if str_eq(k, "Handle") == 1 { parse_handle(tokens, pos + 1, span) }
-  else if str_eq(k, "Perform") == 1 { parse_perform(tokens, pos + 1, span) }
-  else if str_eq(k, "Resume") == 1 { parse_resume(tokens, pos + 1, span) }
-  else if str_eq(k, "Pipe") == 1   { parse_lambda(tokens, pos + 1, span) }
-  else if str_eq(k, "Minus") == 1 {
-    let (inner, p) = parse_primary(tokens, pos + 1)
-    (nexpr(UnaryOpExpr("Neg", inner), span), p)
-  }
-  else if str_eq(k, "Bang") == 1 {
-    let (inner, p) = parse_primary(tokens, pos + 1)
-    (nexpr(UnaryOpExpr("Not", inner), span), p)
-  }
-  else {
-    perform report("", "P_UnexpectedToken", "ParseError",
-      "unexpected token: " |> str_concat(k),
-      span, "MaybeIncorrect")
-    let id = fresh_ph(span)
-    (nhole(id, span), pos + 1)
-  }
-}
-
-fn parse_int_literal(tokens, pos, span) = {
-  let v = val_at(tokens, pos)
-  (nexpr(LitInt(str_to_int(v)), span), pos + 1)
-}
-
-fn parse_float_literal(tokens, pos, span) = {
-  let v = val_at(tokens, pos)
-  (nexpr(LitFloat(str_to_float(v)), span), pos + 1)
-}
-
-fn parse_string_literal(tokens, pos, span) = {
-  let v = val_at(tokens, pos)
-  (nexpr(LitString(v), span), pos + 1)
 }
 
 fn parse_paren_or_tuple(tokens, pos, start_span) = {
   let p = skip_ws(tokens, pos)
-  if at(tokens, p, "RParen") {
+  if at(tokens, p, TRParen) {
     (nexpr(LitUnit, start_span), p + 1)
   } else {
     let (first, p2) = parse_expr(tokens, p)
     let p3 = skip_ws(tokens, p2)
-    if at(tokens, p3, "Comma") {
+    if at(tokens, p3, TComma) {
       let (rest, p4) = parse_tuple_tail(tokens, skip_ws(tokens, p3 + 1), [first])
       (nexpr(MakeTupleExpr(rest), start_span), p4)
     } else {
-      (first, expect(tokens, p3, "RParen"))
+      (first, expect(tokens, p3, TRParen))
     }
   }
 }
 
 fn parse_tuple_tail(tokens, pos, acc) = {
   let p = skip_ws(tokens, pos)
-  if at(tokens, p, "RParen") { (acc, p + 1) }
+  if at(tokens, p, TRParen) { (acc, p + 1) }
   else {
     let (elem, p2) = parse_expr(tokens, p)
     let p3 = skip_ws(tokens, p2)
-    if at(tokens, p3, "Comma") {
+    if at(tokens, p3, TComma) {
       parse_tuple_tail(tokens, skip_ws(tokens, p3 + 1), acc ++ [elem])
     } else {
-      (acc ++ [elem], expect(tokens, p3, "RParen"))
+      (acc ++ [elem], expect(tokens, p3, TRParen))
     }
   }
 }
@@ -593,14 +729,14 @@ fn parse_list_literal(tokens, pos, start_span) = {
 
 fn parse_list_elems(tokens, pos, acc) = {
   let p = skip_ws(tokens, pos)
-  if at(tokens, p, "RBracket") { (acc, p + 1) }
+  if at(tokens, p, TRBracket) { (acc, p + 1) }
   else {
     let (elem, p2) = parse_expr(tokens, p)
     let p3 = skip_ws(tokens, p2)
-    if at(tokens, p3, "Comma") {
+    if at(tokens, p3, TComma) {
       parse_list_elems(tokens, skip_ws(tokens, p3 + 1), acc ++ [elem])
     } else {
-      (acc ++ [elem], expect(tokens, p3, "RBracket"))
+      (acc ++ [elem], expect(tokens, p3, TRBracket))
     }
   }
 }
@@ -612,18 +748,22 @@ fn parse_block_expr(tokens, pos, start_span) = {
 
 fn parse_block_body(tokens, pos, acc) = {
   let p = skip_ws(tokens, pos)
-  if at(tokens, p, "RBrace") {
+  if at(tokens, p, TRBrace) {
     let start = span_at(tokens, p)
     (acc, nexpr(LitUnit, start), p + 1)
   } else {
-    let k = kind_at(tokens, p)
-    if str_eq(k, "Let") == 1 || str_eq(k, "Fn") == 1 {
+    let is_decl = match kind_at(tokens, p) {
+      TLet => true,
+      TFn  => true,
+      _    => false
+    }
+    if is_decl {
       let (stmt, p2) = parse_stmt(tokens, p)
       parse_block_body(tokens, skip_sep(tokens, p2), acc ++ [stmt])
     } else {
       let (expr, p2) = parse_expr(tokens, p)
       let p3 = skip_ws(tokens, p2)
-      if at(tokens, p3, "RBrace") {
+      if at(tokens, p3, TRBrace) {
         (acc, expr, p3 + 1)
       } else {
         let start = span_at(tokens, p)
@@ -638,18 +778,18 @@ fn parse_if(tokens, pos, span) = {
   let (cond, p) = parse_expr(tokens, pos)
   let p2 = skip_ws(tokens, p)
   let (then_e, p3) =
-    if at(tokens, p2, "LBrace") {
+    if at(tokens, p2, TLBrace) {
       parse_block_expr(tokens, p2 + 1, span_at(tokens, p2))
     } else {
       parse_expr(tokens, p2)
     }
   let p4 = skip_ws(tokens, p3)
-  if at(tokens, p4, "Else") {
+  if at(tokens, p4, TElse) {
     let p5 = skip_ws(tokens, p4 + 1)
     let (else_e, p6) =
-      if at(tokens, p5, "If") {
+      if at(tokens, p5, TIf) {
         parse_if(tokens, p5 + 1, span_at(tokens, p5))
-      } else if at(tokens, p5, "LBrace") {
+      } else if at(tokens, p5, TLBrace) {
         parse_block_expr(tokens, p5 + 1, span_at(tokens, p5))
       } else {
         parse_expr(tokens, p5)
@@ -669,13 +809,13 @@ fn parse_match(tokens, pos, span) = {
 
 fn parse_match_arms(tokens, pos, acc) = {
   let p = skip_ws(tokens, pos)
-  if at(tokens, p, "RBrace") { (acc, p + 1) }
+  if at(tokens, p, TRBrace) { (acc, p + 1) }
   else {
     let (pat, p2) = parse_pat(tokens, p)
     let p3 = expect(tokens, skip_ws(tokens, p2), "FatArrow")
     let (body, p4) = parse_expr(tokens, skip_ws(tokens, p3))
     let p5 = skip_ws(tokens, p4)
-    let p6 = if at(tokens, p5, "Comma") { p5 + 1 } else { p5 }
+    let p6 = if at(tokens, p5, TComma) { p5 + 1 } else { p5 }
     parse_match_arms(tokens, skip_ws(tokens, p6), acc ++ [(pat, body)])
   }
 }
@@ -683,19 +823,19 @@ fn parse_match_arms(tokens, pos, acc) = {
 fn parse_handle(tokens, pos, span) = {
   let p = skip_ws(tokens, pos)
   let (body, p2) =
-    if at(tokens, p, "LBrace") {
+    if at(tokens, p, TLBrace) {
       parse_block_expr(tokens, p + 1, span_at(tokens, p))
     } else {
       parse_expr(tokens, p)
     }
   let p3 = skip_ws(tokens, p2)
   let (arms, p4) =
-    if at(tokens, p3, "With") {
+    if at(tokens, p3, TWith) {
       let p_open = expect(tokens,
         skip_ws(tokens, skip_past_ident(tokens, p3 + 1)),
         "LBrace")
       parse_handler_arms(tokens, skip_ws(tokens, p_open))
-    } else if at(tokens, p3, "LBrace") {
+    } else if at(tokens, p3, TLBrace) {
       parse_handler_arms(tokens, skip_ws(tokens, p3 + 1))
     } else {
       ([], p3)
@@ -704,12 +844,14 @@ fn parse_handle(tokens, pos, span) = {
 }
 
 fn skip_past_ident(tokens, pos) =
-  if at(tokens, pos, "Ident") { pos + 1 }
-  else { pos }
+  match kind_at(tokens, pos) {
+    TIdent(_) => pos + 1,
+    _         => pos
+  }
 
 fn parse_perform(tokens, pos, span) = {
-  let op_name = val_at(tokens, pos)
-  let p = expect(tokens, skip_ws(tokens, pos + 1), "LParen")
+  let op_name = ident_at(tokens, pos)
+  let p = expect(tokens, skip_ws(tokens, pos + 1), TLParen)
   let (args, p2) = parse_call_args(tokens, skip_ws(tokens, p))
   (nexpr(PerformExpr(op_name, args), span), p2)
 }
@@ -729,23 +871,23 @@ fn parse_lambda(tokens, pos, span) = {
 
 fn parse_lambda_params(tokens, pos, acc) = {
   let p = skip_ws(tokens, pos)
-  if at(tokens, p, "Pipe") { (acc, p + 1) }
+  if at(tokens, p, TPipe) { (acc, p + 1) }
   else {
-    let name = val_at(tokens, p)
+    let name = ident_at(tokens, p)
     let h = fresh_ph(span_at(tokens, p))
     let param = TParam(name, TVar(h), Inferred)
     let p2 = skip_ws(tokens, p + 1)
-    if at(tokens, p2, "Comma") {
+    if at(tokens, p2, TComma) {
       parse_lambda_params(tokens, skip_ws(tokens, p2 + 1), acc ++ [param])
     } else {
-      (acc ++ [param], expect(tokens, p2, "Pipe"))
+      (acc ++ [param], expect(tokens, p2, TPipe))
     }
   }
 }
 
 fn parse_body(tokens, pos) = {
   let p = skip_ws(tokens, pos)
-  if at(tokens, p, "LBrace") {
+  if at(tokens, p, TLBrace) {
     parse_block_expr(tokens, p + 1, span_at(tokens, p))
   } else {
     parse_expr(tokens, p)
@@ -755,80 +897,68 @@ fn parse_body(tokens, pos) = {
 // ═══ Patterns ══════════════════════════════════════════════════════
 
 fn parse_pat(tokens, pos) = {
-  let k = kind_at(tokens, pos)
-  let v = val_at(tokens, pos)
-  let span = span_at(tokens, pos)
-  if str_eq(k, "Ident") == 1 {
-    if str_eq(v, "_") == 1 { (PWild, pos + 1) }
-    else {
-      let first_code = first_char_code(v)
-      if first_code >= 65 && first_code <= 90 {
-        let p2 = pos + 1
-        if at(tokens, p2, "LParen") {
-          let (sub, p3) = parse_pat_args(tokens, skip_ws(tokens, p2 + 1))
-          (PCon(v, sub), p3)
+  match kind_at(tokens, pos) {
+    TIdent(v) => {
+      if str_eq(v, "_") { (PWild, pos + 1) }
+      else {
+        let first_code = first_char_code(v)
+        if first_code >= 65 && first_code <= 90 {
+          // Capitalized identifier — constructor pattern
+          let p2 = pos + 1
+          if at(tokens, p2, TLParen) {
+            let (sub, p3) = parse_pat_args(tokens, skip_ws(tokens, p2 + 1))
+            (PCon(v, sub), p3)
+          } else {
+            (PCon(v, []), p2)
+          }
         } else {
-          (PCon(v, []), p2)
+          (PVar(v), pos + 1)
         }
-      } else {
-        (PVar(v), pos + 1)
       }
-    }
-  }
-  else if str_eq(k, "Int") == 1 {
-    (PLit(LVInt(str_to_int(v))), pos + 1)
-  }
-  else if str_eq(k, "Float") == 1 {
-    (PLit(LVFloat(str_to_float(v))), pos + 1)
-  }
-  else if str_eq(k, "String") == 1 {
-    (PLit(LVString(v)), pos + 1)
-  }
-  else if str_eq(k, "True") == 1 {
-    (PLit(LVBool(true)), pos + 1)
-  }
-  else if str_eq(k, "False") == 1 {
-    (PLit(LVBool(false)), pos + 1)
-  }
-  else if str_eq(k, "LParen") == 1 {
-    let (sub, p) = parse_pat_args(tokens, skip_ws(tokens, pos + 1))
-    (PTuple(sub), p)
-  }
-  else if str_eq(k, "LBracket") == 1 {
-    let (sub, p) = parse_pat_list_args(tokens, skip_ws(tokens, pos + 1))
-    (PList(sub), p)
-  }
-  else {
-    (PWild, pos + 1)
+    },
+    TInt(n)    => (PLit(LVInt(n)), pos + 1),
+    TFloat(f)  => (PLit(LVFloat(f)), pos + 1),
+    TString(s) => (PLit(LVString(s)), pos + 1),
+    TTrue      => (PLit(LVBool(true)), pos + 1),
+    TFalse     => (PLit(LVBool(false)), pos + 1),
+    TLParen    => {
+      let (sub, p) = parse_pat_args(tokens, skip_ws(tokens, pos + 1))
+      (PTuple(sub), p)
+    },
+    TLBracket  => {
+      let (sub, p) = parse_pat_list_args(tokens, skip_ws(tokens, pos + 1))
+      (PList(sub), p)
+    },
+    _ => (PWild, pos + 1)
   }
 }
 
 fn parse_pat_args(tokens, pos) = {
   let p = skip_ws(tokens, pos)
-  if at(tokens, p, "RParen") { ([], p + 1) }
+  if at(tokens, p, TRParen) { ([], p + 1) }
   else {
     let (pat, p2) = parse_pat(tokens, p)
     let p3 = skip_ws(tokens, p2)
-    if at(tokens, p3, "Comma") {
+    if at(tokens, p3, TComma) {
       let (rest, p4) = parse_pat_args(tokens, skip_ws(tokens, p3 + 1))
       ([pat] ++ rest, p4)
     } else {
-      ([pat], expect(tokens, p3, "RParen"))
+      ([pat], expect(tokens, p3, TRParen))
     }
   }
 }
 
 fn parse_pat_list_args(tokens, pos) = {
   let p = skip_ws(tokens, pos)
-  if at(tokens, p, "RBracket") { ([], p + 1) }
+  if at(tokens, p, TRBracket) { ([], p + 1) }
   else {
     let (pat, p2) = parse_pat(tokens, p)
     let p3 = skip_ws(tokens, p2)
-    if at(tokens, p3, "Comma") {
+    if at(tokens, p3, TComma) {
       let (rest, p4) = parse_pat_list_args(tokens, skip_ws(tokens, p3 + 1))
       ([pat] ++ rest, p4)
     } else {
-      ([pat], expect(tokens, p3, "RBracket"))
+      ([pat], expect(tokens, p3, TRBracket))
     }
   }
 }
@@ -839,44 +969,42 @@ fn first_char_code(s) =
 
 // ═══ Type expressions ══════════════════════════════════════════════
 
-fn parse_type_ty(tokens, pos) = {
-  let k = kind_at(tokens, pos)
-  let v = val_at(tokens, pos)
-  if str_eq(k, "Ident") == 1 {
-    if str_eq(v, "Int") == 1       { (TInt, pos + 1) }
-    else if str_eq(v, "Float") == 1 { (TFloat, pos + 1) }
-    else if str_eq(v, "String") == 1 { (TString, pos + 1) }
-    else if str_eq(v, "Bool") == 1  { (TBool, pos + 1) }
-    else if str_eq(v, "Unit") == 1  { (TUnit, pos + 1) }
-    else { (TName(v, []), pos + 1) }
-  } else if str_eq(k, "LParen") == 1 {
+fn parse_type_ty(tokens, pos) = match kind_at(tokens, pos) {
+  TIdent(v) => {
+    if str_eq(v, "Int")        { (TInt, pos + 1) }
+    else if str_eq(v, "Float")  { (TFloat, pos + 1) }
+    else if str_eq(v, "String") { (TString, pos + 1) }
+    else if str_eq(v, "Bool")   { (TBool, pos + 1) }
+    else if str_eq(v, "Unit")   { (TUnit, pos + 1) }
+    else                        { (TName(v, []), pos + 1) }
+  },
+  TLParen => {
     let p = skip_ws(tokens, pos + 1)
-    if at(tokens, p, "RParen") { (TUnit, p + 1) }
+    if at(tokens, p, TRParen) { (TUnit, p + 1) }
     else {
       let (first, p2) = parse_type_ty(tokens, p)
       let p3 = skip_ws(tokens, p2)
-      if at(tokens, p3, "Comma") {
+      if at(tokens, p3, TComma) {
         let (rest, p4) = parse_type_ty_tail(tokens, skip_ws(tokens, p3 + 1), [first])
         (TTuple(rest), p4)
       } else {
-        (first, expect(tokens, p3, "RParen"))
+        (first, expect(tokens, p3, TRParen))
       }
     }
-  } else {
-    (TUnit, pos + 1)
-  }
+  },
+  _ => (TUnit, pos + 1)
 }
 
 fn parse_type_ty_tail(tokens, pos, acc) = {
   let p = skip_ws(tokens, pos)
-  if at(tokens, p, "RParen") { (acc, p + 1) }
+  if at(tokens, p, TRParen) { (acc, p + 1) }
   else {
     let (ty, p2) = parse_type_ty(tokens, p)
     let p3 = skip_ws(tokens, p2)
-    if at(tokens, p3, "Comma") {
+    if at(tokens, p3, TComma) {
       parse_type_ty_tail(tokens, skip_ws(tokens, p3 + 1), acc ++ [ty])
     } else {
-      (acc ++ [ty], expect(tokens, p3, "RParen"))
+      (acc ++ [ty], expect(tokens, p3, TRParen))
     }
   }
 }
@@ -897,12 +1025,10 @@ fn parse_predicate(tokens, pos) = {
   (PTrue, p)
 }
 
-fn skip_to_stmt_end(tokens, pos) = {
-  let k = kind_at(tokens, pos)
-  if str_eq(k, "Semicolon") == 1 || str_eq(k, "Newline") == 1
-     || str_eq(k, "Eof") == 1 || str_eq(k, "RBrace") == 1 {
-    pos
-  } else {
-    skip_to_stmt_end(tokens, pos + 1)
-  }
+fn skip_to_stmt_end(tokens, pos) = match kind_at(tokens, pos) {
+  TSemicolon => pos,
+  TNewline   => pos,
+  TEof       => pos,
+  TRBrace    => pos,
+  _          => skip_to_stmt_end(tokens, pos + 1)
 }

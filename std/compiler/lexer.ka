@@ -1,27 +1,21 @@
-// lexer.ka — tokens with full spans (spec 03)
+// lexer.ka — typed Token stream with full spans (spec 03 + SYNTAX.md)
 //
-// The tokenizer. Every token carries full span information:
-// (TokenKind, value, start_line, start_col, end_line, end_col).
-// The parser composes Node spans via Span.join(first_tok, last_tok).
-// Layout-sensitive `~>` disambiguation reads start columns; Newline
-// is a first-class token because line breaks are semantic in pipe
-// chains (spec 10).
+// The tokenizer. Emits `List<Token>` where `Token = Tok(TokenKind, Span)`.
+// Mirrors the AST Node wrapper pattern: structured value + positional
+// metadata. Per SYNTAX.md, the parser dispatches via exhaustive
+// `match Tok(kind, _) { … }` over the 69 TokenKind variants — H6's
+// substrate-discipline applied at the lexical layer.
 //
-// No effect declarations — lexer is pure transformation over strings.
-// Errors are structural (unknown chars); the parser routes them via
-// Diagnostic later.
+// Layout-sensitive `~>` disambiguation (DESIGN Ch 2) reads start
+// columns; TNewline is a first-class token because line breaks are
+// semantic in pipe chains (spec 10).
+//
+// Pure transformation over strings. Errors are structural (unknown
+// chars are skipped — parser routes diagnostics via the position
+// where parse fails, not at lex time).
 
 import compiler/types
-
-// ═══ Token shape ═══════════════════════════════════════════════════
-// type Token = (String, String, Int, Int, Int, Int)
-//              (kind,  value,  sl,  sc,  el,  ec)
-
-fn tok(kind, value, sl, sc, el, ec) = (kind, value, sl, sc, el, ec)
-
-fn tok_kind(t) = { let (k, _, _, _, _, _) = t; k }
-fn tok_val(t)  = { let (_, v, _, _, _, _) = t; v }
-fn tok_span(t) = { let (_, _, sl, sc, el, ec) = t; Span(sl, sc, el, ec) }
+import runtime/strings
 
 // ═══ Character classification ═════════════════════════════════════
 
@@ -40,92 +34,98 @@ fn is_alnum(ch) = is_alpha(ch) || is_digit(ch)
 fn is_whitespace(ch) =
   ch == " " || ch == "\t" || char_code(ch) == 13
 
-// ═══ Keyword table ═════════════════════════════════════════════════
+// ═══ Keyword classification ════════════════════════════════════════
+// Returns Some(TokenKind) if `word` is a reserved keyword; None
+// otherwise (caller emits TIdent(word)).
 
-fn keyword_kind(word) = {
-  let kw = [
-    ("fn", "Fn"), ("let", "Let"), ("if", "If"), ("else", "Else"),
-    ("match", "Match"), ("type", "Type"), ("effect", "Effect"),
-    ("handle", "Handle"), ("handler", "Handler"), ("with", "With"),
-    ("resume", "Resume"), ("perform", "Perform"), ("for", "For"),
-    ("in", "In"), ("import", "Import"), ("true", "True"),
-    ("false", "False"), ("where", "Where"), ("own", "Own"),
-    ("ref", "Ref"), ("Pure", "PureKw"), ("return", "Return"),
-    ("break", "Break"), ("continue", "Continue"), ("loop", "Loop")
-  ]
-  keyword_find(kw, word, 0)
-}
-
-fn keyword_find(kw, word, i) =
-  if i >= len(kw) { "Ident" }
-  else {
-    let (k, v) = kw[i]
-    if str_eq(k, word) { v }
-    else { keyword_find(kw, word, i + 1) }
-  }
+fn keyword_kind(word) =
+  if str_eq(word, "fn")       { Some(TFn) }
+  else if str_eq(word, "let")       { Some(TLet) }
+  else if str_eq(word, "if")        { Some(TIf) }
+  else if str_eq(word, "else")      { Some(TElse) }
+  else if str_eq(word, "match")     { Some(TMatch) }
+  else if str_eq(word, "type")      { Some(TType) }
+  else if str_eq(word, "effect")    { Some(TEffect) }
+  else if str_eq(word, "handle")    { Some(THandle) }
+  else if str_eq(word, "handler")   { Some(THandler) }
+  else if str_eq(word, "with")      { Some(TWith) }
+  else if str_eq(word, "resume")    { Some(TResume) }
+  else if str_eq(word, "perform")   { Some(TPerform) }
+  else if str_eq(word, "for")       { Some(TFor) }
+  else if str_eq(word, "in")        { Some(TIn) }
+  else if str_eq(word, "loop")      { Some(TLoop) }
+  else if str_eq(word, "break")     { Some(TBreak) }
+  else if str_eq(word, "continue")  { Some(TContinue) }
+  else if str_eq(word, "return")    { Some(TReturn) }
+  else if str_eq(word, "import")    { Some(TImport) }
+  else if str_eq(word, "where")     { Some(TWhere) }
+  else if str_eq(word, "own")       { Some(TOwn) }
+  else if str_eq(word, "ref")       { Some(TRef) }
+  else if str_eq(word, "Pure")      { Some(TPure) }
+  else if str_eq(word, "true")      { Some(TTrue) }
+  else if str_eq(word, "false")     { Some(TFalse) }
+  else                                    { None }
 
 // ═══ Two-char operators ════════════════════════════════════════════
+// Returns Some(TokenKind) if (a, b) form a recognized two-char
+// operator; None otherwise (caller falls through to single-char).
 
-fn two_char_kind(a, b) = {
-  let ops = [
-    ("=", "=", "EqEq"), ("!", "=", "BangEq"),
-    ("<", "=", "LtEq"), (">", "=", "GtEq"),
-    ("-", ">", "Arrow"), ("=", ">", "FatArrow"),
-    ("+", "+", "PlusPlus"),
-    ("|", ">", "PipeGt"), ("<", "|", "LtPipe"),
-    (">", "<", "GtLt"), ("~", ">", "TildeGt"),
-    ("<", "~", "LtTilde"),
-    ("&", "&", "AndAnd"), ("|", "|", "OrOr"),
-    (":", ":", "ColonColon")
-  ]
-  two_char_find(ops, a, b, 0)
-}
-
-fn two_char_find(ops, a, b, i) =
-  if i >= len(ops) { "" }
-  else {
-    let (x, y, name) = ops[i]
-    if str_eq(x, a) && str_eq(y, b) { name }
-    else { two_char_find(ops, a, b, i + 1) }
-  }
+fn two_char_kind(a, b) =
+  if      str_eq(a, "=") && str_eq(b, "=")  { Some(TEqEq) }
+  else if str_eq(a, "!") && str_eq(b, "=")  { Some(TBangEq) }
+  else if str_eq(a, "<") && str_eq(b, "=")  { Some(TLtEq) }
+  else if str_eq(a, ">") && str_eq(b, "=")  { Some(TGtEq) }
+  else if str_eq(a, "-") && str_eq(b, ">")  { Some(TArrow) }
+  else if str_eq(a, "=") && str_eq(b, ">")  { Some(TFatArrow) }
+  else if str_eq(a, "+") && str_eq(b, "+")  { Some(TPlusPlus) }
+  else if str_eq(a, "|") && str_eq(b, ">")  { Some(TPipeGt) }
+  else if str_eq(a, "<") && str_eq(b, "|")  { Some(TLtPipe) }
+  else if str_eq(a, ">") && str_eq(b, "<")  { Some(TGtLt) }
+  else if str_eq(a, "~") && str_eq(b, ">")  { Some(TTildeGt) }
+  else if str_eq(a, "<") && str_eq(b, "~")  { Some(TLtTilde) }
+  else if str_eq(a, "&") && str_eq(b, "&")  { Some(TAndAnd) }
+  else if str_eq(a, "|") && str_eq(b, "|")  { Some(TOrOr) }
+  else if str_eq(a, ":") && str_eq(b, ":")  { Some(TColonColon) }
+  else                                            { None }
 
 // ═══ Single-char operators / punctuation ═══════════════════════════
+// Returns Some(TokenKind) if `ch` is a recognized punctuation
+// character; None otherwise (caller skips the character).
 
 fn single_char_kind(ch) = {
   let code = char_code(ch)
-  if code == 40 { "LParen" }
-  else if code == 41 { "RParen" }
-  else if code == 123 { "LBrace" }
-  else if code == 125 { "RBrace" }
-  else if code == 91 { "LBracket" }
-  else if code == 93 { "RBracket" }
-  else if code == 44 { "Comma" }
-  else if code == 46 { "Dot" }
-  else if code == 58 { "Colon" }
-  else if code == 59 { "Semicolon" }
-  else if code == 43 { "Plus" }
-  else if code == 45 { "Minus" }
-  else if code == 42 { "Star" }
-  else if code == 47 { "Slash" }
-  else if code == 37 { "Percent" }
-  else if code == 61 { "Eq" }
-  else if code == 60 { "Lt" }
-  else if code == 62 { "Gt" }
-  else if code == 33 { "Bang" }
-  else if code == 124 { "Pipe" }
-  else if code == 126 { "Tilde" }
-  else if code == 64 { "At" }
-  else if code == 63 { "Question" }
-  else { "" }
+  if      code == 40  { Some(TLParen) }
+  else if code == 41  { Some(TRParen) }
+  else if code == 123 { Some(TLBrace) }
+  else if code == 125 { Some(TRBrace) }
+  else if code == 91  { Some(TLBracket) }
+  else if code == 93  { Some(TRBracket) }
+  else if code == 44  { Some(TComma) }
+  else if code == 46  { Some(TDot) }
+  else if code == 58  { Some(TColon) }
+  else if code == 59  { Some(TSemicolon) }
+  else if code == 43  { Some(TPlus) }
+  else if code == 45  { Some(TMinus) }
+  else if code == 42  { Some(TStar) }
+  else if code == 47  { Some(TSlash) }
+  else if code == 37  { Some(TPercent) }
+  else if code == 61  { Some(TEq) }
+  else if code == 60  { Some(TLt) }
+  else if code == 62  { Some(TGt) }
+  else if code == 33  { Some(TBang) }
+  else if code == 124 { Some(TPipe) }
+  else if code == 126 { Some(TTilde) }
+  else if code == 64  { Some(TAt) }
+  else if code == 63  { Some(TQuestion) }
+  else                { None }
 }
 
 // ═══ Entry point ═══════════════════════════════════════════════════
-// Ω.3 substrate: tokens accumulate into a flat buffer threaded
-// through tail-recursion as `(buf, count)`. push_tok extends the
-// buffer if needed and writes at the counter — O(1) amortized per
-// emit instead of `tokens ++ [t]`'s O(N) per emit / O(N²) total.
-// Final `slice(buf, 0, count)` produces a tag=4 view with logical
-// length = count; downstream consumers see a proper bounded list.
+// Tokens accumulate into a flat buffer threaded through tail-recursion
+// as `(buf, count)`. push_tok extends the buffer if needed and writes
+// at the counter — O(1) amortized per emit, vs `tokens ++ [t]`'s
+// O(N²) total. Final `slice(buf, 0, count)` produces a tag=4 view
+// with logical length = count.
 
 fn lex(source) = {
   let cs = list_to_flat(chars(source))
@@ -136,58 +136,72 @@ fn lex(source) = {
   slice(final_buf, 0, final_count)
 }
 
-// Append one token to the buffer; grow if needed. Returns (buf, count+1).
-// Threading `(buf, count)` through tail-recursion preserves linearity.
+// Append one token to the buffer. Returns (buf, count + 1).
 fn push_tok(buf, count, t) = {
   let extended = list_extend_to(buf, count + 1)
   let written  = list_set(extended, count, t)
   (written, count + 1)
 }
 
+// Construct a Token from kind + 4 span ints.
+fn mk_tok(kind, sl, sc, el, ec) = Tok(kind, Span(sl, sc, el, ec))
+
 fn lex_from(cs, n, pos, line, col, buf, count) =
   if pos >= n {
-    push_tok(buf, count, tok("Eof", "", line, col, line, col))
+    push_tok(buf, count, mk_tok(TEof, line, col, line, col))
   } else {
     let ch = cs[pos]
 
     if is_whitespace(ch) {
       lex_from(cs, n, pos + 1, line, col + 1, buf, count)
     } else if ch == "\n" {
-      let (b1, c1) = push_tok(buf, count, tok("Newline", "NL", line, col, line + 1, 1))
+      let (b1, c1) = push_tok(buf, count, mk_tok(TNewline, line, col, line + 1, 1))
       lex_from(cs, n, pos + 1, line + 1, 1, b1, c1)
     } else if ch == "/" && pos + 1 < n && cs[pos + 1] == "/" {
-      let after = skip_line_comment(cs, n, pos + 2)
-      lex_from(cs, n, after, line, col, buf, count)
+      // Detect doc comment (`///`) vs line comment (`//`).
+      if pos + 2 < n && cs[pos + 2] == "/" {
+        // Doc comment: capture rest of line as TDocComment payload.
+        let (after, doc_text) = scan_doc_comment(cs, n, pos + 3, "")
+        let end_col = col + (after - pos)
+        let (b1, c1) = push_tok(buf, count, mk_tok(TDocComment(doc_text), line, col, line, end_col))
+        lex_from(cs, n, after, line, end_col, b1, c1)
+      } else {
+        let after = skip_line_comment(cs, n, pos + 2)
+        lex_from(cs, n, after, line, col, buf, count)
+      }
     } else if ch == "\"" {
       let (new_pos, new_col, str_val) = scan_string(cs, n, pos + 1, col + 1, "")
-      let (b1, c1) = push_tok(buf, count, tok("String", str_val, line, col, line, new_col))
+      let (b1, c1) = push_tok(buf, count, mk_tok(TString(str_val), line, col, line, new_col))
       lex_from(cs, n, new_pos, line, new_col, b1, c1)
     } else if is_digit(ch) {
       let (new_pos, new_col, num_val, is_float) =
         scan_number(cs, n, pos, col, "", false)
-      let kind = if is_float { "Float" } else { "Int" }
-      let (b1, c1) = push_tok(buf, count, tok(kind, num_val, line, col, line, new_col))
+      let kind = if is_float { TFloat(parse_float(num_val)) } else { TInt(parse_int(num_val)) }
+      let (b1, c1) = push_tok(buf, count, mk_tok(kind, line, col, line, new_col))
       lex_from(cs, n, new_pos, line, new_col, b1, c1)
     } else if is_alpha(ch) {
       let (new_pos, new_col, word) = scan_ident(cs, n, pos, col, "")
-      let kind = keyword_kind(word)
-      let (b1, c1) = push_tok(buf, count, tok(kind, word, line, col, line, new_col))
+      let kind = match keyword_kind(word) {
+        Some(kw) => kw,
+        None     => TIdent(word)
+      }
+      let (b1, c1) = push_tok(buf, count, mk_tok(kind, line, col, line, new_col))
       lex_from(cs, n, new_pos, line, new_col, b1, c1)
     } else {
       let ch2 = if pos + 1 < n { cs[pos + 1] } else { "" }
-      let two_kind = two_char_kind(ch, ch2)
-      if len(two_kind) > 0 {
-        let (b1, c1) = push_tok(buf, count,
-          tok(two_kind, ch |> str_concat(ch2), line, col, line, col + 2))
-        lex_from(cs, n, pos + 2, line, col + 2, b1, c1)
-      } else {
-        let one_kind = single_char_kind(ch)
-        if len(one_kind) > 0 {
-          let (b1, c1) = push_tok(buf, count,
-            tok(one_kind, ch, line, col, line, col + 1))
-          lex_from(cs, n, pos + 1, line, col + 1, b1, c1)
-        } else {
-          lex_from(cs, n, pos + 1, line, col + 1, buf, count)
+      match two_char_kind(ch, ch2) {
+        Some(kind) => {
+          let (b1, c1) = push_tok(buf, count, mk_tok(kind, line, col, line, col + 2))
+          lex_from(cs, n, pos + 2, line, col + 2, b1, c1)
+        },
+        None => {
+          match single_char_kind(ch) {
+            Some(kind) => {
+              let (b1, c1) = push_tok(buf, count, mk_tok(kind, line, col, line, col + 1))
+              lex_from(cs, n, pos + 1, line, col + 1, b1, c1)
+            },
+            None => lex_from(cs, n, pos + 1, line, col + 1, buf, count)
+          }
         }
       }
     }
@@ -199,6 +213,13 @@ fn skip_line_comment(cs, n, pos) =
   if pos >= n { pos }
   else if cs[pos] == "\n" { pos }
   else { skip_line_comment(cs, n, pos + 1) }
+
+// Doc comment: read until end of line, building the payload text.
+// The leading `///` has already been consumed by the caller.
+fn scan_doc_comment(cs, n, pos, acc) =
+  if pos >= n { (pos, acc) }
+  else if cs[pos] == "\n" { (pos, acc) }
+  else { scan_doc_comment(cs, n, pos + 1, acc |> str_concat(cs[pos])) }
 
 fn scan_string(cs, n, pos, col, acc) =
   if pos >= n { (pos, col, acc) }
