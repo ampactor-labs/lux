@@ -292,6 +292,7 @@ type Expr
   | ResumeExpr(Node, List)         // value, state updates
   | MakeListExpr(List)
   | MakeTupleExpr(List)
+  | MakeRecordExpr(List)           // [(field_name: String, value: Node)] — sorted at parse
   | FieldExpr(Node, String)
   | PipeExpr(PipeKind, Node, Node) // |> <| >< ~> <~
   | ExprPlaceholder                // ? — parser spawns NHole

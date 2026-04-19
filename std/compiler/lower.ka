@@ -49,6 +49,7 @@ type LowExpr
   | LBlock(Int, List)
   | LMakeList(Int, List)
   | LMakeTuple(Int, List)
+  | LMakeRecord(Int, List)                     // handle, [field_value] sorted by field name
   | LMakeVariant(Int, Int, List)               // handle, tag_id, field exprs
   | LIndex(Int, LowExpr, LowExpr, Bool)
   | LMatch(Int, LowExpr, List)
@@ -92,6 +93,7 @@ type LowPat
   | LPTuple(List)
   | LPLit(LowValue)
   | LPList(List)                     // list pattern — runtime-tag dispatch (runtime/lists.ka)
+  | LPRecord(List)                   // [(field_name: String, offset_bytes: Int, sub_pat: LowPat)]
 
 // ═══ Handle projection — one arm per variant, no fallback ══════════
 
@@ -112,6 +114,7 @@ fn lexpr_handle(e) = match e {
   LBlock(h, _)            => h,
   LMakeList(h, _)         => h,
   LMakeTuple(h, _)        => h,
+  LMakeRecord(h, _)       => h,
   LMakeVariant(h, _, _)   => h,
   LIndex(h, _, _, _)      => h,
   LMatch(h, _, _)         => h,
@@ -258,6 +261,9 @@ fn lower_expr_body(e, handle, span) = match e {
 
   MakeTupleExpr(elems) =>
     LMakeTuple(handle, lower_expr_list(elems)),
+
+  MakeRecordExpr(fields) =>
+    LMakeRecord(handle, lower_record_field_values(fields)),
 
   LambdaExpr(params, body_node) => {
     // DESIGN Ch 1: lambdas close over their free variables. Each
@@ -534,8 +540,19 @@ fn lower_pat(pat) = match pat {
   },
   PTuple(sub)      => LPTuple(lower_pats(sub)),
   PList(sub)       => LPList(lower_pats(sub)),
-  PRecord(_)       => LPWild     // records destructured via field index at emit
+  PRecord(flds)    => LPRecord(lower_pat_record_fields(flds, 0))
 }
+
+// Pattern fields are sorted-by-name (parser invariant); position
+// IS the byte offset (4 * index) per LMakeRecord's untagged layout.
+// No tag prefix to skip — offset 0 is the first field.
+fn lower_pat_record_fields(flds, i) =
+  if len(flds) == 0 { [] }
+  else {
+    let (name, sub_pat) = list_head(flds)
+    [(name, i * 4, lower_pat(sub_pat))]
+      ++ lower_pat_record_fields(list_tail(flds), i + 1)
+  }
 
 fn lower_lit_value(v) = match v {
   LVInt(n)    => LInt(n),
@@ -681,6 +698,7 @@ fn cfv_expr(e, bound) = match e {
 
   MakeListExpr(elems)  => cfv_list(elems, bound),
   MakeTupleExpr(elems) => cfv_list(elems, bound),
+  MakeRecordExpr(flds) => cfv_record_fields(flds, bound),
 
   LambdaExpr(params, body) => {
     let inner_bound = cfv_merge(bound, cfv_param_names(params))
@@ -733,6 +751,19 @@ fn cfv_list(nodes, bound) =
     cfv_merge(
       collect_free_vars(list_head(nodes), bound),
       cfv_list(list_tail(nodes), bound)
+    )
+  }
+
+// Free variables in a record-literal expression: union of frees in
+// each field's value. Field names are not value-position references
+// (the parser already desugared puning to VarRef nodes).
+fn cfv_record_fields(flds, bound) =
+  if len(flds) == 0 { [] }
+  else {
+    let (_, value) = list_head(flds)
+    cfv_merge(
+      collect_free_vars(value, bound),
+      cfv_record_fields(list_tail(flds), bound)
     )
   }
 
@@ -854,6 +885,17 @@ fn cfv_contains_loop(lst, s, i, n) =
 fn lower_expr_list(nodes) =
   if len(nodes) == 0 { [] }
   else { [lower_expr(list_head(nodes))] ++ lower_expr_list(list_tail(nodes)) }
+
+// Lower each value in a record-literal field list. Fields arrive
+// sorted-by-name (parser invariant); position IS layout. The lowered
+// list is in field-name sort order — emit reads it as the byte
+// layout directly, no per-field lookup.
+fn lower_record_field_values(flds) =
+  if len(flds) == 0 { [] }
+  else {
+    let (_, value) = list_head(flds)
+    [lower_expr(value)] ++ lower_record_field_values(list_tail(flds))
+  }
 
 // ═══ Capture resolution — W7.1 ═════════════════════════════════════
 // Called at LambdaExpr / FnStmt lower-time, BEFORE entering the new

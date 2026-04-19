@@ -296,6 +296,7 @@ fn walk_return_positions(refs, node) =
     NExpr(ResumeExpr(_, _))  => (),
     NExpr(MakeListExpr(_))   => (),
     NExpr(MakeTupleExpr(_))  => (),
+    NExpr(MakeRecordExpr(_)) => (),
     NExpr(FieldExpr(_, _))   => (),
     NExpr(PipeExpr(_, _, _)) => (),
     NExpr(ExprPlaceholder)   => (),
@@ -374,6 +375,7 @@ fn count_uses(name, node) =
       count_uses(name, b),
     NExpr(MakeListExpr(elems))  => count_uses_list(name, elems),
     NExpr(MakeTupleExpr(elems)) => count_uses_list(name, elems),
+    NExpr(MakeRecordExpr(flds)) => count_uses_record_fields(name, flds),
     NExpr(FieldExpr(rec, _))    => count_uses(name, rec),
 
     // H6: exhaustive. Remaining Expr variants hold no sub-exprs
@@ -394,6 +396,18 @@ fn count_uses(name, node) =
 
 fn count_uses_list(name, nodes) =
   count_uses_list_loop(name, nodes, 0, len(nodes), 0)
+
+fn count_uses_record_fields(name, flds) =
+  count_uses_record_fields_loop(name, flds, 0, len(flds), 0)
+
+fn count_uses_record_fields_loop(name, flds, i, n, acc) =
+  if i >= n { acc }
+  else {
+    let (_, value) = list_index(flds, i)
+    count_uses_record_fields_loop(
+      name, flds, i + 1, n, acc + count_uses(name, value)
+    )
+  }
 
 fn count_uses_list_loop(name, nodes, i, n, acc) =
   if i >= n { acc }

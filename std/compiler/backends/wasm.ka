@@ -224,6 +224,7 @@ fn collect_strings_expr(expr, acc, next_offset) = match expr {
   LBlock(_, stmts)            => collect_strings_list(stmts, acc, next_offset),
   LMakeList(_, elems)         => collect_strings_list(elems, acc, next_offset),
   LMakeTuple(_, elems)        => collect_strings_list(elems, acc, next_offset),
+  LMakeRecord(_, fs)          => collect_strings_list(fs, acc, next_offset),
   LMakeVariant(_, _, fs)      => collect_strings_list(fs, acc, next_offset),
   LIndex(_, b, i, _)          => collect_strings_bin(b, i, acc, next_offset),
   LMatch(_, s, _arms)         => collect_strings_expr(s, acc, next_offset),
@@ -323,6 +324,7 @@ fn collect_fn_names_expr(expr, acc) = match expr {
   LBlock(_h, stmts)          => collect_fn_names_list(stmts, acc),
   LMakeList(_h, elems)       => collect_fn_names_list(elems, acc),
   LMakeTuple(_h, elems)      => collect_fn_names_list(elems, acc),
+  LMakeRecord(_h, fs)        => collect_fn_names_list(fs, acc),
   LMakeVariant(_h, _t, fs)   => collect_fn_names_list(fs, acc),
   LIndex(_h, b, i, _)        => collect_fn_names_expr(i, collect_fn_names_expr(b, acc)),
   LMatch(_h, s, _arms)       => collect_fn_names_expr(s, acc),
@@ -556,6 +558,7 @@ fn max_arity_expr(expr) = match expr {
   LBlock(_, _)              => 0,
   LMakeList(_, _)           => 0,
   LMakeTuple(_, _)          => 0,
+  LMakeRecord(_, _)         => 0,
   LMakeVariant(_, _, _)     => 0,
   LIndex(_, _, _, _)        => 0,
   LMatch(_, _, _)           => 0,
@@ -660,6 +663,7 @@ fn emit_fns_expr(expr) = match expr {
   LBlock(_h, stmts)          => emit_fns_list(stmts),
   LMakeList(_h, elems)       => emit_fns_list(elems),
   LMakeTuple(_h, elems)      => emit_fns_list(elems),
+  LMakeRecord(_h, fs)        => emit_fns_list(fs),
   LMakeVariant(_h, _t, fs)   => emit_fns_list(fs),
   LIndex(_h, b, i, _)        => { emit_fns_expr(b); emit_fns_expr(i) },
   LMatch(_h, s, _arms)       => emit_fns_expr(s),
@@ -702,6 +706,7 @@ fn emit_fn_body(name, param_names, body) = {
   perform wat_emit(" (result i32)")
   perform wat_emit(" (local $state_tmp i32)")
   perform wat_emit(" (local $variant_tmp i32)")
+  perform wat_emit(" (local $record_tmp i32)")
   perform wat_emit(" (local $scrut_tmp i32)")
   emit_let_locals_list(body)
   perform wat_emit("\n")
@@ -743,6 +748,7 @@ fn emit_let_locals_expr(expr) = match expr {
   LStore(_h, _s, val)       => emit_let_locals_expr(val),
   LMakeList(_h, elems)      => emit_let_locals_list(elems),
   LMakeTuple(_h, elems)     => emit_let_locals_list(elems),
+  LMakeRecord(_h, fs)       => emit_let_locals_list(fs),
   LMakeVariant(_h, _t, fs)  => emit_let_locals_list(fs),
   LIndex(_h, b, i, _)       => { emit_let_locals_expr(b); emit_let_locals_expr(i) },
   LMatch(_h, s, arms)       => {
@@ -794,9 +800,18 @@ fn emit_let_locals_pat(pat) = match pat {
   LPCon(_, _, sub_pats) => emit_let_locals_pat_list(sub_pats),
   LPTuple(sub_pats)     => emit_let_locals_pat_list(sub_pats),
   LPList(sub_pats)      => emit_let_locals_pat_list(sub_pats),
+  LPRecord(field_binds) => emit_let_locals_pat_record(field_binds),
   LPWild                => (),
   LPLit(_)              => ()
 }
+
+fn emit_let_locals_pat_record(field_binds) =
+  if len(field_binds) == 0 { () }
+  else {
+    let (_, _, sub_pat) = list_head(field_binds)
+    emit_let_locals_pat(sub_pat)
+    emit_let_locals_pat_record(list_tail(field_binds))
+  }
 
 fn emit_let_locals_pat_list(pats) =
   if len(pats) == 0 { () }
@@ -983,6 +998,19 @@ fn emit_expr(expr) = match expr {
   LMakeList(_h, elems) => emit_list_literal(elems),
 
   LMakeTuple(_h, elems) => emit_tuple_literal(elems),
+
+  LMakeRecord(_h, fields) => {
+    // Untagged heap layout: fields at offset 4*i in declaration sort
+    // order. Mirrors LMakeVariant minus the tag word — records carry
+    // their identity in the type system; runtime sees raw fields.
+    // emit_alloc routes through the EmitMemory swap surface, same
+    // discipline as closures and variants.
+    let n = len(fields)
+    let size = n * 4
+    perform emit_alloc(size, "record_tmp")
+    emit_record_field_stores(fields, 0)
+    perform wat_emit("    (local.get $record_tmp)\n")
+  },
 
   LMakeVariant(_h, tag_id, fields) => {
     // ADT variant layout (mirrors LMakeClosure's record shape):
@@ -1266,6 +1294,21 @@ fn emit_variant_field_stores(fields, i) =
     emit_variant_field_stores(list_tail(fields), i + 1)
   }
 
+// Record field stores (H2): mirror of emit_variant_field_stores
+// without the tag offset — records carry identity in the type
+// system, no runtime tag. Field i lands at byte 4*i, matching
+// LFieldLoad's offset arithmetic in lower.ka.
+fn emit_record_field_stores(fields, i) =
+  if len(fields) == 0 { () }
+  else {
+    perform wat_emit("    (local.get $record_tmp)\n")
+    emit_expr(list_head(fields))
+    perform wat_emit("    (i32.store offset=")
+    perform wat_emit(int_to_str(i * 4))
+    perform wat_emit(")\n")
+    emit_record_field_stores(list_tail(fields), i + 1)
+  }
+
 // ═══ Match arm dispatch (H3) ═══════════════════════════════════════
 // Cascading if-else over arm patterns. Every emitted arm leaves the
 // arm body's i32 result on the stack (the match's value), so the
@@ -1313,9 +1356,44 @@ fn emit_match_arms(arms) =
         // Always-match: emit body, end cascade.
         emit_expr(body)
       },
+      LPRecord(field_binds) => {
+        // Records always-match — no tag, no shape check at runtime.
+        // The type system has already proven the scrutinee fits.
+        // Bind each named field by offset, emit body, end cascade.
+        emit_record_field_binds(field_binds)
+        emit_expr(body)
+      },
       LPTuple(_) => emit_match_arms(rest),
       LPList(_)  => emit_match_arms(rest)
     }
+  }
+
+// Per-field binding for LPRecord arms. Mirrors emit_pat_field_binds
+// but uses each field's pre-resolved offset (lower.ka baked them in)
+// instead of computing 4 + 4*i. Field-puning patterns are LPVar
+// sub-pats; nested record/list patterns fall through (TODO).
+fn emit_record_field_binds(binds) =
+  if len(binds) == 0 { () }
+  else {
+    let (_field_name, offset, sub_pat) = list_head(binds)
+    match sub_pat {
+      LPVar(name) => {
+        perform wat_emit("    (local.get $scrut_tmp)\n")
+        perform wat_emit("    (i32.load offset=")
+        perform wat_emit(int_to_str(offset))
+        perform wat_emit(")\n")
+        perform wat_emit("    (local.set $")
+        perform wat_emit(name)
+        perform wat_emit(")\n")
+      },
+      LPWild     => (),
+      LPLit(_)   => (),
+      LPCon(_, _, _) => (),
+      LPTuple(_) => (),
+      LPList(_)  => (),
+      LPRecord(_) => ()       // nested record destructure — TODO
+    }
+    emit_record_field_binds(list_tail(binds))
   }
 
 // Per-arm field binding: for each LPVar sub-pattern at index i, emit
@@ -1340,7 +1418,8 @@ fn emit_pat_field_binds(sub_pats, i) =
       LPLit(_)   => (),
       LPCon(_, _, _) => (),    // nested ADT destructure — TODO
       LPTuple(_) => (),
-      LPList(_)  => ()
+      LPList(_)  => (),
+      LPRecord(_) => ()        // nested record destructure — TODO
     }
     emit_pat_field_binds(list_tail(sub_pats), i + 1)
   }

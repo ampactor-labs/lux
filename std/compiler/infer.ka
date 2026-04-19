@@ -402,6 +402,16 @@ fn infer_expr(node) =
       perform graph_bind(handle, TTuple(collect_tvar_types(elems)), Located(span, Inferred("tuple literal")))
     },
 
+    NExpr(MakeRecordExpr(fields)) => {
+      // Each field's value is inferred; the record's type is
+      // TRecord((field_name, TVar(value_handle))) sorted by name.
+      // Parser already sorted; lower / emit honor the same order.
+      infer_record_field_values(fields)
+      let field_types = build_record_field_types(fields)
+      perform graph_bind(handle, TRecord(field_types),
+        Located(span, Inferred("record literal")))
+    },
+
     NExpr(PerformExpr(op_name, args)) => {
       infer_expr_list(args)
       infer_perform(op_name, args, handle, span)
@@ -850,6 +860,25 @@ fn unify_types(a, b, span, reason) =
         _       => type_mismatch(a, b, span, reason)
       },
 
+    TRecord(fa) =>
+      match b {
+        TRecord(fb) => unify_record_fields_closed(fa, fb, span, reason),
+        TRecordOpen(fb, vb) =>
+          unify_record_open_against_closed(fa, fb, vb, span, reason),
+        TVar(_) => unify_types(b, a, span, reason),
+        _       => type_mismatch(a, b, span, reason)
+      },
+
+    TRecordOpen(fa, va) =>
+      match b {
+        TRecord(fb) =>
+          unify_record_open_against_closed(fb, fa, va, span, reason),
+        TRecordOpen(fb, vb) =>
+          unify_two_open_records(fa, va, fb, vb, span, reason),
+        TVar(_) => unify_types(b, a, span, reason),
+        _       => type_mismatch(a, b, span, reason)
+      },
+
     TRefined(base_a, pred_a) =>
       match b {
         TRefined(base_b, pred_b) => {
@@ -911,6 +940,149 @@ fn unify_type_lists(as_list, bs_list, span, reason) =
   else {
     unify_types(list_head(as_list), list_head(bs_list), span, reason)
     unify_type_lists(list_tail(as_list), list_tail(bs_list), span, reason)
+  }
+
+// ─── Record row unification ────────────────────────────────────────
+// Both field lists arrive sorted by name (parser invariant + smart
+// constructor `mk_record_open`). Closed×closed: pointwise field
+// equality (length match + name match + type unify). Closed×open:
+// the closed record must include every open-side field; remaining
+// fields bind the open's row variable. Open×open: intersect known
+// fields; bind one variable to the residual relative to the other.
+
+fn unify_record_fields_closed(fa, fb, span, reason) =
+  if len(fa) != len(fb) {
+    type_mismatch(TRecord(fa), TRecord(fb), span, reason)
+  } else {
+    unify_record_fields_loop(fa, fb, 0, len(fa), span, reason)
+  }
+
+fn unify_record_fields_loop(fa, fb, i, n, span, reason) =
+  if i >= n { () }
+  else {
+    let (na, ta) = list_index(fa, i)
+    let (nb, tb) = list_index(fb, i)
+    if str_eq(na, nb) {
+      unify_types(ta, tb, span, reason)
+      unify_record_fields_loop(fa, fb, i + 1, n, span, reason)
+    } else {
+      type_mismatch(TRecord(fa), TRecord(fb), span, reason)
+    }
+  }
+
+fn unify_record_open_against_closed(closed_fields, open_fields, open_var, span, reason) = {
+  // Every open-side field must appear in the closed side. Unify
+  // matched fields' types; bind the row variable to the remainder.
+  unify_record_open_subset(open_fields, closed_fields, span, reason)
+  let residual = record_fields_diff(closed_fields, open_fields)
+  perform graph_bind_row(open_var, mk_record_row_residual(residual),
+    Located(span, reason))
+}
+
+fn unify_record_open_subset(needed, available, span, reason) =
+  if len(needed) == 0 { () }
+  else {
+    let (n, t) = list_head(needed)
+    let pos = find_record_field_pos(available, n)
+    if pos < 0 {
+      type_mismatch(TRecord(needed), TRecord(available), span, reason)
+    } else {
+      let (_, t2) = list_index(available, pos)
+      unify_types(t, t2, span, reason)
+      unify_record_open_subset(list_tail(needed), available, span, reason)
+    }
+  }
+
+fn unify_two_open_records(fa, va, fb, vb, span, reason) = {
+  // Intersect known fields (unify shared types); bind va to a
+  // record-residual carrying fb's exclusive fields, mirror for vb.
+  // Two row variables collapse to one when they're already linked;
+  // otherwise both narrow to the union of known fields.
+  let shared = intersect_record_fields(fa, fb)
+  unify_record_fields_loop_shared(fa, fb, shared, span, reason)
+  let extra_a = record_fields_diff(fa, fb)
+  let extra_b = record_fields_diff(fb, fa)
+  if va == vb {
+    if len(extra_a) == 0 && len(extra_b) == 0 { () }
+    else { type_mismatch(TRecordOpen(fa, va), TRecordOpen(fb, vb), span, reason) }
+  } else {
+    perform graph_bind_row(va, mk_record_row_residual(extra_b),
+      Located(span, reason))
+    perform graph_bind_row(vb, mk_record_row_residual(extra_a),
+      Located(span, reason))
+  }
+}
+
+fn unify_record_fields_loop_shared(fa, fb, names, span, reason) =
+  if len(names) == 0 { () }
+  else {
+    let n = list_head(names)
+    let pa = find_record_field_pos(fa, n)
+    let pb = find_record_field_pos(fb, n)
+    if pa >= 0 && pb >= 0 {
+      let (_, ta) = list_index(fa, pa)
+      let (_, tb) = list_index(fb, pb)
+      unify_types(ta, tb, span, reason)
+    }
+    unify_record_fields_loop_shared(fa, fb, list_tail(names), span, reason)
+  }
+
+fn intersect_record_fields(fa, fb) =
+  intersect_record_fields_loop(fa, fb, 0, len(fa), [])
+
+fn intersect_record_fields_loop(fa, fb, i, n, acc) =
+  if i >= n { acc }
+  else {
+    let (name, _) = list_index(fa, i)
+    let next = if find_record_field_pos(fb, name) >= 0 { acc ++ [name] }
+    else { acc }
+    intersect_record_fields_loop(fa, fb, i + 1, n, next)
+  }
+
+fn record_fields_diff(left, right) =
+  record_fields_diff_loop(left, right, 0, len(left), [])
+
+fn record_fields_diff_loop(left, right, i, n, acc) =
+  if i >= n { acc }
+  else {
+    let entry = list_index(left, i)
+    let (name, _) = entry
+    let next = if find_record_field_pos(right, name) < 0 { acc ++ [entry] }
+    else { acc }
+    record_fields_diff_loop(left, right, i + 1, n, next)
+  }
+
+fn find_record_field_pos(fields, name) =
+  find_record_field_pos_loop(fields, name, 0, len(fields))
+
+fn find_record_field_pos_loop(fields, name, i, n) =
+  if i >= n { -1 }
+  else {
+    let (existing, _) = list_index(fields, i)
+    if str_eq(existing, name) { i }
+    else { find_record_field_pos_loop(fields, name, i + 1, n) }
+  }
+
+fn mk_record_row_residual(fields) =
+  if len(fields) == 0 { TRecord([]) }
+  else { TRecord(fields) }
+
+// ─── Record-literal inference helpers ──────────────────────────────
+
+fn infer_record_field_values(fields) =
+  if len(fields) == 0 { () }
+  else {
+    let (_, value) = list_head(fields)
+    infer_expr(value)
+    infer_record_field_values(list_tail(fields))
+  }
+
+fn build_record_field_types(fields) =
+  if len(fields) == 0 { [] }
+  else {
+    let (name, value) = list_head(fields)
+    let N(_, _, vh) = value
+    [(name, TVar(vh))] ++ build_record_field_types(list_tail(fields))
   }
 
 fn unify_param_lists(a, b, span, reason) =
@@ -1116,12 +1288,45 @@ fn infer_pat(pat, handle, span) = match pat {
 
   PTuple(pats) => infer_pat_tuple(pats, handle, span),
 
-  // H6: PList and PRecord inference stubs — real binding logic arrives
-  // with H3 (constructor patterns) and H2 (record patterns). Named
-  // explicitly so future refinement is a compile-error, not silent.
+  // H6: PList stub remains until list-pattern destructure lands (the
+  // runtime/lists tag dispatch surfaces during emit; inference treats
+  // the scrutinee as TList(elem) with each sub-pat against elem).
   PList(_pats)   => (),
-  PRecord(_flds) => ()
+
+  PRecord(flds) => {
+    // Bind scrutinee to TRecordOpen of the named fields with a
+    // fresh row variable — the pattern accepts any record with AT
+    // LEAST these fields. Each sub-pattern infers against a fresh
+    // handle of the field's type; field-puning patterns are PVar
+    // and bind into env via infer_pat's recursion.
+    let row_h = perform graph_fresh_row(Inferred("record pattern row"))
+    let field_specs = build_pat_record_field_specs(flds, span)
+    let pat_ty = mk_record_open(field_specs, row_h)
+    perform graph_bind(handle, pat_ty,
+      Located(span, Inferred("record pattern")))
+    infer_pat_record_subs(flds, field_specs, span)
+  }
 }
+
+fn build_pat_record_field_specs(flds, span) =
+  if len(flds) == 0 { [] }
+  else {
+    let (name, _) = list_head(flds)
+    let h = perform mint(Inferred("record pattern field"))
+    [(name, TVar(h))] ++ build_pat_record_field_specs(list_tail(flds), span)
+  }
+
+fn infer_pat_record_subs(flds, specs, span) =
+  if len(flds) == 0 { () }
+  else {
+    let (_, sub_pat) = list_head(flds)
+    let (_, ty) = list_head(specs)
+    match ty {
+      TVar(h) => infer_pat(sub_pat, h, span),
+      _       => ()
+    }
+    infer_pat_record_subs(list_tail(flds), list_tail(specs), span)
+  }
 
 fn infer_pat_tuple(pats, parent_handle, span) =
   if len(pats) == 0 { () }

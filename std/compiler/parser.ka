@@ -730,7 +730,7 @@ fn parse_primary(tokens, pos) = {
     },
     TLParen      => parse_paren_or_tuple(tokens, pos + 1, span),
     TLBracket    => parse_list_literal(tokens, pos + 1, span),
-    TLBrace      => parse_block_expr(tokens, pos + 1, span),
+    TLBrace      => parse_brace_expr(tokens, pos + 1, span),
     TIf          => parse_if(tokens, pos + 1, span),
     TMatch       => parse_match(tokens, pos + 1, span),
     THandle      => parse_handle(tokens, pos + 1, span),
@@ -809,6 +809,107 @@ fn parse_list_elems(tokens, pos, buf, count) = {
     }
   }
 }
+
+// Disambiguate `{`: record literal vs block. Per SYNTAX.md, after the
+// opening brace + whitespace, an Identifier followed by Colon (typed
+// field) or Comma|RBrace (puned field) signals a record literal.
+// Anything else is a block. Lookahead is bounded to two tokens past
+// the brace — no backtracking, no ambiguity that escapes the parser.
+fn parse_brace_expr(tokens, pos, start_span) = {
+  let p = skip_ws(tokens, pos)
+  match kind_at(tokens, p) {
+    TIdent(_) => {
+      let p2 = skip_ws(tokens, p + 1)
+      match kind_at(tokens, p2) {
+        TColon  => parse_record_literal(tokens, pos, start_span),
+        TComma  => parse_record_literal(tokens, pos, start_span),
+        TRBrace => parse_record_literal(tokens, pos, start_span),
+        _       => parse_block_expr(tokens, pos, start_span)
+      }
+    },
+    _ => parse_block_expr(tokens, pos, start_span)
+  }
+}
+
+// Record literal: `{name: expr, age: expr, ...}` or with field
+// puning `{name, age}` ≡ `{name: name, age: age}`. Fields sort by
+// name at parse time so downstream sees one canonical layout.
+fn parse_record_literal(tokens, pos, start_span) = {
+  let buf = make_list(4)
+  let (final_buf, final_count, p) = parse_record_fields(tokens, pos, buf, 0)
+  let sorted = sort_record_fields(slice(final_buf, 0, final_count))
+  (nexpr(MakeRecordExpr(sorted), start_span), p)
+}
+
+fn parse_record_fields(tokens, pos, buf, count) = {
+  let p = skip_ws(tokens, pos)
+  if at(tokens, p, TRBrace) { (buf, count, p + 1) }
+  else {
+    let name = ident_at(tokens, p)
+    let name_span = span_at(tokens, p)
+    let p1 = p + 1
+    let p2 = skip_ws(tokens, p1)
+    let (value, p3) =
+      if at(tokens, p2, TColon) {
+        parse_expr(tokens, skip_ws(tokens, p2 + 1))
+      } else {
+        // Field puning: {name} desugars to {name: name}.
+        (nexpr(VarRef(name), name_span), p1)
+      }
+    let (b1, c1) = push_node(buf, count, (name, value))
+    let p4 = skip_ws(tokens, p3)
+    if at(tokens, p4, TComma) {
+      parse_record_fields(tokens, skip_ws(tokens, p4 + 1), b1, c1)
+    } else {
+      (b1, c1, expect(tokens, p4, TRBrace))
+    }
+  }
+}
+
+// Insertion sort by field name. N≤~16 in practice; insertion is the
+// natural shape and keeps the parser dependency-free.
+fn sort_record_fields(fields) =
+  sort_record_fields_loop(fields, 0, len(fields), [])
+
+fn sort_record_fields_loop(fields, i, n, acc) =
+  if i >= n { acc }
+  else {
+    sort_record_fields_loop(fields, i + 1, n,
+      record_field_insert(acc, list_index(fields, i)))
+  }
+
+fn record_field_insert(sorted, entry) =
+  let (name, _) = entry
+  let n = len(sorted)
+  let pos = record_field_find_pos(sorted, name, 0, n)
+  if pos < n {
+    let buf = make_list(n + 1)
+    let prefix = list_copy_into(sorted, buf, 0, pos)
+    let with_ins = list_set(prefix, pos, entry)
+    record_field_copy_suffix(sorted, with_ins, pos, pos, n)
+  } else {
+    let buf = make_list(n + 1)
+    let copied = list_copy_into(sorted, buf, 0, n)
+    list_set(copied, n, entry)
+  }
+
+fn record_field_find_pos(sorted, name, i, n) =
+  if i >= n { n }
+  else {
+    let (existing, _) = list_index(sorted, i)
+    if str_lt(existing, name) {
+      record_field_find_pos(sorted, name, i + 1, n)
+    } else { i }
+  }
+
+fn record_field_copy_suffix(src, dst, src_idx, dst_idx, n) =
+  if src_idx >= n { dst }
+  else {
+    record_field_copy_suffix(
+      src, list_set(dst, dst_idx + 1, list_index(src, src_idx)),
+      src_idx + 1, dst_idx + 1, n
+    )
+  }
 
 fn parse_block_expr(tokens, pos, start_span) = {
   let buf = make_list(8)
@@ -1005,9 +1106,41 @@ fn parse_pat(tokens, pos) = {
       let (sub, p) = parse_pat_list_args(tokens, skip_ws(tokens, pos + 1))
       (PList(sub), p)
     },
+    TLBrace    => {
+      let (flds, p) = parse_pat_record_fields(tokens, skip_ws(tokens, pos + 1))
+      (PRecord(sort_pat_fields(flds)), p)
+    },
     _ => (PWild, pos + 1)
   }
 }
+
+// Parse `{name, age}` or `{name: sub_pat, age: sub_pat}`. Field
+// puning is the default — `{name}` ≡ `{name: PVar("name")}`.
+fn parse_pat_record_fields(tokens, pos) = {
+  let p = skip_ws(tokens, pos)
+  if at(tokens, p, TRBrace) { ([], p + 1) }
+  else {
+    let name = ident_at(tokens, p)
+    let p1 = p + 1
+    let p2 = skip_ws(tokens, p1)
+    let (sub_pat, p3) =
+      if at(tokens, p2, TColon) {
+        parse_pat(tokens, skip_ws(tokens, p2 + 1))
+      } else {
+        (PVar(name), p1)
+      }
+    let p4 = skip_ws(tokens, p3)
+    if at(tokens, p4, TComma) {
+      let (rest, p5) = parse_pat_record_fields(tokens, skip_ws(tokens, p4 + 1))
+      ([(name, sub_pat)] ++ rest, p5)
+    } else {
+      ([(name, sub_pat)], expect(tokens, p4, TRBrace))
+    }
+  }
+}
+
+fn sort_pat_fields(fields) =
+  sort_record_fields_loop(fields, 0, len(fields), [])
 
 fn parse_pat_args(tokens, pos) = {
   let p = skip_ws(tokens, pos)
@@ -1071,6 +1204,13 @@ fn parse_type_ty(tokens, pos) = match kind_at(tokens, pos) {
       }
     }
   },
+  TLBrace => {
+    // Structural record type: `{name: Ty, age: Ty}`. Sorted at parse;
+    // mk_record_open applied if a `...R` row variable is present
+    // (deferred — first form is closed records only).
+    let (flds, p) = parse_record_type_fields(tokens, skip_ws(tokens, pos + 1))
+    (TRecord(sort_record_type_fields(flds)), p)
+  },
   _ => (TUnit, pos + 1)
 }
 
@@ -1088,6 +1228,33 @@ fn parse_type_ty_tail(tokens, pos, buf, count) = {
     }
   }
 }
+
+fn parse_record_type_fields(tokens, pos) = {
+  let p = skip_ws(tokens, pos)
+  if at(tokens, p, TRBrace) { ([], p + 1) }
+  else {
+    let name = ident_at(tokens, p)
+    let p1 = expect(tokens, p + 1, TColon)
+    let (ty, p2) = parse_type_ty(tokens, skip_ws(tokens, p1))
+    let p3 = skip_ws(tokens, p2)
+    if at(tokens, p3, TComma) {
+      let (rest, p4) = parse_record_type_fields(tokens, skip_ws(tokens, p3 + 1))
+      ([(name, ty)] ++ rest, p4)
+    } else {
+      ([(name, ty)], expect(tokens, p3, TRBrace))
+    }
+  }
+}
+
+fn sort_record_type_fields(fields) =
+  sort_record_type_fields_loop(fields, 0, len(fields), [])
+
+fn sort_record_type_fields_loop(fields, i, n, acc) =
+  if i >= n { acc }
+  else {
+    sort_record_type_fields_loop(fields, i + 1, n,
+      record_field_insert(acc, list_index(fields, i)))
+  }
 
 fn parse_type_expr(tokens, pos) = {
   let (ty, p) = parse_type_ty(tokens, pos)
