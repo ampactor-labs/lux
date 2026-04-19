@@ -28,37 +28,38 @@ fn byte_at(s, i) with Memory =
 
 // ═══ Equality and ordering ═════════════════════════════════════════
 
-fn str_eq_loop(a, b, slen, i) with Memory =
-  if i >= slen { 1 }
+fn str_eq_loop(a, b, slen, i) -> Bool with Memory =
+  if i >= slen { true }
   else {
-    if perform load_i8(a + 4 + i) != perform load_i8(b + 4 + i) { 0 }
+    if perform load_i8(a + 4 + i) != perform load_i8(b + 4 + i) { false }
     else { str_eq_loop(a, b, slen, i + 1) }
   }
 
-// str_eq: byte-exact equality. Returns 1 (true) or 0 (false).
-// Use this wherever the source would write str_eq(a, b) == 1.
-// Never use bare == on string pointers — that is a pointer compare,
-// not a content compare.
-fn str_eq(a, b) with Memory =
+// str_eq: byte-exact equality. Returns Bool. Always use directly:
+// `if str_eq(a, b) { ... }` — never `str_eq(a, b)` (which is
+// E_TypeMismatch under Inka's type-distinct Bool). Bare `==` on
+// string pointers is a pointer compare, not a content compare —
+// always wrong.
+fn str_eq(a, b) -> Bool with Memory =
   let la = perform load_i32(a)
   let lb = perform load_i32(b)
-  if la != lb { 0 }
+  if la != lb { false }
   else { str_eq_loop(a, b, la, 0) }
 
-fn str_lt_loop(a, b, la, lb, i) with Memory =
-  if i >= la && i >= lb { 0 }
-  else if i >= la { 1 }
-  else if i >= lb { 0 }
+fn str_lt_loop(a, b, la, lb, i) -> Bool with Memory =
+  if i >= la && i >= lb { false }
+  else if i >= la { true }
+  else if i >= lb { false }
   else {
     let ca = perform load_i8(a + 4 + i)
     let cb = perform load_i8(b + 4 + i)
-    if ca < cb { 1 }
-    else if ca > cb { 0 }
+    if ca < cb { true }
+    else if ca > cb { false }
     else { str_lt_loop(a, b, la, lb, i + 1) }
   }
 
-// str_lt: lexicographic less-than. Returns 1 if a < b, 0 otherwise.
-fn str_lt(a, b) with Memory =
+// str_lt: lexicographic less-than. Returns Bool.
+fn str_lt(a, b) -> Bool with Memory =
   let la = perform load_i32(a)
   let lb = perform load_i32(b)
   str_lt_loop(a, b, la, lb, 0)
@@ -400,8 +401,8 @@ fn set_bsearch(set, target, lo, hi) with Memory =
   else {
     let mid = (lo + hi) / 2
     let pivot = list_index(set, mid)
-    if str_eq(pivot, target) == 1 { true }
-    else if str_lt(pivot, target) == 1 {
+    if str_eq(pivot, target) { true }
+    else if str_lt(pivot, target) {
       set_bsearch(set, target, mid + 1, hi)
     } else {
       set_bsearch(set, target, lo, mid)
@@ -432,11 +433,11 @@ fn set_union_merge(a, b, buf, ai, bi, oi, len_a, len_b) with Memory + Alloc =
   else {
     let xa = list_index(a, ai)
     let xb = list_index(b, bi)
-    if str_eq(xa, xb) == 1 {
+    if str_eq(xa, xb) {
       set_union_merge(a, b, list_set(buf, oi, xa),
                       ai + 1, bi + 1, oi + 1, len_a, len_b)
     }
-    else if str_lt(xa, xb) == 1 {
+    else if str_lt(xa, xb) {
       set_union_merge(a, b, list_set(buf, oi, xa),
                       ai + 1, bi, oi + 1, len_a, len_b)
     }
@@ -463,10 +464,10 @@ fn set_diff_merge(a, b, buf, ai, bi, oi, len_a, len_b) with Memory + Alloc =
   else {
     let xa = list_index(a, ai)
     let xb = list_index(b, bi)
-    if str_eq(xa, xb) == 1 {
+    if str_eq(xa, xb) {
       set_diff_merge(a, b, buf, ai + 1, bi + 1, oi, len_a, len_b)
     }
-    else if str_lt(xa, xb) == 1 {
+    else if str_lt(xa, xb) {
       set_diff_merge(a, b, list_set(buf, oi, xa),
                      ai + 1, bi, oi + 1, len_a, len_b)
     }
@@ -484,7 +485,7 @@ fn set_eq(a, b) with Memory =
 
 fn set_eq_loop(a, b, i, n) with Memory =
   if i >= n { true }
-  else if str_eq(list_index(a, i), list_index(b, i)) == 1 {
+  else if str_eq(list_index(a, i), list_index(b, i)) {
     set_eq_loop(a, b, i + 1, n)
   } else { false }
 
@@ -509,12 +510,12 @@ fn set_canonicalize_loop(lst, acc, i, n) with Memory + Alloc =
 fn set_insert(set, name) with Memory + Alloc =
   let n = len(set)
   let pos = set_find_pos(set, name, 0, n)
-  if pos < n && str_eq(list_index(set, pos), name) == 1 { set }
+  if pos < n && str_eq(list_index(set, pos), name) { set }
   else { set_insert_at(set, name, pos, n) }
 
 fn set_find_pos(set, name, i, n) with Memory =
   if i >= n { n }
-  else if str_lt(list_index(set, i), name) == 1 {
+  else if str_lt(list_index(set, i), name) {
     set_find_pos(set, name, i + 1, n)
   } else { i }
 
@@ -552,11 +553,11 @@ fn set_intersect_merge(a, b, buf, ai, bi, oi, len_a, len_b) with Memory + Alloc 
   else {
     let xa = list_index(a, ai)
     let xb = list_index(b, bi)
-    if str_eq(xa, xb) == 1 {
+    if str_eq(xa, xb) {
       set_intersect_merge(a, b, list_set(buf, oi, xa),
                           ai + 1, bi + 1, oi + 1, len_a, len_b)
     }
-    else if str_lt(xa, xb) == 1 {
+    else if str_lt(xa, xb) {
       set_intersect_merge(a, b, buf, ai + 1, bi, oi, len_a, len_b)
     }
     else {

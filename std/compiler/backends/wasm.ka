@@ -110,7 +110,7 @@ fn string_offset_lookup(entries, target, i, n) =
   if i >= n { 0 }
   else {
     let (s, offset) = list_index(entries, i)
-    if str_eq(s, target) == 1 { offset }
+    if str_eq(s, target) { offset }
     else { string_offset_lookup(entries, target, i + 1, n) }
   }
 
@@ -257,7 +257,7 @@ fn string_entry_exists(entries, target, i, n) =
   if i >= n { false }
   else {
     let (s, _) = list_index(entries, i)
-    if str_eq(s, target) == 1 { true }
+    if str_eq(s, target) { true }
     else { string_entry_exists(entries, target, i + 1, n) }
   }
 
@@ -358,7 +358,7 @@ fn collect_top_level_fn_names(lowered, acc) =
   if len(lowered) == 0 { acc }
   else {
     let head_name = extract_top_fn_name(list_head(lowered))
-    let next = if str_eq(head_name, "") == 1 { acc }
+    let next = if str_eq(head_name, "") { acc }
                else { acc ++ [head_name] }
     collect_top_level_fn_names(list_tail(lowered), next)
   }
@@ -458,7 +458,7 @@ fn ls_find_str_local(lst, target, i) =
 
 fn ls_find_str_local_loop(lst, target, i, n) =
   if i >= n { -1 }
-  else if str_eq(list_index(lst, i), target) == 1 { i }
+  else if str_eq(list_index(lst, i), target) { i }
   else { ls_find_str_local_loop(lst, target, i + 1, n) }
 
 // WAT data string escape: \HH per byte, little-endian for i32.

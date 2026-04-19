@@ -202,7 +202,7 @@ fn find_first_span_loop(sites, name, i, n) =
   if i >= n { span_zero() }
   else {
     let (entry_name, entry_span) = list_index(sites, i)
-    if str_eq(entry_name, name) == 1 { entry_span }
+    if str_eq(entry_name, name) { entry_span }
     else { find_first_span_loop(sites, name, i + 1, n) }
   }
 
@@ -351,7 +351,7 @@ fn count_uses(name, node) =
   let N(body, _, _) = node
   match body {
     NExpr(VarRef(n)) =>
-      if str_eq(n, name) == 1 { 1 } else { 0 },
+      if str_eq(n, name) { 1 } else { 0 },
     NExpr(CallExpr(f, args)) =>
       count_uses(name, f) + count_uses_list(name, args),
     NExpr(BinOpExpr(_, l, r)) =>

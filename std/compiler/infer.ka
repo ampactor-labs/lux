@@ -300,7 +300,7 @@ fn has_pure_declared_loop(effs, i, n) =
   if i >= n { false }
   else {
     let (name, _) = list_index(effs, i)
-    if str_eq(name, "Pure") == 1 { true }
+    if str_eq(name, "Pure") { true }
     else { has_pure_declared_loop(effs, i + 1, n) }
   }
 
@@ -836,7 +836,7 @@ fn unify_types(a, b, span, reason) =
     TName(na, aa) =>
       match b {
         TName(nb, ab) =>
-          if str_eq(na, nb) == 1 {
+          if str_eq(na, nb) {
             unify_type_lists(aa, ab, span, reason)
           } else { type_mismatch(a, b, span, reason) },
         TVar(_) => unify_types(b, a, span, reason),

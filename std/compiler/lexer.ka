@@ -60,7 +60,7 @@ fn keyword_find(kw, word, i) =
   if i >= len(kw) { "Ident" }
   else {
     let (k, v) = kw[i]
-    if str_eq(k, word) == 1 { v }
+    if str_eq(k, word) { v }
     else { keyword_find(kw, word, i + 1) }
   }
 
@@ -85,7 +85,7 @@ fn two_char_find(ops, a, b, i) =
   if i >= len(ops) { "" }
   else {
     let (x, y, name) = ops[i]
-    if str_eq(x, a) == 1 && str_eq(y, b) == 1 { name }
+    if str_eq(x, a) && str_eq(y, b) { name }
     else { two_char_find(ops, a, b, i + 1) }
   }
 

@@ -190,15 +190,15 @@ fn unlines(ls) = join(ls, "\n")
 // sites use `slice`, the type variable unifies with TString, and the
 // WASM lowerer dispatches list-slicing to str_slice — corrupting
 // pointers. Using str_slice here keeps `slice` list-only.
-fn starts_with(s, prefix) = len(s) >= len(prefix) && str_eq(str_slice(s, 0, len(prefix)), prefix) == 1
-fn ends_with(s, suffix) = len(s) >= len(suffix) && str_eq(str_slice(s, len(s) - len(suffix), len(s)), suffix) == 1
+fn starts_with(s, prefix) = len(s) >= len(prefix) && str_eq(str_slice(s, 0, len(prefix)), prefix)
+fn ends_with(s, suffix) = len(s) >= len(suffix) && str_eq(str_slice(s, len(s) - len(suffix), len(s)), suffix)
 fn contains(s, sub) = index_of(s, sub) >= 0
 fn index_of(s, sub) = {
   let slen = len(s)
   let sublen = len(sub)
   fn search(i) =
     if i + sublen > slen { 0 - 1 }
-    else { if str_eq(str_slice(s, i, i + sublen), sub) == 1 { i } else { search(i + 1) } }
+    else { if str_eq(str_slice(s, i, i + sublen), sub) { i } else { search(i + 1) } }
   search(0)
 }
 fn replace(s, old, new) = {

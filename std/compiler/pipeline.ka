@@ -162,7 +162,7 @@ fn env_find(entries, name) =
   if len(entries) == 0 { None }
   else {
     let (k, scheme, reason) = list_head(entries)
-    if str_eq(k, name) == 1 { Some((scheme, reason)) }
+    if str_eq(k, name) { Some((scheme, reason)) }
     else { env_find(list_tail(entries), name) }
   }
 

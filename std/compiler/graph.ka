@@ -442,7 +442,7 @@ fn overlay_find(names, count, target) =
 // Callers test `existing_idx < count` to branch on found/missing.
 fn overlay_find_loop(names, count, target, i) =
   if i >= count { count }
-  else if str_eq(list_index(names, i), target) == 1 { i }
+  else if str_eq(list_index(names, i), target) { i }
   else { overlay_find_loop(names, count, target, i + 1) }
 
 fn overlays_to_pairs(names, bufs, lens, count) =

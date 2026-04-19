@@ -41,15 +41,15 @@ fn dispatch_mode(argv) =
   if len(argv) < 2 { None }
   else {
     let mode = argv[1]
-    if str_eq(mode, "compile") == 1 && len(argv) >= 3 {
+    if str_eq(mode, "compile") && len(argv) >= 3 {
       Some(|| compile(read_file(argv[2])))
-    } else if str_eq(mode, "check") == 1 && len(argv) >= 3 {
+    } else if str_eq(mode, "check") && len(argv) >= 3 {
       Some(|| check(read_file(argv[2])))
-    } else if str_eq(mode, "query") == 1 && len(argv) >= 4 {
+    } else if str_eq(mode, "query") && len(argv) >= 4 {
       Some(|| query(read_file(argv[2]), argv[3]))
-    } else if str_eq(mode, "teach") == 1 && len(argv) >= 3 {
+    } else if str_eq(mode, "teach") && len(argv) >= 3 {
       Some(|| teach(read_file(argv[2])))
-    } else if str_eq(mode, "audit") == 1 && len(argv) >= 3 {
+    } else if str_eq(mode, "audit") && len(argv) >= 3 {
       Some(|| audit(read_file(argv[2])))
     } else {
       None

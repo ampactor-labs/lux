@@ -58,7 +58,7 @@ fn field_insert(sorted, name, ty) =
   let pos = field_find_pos(sorted, name, 0, n)
   if pos < n {
     let (existing_name, _) = list_index(sorted, pos)
-    if str_eq(existing_name, name) == 1 {
+    if str_eq(existing_name, name) {
       // Replace at pos.
       let buf = make_list(n)
       let copied = list_copy_into(sorted, buf, 0, n)
@@ -81,7 +81,7 @@ fn field_find_pos(sorted, name, i, n) =
   if i >= n { n }
   else {
     let (existing_name, _) = list_index(sorted, i)
-    if str_lt(existing_name, name) == 1 {
+    if str_lt(existing_name, name) {
       field_find_pos(sorted, name, i + 1, n)
     } else { i }
   }

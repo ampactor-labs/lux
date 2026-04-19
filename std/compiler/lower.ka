@@ -344,7 +344,7 @@ fn field_byte_offset(fields, target, i, n) =
   if i >= n { 0 }
   else {
     let (name, _) = list_index(fields, i)
-    if str_eq(name, target) == 1 { 4 * i }
+    if str_eq(name, target) { 4 * i }
     else { field_byte_offset(fields, target, i + 1, n) }
   }
 
@@ -791,7 +791,7 @@ fn cfv_contains(lst, s) =
 
 fn cfv_contains_loop(lst, s, i, n) =
   if i >= n { false }
-  else if str_eq(list_index(lst, i), s) == 1 { true }
+  else if str_eq(list_index(lst, i), s) { true }
   else { cfv_contains_loop(lst, s, i + 1, n) }
 
 // ═══ Expression list ═══════════════════════════════════════════════
@@ -963,7 +963,7 @@ fn ls_find_str(lst, target, i) =
 
 fn ls_find_str_loop(lst, target, i, n) =
   if i >= n { -1 }
-  else if str_eq(list_index(lst, i), target) == 1 { i }
+  else if str_eq(list_index(lst, i), target) { i }
   else { ls_find_str_loop(lst, target, i + 1, n) }
 
 fn list_take_n(lst, n) =

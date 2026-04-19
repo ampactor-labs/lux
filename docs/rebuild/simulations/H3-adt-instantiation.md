@@ -396,6 +396,26 @@ After H3:
   Matches the static-closure pattern we established in Phase A.
   Subtle optimization but worth designing in.
 
+  **Bool is the canonical example.** Once H3 lands, `True` and
+  `False` formally become nullary constructors of `type Bool = True
+  | False`. Without nullary-sentinel optimization they'd allocate
+  4 bytes per `==` / `if` / `&&` / `||` — catastrophic. With it,
+  `True` compiles to `(i32.const 1)` and `False` to `(i32.const 0)`
+  — same runtime as today's TBool i32 representation, but with full
+  ADT semantics at the type level. Bool == ADT semantically, i32
+  representationally, indistinguishable in performance from C's
+  int-bool. The optimization MUST land alongside H3's general
+  constructor machinery. Apply it to every nullary variant
+  uniformly: small fixed-tag sentinels are free; only fielded
+  variants pay the heap.
+
+  **Implication for Ω.2 (Bool sweep) which lands BEFORE H3:**
+  Ω.2 changes str_eq/str_lt to return Bool at the TYPE level. The
+  runtime is i32 (already what TBool is per ty_to_wasm). When H3
+  lands, True/False become formal constructors WITHOUT changing
+  runtime — the nullary-sentinel optimization preserves the i32
+  representation. Ω.2 is forward-compatible by construction.
+
 - **Tag-id collisions across types.** As noted: `Some(Int)` of
   Option has tag_id 0. `Some(Int)` of a different ADT (if someone
   declares it) also gets tag_id 0. The type_name discriminates
