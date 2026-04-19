@@ -1494,14 +1494,19 @@ Five ops. Each is a tentacle entry point.
 **Supporting ADTs:**
 
 ```
+// Each variant carries an Option(Span) — Some when the candidate
+// originated from a user site (hovered hole, quick-fix request);
+// None for fully-internal speculation. `narrow_row` threads this
+// into the Located reason wrapper so the Why chain reads at the
+// user's coordinates, not 0:0-0:0.
 type Annotation
-    = APure                        // `with Pure`
-    | ANotAlloc                    // `with !Alloc`
-    | ANotIO                       // `with !IO`
-    | ANotNetwork                  // `with !Network`
-    | ARefined(String, Predicate)  // `type X = T where P`
-    | AOwn(String)                 // `own` marker on a parameter
-    | ARef(String)                 // `ref` marker on a parameter
+    = APure(Option(Span))                        // `with Pure`
+    | ANotAlloc(Option(Span))                    // `with !Alloc`
+    | ANotIO(Option(Span))                       // `with !IO`
+    | ANotNetwork(Option(Span))                  // `with !Network`
+    | ARefined(String, Predicate, Option(Span))  // `type X = T where P`
+    | AOwn(String, Option(Span))                 // `own` marker on a parameter
+    | ARef(String, Option(Span))                 // `ref` marker on a parameter
 
 type Capability
     = CMemoize | CParallelize | CCompileTimeEval
@@ -1611,10 +1616,10 @@ Before the programmer commits to adding an annotation, Mentl answers
 what it *would* grant:
 
 ```
-teach_unlock(APure)        → CMemoize, CParallelize, CCompileTimeEval
-teach_unlock(ANotAlloc)    → CRealTime
-teach_unlock(ANotNetwork)  → CSandbox
-teach_unlock(ARefined(...))→ CEliminateBoundsCheck
+teach_unlock(APure(_))        → CMemoize, CParallelize, CCompileTimeEval
+teach_unlock(ANotAlloc(_))    → CRealTime
+teach_unlock(ANotNetwork(_))  → CSandbox
+teach_unlock(ARefined(_, _, _))→ CEliminateBoundsCheck
 ```
 
 Reduces annotation-anxiety. The programmer sees cost and benefit

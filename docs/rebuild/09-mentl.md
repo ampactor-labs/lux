@@ -86,14 +86,19 @@ effect Teach {
 ### Supporting ADTs
 
 ```lux
+// Each variant carries an Option(Span) — Some when the candidate
+// originated from a user site (hovered hole, quick-fix request);
+// None for fully-internal speculation. narrow_row threads this into
+// the Located reason wrapper so the Why chain reads at the user's
+// coordinates, not 0:0-0:0.
 type Annotation
-  = APure                        // `with Pure`
-  | ANotAlloc                    // `with !Alloc`
-  | ANotIO                       // `with !IO`
-  | ANotNetwork                  // `with !Network`
-  | ARefined(String, Predicate)  // `type X = T where P`
-  | AOwn(String)                 // `own` marker on a parameter
-  | ARef(String)                 // `ref` marker on a parameter
+  = APure(Option(Span))                        // `with Pure`
+  | ANotAlloc(Option(Span))                    // `with !Alloc`
+  | ANotIO(Option(Span))                       // `with !IO`
+  | ANotNetwork(Option(Span))                  // `with !Network`
+  | ARefined(String, Predicate, Option(Span))  // `type X = T where P`
+  | AOwn(String, Option(Span))                 // `own` marker on a parameter
+  | ARef(String, Option(Span))                 // `ref` marker on a parameter
 
 type Capability
   = CMemoize                     // Pure enables memoization
@@ -126,13 +131,23 @@ type Patch
 - **`teach_gradient(handle)`** — "what annotation would unlock a
   capability on this handle?" Examines the current type + effect row,
   returns the highest-leverage next annotation or `None`. Examples:
-  Pure-capable function without `with Pure` → `Some(APure)`; mutable
-  parameter used once → `Some(AOwn(name))`; function call graph with
-  no Alloc → `Some(ANotAlloc)`.
+  Pure-capable function without `with Pure` → `Some(APure(None))`; mutable
+  parameter used once → `Some(AOwn(name, None))`; function call graph with
+  no Alloc → `Some(ANotAlloc(None))`. `None` for the span because
+  these are oracle-internal candidates; user-site candidates carry
+  `Some(site_span)`.
 
 - **`teach_why(handle)`** — returns the Reason chain for the binding
   at `handle`. Wraps `graph_chase` + recursive traversal. The Why
   Engine made effectful.
+
+- **`teach_why_string(handle)`** (plain fn, not a Teach op) — ties
+  `teach_why` to `render_why`, producing a multi-line indented chase
+  trail: one line per structural frame, Located frames render their
+  `file:line:col-line:col` coordinates, leaves terminate via
+  `show_reason`. This is what IDE hovers and `inka explain` show to
+  the user — the substrate's coordinate-aware reasoning made
+  speakable (I18).
 
 - **`teach_error(code, span, reason)`** — given a reserved code,
   returns the canonical explanation pulled from `docs/errors/<code>.md`

@@ -24,14 +24,19 @@ import compiler/effects
 
 // ═══ Mentl-owned ADTs ══════════════════════════════════════════════
 
+// Each variant carries an Option(Span) — Some when the candidate
+// originated from a user site (hovered hole, quick-fix request);
+// None for fully-internal speculation. narrow_row threads this into
+// the Located reason so the Why chain reads at the user's
+// coordinates, not 0:0-0:0.
 type Annotation
-  = APure
-  | ANotAlloc
-  | ANotIO
-  | ANotNetwork
-  | ARefined(String, Predicate)
-  | AOwn(String)
-  | ARef(String)
+  = APure(Option)
+  | ANotAlloc(Option)
+  | ANotIO(Option)
+  | ANotNetwork(Option)
+  | ARefined(String, Predicate, Option)
+  | AOwn(String, Option)
+  | ARef(String, Option)
 
 type Capability
   = CMemoize
@@ -128,7 +133,7 @@ fn gradient_next(handle) = {
   match kind {
     NBound(ty) => match ty {
       TFun(params, ret, row) => {
-        let base_candidates = [APure, ANotAlloc, ANotIO, ANotNetwork]
+        let base_candidates = [APure(None), ANotAlloc(None), ANotIO(None), ANotNetwork(None)]
         let param_candidates = ownership_candidates(params)
         let all = base_candidates ++ param_candidates
         let proven = try_each_annotation(handle, all, ty)
@@ -170,29 +175,36 @@ fn try_each_annotation_loop(handle, candidates, base_ty, i, n, buf, buf_len) =
 // recorded in the trail and reverted on rollback.
 
 fn apply_annotation_tentatively(handle, ann, base_ty) = match ann {
-  APure => narrow_row(handle, base_ty, EfPure),
-  ANotAlloc => narrow_row(handle, base_ty, EfNeg(mk_ef_closed(["Alloc"]))),
-  ANotIO => narrow_row(handle, base_ty, EfNeg(mk_ef_closed(["IO"]))),
-  ANotNetwork => narrow_row(handle, base_ty, EfNeg(mk_ef_closed(["Network"]))),
-  ARefined(_, pred) => {
+  APure(sp)          => narrow_row(handle, base_ty, EfPure, sp),
+  ANotAlloc(sp)      => narrow_row(handle, base_ty, EfNeg(mk_ef_closed(["Alloc"])), sp),
+  ANotIO(sp)         => narrow_row(handle, base_ty, EfNeg(mk_ef_closed(["IO"])), sp),
+  ANotNetwork(sp)    => narrow_row(handle, base_ty, EfNeg(mk_ef_closed(["Network"])), sp),
+  ARefined(_, pred, sp) => {
     // Narrowing the type via refinement — perform verify against the
     // narrowed predicate. Ledger captures; rollback removes.
-    perform verify(span_zero(), pred, Refinement(pred, PTrue))
+    let span = unwrap_source_span(sp)
+    perform verify(span, pred, Refinement(pred, PTrue))
   },
-  AOwn(_)  => (),     // parameter-level marker; type narrowing at call sites
-  ARef(_)  => ()
+  AOwn(_, _) => (),    // parameter-level marker; type narrowing at call sites
+  ARef(_, _) => ()
 }
 
-fn narrow_row(handle, base_ty, narrow) = match base_ty {
+fn unwrap_source_span(opt) = match opt {
+  Some(s) => s,
+  None    => span_zero()
+}
+
+fn narrow_row(handle, base_ty, narrow, source_span) = match base_ty {
   TFun(params, ret, _) => {
     let narrowed = TFun(params, ret, narrow)
-    // Speculative apply; the trail reverts this bind on rollback.
-    // Span is span_zero() because the annotation originates inside
-    // the oracle, not at a user source site. When Annotation values
-    // eventually carry the proposed source span (oracle return path
-    // for Patch), thread it here.
+    // The trail reverts this bind on rollback. source_span is Some(s)
+    // when the candidate originated at a user site (hovered hole,
+    // quick-fix request); None for fully-internal speculation, in
+    // which case we fall back to span_zero(). The Located wrapper
+    // gives the Why Engine coordinates to render.
     perform graph_bind(handle, narrowed,
-      Located(span_zero(), Inferred("mentl speculative narrow")))
+      Located(unwrap_source_span(source_span),
+              Inferred("mentl speculative narrow")))
   },
   _ => ()
 }
@@ -234,8 +246,8 @@ fn ownership_candidates_loop(params, i, n, buf, buf_len) =
     let TParam(name, _, own) = list_index(params, i)
     match own {
       Inferred => {
-        list_set(buf, buf_len, AOwn(name))
-        list_set(buf, buf_len + 1, ARef(name))
+        list_set(buf, buf_len, AOwn(name, None))
+        list_set(buf, buf_len + 1, ARef(name, None))
         ownership_candidates_loop(params, i + 1, n, buf, buf_len + 2)
       },
       _ => ownership_candidates_loop(params, i + 1, n, buf, buf_len)
@@ -245,7 +257,8 @@ fn ownership_candidates_loop(params, i, n, buf, buf_len) =
 fn pick_highest_leverage(proven) =
   if len(proven) == 0 { None }
   else {
-    let best = find_by_priority(proven, [ANotAlloc, ANotIO, ANotNetwork, APure])
+    let best = find_by_priority(proven,
+      [ANotAlloc(None), ANotIO(None), ANotNetwork(None), APure(None)])
     match best {
       Some(_) => best,
       None    => Some(list_index(proven, 0))
@@ -276,12 +289,16 @@ fn find_annotation_loop(proven, target, i, n) =
     else { find_annotation_loop(proven, target, i + 1, n) }
   }
 
+// Span-insensitive: two APure(_) compare equal regardless of source
+// span. Priority comparison classifies by discriminator, not origin.
 fn annotation_eq(a, b) = match a {
-  APure       => match b { APure       => true, _ => false },
-  ANotAlloc   => match b { ANotAlloc   => true, _ => false },
-  ANotIO      => match b { ANotIO      => true, _ => false },
-  ANotNetwork => match b { ANotNetwork => true, _ => false },
-  _           => false
+  APure(_)       => match b { APure(_)       => true, _ => false },
+  ANotAlloc(_)   => match b { ANotAlloc(_)   => true, _ => false },
+  ANotIO(_)      => match b { ANotIO(_)      => true, _ => false },
+  ANotNetwork(_) => match b { ANotNetwork(_) => true, _ => false },
+  ARefined(_, _, _) => match b { ARefined(_, _, _) => true, _ => false },
+  AOwn(_, _)     => match b { AOwn(_, _)     => true, _ => false },
+  ARef(_, _)     => match b { ARef(_, _)     => true, _ => false }
 }
 
 // ═══ The Why Engine — walk the reason DAG ══════════════════════════
@@ -411,13 +428,13 @@ fn extract_row(ty) = match ty {
 // "Add this annotation — get this capability."
 
 fn unlock_capability(annotation) = match annotation {
-  APure             => CMemoize,
-  ANotAlloc         => CRealTime,
-  ANotIO            => CCompileTimeEval,
-  ANotNetwork       => CSandbox,
-  ARefined(_, _)    => CEliminateBoundsCheck,
-  AOwn(_)           => CDeterministicDrop,
-  ARef(_)           => CZeroCopy
+  APure(_)          => CMemoize,
+  ANotAlloc(_)      => CRealTime,
+  ANotIO(_)         => CCompileTimeEval,
+  ANotNetwork(_)    => CSandbox,
+  ARefined(_, _, _) => CEliminateBoundsCheck,
+  AOwn(_, _)        => CDeterministicDrop,
+  ARef(_, _)        => CZeroCopy
 }
 
 // ═══ Error catalog — canonical summaries ═══════════════════════════
@@ -456,13 +473,13 @@ fn render_explanation(exp) = {
 }
 
 fn show_annotation(ann) = match ann {
-  APure             => "with Pure",
-  ANotAlloc         => "with !Alloc",
-  ANotIO            => "with !IO",
-  ANotNetwork       => "with !Network",
-  ARefined(name, _) => "refined " |> str_concat(name),
-  AOwn(name)        => "own " |> str_concat(name),
-  ARef(name)        => "ref " |> str_concat(name)
+  APure(_)             => "with Pure",
+  ANotAlloc(_)         => "with !Alloc",
+  ANotIO(_)            => "with !IO",
+  ANotNetwork(_)       => "with !Network",
+  ARefined(name, _, _) => "refined " |> str_concat(name),
+  AOwn(name, _)        => "own " |> str_concat(name),
+  ARef(name, _)        => "ref " |> str_concat(name)
 }
 
 fn show_capability(cap) = match cap {
@@ -475,3 +492,127 @@ fn show_capability(cap) = match cap {
   CZeroCopy            => "Zero-copy (proven no ownership transfer)",
   CDeterministicDrop   => "Deterministic drop (proven single use)"
 }
+
+// ═══ render_why — Located-aware Why Engine renderer (I18) ══════════
+// teach_why returns a Reason DAG. render_why walks it, emitting
+// one indented line per structural frame. Located(span, inner)
+// produces `<line:col-line:col>` at its depth; structured variants
+// produce a short human label then recurse on inner reasons; leaf
+// variants terminate via show_reason.
+//
+// This is the user-visible payoff of I13/I13.1: every unification,
+// instantiation, subsumption wrote a Located edge into the graph;
+// render_why chases them into readable coordinate trails. IDEs/LSP
+// consume this output as hover text; `inka explain <handle>` dumps
+// it to stdout.
+
+fn indent_for(depth) = indent_for_loop(depth, "")
+
+fn indent_for_loop(n, acc) =
+  if n <= 0 { acc }
+  else { indent_for_loop(n - 1, str_concat(acc, "  ")) }
+
+fn render_why(reason) = render_why_at(reason, 0)
+
+fn render_why_at(reason, depth) =
+  if depth > 20 { indent_for(depth) |> str_concat("[depth limit reached]\n") }
+  else match reason {
+    Located(span, inner) =>
+      indent_for(depth)
+        |> str_concat(show_span(span))
+        |> str_concat("\n")
+        |> str_concat(render_why_at(inner, depth + 1)),
+
+    Unified(a, b) =>
+      indent_for(depth)
+        |> str_concat("unified:\n")
+        |> str_concat(render_why_at(a, depth + 1))
+        |> str_concat(indent_for(depth))
+        |> str_concat("with:\n")
+        |> str_concat(render_why_at(b, depth + 1)),
+
+    OpConstraint(op, l, r) =>
+      indent_for(depth)
+        |> str_concat("op '")
+        |> str_concat(op)
+        |> str_concat("' constraint:\n")
+        |> str_concat(render_why_at(l, depth + 1))
+        |> str_concat(indent_for(depth))
+        |> str_concat("versus:\n")
+        |> str_concat(render_why_at(r, depth + 1)),
+
+    VarLookup(name, inner) =>
+      indent_for(depth)
+        |> str_concat("var '")
+        |> str_concat(name)
+        |> str_concat("' lookup:\n")
+        |> str_concat(render_why_at(inner, depth + 1)),
+
+    FnReturn(name, inner) =>
+      indent_for(depth)
+        |> str_concat("return of '")
+        |> str_concat(name)
+        |> str_concat("':\n")
+        |> str_concat(render_why_at(inner, depth + 1)),
+
+    FnParam(name, idx, inner) =>
+      indent_for(depth)
+        |> str_concat("param '")
+        |> str_concat(name)
+        |> str_concat("' (#")
+        |> str_concat(int_to_str(idx))
+        |> str_concat("):\n")
+        |> str_concat(render_why_at(inner, depth + 1)),
+
+    MatchBranch(a, b) =>
+      indent_for(depth)
+        |> str_concat("match branches:\n")
+        |> str_concat(render_why_at(a, depth + 1))
+        |> str_concat(indent_for(depth))
+        |> str_concat("& \n")
+        |> str_concat(render_why_at(b, depth + 1)),
+
+    ListElement(inner) =>
+      indent_for(depth)
+        |> str_concat("list element:\n")
+        |> str_concat(render_why_at(inner, depth + 1)),
+
+    IfBranch(inner) =>
+      indent_for(depth)
+        |> str_concat("if branch:\n")
+        |> str_concat(render_why_at(inner, depth + 1)),
+
+    LetBinding(name, inner) =>
+      indent_for(depth)
+        |> str_concat("let '")
+        |> str_concat(name)
+        |> str_concat("':\n")
+        |> str_concat(render_why_at(inner, depth + 1)),
+
+    Instantiation(name, inner) =>
+      indent_for(depth)
+        |> str_concat("instantiation of '")
+        |> str_concat(name)
+        |> str_concat("':\n")
+        |> str_concat(render_why_at(inner, depth + 1)),
+
+    // Leaf variants — render via show_reason and terminate.
+    Declared(_)          => render_leaf(reason, depth),
+    Inferred(_)          => render_leaf(reason, depth),
+    Fresh(_)             => render_leaf(reason, depth),
+    MissingVar(_)        => render_leaf(reason, depth),
+    Placeholder(_)       => render_leaf(reason, depth),
+    BinOpPlaceholder(_)  => render_leaf(reason, depth),
+    Refinement(_, _)     => render_leaf(reason, depth)
+  }
+
+fn render_leaf(reason, depth) =
+  indent_for(depth)
+    |> str_concat(show_reason(reason))
+    |> str_concat("\n")
+
+// teach_why_string ties the effect-returning teach_why to the pure
+// renderer. Callers (LSP hover, `inka explain`, Mentl's Quick Fix
+// surface) invoke this directly.
+fn teach_why_string(handle) with SubstGraphRead =
+  render_why(why_from_handle(handle))
