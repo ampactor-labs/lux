@@ -37,6 +37,10 @@ type Annotation
   | ARefined(String, Predicate, Option)
   | AOwn(String, Option)
   | ARef(String, Option)
+  | AWrapHandler(String, Int, Option)
+                              // handler_name, target_fn_handle, span;
+                              // proposes wrapping the target's body in a
+                              // handler that absorbs an offending effect
 
 type Capability
   = CMemoize
@@ -186,12 +190,73 @@ fn apply_annotation_tentatively(handle, ann, base_ty) = match ann {
     perform verify(span, pred, Refinement(pred, PTrue))
   },
   AOwn(_, _) => (),    // parameter-level marker; type narrowing at call sites
-  ARef(_, _) => ()
+  ARef(_, _) => (),
+
+  AWrapHandler(handler_name, _target, sp) => {
+    // H5: speculatively narrow the row by subtracting the named
+    // handler's absorbed effects. The catalog lookup tells us what
+    // the handler handles; row arithmetic does the rest. The actual
+    // wrap (splice `handle ... with handler_name` around body) is
+    // a TEXT patch — out of substrate, into the patcher's surface.
+    let absorbed = catalog_handled_effects(handler_name)
+    if len(absorbed) == 0 { () }
+    else {
+      let absorbed_row = mk_ef_closed(absorbed)
+      // The narrowed row is base_row - absorbed_row.
+      match base_ty {
+        TFun(_params, _ret, base_row) => {
+          let narrowed = diff_row(base_row, absorbed_row)
+          narrow_row(handle, base_ty, narrowed, sp)
+        },
+        _ => ()
+      }
+    }
+  }
 }
 
 fn unwrap_source_span(opt) = match opt {
   Some(s) => s,
   None    => span_zero()
+}
+
+// H5: HandlerCatalog — registry of which compiler-built-in handlers
+// absorb which effects. Today a static table; the full effect-based
+// handler_catalog (with runtime registration) lands when user-level
+// handler discovery is exercised. The catalog enables AWrapHandler
+// proposal: when a body row has an effect E, look up handlers that
+// absorb E, propose the closest match.
+fn catalog_handled_effects(handler_name) =
+  if str_eq(handler_name, "mem_bump")    { [ENamed("Alloc")] }
+  else if str_eq(handler_name, "temp_arena") { [ENamed("Alloc")] }
+  else if str_eq(handler_name, "stdout_handler") { [ENamed("IO")] }
+  else if str_eq(handler_name, "sandbox_io")    { [ENamed("IO")] }
+  else if str_eq(handler_name, "sandbox_net")   { [ENamed("Network")] }
+  else { [] }
+
+// H5: capability unlocks for an annotation. !Alloc unlocks
+// CRealTime; !IO + Pure unlock CCompileTimeEval; etc. The list is
+// returned by render_audit's severance section.
+fn capabilities_for_annotation(ann) = match ann {
+  APure(_)        => [CMemoize, CCompileTimeEval, CParallelize],
+  ANotAlloc(_)    => [CRealTime],
+  ANotIO(_)       => [CCompileTimeEval, CSandbox],
+  ANotNetwork(_)  => [CSandbox],
+  ARefined(_, _, _) => [],
+  AOwn(_, _)      => [CDeterministicDrop, CZeroCopy],
+  ARef(_, _)      => [],
+  AWrapHandler(_, _, _) => []     // unlocks depend on what's wrapped
+}
+
+// H5: capability unlocks for a SEVERANCE — adding `!E` to an fn
+// that doesn't perform E. Mirrors capabilities_for_annotation but
+// keyed by EffName (severance candidate's name).
+fn capabilities_for_severance(name) = match name {
+  ENamed(n) =>
+    if str_eq(n, "Alloc")   { [CRealTime] }
+    else if str_eq(n, "IO") { [CCompileTimeEval, CSandbox] }
+    else if str_eq(n, "Network") { [CSandbox] }
+    else { [] },
+  EParameterized(_, _) => []
 }
 
 fn narrow_row(handle, base_ty, narrow, source_span) = match base_ty {

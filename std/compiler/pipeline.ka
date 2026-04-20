@@ -294,40 +294,90 @@ fn collect_fn_rows(ast) =
     let N(body, _, handle) = node
     let entry = match body {
       NStmt(FnStmt(name, _, _, _, _)) =>
-        [(name, perform lookup_ty(handle))],
+        [build_audit_report(name, perform lookup_ty(handle))],
       _ => []
     }
     entry ++ collect_fn_rows(list_tail(ast))
   }
 
+// H5: AuditReport record per fn — the structured projection Mentl's
+// IDE surfaces (Proof Lens, Gradient ghost text, JSON export). Each
+// field is independently introspectable; the record shape lets new
+// metadata land additively (per CLAUDE.md insight 9).
+//
+// Fields (sorted alphabetically per parser invariant):
+//   fn_name     — the function's identifier
+//   reached     — effects the body actually performs (List<EffName>)
+//   row_str     — pre-rendered row for terminal output
+//   severable   — effects NOT in body that could be added as !E
+//                 (List<EffName>, each unlocking capabilities)
+//   unlocks     — capabilities gained from severing every severable
+fn build_audit_report(fn_name, ty) = {
+  let body_row = extract_row(ty)
+  let reached = row_names(body_row)
+  let severable = severance_candidates(reached)
+  let unlocks = severance_unlocks(severable)
+  {fn_name: fn_name, reached: reached, row_str: show_effrow(body_row),
+   severable: severable, unlocks: unlocks}
+}
+
+// Severance candidates: the canonical effects (Alloc / IO / Network)
+// that the body does NOT perform. Adding `!E` for each unlocks a
+// capability without breaking the row.
+fn severance_candidates(reached) = {
+  let canonical = [ENamed("Alloc"), ENamed("IO"), ENamed("Network")]
+  filter_not_in(canonical, reached, 0, len(canonical), [])
+}
+
+fn filter_not_in(candidates, present, i, n, acc) =
+  if i >= n { acc }
+  else {
+    let c = list_index(candidates, i)
+    let next = if name_in_list(present, c) { acc }
+               else { acc ++ [c] }
+    filter_not_in(candidates, present, i + 1, n, next)
+  }
+
+fn name_in_list(names, target) =
+  name_in_list_loop(names, target, 0, len(names))
+
+fn name_in_list_loop(names, target, i, n) =
+  if i >= n { false }
+  else if eff_name_eq(list_index(names, i), target) { true }
+  else { name_in_list_loop(names, target, i + 1, n) }
+
+fn severance_unlocks(severable) =
+  severance_unlocks_loop(severable, 0, len(severable), [])
+
+fn severance_unlocks_loop(severable, i, n, acc) =
+  if i >= n { acc }
+  else {
+    let caps = capabilities_for_severance(list_index(severable, i))
+    severance_unlocks_loop(severable, i + 1, n, acc ++ caps)
+  }
+
+// Terminal renderer over AuditReport records — reads fields by name.
+// JSON / IDE-projection renderers are peer functions on the same
+// record (one substrate, multiple projections per CLAUDE.md insight 8).
 fn render_audit(entries) =
   if len(entries) == 0 { "" }
   else {
-    let (name, ty) = list_head(entries)
-    // H6: exhaustive Ty enumeration. Non-function types have no
-    // effect row; the diagnostic says "Pure" to mean "no effects
-    // at this binding." Future Ty variants might deserve their
-    // own diagnostic string — named explicitly to force the
-    // decision.
-    let row_str = match ty {
-      TFun(_, _, row)   => show_effrow(row),
-      TInt              => "Pure",
-      TFloat            => "Pure",
-      TString           => "Pure",
-      TUnit             => "Pure",
-      TList(_)          => "Pure",
-      TTuple(_)         => "Pure",
-      TVar(_)           => "Pure",
-      TName(_, _)       => "Pure",
-      TRecord(_)        => "Pure",
-      TRecordOpen(_, _) => "Pure",
-      TRefined(_, _)    => "Pure",
-      TCont(_, _)       => "Pure"
-    }
-    name
+    let report = list_head(entries)
+    let header = report.fn_name
       |> str_concat(" : ")
-      |> str_concat(row_str)
+      |> str_concat(report.row_str)
       |> str_concat("\n")
+    let severance_section =
+      if len(report.severable) == 0 { "" }
+      else {
+        "  severable: "
+          |> str_concat(show_list(report.severable, show_eff_name, " + "))
+          |> str_concat(" — unlocks ")
+          |> str_concat(show_list(report.unlocks, show_capability, ", "))
+          |> str_concat("\n")
+      }
+    header
+      |> str_concat(severance_section)
       |> str_concat(render_audit(list_tail(entries)))
   }
 
