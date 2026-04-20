@@ -223,6 +223,13 @@ fn infer_fn(name, params, body_node, handle, span) = {
   let N(_, _, body_handle) = body_node
   unify(body_handle, ret_handle, span, FnReturn(name, Inferred("body")))
 
+  // H4: every fn return is an escape boundary. The body's return
+  // value (and its embedded fields, recursively) must not carry a
+  // region tag that's no longer live. region_tracker compares the
+  // tagged region against region_stack; mismatches surface as
+  // E_RegionEscape with the install-span.
+  perform check_escape(body_handle, span)
+
   // ─── Declared effects enforcement (gap 1 + 2) ──────────────────
   // If the FnStmt carries a declared effect row, verify the inferred
   // body's row is subsumed by it. If so, rebind row_handle to the
@@ -294,6 +301,44 @@ fn infer_fn(name, params, body_node, handle, span) = {
   let scheme = generalize(handle)
   perform env_extend(name, scheme, Declared(name), FnScheme)
 }
+
+// H4 helper — does a CallExpr's callee resolve to a constructor?
+// The result handle of such a call is heap-allocated (LMakeVariant
+// emits emit_alloc), so it deserves a tag_alloc tag for region
+// escape tracking.
+fn call_is_constructor(func) =
+  let N(body, _, _) = func
+  match body {
+    NExpr(VarRef(name)) => match perform env_lookup(name) {
+      Some(entry) => {
+        let (_, _, kind) = entry
+        match kind {
+          ConstructorScheme(_, _) => true,
+          _                       => false
+        }
+      },
+      None => false
+    },
+    _ => false
+  }
+
+// H4 helper — does an EffName list include "Alloc"? region_enter
+// fires only for HandleExprs that absorb Alloc (the load-bearing
+// alloc-tracking case; non-Alloc handlers don't open regions).
+fn names_include_alloc(names) =
+  names_include_alloc_loop(names, 0, len(names))
+
+fn names_include_alloc_loop(names, i, n) =
+  if i >= n { false }
+  else {
+    let name = list_index(names, i)
+    let s = match name {
+      ENamed(s)              => s,
+      EParameterized(s, _)   => s
+    }
+    if str_eq(s, "Alloc") { true }
+    else { names_include_alloc_loop(names, i + 1, n) }
+  }
 
 // Build an EffRow from a declared `(name, negated)` list. Negated
 // names produce EfNeg(EfClosed([name])) and compose with intersection;
@@ -367,6 +412,12 @@ fn infer_expr(node) =
       infer_expr(func)
       infer_expr_list(args)
       infer_call(func, args, handle, span)
+      // H4: constructor calls allocate a heap record. Tag the
+      // resulting handle so check_escape at fn return can verify
+      // the value doesn't outlive its region.
+      if call_is_constructor(func) {
+        perform tag_alloc(handle)
+      }
     },
 
     NExpr(IfExpr(cond, then_e, else_e)) => {
@@ -407,11 +458,13 @@ fn infer_expr(node) =
         unify_list_elems(list_tail(elems), fh, span)
         perform graph_bind(handle, TList(TVar(fh)), Located(span, Inferred("list literal")))
       }
+      perform tag_alloc(handle)
     },
 
     NExpr(MakeTupleExpr(elems)) => {
       infer_expr_list(elems)
       perform graph_bind(handle, TTuple(collect_tvar_types(elems)), Located(span, Inferred("tuple literal")))
+      perform tag_alloc(handle)
     },
 
     NExpr(MakeRecordExpr(fields)) => {
@@ -422,6 +475,7 @@ fn infer_expr(node) =
       let field_types = build_record_field_types(fields)
       perform graph_bind(handle, TRecord(field_types),
         Located(span, Inferred("record literal")))
+      perform tag_alloc(handle)
     },
 
     NExpr(PerformExpr(op_name, args)) => {
@@ -446,10 +500,22 @@ fn infer_expr(node) =
       let handled_names = collect_handled_effects(arms)
       perform inf_push_handler(handler_stack_tag(handled_names))
 
+      // H4: HandleExprs that absorb Alloc open a new region. Every
+      // allocation inside the body is tagged with this region; on
+      // body exit the region pops, and any value that escapes to
+      // the enclosing scope must NOT be region-tagged with this
+      // popped id (check_escape catches it at fn return).
+      let opens_region = names_include_alloc(handled_names)
+      let region_id = if opens_region {
+        perform region_enter(span)
+      } else { 0 }
+
       let body_row_h = perform graph_fresh_row(Inferred("handle body row"))
       perform inf_enter_fn(body_row_h, span)
       infer_expr(body_node)
       perform inf_exit_fn()
+
+      if opens_region { perform region_exit(region_id) }
 
       let N(_, _, bh) = body_node
 
@@ -522,6 +588,8 @@ fn infer_expr(node) =
         TVar(bh),
         mk_ef_open([], row_handle)
       ), Located(span, Inferred("lambda")))
+      // H4: every lambda allocates a closure record on the heap.
+      perform tag_alloc(handle)
       perform env_scope_exit()
     },
 

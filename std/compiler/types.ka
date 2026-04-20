@@ -361,6 +361,7 @@ effect RegionTrack {
   region_exit(Int) -> ()                          @resume=OneShot
   tag_alloc(Int) -> ()                            @resume=OneShot
   check_escape(Int, Span) -> ()                   @resume=OneShot
+  current_region() -> Int                         @resume=OneShot
 }
 
 // StringTable (spec W5) — compile-time interned string literals.

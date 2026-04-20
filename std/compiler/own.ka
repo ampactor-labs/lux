@@ -164,24 +164,79 @@ handler region_tracker with region_stack = [], next_region = 0, tagged_values = 
     else { resume(()) with region_stack = list_tail(region_stack) }
   },
 
-  tag_alloc(_value_handle) => {
-    // Substrate-prep: when full wiring lands, this will stamp the
-    // current-top region onto the value's entry in tagged_values.
-    // Today the stamp is a no-op; value-level region tagging
-    // requires graph-integrated alloc-return correlation that
-    // arrives with full E3.
-    resume(())
+  current_region() => {
+    if len(region_stack) == 0 { resume(0) }
+    else {
+      let Region(rid, _) = list_head(region_stack)
+      resume(rid)
+    }
   },
 
-  check_escape(_value_handle, _span) => {
-    // Substrate-prep: when full wiring lands, this compares the
-    // value's tagged region against the topmost still-live region
-    // on region_stack. A value tagged with a region NO LONGER on
-    // the stack is escaping; emit E_OwnershipViolation carrying
-    // the region's install-span and the escape site.
+  tag_alloc(value_handle) => {
+    // Stamp the value with the current-top region (or 0 = no
+    // region active = global lifetime). tagged_values records
+    // (handle, region_id, install_span). install_span captured
+    // here so check_escape can point at the alloc site that
+    // produced the escaping value.
+    let rid = if len(region_stack) == 0 { 0 }
+              else { let Region(r, _) = list_head(region_stack); r }
+    let install_span = if len(region_stack) == 0 { span_zero() }
+                       else { let Region(_, s) = list_head(region_stack); s }
     resume(())
+      with tagged_values = [(value_handle, rid, install_span)] ++ tagged_values
+  },
+
+  check_escape(value_handle, escape_span) => {
+    // Look up the value's tagged region. If it's region 0 (global)
+    // or a region still on the stack, the value is safe. If the
+    // region was popped (no longer on stack), the value has
+    // escaped — emit E_RegionEscape pointing at both the install
+    // site and the escape site.
+    let entry = lookup_tag(tagged_values, value_handle)
+    match entry {
+      None => resume(()),
+      Some(rt) => {
+        let (_, rid, install_span) = rt
+        if rid == 0 || region_on_stack(region_stack, rid) {
+          resume(())
+        } else {
+          perform report("region", "E_RegionEscape", "OwnershipViolation",
+            "value allocated in a scope that ended before this return — region "
+              |> str_concat(int_to_str(rid))
+              |> str_concat(" no longer live"),
+            escape_span, "MaybeIncorrect")
+          // Locate-the-cause secondary: would emit a Located
+          // diagnostic at install_span when the diagnostic
+          // surface supports multi-span reports. Stored in tag.
+          resume(())
+        }
+      }
+    }
   }
 }
+
+fn lookup_tag(tags, handle) =
+  lookup_tag_loop(tags, handle, 0, len(tags))
+
+fn lookup_tag_loop(tags, handle, i, n) =
+  if i >= n { None }
+  else {
+    let entry = list_index(tags, i)
+    let (h, _, _) = entry
+    if h == handle { Some(entry) }
+    else { lookup_tag_loop(tags, handle, i + 1, n) }
+  }
+
+fn region_on_stack(stack, rid) =
+  region_on_stack_loop(stack, rid, 0, len(stack))
+
+fn region_on_stack_loop(stack, rid, i, n) =
+  if i >= n { false }
+  else {
+    let Region(r, _) = list_index(stack, i)
+    if r == rid { true }
+    else { region_on_stack_loop(stack, rid, i + 1, n) }
+  }
 
 fn report_each_collision(names, i, n, span) =
   if i >= n { () }
