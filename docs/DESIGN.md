@@ -2469,6 +2469,15 @@ operations.**
 trace, not a theorem. Each shows what the programmer experiences
 when the medium works.*
 
+> **Integration note (post-cascade).** These four simulations are
+> the thesis-level promises, one per domain (IDE, DSP×ML,
+> concurrency/FFI, distributed). For the integrated trace through
+> ONE continuous project that exercises every surface — and marks
+> honestly where the substrate fires, where the surface handler
+> pends, and where the substrate itself has named gaps — see
+> `docs/traces/a-day.md`. The four below establish the thesis; the
+> integration trace proves it holds in concert.
+
 ### 10.1 The Code SAT Solver — Mentl in the IDE
 
 **Scenario.** A developer is editing the Inka compiler's source. They

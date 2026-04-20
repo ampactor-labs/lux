@@ -36,9 +36,14 @@
     (Synth effect, mentl_default handler, AWrapHandler arm) is
     in place; the oracle integration is its own focused pass.
 
-- **Verification (post-cascade):** Sonic Pulse end-to-end trace
-  through every compilation stage. Walkthrough discipline — not
-  wasmtime. Captured in `docs/traces/sonic_pulse.md` when written.
+- **Integration trace (post-cascade):** `docs/traces/a-day.md`.
+  One developer, one project (Pulse: real-time audio + browser UI +
+  cloud server + training variant), one day. Every surface either
+  fires `[LIVE]`, is `[LIVE · surface pending]`, or is one of three
+  named `[substrate pending]` gaps: LFeedback state-machine lowering,
+  teach_synthesize oracle conductor, runtime HandlerCatalog effect.
+  Supersedes the per-domain DESIGN.md Ch 10 simulations as the
+  integration artifact (those remain for thesis-level promises).
 - **Bootstrap translator.** Not started; out of mind until cascade
   closes.
 - **Error catalog.** String-coded (prefix-kind + self-documenting
