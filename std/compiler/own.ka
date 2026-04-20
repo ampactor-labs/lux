@@ -352,6 +352,7 @@ fn walk_return_positions(refs, node) =
     NExpr(MakeListExpr(_))   => (),
     NExpr(MakeTupleExpr(_))  => (),
     NExpr(MakeRecordExpr(_)) => (),
+    NExpr(NamedRecordExpr(_, _)) => (),
     NExpr(FieldExpr(_, _))   => (),
     NExpr(PipeExpr(_, _, _)) => (),
     NExpr(ExprPlaceholder)   => (),
@@ -431,6 +432,7 @@ fn count_uses(name, node) =
     NExpr(MakeListExpr(elems))  => count_uses_list(name, elems),
     NExpr(MakeTupleExpr(elems)) => count_uses_list(name, elems),
     NExpr(MakeRecordExpr(flds)) => count_uses_record_fields(name, flds),
+    NExpr(NamedRecordExpr(_, flds)) => count_uses_record_fields(name, flds),
     NExpr(FieldExpr(rec, _))    => count_uses(name, rec),
 
     // H6: exhaustive. Remaining Expr variants hold no sub-exprs

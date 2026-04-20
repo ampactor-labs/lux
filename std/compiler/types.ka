@@ -96,6 +96,7 @@ type SchemeKind
   = FnScheme
   | ConstructorScheme(Int, Int)
   | EffectOpScheme(String)
+  | RecordSchemeKind(List)               // [(field_name: String, ty: Ty)] declared
 
 // ═══ Effect row algebra (spec 01) ══════════════════════════════════
 // The Boolean algebra lives as functions in effects.ka; the ADT
@@ -300,6 +301,7 @@ type Expr
   | MakeListExpr(List)
   | MakeTupleExpr(List)
   | MakeRecordExpr(List)           // [(field_name: String, value: Node)] — sorted at parse
+  | NamedRecordExpr(String, List)  // type_name + sorted fields — nominal record literal
   | FieldExpr(Node, String)
   | PipeExpr(PipeKind, Node, Node) // |> <| >< ~> <~
   | ExprPlaceholder                // ? — parser spawns NHole

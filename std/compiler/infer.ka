@@ -302,11 +302,13 @@ fn infer_fn(name, params, body_node, handle, span) = {
   perform env_extend(name, scheme, Declared(name), FnScheme)
 }
 
-// H4 helper — does a CallExpr's callee resolve to a constructor?
-// The result handle of such a call is heap-allocated (LMakeVariant
-// emits emit_alloc), so it deserves a tag_alloc tag for region
-// escape tracking.
-fn call_is_constructor(func) =
+// H4 helper — does a CallExpr's callee resolve to an alloc-returning
+// scheme? Constructors (ConstructorScheme) emit LMakeVariant which
+// heap-allocates; nominal records (RecordSchemeKind, H2.3) reach
+// here only via degenerate CallExpr — canonical form is
+// NamedRecordExpr. Either way the result handle deserves region
+// tracking.
+fn call_is_alloc_returning(func) =
   let N(body, _, _) = func
   match body {
     NExpr(VarRef(name)) => match perform env_lookup(name) {
@@ -314,6 +316,7 @@ fn call_is_constructor(func) =
         let (_, _, kind) = entry
         match kind {
           ConstructorScheme(_, _) => true,
+          RecordSchemeKind(_)     => true,
           _                       => false
         }
       },
@@ -414,8 +417,11 @@ fn infer_expr(node) =
       infer_call(func, args, handle, span)
       // H4: constructor calls allocate a heap record. Tag the
       // resulting handle so check_escape at fn return can verify
-      // the value doesn't outlive its region.
-      if call_is_constructor(func) {
+      // the value doesn't outlive its region. Records (Record-
+      // SchemeKind) bind their type but the Call form is unusual
+      // for them — NamedRecordExpr is canonical; CallExpr→record
+      // is the degenerate fall-through.
+      if call_is_alloc_returning(func) {
         perform tag_alloc(handle)
       }
     },
@@ -475,6 +481,35 @@ fn infer_expr(node) =
       let field_types = build_record_field_types(fields)
       perform graph_bind(handle, TRecord(field_types),
         Located(span, Inferred("record literal")))
+      perform tag_alloc(handle)
+    },
+
+    NExpr(NamedRecordExpr(type_name, fields)) => {
+      // H2.3: nominal record literal. Look up the type name's
+      // RecordSchemeKind to validate the field set and unify each
+      // value against the declared field type. Bind the handle to
+      // TName(type_name, []).
+      infer_record_field_values(fields)
+      match perform env_lookup(type_name) {
+        None =>
+          perform report("", "E_MissingVariable", "MissingVariable",
+            "record type: " |> str_concat(type_name),
+            span, "MaybeIncorrect"),
+        Some(entry) => {
+          let (_, _, kind) = entry
+          match kind {
+            RecordSchemeKind(declared) => {
+              check_nominal_record_fields(declared, fields, type_name, span)
+              perform graph_bind(handle, TName(type_name, []),
+                Located(span, Inferred("nominal record literal")))
+            },
+            _ =>
+              perform report("", "E_NotARecordType", "TypeError",
+                type_name |> str_concat(" is not a record type"),
+                span, "MaybeIncorrect")
+          }
+        }
+      }
       perform tag_alloc(handle)
     },
 
@@ -1163,6 +1198,67 @@ fn build_record_field_types(fields) =
     [(name, TVar(vh))] ++ build_record_field_types(list_tail(fields))
   }
 
+// H2.3: validate a nominal record literal's fields against the
+// declared schema. Both lists arrive sorted by field name (parser
+// sort + RecordSchemeKind sort invariant). Pointwise check:
+//   - missing declared field    → E_RecordFieldMissing
+//   - extra unknown field       → E_RecordFieldExtra
+//   - matched name              → unify value's handle with declared ty
+fn check_nominal_record_fields(declared, provided, type_name, span) =
+  check_nominal_record_loop(declared, provided, type_name, span, 0, 0,
+    len(declared), len(provided))
+
+fn check_nominal_record_loop(declared, provided, type_name, span, i, j, ni, nj) =
+  if i >= ni && j >= nj { () }
+  else if i >= ni {
+    // Provided has extras
+    let (extra, _) = list_index(provided, j)
+    perform report("", "E_RecordFieldExtra", "TypeError",
+      "record literal has unknown field '"
+        |> str_concat(extra)
+        |> str_concat("' for type ")
+        |> str_concat(type_name),
+      span, "MaybeIncorrect")
+    check_nominal_record_loop(declared, provided, type_name, span, i, j + 1, ni, nj)
+  } else if j >= nj {
+    let (missing, _) = list_index(declared, i)
+    perform report("", "E_RecordFieldMissing", "TypeError",
+      "record literal missing field '"
+        |> str_concat(missing)
+        |> str_concat("' for type ")
+        |> str_concat(type_name),
+      span, "MaybeIncorrect")
+    check_nominal_record_loop(declared, provided, type_name, span, i + 1, j, ni, nj)
+  } else {
+    let (dn, dt) = list_index(declared, i)
+    let (pn, pv) = list_index(provided, j)
+    if str_eq(dn, pn) {
+      let N(_, _, vh) = pv
+      let expect_h = perform mint(Inferred("record field type"))
+      perform graph_bind(expect_h, dt,
+        Located(span, Inferred("declared field type")))
+      unify(vh, expect_h, span,
+        OpConstraint("record field", Inferred("declared"), Inferred("provided")))
+      check_nominal_record_loop(declared, provided, type_name, span, i + 1, j + 1, ni, nj)
+    } else if str_lt(dn, pn) {
+      perform report("", "E_RecordFieldMissing", "TypeError",
+        "record literal missing field '"
+          |> str_concat(dn)
+          |> str_concat("' for type ")
+          |> str_concat(type_name),
+        span, "MaybeIncorrect")
+      check_nominal_record_loop(declared, provided, type_name, span, i + 1, j, ni, nj)
+    } else {
+      perform report("", "E_RecordFieldExtra", "TypeError",
+        "record literal has unknown field '"
+          |> str_concat(pn)
+          |> str_concat("' for type ")
+          |> str_concat(type_name),
+        span, "MaybeIncorrect")
+      check_nominal_record_loop(declared, provided, type_name, span, i, j + 1, ni, nj)
+    }
+  }
+
 fn unify_param_lists(a, b, span, reason) =
   if len(a) == 0 || len(b) == 0 { () }
   else {
@@ -1771,16 +1867,36 @@ fn register_variants_at(type_name, type_args, variants, tag_id, total) =
 fn register_one_variant(type_name, type_args, variant, tag_id, total) = {
   let (ctor_name, field_types) = variant
   let result_ty = TName(type_name, type_args)
-  let kind = ConstructorScheme(tag_id, total)
-  if len(field_types) == 0 {
+  // H2.3 nominal record: a single-variant type whose body is a
+  // TRecord registers as RecordSchemeKind, not ConstructorScheme.
+  // The env entry binds the type's name to TName directly (no
+  // function arrow); NamedRecordExpr inference reads the
+  // RecordSchemeKind to validate and lower constructions.
+  if total == 1 &&
+     len(field_types) == 1 &&
+     str_eq(ctor_name, type_name) &&
+     is_record_ty(list_index(field_types, 0)) {
+    let TRecord(declared_fields) = list_index(field_types, 0)
     perform env_extend(ctor_name, Forall([], result_ty),
-      Declared(ctor_name), kind)
+      Declared(ctor_name),
+      RecordSchemeKind(declared_fields))
   } else {
-    let params = build_ctor_params(field_types, 0)
-    perform env_extend(ctor_name,
-      Forall([], TFun(params, result_ty, EfPure)),
-      Declared(ctor_name), kind)
+    let kind = ConstructorScheme(tag_id, total)
+    if len(field_types) == 0 {
+      perform env_extend(ctor_name, Forall([], result_ty),
+        Declared(ctor_name), kind)
+    } else {
+      let params = build_ctor_params(field_types, 0)
+      perform env_extend(ctor_name,
+        Forall([], TFun(params, result_ty, EfPure)),
+        Declared(ctor_name), kind)
+    }
   }
+}
+
+fn is_record_ty(ty) = match ty {
+  TRecord(_)        => true,
+  _                 => false
 }
 
 fn build_ctor_params(field_types, idx) =

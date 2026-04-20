@@ -270,6 +270,13 @@ fn lower_expr_body(e, handle, span) = match e {
   MakeRecordExpr(fields) =>
     LMakeRecord(handle, lower_record_field_values(fields)),
 
+  NamedRecordExpr(_type_name, fields) =>
+    // H2.3: nominal records lower identically to bare record
+    // literals — type identity is type-system-only, runtime sees
+    // raw fields. The type name is preserved in the AST for
+    // diagnostics and IDE projection but doesn't reach LIR.
+    LMakeRecord(handle, lower_record_field_values(fields)),
+
   LambdaExpr(params, body_node) => {
     // DESIGN Ch 1: lambdas close over their free variables. Each
     // lambda gets a unique name derived from its AST handle, so
@@ -393,6 +400,20 @@ fn resolve_field_offset(rec_handle, field_name) =
   match perform lookup_ty(rec_handle) {
     TRecord(fields)        => field_byte_offset(fields, field_name, 0, len(fields)),
     TRecordOpen(fields, _) => field_byte_offset(fields, field_name, 0, len(fields)),
+    // H2.3: nominal records — chase TName through env to its
+    // RecordSchemeKind for the field schema. Same offset arithmetic
+    // applies (sorted-by-name, 4 bytes per i32-erased slot).
+    TName(name, _)         => match perform env_lookup(name) {
+      Some(entry) => {
+        let (_, _, kind) = entry
+        match kind {
+          RecordSchemeKind(fields) =>
+            field_byte_offset(fields, field_name, 0, len(fields)),
+          _ => 0
+        }
+      },
+      None => 0
+    },
     _                      => 0
   }
 
@@ -702,7 +723,8 @@ fn cfv_expr(e, bound) = match e {
 
   MakeListExpr(elems)  => cfv_list(elems, bound),
   MakeTupleExpr(elems) => cfv_list(elems, bound),
-  MakeRecordExpr(flds) => cfv_record_fields(flds, bound),
+  MakeRecordExpr(flds)        => cfv_record_fields(flds, bound),
+  NamedRecordExpr(_, flds)    => cfv_record_fields(flds, bound),
 
   LambdaExpr(params, body) => {
     let inner_bound = cfv_merge(bound, cfv_param_names(params))

@@ -497,6 +497,16 @@ fn parse_type_decl(tokens, pos) = {
     let (base_ty, _p3) = parse_type_ty(tokens, p2)
     let (pred, p4) = parse_predicate(tokens, skip_ws(tokens, probe + 1))
     (nstmt(RefineStmt(name, base_ty, pred), start), p4)
+  } else if at(tokens, p2, TLBrace) {
+    // H2.3 nominal record: `type Person = {name: String, age: Int}`.
+    // Single-variant type whose body is the record. Reuse
+    // parse_record_type_fields so the field-sort invariant matches
+    // structural records exactly.
+    let (flds, p3) = parse_record_type_fields(tokens, skip_ws(tokens, p2 + 1))
+    let sorted = sort_record_type_fields(flds)
+    let body = TRecord(sorted)
+    let variant = (name, [body])     // single variant named after the type
+    (nstmt(TypeDefStmt(name, [], [variant]), start), p3)
   } else {
     let (variants, p3) = parse_variants(tokens, p2)
     (nstmt(TypeDefStmt(name, [], variants), start), p3)
@@ -695,7 +705,45 @@ fn postfix_loop(tokens, e, pos) = match kind_at(tokens, pos) {
       nexpr(FieldExpr(e, field), span_join(start_span, field_span)),
       pos + 2)
   },
+  TLBrace => {
+    // H2.3 nominal record literal: `Person{name: "Morgan", ...}`.
+    // The brace must immediately follow a type-name VarRef (no
+    // whitespace between — postfix_loop is called with pos at the
+    // very next token). Type names are capitalized; lowercase
+    // identifiers fall through and the brace stays a separate
+    // construct (block at expr position, not a record literal).
+    let N(body, start_span, _) = e
+    let is_named_record = match body {
+      NExpr(VarRef(name)) =>
+        len(name) > 0 &&
+        first_char_code(name) >= 65 &&
+        first_char_code(name) <= 90,
+      _ => false
+    }
+    if is_named_record {
+      let type_name = match body {
+        NExpr(VarRef(n)) => n,
+        _                => ""
+      }
+      let (sorted, p2) = parse_named_record_body(tokens, pos + 1)
+      let end_span = span_at(tokens, p2 - 1)
+      postfix_loop(tokens,
+        nexpr(NamedRecordExpr(type_name, sorted), span_join(start_span, end_span)),
+        p2)
+    } else { (e, pos) }
+  },
   _ => (e, pos)
+}
+
+// Parse the body of a nominal record literal — same shape as
+// parse_record_fields but invoked from a different surface
+// (postfix-suffix vs primary). Sorts fields by name at parse time
+// to maintain the substrate-wide invariant.
+fn parse_named_record_body(tokens, pos) = {
+  let buf = make_list(4)
+  let (final_buf, final_count, p) = parse_record_fields(tokens, pos, buf, 0)
+  let sorted = sort_record_fields(slice(final_buf, 0, final_count))
+  (sorted, p)
 }
 
 fn parse_call_args(tokens, pos) = {
