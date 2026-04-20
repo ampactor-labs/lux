@@ -25,14 +25,37 @@ the one your fingers type if you let them. Every familiar pattern is
 fluent code that LOOKS competent but freezes Mentl into being the
 medium that birthed the pattern, not the medium it is.
 
-The five named drift modes — Rust vtable, Scheme env frame, Python
-dict, Haskell monad transformer, C calling convention — are exactly
-the patterns that have shown up in this repo's prior sessions.
-Closure-as-vtable. Scope-as-frame-stack. Effect-name-set-as-list.
-Handler-chain-as-monad-transformer. Implicit `__closure` and `__ev`
-as separate parameters instead of the unified `__state`. Each is
-competent code in another language and a cage in Inka. Naming them
-before typing forecloses the easy slide.
+The nine named drift modes — five from prior sessions, four
+surfaced during the γ cascade — are exactly the patterns that have
+shown up in this repo:
+
+**From prior sessions:**
+1. **Rust vtable** — closure-as-vtable.
+2. **Scheme env frame** — scope-as-frame-stack.
+3. **Python dict** — effect-name-set-as-list of strings.
+4. **Haskell monad transformer** — handler-chain-as-monad-transformer.
+5. **C calling convention** — implicit `__closure` and `__ev` as
+   separate parameters instead of the unified `__state`.
+
+**From the γ cascade:**
+6. **Primitive-type-special-case** — Bool was "special because it's
+   small and important." Every nullary ADT deserves the same
+   compilation discipline; primitives that exist to dodge a
+   substrate decision are drift in disguise. (HB.)
+7. **Parallel-arrays-instead-of-record** — `(locals, locals_h,
+   captures, captures_h)` was 4 parallel lists where one record +
+   sorted-set was the substrate-native form. (Ω.5.)
+8. **String-keyed-when-structured** — effect names as flat strings
+   concealed parameterization until EffName became an ADT. (H3.1.)
+   Same for tokens (Ω.4) and constructor SchemeKind (H3).
+9. **Deferred-by-omission** — claiming a handle done while leaving
+   sub-handles uncommitted. Splits cascade plan from cascade
+   reality. The honest move is either land the whole handle or
+   surface the deferred piece as its own named follow-up handle in
+   the plan, not as a "todo" inside a "complete" commit.
+
+Each is competent code in another language and a cage in Inka.
+Naming them before typing forecloses the easy slide.
 
 The four interrogations are not ceremony. They are the four
 projections any implementation must clear before it earns the right
@@ -94,6 +117,22 @@ That residue IS the Inka-native code.
   (e.g., `_ => Forall([], TVar(handle))`, `_ => "Pure"`). The
   dangerous form silently absorbs a new variant and emits wrong
   output; convert to explicit enumeration.
+- "I'll commit the substrate cleanup now and the wiring later." /
+  "This part is done; the rest is deferred." (Drift mode 9 —
+  deferred-by-omission. If the deferred piece is genuinely a
+  separate handle, name it in the plan; if it isn't, land the
+  whole thing. Splitting one handle across multiple commits with
+  "deferred" tags is the load-bearing dishonesty this discipline
+  refuses.)
+- "It's heavy." / "It's a representation change." / "Bool stays
+  primitive because…" (Fluency-defer audit. Distinguish: is this
+  blocked by missing substrate, or is the substrate decision
+  itself the unfinished piece? "Heavy" is a fluency signal, not
+  a constraint. Surface the substrate decision and decide it.)
+- "Mode 0 / 1 / 2." / "Use a flag for shape." (Drift mode 8 —
+  string-keyed-when-structured / int-coded-when-ADT. Every flag
+  or enum-as-int is an ADT begging to exist; H6 catches the
+  consequence at the next match site.)
 
 **Persistent memory** lives at
 `/home/suds/.claude/projects/-home-suds-Projects-inka/memory/`.
@@ -105,12 +144,14 @@ something new.
 
 **The vision document is `docs/DESIGN.md`. The execution roadmap is
 `docs/PLAN.md`. The living compendium of crystallized truths is
-`docs/INSIGHTS.md`. The seven anchors below are the minimum
-discipline; the vision is what makes the discipline coherent.**
+`docs/INSIGHTS.md`. The cascade walkthroughs live in
+`docs/rebuild/simulations/H*.md` (one per handle). The eight
+anchors below are the minimum discipline; the vision is what makes
+the discipline coherent.**
 
 ---
 
-> **Seven anchors. Read them before every non-trivial action.**
+> **Eight anchors. Read them before every non-trivial action.**
 
 ---
 
@@ -249,6 +290,43 @@ file you touch exits in its most powerful Inka form. Elegance falls
 out for free — the same way every property of Inka falls out for free
 from its one mechanism.
 
+## 7. Cascade discipline — walkthrough first, audit always.
+
+Each handle in the γ cascade lands in one well-defined sequence:
+
+1. **Walkthrough first.** Before code, the handle's
+   `docs/rebuild/simulations/H*.md` resolves every design question
+   in prose — layer-by-layer trace, design candidates with Mentl's
+   choice, dependencies, estimated scope. Code freezes only when
+   the walkthrough has nothing left to decide.
+
+2. **Riffle-back audit.** Before each new handle, audit the
+   walkthrough against substrate landings since it was written.
+   The substrate moves; addenda capture how prior decisions read
+   in the new light. Without this, walkthroughs ossify and the
+   cascade lands on yesterday's substrate.
+
+3. **Land whole.** A handle ends when its walkthrough's design
+   synthesis lands in code. If a sub-handle is genuinely separate
+   (its own walkthrough, its own design questions), name it in the
+   plan as a peer (H1.1, H4.1) and let it land in its own commit.
+   Don't split one handle across "substrate done / wiring later"
+   commits — that's drift mode 9.
+
+4. **Audit-after-land.** When a handle lands, audit ALL prior
+   walkthroughs and active code for new convergences. Three
+   instances of one shape earn the abstraction; record this when
+   you see the third arrive — the factoring lands in the next
+   handle that benefits.
+
+5. **The user is the auditor until Mentl is.** Until `mentl audit`
+   surfaces fluency-defers, duplicate-shapes, and incomplete
+   handles automatically, Morgan plays that role. When he asks
+   "is there anything else?" or "what about implications?" — those
+   are operational specifications of what the audit substrate
+   should expose. Treat them as substrate-design feedback, not as
+   conversational prompts to deflect.
+
 ---
 
 ## Operational essentials
@@ -259,10 +337,18 @@ in `std/compiler/` IS the compiler — written unconstrained from the
 lines) will compile it once. After that, Inka compiles itself. The
 translator is deleted. Active plan: `docs/PLAN.md`.
 
-**Progress (2026-04-17):** Specs ✅. Core files written (types, graph,
-effects, infer, lower, pipeline, own, verify, clock, mentl, lexer,
-parser). Remaining Phase 1 work: handler state threading, ADT
-deduplication, pipeline alignment, emit/runtime/main ports.
+**Cascade state:** the γ approach (γ = handle-graph; one walkthrough
+per handle resolves design before code freeze). Landed: Σ (SYNTAX),
+Ω.0–Ω.4 (audit sweeps), Ω.5 (frame consolidation), H6 (wildcard
+audit), H3 (ADT instantiation), H3.1 (parameterized effects), H2
+(structural records), HB (Bool transition + heap-base discriminator),
+H1 substrate (LMakeClosure absorbs LBuildEvidence + BodyContext +
+real LEvPerform), H4 substrate (region_tracker live arms +
+tag_alloc/check_escape sweep), H2.3 (nominal records). Active:
+H1.4/H1.6 (full evidence wiring) + H4 field-store-as-escape +
+record-shape sweeps for region_tracker / handler arms. Then H5
+(Mentl's arms — gradient + audit). Bootstrap remains out of mind
+until the cascade closes.
 
 **Build commands (when bootstrap translator exists):**
 
@@ -288,9 +374,25 @@ Substrate."
 - Duplicate top-level function names (emitter picks one silently).
 - Flat-array list ops in Snoc-tree paths (`list[i]` in a loop — O(N²) and wrong semantics).
 - `println` inside `report(...)` handler arms (corrupts WAT stdout).
-- Bare `==` on strings — use `str_eq(a, b) == 1`. User generics are
-  NOT instantiated per call-site; `TVar == TVar` codegens to pointer
-  compare (works in Rust VM, fails in WASM on runtime-built strings).
+- Bare `==` on strings — use `str_eq(a, b)`. (Post-Ω.2, `str_eq`
+  returns Bool; `if str_eq(a, b) { ... }` is the canonical form.
+  The deprecated `str_eq(a, b) == 1` shape is gone.) User generics
+  are NOT instantiated per call-site; `TVar == TVar` codegens to
+  pointer compare (works in Rust VM, fails in WASM on runtime-built
+  strings).
+- `acc ++ [X]` in a loop body — O(N²) allocation churn. Use the
+  buffer-counter substrate (`list_extend_to(buf, count+1)` +
+  `list_set(buf, count, x)` + counter + `slice(buf, 0, count)`).
+  Ω.3 swept the substrate; new code maintains it.
+- Flag/mode-as-int (`mode == 0`, `mode == 1`) in any non-trivial
+  dispatch — drift mode 8. Convert to ADT before the next match
+  fires; H6 catches it eventually anyway.
+- HEAP_BASE = 4096 collision risk — sentinel values for nullary
+  ADT variants live in `[0, HEAP_BASE)`; bump allocator
+  initializes `$heap_ptr` at 1 MiB so collisions are impossible.
+  Any change to either constant requires updating both at once
+  (`runtime/lists.ka` for the bump init; `backends/wasm.ka` for
+  emit_match_arms_mixed's threshold compare).
 
 **Ask the artifact.** `wabt` is installed. Before hypothesizing:
 
@@ -347,7 +449,9 @@ once, fix.
 | `std/runtime/io.ka` | WASI iov scratch + print/read primitives |
 | `std/main.ka` | Entry: read stdin → compile → emit WAT |
 | `docs/PLAN.md` | THE plan |
+| `docs/SYNTAX.md` | Canonical syntax (Σ landed; SYNTAX is the wheel parser is the lathe) |
 | `docs/rebuild/00–11` | The 12 executable specs |
+| `docs/rebuild/simulations/H*.md` | Per-handle walkthroughs (γ cascade) — read before touching the handle's substrate |
 | `docs/errors/` | Error catalog |
 
 **Delete, don't decorate.** No `// removed for X` comments. No
@@ -361,7 +465,8 @@ trailer, no inline mentions. Write commits as Morgan wrote them alone.
 
 ## Crystallized Insights (load-bearing truths)
 
-Seven insights from INSIGHTS.md that bind all implementation:
+Ten insights — seven from INSIGHTS.md plus three crystallized
+during the γ cascade — that bind all implementation:
 
 1. **The Handler Chain Is a Capability Stack.** `~>` ordering is a
    trust hierarchy. Outermost = least trusted. Compiler-proven.
@@ -380,20 +485,48 @@ Seven insights from INSIGHTS.md that bind all implementation:
    through. Inference structurally unifies. There is no "splatting"
    question. The developer controls arity via their function
    signature. One mechanism. Never re-open this.
+8. **The Heap Has One Story.** Closures, ADT variants (fielded),
+   nominal records, and closures-with-evidence ALL allocate via
+   `emit_alloc(size, "<tmp>")` with field stores at fixed offsets
+   from the result pointer. Four shapes, one EmitMemory swap
+   surface — bump today, arena tomorrow, GC eventually. Nullary
+   ADT variants take the sentinel path (`(i32.const tag_id)`, no
+   allocation); the heap-base threshold (HEAP_BASE = 4096) keeps
+   sentinels and pointers disambiguable in mixed-variant types.
+9. **Records Are The Handler-State Shape.** Frame consolidation
+   (Ω.5) turned parallel arrays to records; H1.3's BodyContext,
+   H4's region_tracker, H5's AuditReport all converge here. Adding
+   a field is additive; tuples force every consumer to widen.
+   Until functional update lands (H2.2), arms reconstruct the
+   record explicitly — verbose but honest.
+10. **Row Algebra Is One Mechanism Over Different Element Types.**
+    String-set (runtime/strings), name-set (effects.ka, EffName),
+    field-set (records, sorted by field name), tagged_values
+    (region_tracker, sorted by handle) — four parallel
+    implementations of one ordered-keyed-set algebra. The
+    abstraction earns its weight when a fifth instance arrives;
+    until then, the parallel forms are honest about what's not
+    yet generic.
 
 ---
 
 ## Deep context (read when you need it)
 
-- **`docs/PLAN.md`** — THE plan. Three phases: Write VFINAL,
-  Bootstrap, First Light. Plus post-first-light arcs F-J.
+- **`docs/PLAN.md`** — THE plan. γ cascade with explicit handle
+  ordering and Ω audit phases. Bootstrap remains out of mind
+  until the cascade closes.
+- **`docs/SYNTAX.md`** — canonical syntax (Σ phase). The wheel
+  Ω.4's parser was shaped to.
 - **`docs/rebuild/00–11-*.md`** — the 12 executable specs. ADTs,
   effects, invariants. Each ≤ 300 lines.
+- **`docs/rebuild/simulations/H*.md`** — per-handle walkthroughs.
+  Read the relevant one BEFORE touching that handle's substrate.
+  Addenda capture how prior decisions read in current substrate
+  — riffle-back is mandatory before each new handle commits.
 - **`docs/errors/`** — canonical error catalog (E/V/W/T/P codes).
   Every diagnostic resolves through this.
 - **`docs/INSIGHTS.md`** — core truths: inference is the light, five
-  verbs draw topology, handlers read it, what Inka dissolves. Six
-  crystallized architectural insights (2026-04-17).
+  verbs draw topology, handlers read it, what Inka dissolves.
 - **`docs/DESIGN.md`** — language manifesto, effect algebra, gradient,
   refinement types, DSP/ML unification.
 - **`docs/SYNTHESIS_CROSSWALK.md`** — historical: external validation
