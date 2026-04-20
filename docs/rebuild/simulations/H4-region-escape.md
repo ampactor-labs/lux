@@ -430,3 +430,99 @@ Phase E).
 - **Sub-handles:** H4.1 branch-level region checks (if not
   included), H4.2 closure capture region propagation (if not
   included). Named; landed if trivial.
+
+---
+
+## Post-H3 / H3.1 / H2 / Ω.5 implications (riffle-back)
+
+H4 was drafted with awareness of H2/H3 alloc sites but not their
+runtime semantics. The substrate has shifted; H4's escape-tracking
+needs sharpening at three points.
+
+### Field-store as escape vector (H2)
+
+A pointer captured in scope α can ESCAPE by being stored into a
+record field that outlives α. Today H4 names construction sites as
+"alloc points to track" — but the record's field-store at
+construction time is precisely the escape EDGE.
+
+Concrete: `let r = {child: alloc_inner_ptr}` where `alloc_inner_ptr`
+came from a tighter scope. The record `r` outlives that scope
+(returned, stored elsewhere, captured by a longer-lived closure).
+Region escape: the field load reaches `alloc_inner_ptr` after its
+arena reclaimed; classic dangling read.
+
+H4 needs to detect: when LMakeRecord (or LMakeVariant with fields)
+captures pointers from inner-region values, the record's region
+inherits the WIDEST inner region. A record's region is the JOIN
+(outer-most/longest-lived) of (its allocation site, every pointer
+field's source region). If any field outlives the record's
+allocation site, escape: E_RegionEscape.
+
+This is a NEW invariant H4 needs to track: **per-handle region is
+NOT just the alloc site's region; it's the join of the alloc and
+any embedded pointer's region.** Implementation: when tag_alloc
+fires for an LMakeRecord/LMakeVariant with pointer-typed fields,
+walk each field's handle, look up its tagged region, take the max
+(outermost = longest-lived).
+
+### Parameterized effects share regions (H3.1)
+
+`with Sample(44100)` and `with Sample(48000)` are distinct row
+entries but their HANDLER ARMS are still arms of the `Sample`
+effect. If both install handlers that call `alloc`, do their
+regions interact?
+
+Decision: **regions are per-handler-INSTALLATION, not per-effect**.
+Two `handle ... with Sample(44100)` scopes nested produce two
+separate regions, each their own arena. Two scopes side-by-side
+(sequential) produce two separate regions that don't overlap in
+time. Parameterization doesn't change region identity — the
+HandleExpr scope does.
+
+This is what the walkthrough already implies; making it explicit
+prevents a future drift where someone treats `Sample(44100) ==
+Sample(48000)` as same-region.
+
+### Variant-tag's region (H3)
+
+LMakeVariant stores tag at offset 0 + fields at offsets 4+4i. The
+TAG isn't a pointer (it's a literal int) — no region tracking.
+Fields ARE pointers (i32-erased) — same record-field rule as above.
+
+Nullary variants (post-Bool transition) become sentinel values, no
+allocation. Sentinels have no region — they're values, not heap
+addresses. The escape rule trivially holds: sentinels can flow
+anywhere.
+
+### Frame records (Ω.5) are scope-local
+
+infer_ctx and lower_scope's frame records are records in the
+inference's HOST language (the compiler), not user-program records
+needing escape tracking. They don't reach H4's check_escape sweep
+because they're never passed back through user code. Note:
+diagnostic-only.
+
+### What H4 inherits
+
+- LMakeRecord / LMakeVariant in lower (H2 / H3) — alloc sites
+  ready to receive tag_alloc.
+- emit_alloc swap surface (Phase A + H3 + H2) — region-aware
+  EmitMemory variant lands without changing call sites.
+- Frame-record discipline (Ω.5) — region_tracker's state IS a
+  record literal with named fields.
+- EffectOpScheme dispatch (H3) — `perform alloc(N)` already routes
+  to LPerform; H4 reads the call's row to confirm Alloc and tags
+  the resulting handle.
+
+### Updated estimated scope
+
+- Add a **region-join helper** to the tag_alloc path: for
+  LMakeRecord/LMakeVariant, compute the field-pointer-regions join
+  and tag the constructing handle with the outermost region.
+- One additional helper file (or in-place in own.ka): ~30 lines.
+- The escape-check at FnStmt exit gains a "field-walk" pass for
+  records — recursive but bounded by record depth (~5 lines deeper).
+
+H4 still single-commit. H4.1 (branch-level) and H4.2 (closure
+captures across scopes) remain as named sub-handles if scope grows.

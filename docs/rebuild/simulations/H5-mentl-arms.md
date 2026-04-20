@@ -381,3 +381,177 @@ ev_shapes. H5 lands AFTER H1.
   audit share the HandlerCatalog substrate.
 - **Sub-handles possibly:** H5.1 catalog population, H5.2
   patch text synthesis. Named; absorbed into H5 if trivial.
+
+---
+
+## Post-H3 / H3.1 / H2 / Ω.5 implications (riffle-back)
+
+H5 was drafted before the substrate landings. Its propositions
+remain right; its substrate becomes friendlier. Three places need
+sharpening before H5 lands.
+
+### Effect names everywhere become EffName, not String
+
+The walkthrough writes `["Alloc"]`, `"Pure"`, `"IO"` as bare
+strings. Post-H3.1, every row entry is an `EffName` — `ENamed("Alloc")`
+or `EParameterized("Sample", [EAInt(44100)])`. Every place H5
+reads or writes a row needs to use the EffName shape.
+
+Concrete patches:
+
+```
+// before
+let alloc_row = mk_ef_closed(["Alloc"])
+// after
+let alloc_row = mk_ef_closed([ENamed("Alloc")])
+```
+
+```
+// AuditReport's severance candidates
+type AuditReport = {
+  ...
+  severable: List      // List<EffName> not List<String>
+  unlocks: List        // List<Capability>  — Capability is a String
+}
+```
+
+The render side (terminal / JSON) calls `show_eff_name(name)` —
+already exists in types.ka. `Sample(44100)` renders correctly.
+
+**Mentl gains a parameterized-effect audit category for free.** A
+function declaring `with Sample(44100)` could be tightened to
+`with Sample(44100) + !Alloc + !IO + ...` — same severance logic,
+EffName-aware. The gradient walkthrough's I17 example with
+`Sample(44100)` becomes substrate-native.
+
+### AuditReport, gradient candidates, ANY Mentl output IS a record
+
+H2 makes records a first-class shape. AuditReport's structure:
+
+```
+type AuditReport = {
+  fn_name: String,
+  reached: List,           // List<EffName>
+  unreached: List,         // List<HandlerName> — handlers installed but unused
+  severable: List,         // List<EffName> — not in body, could add !E
+  unlocks: List,           // List<Capability> — what severance enables
+  proposed_signature: String
+}
+```
+
+The terminal renderer reads fields by name; JSON renderer
+introspects each field. The Proof Lens (post-cascade enhancement)
+introspects the same record on hover. **One record, three
+projections** — exactly the substrate-handler discipline H5
+operationalizes.
+
+Gradient candidates are records too:
+
+```
+type WrapCandidate = {
+  handler_name: String,
+  span: Span,
+  unlocks_capabilities: List,
+  text_patch: String,        // the diff fragment
+  proven: Bool               // checkpoint/inference/Verify all passed
+}
+```
+
+Mentl's "PROVEN before suggestion" discipline (per the post-cascade
+plan) IS a Bool field on the record. The IDE filters by it.
+
+### HandlerCatalog state is a record
+
+Following Ω.5's frame-record pattern:
+
+```
+handler handler_catalog with state = {
+  registered: [],            // List<{handler_name, handles_effect, op_arms}>
+  install_sites: []          // [(handler_name, span)]
+} {
+  catalog_register(name, eff, arms) =>
+    ...
+}
+```
+
+Each `registered` entry is itself a record. Mentl's enumeration
+walks the list of records by field name. Adding new metadata
+(`memory_safety: Bool`, `purity_witness: Bool`) is additive.
+
+### Mentl uses ConstructorScheme to enumerate AnnotationKind candidates
+
+H3's ConstructorScheme(tag_id, total_variants) means: when Mentl
+considers all possible annotations to apply, it can read
+`Annotation`'s declared variants from env (their tag_ids and total
+count) instead of hard-coding the variant list. **Future-proof: a
+new Annotation variant added to types.ka automatically becomes a
+candidate Mentl considers.**
+
+```
+// Walking annotation candidates
+fn enumerate_annotation_candidates() =
+  match perform env_lookup("Annotation") {
+    Some(entry) => {
+      let (_, _, kind) = entry
+      match kind {
+        ConstructorScheme(_, total) => /* enumerate 0..total */,
+        _ => []
+      }
+    },
+    None => []
+  }
+```
+
+Today this would be a hardcoded match over Annotation variants.
+After H3, it's a graph read.
+
+### Frame records (Ω.5) carry forward into H5's apply/rollback walks
+
+Mentl's oracle walks: tentatively bind handle → apply annotation →
+re-infer → check verify → either commit or rollback. The "store
+rollback state" was tuple-based per the walkthrough. Post-Ω.5,
+each tentative state IS a record:
+
+```
+type OracleState = {
+  trail_checkpoint: Int,
+  applied_annotation: Annotation,
+  before_verify_count: Int
+}
+```
+
+Adding a "before_diagnostic_count" field (so rollback erases
+emitted diagnostics) is additive. The discipline keeps Mentl's
+exploration honest — every speculative state is fully captured;
+rollback restores every field.
+
+### What H5 inherits
+
+- Records (H2) for every Mentl output structure.
+- ConstructorScheme (H3) for variant enumeration without hardcoding.
+- EffName (H3.1) for parameterized effects in audits.
+- Frame records (Ω.5) for oracle exploration state.
+- Heap-uniform alloc + EmitMemory swap surface — Mentl's tentative
+  records are as cheap as any other; arena reclamation gives them
+  natural lifetime.
+
+### The thesis crystallizes
+
+Mentl IS the projection. Every Mentl output is a record. Every
+candidate is a record. Every audit step reads from and writes to
+records. The substrate H5 lands ON is records-all-the-way-down —
+no string-keyed dictionaries pretending to be structured data.
+
+Post-cascade, Mentl's Proof Lens / Gradient ghost text / Structure-
+edit mode become record introspection. The IDE doesn't need to know
+about Mentl's output shapes — it just walks the record's fields and
+renders. **H5 is what makes the post-cascade enhancements
+projectable.** The walkthrough's "Mentl is the thesis made flesh"
+gains a substrate corollary: "the flesh IS the record."
+
+### Updated estimated scope
+
+Unchanged: ~5 files. Internal coupling stays. The substrate
+landings simplify the implementation rather than expand it — every
+record is a literal; every annotation enumeration is a graph read;
+every effect comparison is structural.

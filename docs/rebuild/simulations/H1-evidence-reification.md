@@ -553,3 +553,127 @@ Named; post-six-handles discussion.
   coupling justifies single commit.
 - **Sub-handles:** H1.1 handler arm emission (possibly), H1.2
   PTee handler-value typing (deferred to post-six).
+
+---
+
+## Post-H3 / H3.1 / H2 / Ω.5 implications (riffle-back)
+
+This walkthrough was drafted before the substrate landings. Decisions
+hold; framing shifts. Captures here so H1 lands on an honest reading
+of where the wheel actually is.
+
+### Already in place when H1 starts
+
+- **EffectOpScheme dispatch is wired (H3).** lower's CallExpr already
+  pattern-matches: `Some(EffectOpScheme(_)) => LPerform(handle, name,
+  lo_args)`. H1 doesn't re-discover this — it only needs to refine
+  the LPerform branch into LPerform vs LEvPerform based on whether
+  the perform site is in a polymorphic context. The "trigger" the
+  walkthrough's Revelation E names has been firing for several
+  commits.
+
+- **Heap-uniform `emit_alloc` substrate (H3 + H2).** LMakeClosure,
+  LMakeVariant, LMakeRecord all share `emit_alloc(size, "<tmp>")` +
+  per-field stores at fixed offsets. H1's grown LMakeClosure
+  (captures + ev_slots) is the **fourth instance** — same dispatch,
+  same EmitMemory swap surface. The factoring is now visible enough
+  to lift to a generic `emit_record_layout(slots: List<(offset,
+  expr)>)` if H1 introduces enough ad-hoc store calls to make it
+  worth it.
+
+- **Frame records (Ω.5).** infer_ctx's frames are records.
+  H1's `BodyContext` handler would naturally use the same shape —
+  state as `{captures: Int, evidence: List, handler_stack: List}`
+  rather than parallel `with` slots. One commit-pattern carries
+  forward: define the record shape in handler init; mutate via
+  explicit reconstruction in arms.
+
+- **EffName is structured (H3.1).** Effect-row entries are EffName
+  (ENamed | EParameterized) not String. The walkthrough's `op_name:
+  String` references stay correct — **evidence is OP-keyed, not
+  effect-keyed**, and ops live in their declaring effect's namespace
+  with a String name. Confirmed below.
+
+### What stays / what shifts in H1's design
+
+**Stays:**
+- ev_shape derivation candidate γ (sort row at use, no new storage).
+- LMakeClosure absorbs LBuildEvidence (design surpass).
+- BodyContext effect for body_capture_count + handler_stack at emit.
+- Transient evidence record per poly call, arena-aware.
+- PTee evidence deferred (handler-value typing is its own piece).
+
+**Shifts:**
+- **ev_shape's element shape**. The walkthrough shows
+  `ev_shape: List[(String, Int)]`. With H3.1, the row contains
+  EffName, but the EVIDENCE is per-OP not per-effect. Clarification:
+
+  ```
+  let body_row : EfRow                        // contains EffName entries
+  let row_ops  : List<String>                 // ops declared by body's row's effects
+  let handled  : List<String>                 // ops absorbed by body's HandleExprs
+  let ev_shape : List<(String, Int)>          // op_name × slot_idx
+                = sort(row_ops \ handled)
+  ```
+
+  An effect like `Sample(44100)` contributes its OPS (e.g., `fetch`)
+  to row_ops by name. Two installations `Sample(44100)` and
+  `Sample(48000)` contribute the SAME op names; their evidence
+  slots store DIFFERENT fn_idx values (one per handler instance).
+  Parameterization is row-internal; evidence is op-keyed. Same as
+  the walkthrough described, just more explicit about which shape
+  the EffName lives in.
+
+- **handler_stack metadata as record**. Walkthrough proposes
+  `[(String, List)]`. Per Ω.5 discipline, a record:
+  ```
+  type HandlerFrame = {handler_name: String, op_names: List}
+  handler_stack: List<HandlerFrame>
+  ```
+  Mutations explicit; new fields additive. Aligns with infer_ctx
+  and lower_scope's frame shape.
+
+- **BodyContext handler state as record**:
+  ```
+  handler body_context with state = {
+    captures: 0,
+    evidence: [],
+    handler_stack: []
+  } { ... }
+  ```
+  Each arm reads `state.captures` directly. A new field added later
+  (e.g., region_id from H4) doesn't break existing arms.
+
+### What H1 lands ON that the walkthrough didn't anticipate
+
+- **Records are THE handler-state shape now.** Every effect handler
+  with state has the option of one record per scope vs N parallel
+  slots. H1's BodyContext exemplifies the cleaner form.
+
+- **Bool nullary-sentinel pending.** If Bool transitions to ADT
+  (separate walkthrough), H1's evidence records will hit
+  `LMakeVariant` for `True`/`False` arguments, which sentinel-emit.
+  Evidence storage for Bool args is one i32, no allocation. No H1
+  change required — falls out of the sentinel transition.
+
+- **Single-variant ADT ⇔ record (H2 gradient).** Mentl's audit (H5)
+  could observe: the closure record `[fn_ptr, capture_count,
+  captures..., evidence...]` is structurally a record. Future
+  refactor — the WAT layout invariant is positional and load-bearing
+  for the calling convention, but the SOURCE-LEVEL projection of
+  a closure could be a record type. Out of H1 scope; surfaced.
+
+### Recap
+
+H1's load-bearing design — derivable ev_shape, LMakeClosure
+absorption, BodyContext for emit-time threading, transient evidence
+allocation — is unchanged. The post-cascade substrate makes the
+LANDING cleaner: one less LIR variant (LBuildEvidence already
+flagged for deletion), one cleaner handler-state shape (records),
+one already-wired SchemeKind dispatch to extend (LPerform →
+LEvPerform fork in poly contexts).
+
+Estimated scope updated: **~5 files** (was 6 — pipeline.ka's
+body_context install collapses into the same emit module since
+records make the state shape one literal). Single commit still
+holds.
