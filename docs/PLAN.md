@@ -11,32 +11,34 @@
 - **Cascade walkthroughs.** `docs/rebuild/simulations/H*.md` — one per
   handle. Each resolves design before code freeze. Riffle-back
   addenda capture how prior decisions read in new substrate.
-- **γ cascade — landed (in order):**
-  Σ (SYNTAX.md), Ω.0–Ω.4 (audit sweeps + parser refactor),
-  Ω.5 (frame consolidation), H6 (wildcard audit),
-  H3 (ADT instantiation), H3.1 (parameterized effects),
-  H2 (structural records), HB (Bool transition + heap-base
-  discriminator), H1 substrate (LMakeClosure absorbs LBuildEvidence
-  + BodyContext + LEvPerform real offset arithmetic),
-  H4 substrate (region_tracker live arms + tag_alloc/check_escape
-  sweep), H2.3 (nominal records), H1.4 (handler arm fn indexing).
-- **γ cascade — pending peer handles:**
-  - **H1.6** — transient evidence record at poly-call sites.
-    Substrate is in place (LMakeClosure ev_slots; LEvPerform offset
-    arithmetic; LDeclareFn for arms). Pending: lower-time
-    handler_stack tracking + LCallWithEv (or extended LCall) +
-    emit-side transient closure construction. Compiler-on-itself
-    is monomorphic (every body row is ground); H1.6 fires when
-    user code uses polymorphic effect handlers.
-  - **H4.1** — field-store as escape vector. Per H4 walkthrough's
-    addendum: when LMakeRecord/LMakeVariant captures pointers from
-    inner-region values, the constructed handle's region is the
-    JOIN (outer-most/longest-lived) of (alloc site, every pointer
-    field's source region). Today tag_alloc only stamps the
-    construction site. Region-join logic adds depth.
-  - **H5** — Mentl's arms (gradient + audit). Lands on a substrate
-    that has parameterized effects, records, and the heap-uniform
-    discipline.
+- **γ cascade — CLOSED.** All handles + their surfaced peers landed:
+  Σ (SYNTAX.md), Ω.0–Ω.5 (audit sweeps + parser refactor + frame
+  consolidation), H6 (wildcard audit), H3 (ADT instantiation),
+  H3.1 (parameterized effects), H2 (structural records),
+  HB (Bool transition + heap-base discriminator),
+  H1 (full evidence wiring: substrate cleanup + BodyContext +
+  LEvPerform offset arithmetic + LDeclareFn handler arm indexing
+  + transient evidence at poly-call sites),
+  H4 (full region escape: substrate + tag_alloc/check_escape sweep
+  + region-join for compound-type field stores),
+  H2.3 (nominal records), H5 substrate (AWrapHandler annotation +
+  AuditReport records + severance enumeration + capability unlocks +
+  static handler catalog).
+
+- **γ cascade — future polish (not blocking):**
+  - **Runtime HandlerCatalog** — convert today's static
+    catalog_handled_effects table to an effect-based handler with
+    runtime registration. Lands when user-level handler discovery
+    is exercised (LSP integration, IDE handler picker).
+  - **Gradient-candidate oracle** — verify-then-suggest pipeline
+    for Mentl's I15 propositions (checkpoint → speculative
+    annotation → re-infer → verify or rollback). Substrate
+    (Synth effect, mentl_default handler, AWrapHandler arm) is
+    in place; the oracle integration is its own focused pass.
+
+- **Verification (post-cascade):** Sonic Pulse end-to-end trace
+  through every compilation stage. Walkthrough discipline — not
+  wasmtime. Captured in `docs/traces/sonic_pulse.md` when written.
 - **Bootstrap translator.** Not started; out of mind until cascade
   closes.
 - **Error catalog.** String-coded (prefix-kind + self-documenting
