@@ -251,7 +251,10 @@ fn collect_strings_expr(expr, acc, next_offset) = match expr {
   LLoop(_, body)              => collect_strings_list(body, acc, next_offset),
   LBreak(_, v)                => collect_strings_expr(v, acc, next_offset),
   LSwitch(_, s, _c)           => collect_strings_expr(s, acc, next_offset),
-  LSuspend(_, _, f, args)     => collect_strings_bin_list(f, args, acc, next_offset),
+  LSuspend(_, _, f, args, ev) => {
+    let (acc1, o1) = collect_strings_bin_list(f, args, acc, next_offset)
+    collect_strings_list(ev, acc1, o1)
+  },
   LStateGet(_, _)             => (acc, next_offset),
   LStateSet(_, _, v)          => collect_strings_expr(v, acc, next_offset),
   LRegion(_, body)            => collect_strings_list(body, acc, next_offset),
@@ -353,7 +356,10 @@ fn collect_fn_names_expr(expr, acc) = match expr {
   LLoop(_h, body)            => collect_fn_names_list(body, acc),
   LBreak(_h, v)              => collect_fn_names_expr(v, acc),
   LSwitch(_h, s, _c)         => collect_fn_names_expr(s, acc),
-  LSuspend(_h, _o, f, args)  => collect_fn_names_list(args, collect_fn_names_expr(f, acc)),
+  LSuspend(_h, _o, f, args, ev) =>
+    collect_fn_names_list(ev,
+      collect_fn_names_list(args,
+        collect_fn_names_expr(f, acc))),
   LStateSet(_h, _s, v)       => collect_fn_names_expr(v, acc),
   LRegion(_h, body)          => collect_fn_names_list(body, acc),
   LHandleWith(_h, b, hn)     => collect_fn_names_expr(hn, collect_fn_names_expr(b, acc)),
@@ -559,7 +565,7 @@ fn max_arity_in(stmts, acc) =
 fn max_arity_expr(expr) = match expr {
   LCall(_, _, args)         => len(args) + 1,
   LTailCall(_, _, args)     => len(args) + 1,
-  LSuspend(_, _, _, args)   => len(args) + 1,
+  LSuspend(_, _, _, args, _) => len(args) + 1,
   LPerform(_, _, args)      => len(args),
   LEvPerform(_, _, _, args) => len(args) + 1,
   LLet(_, _, inner)         => max_arity_expr(inner),
@@ -703,7 +709,9 @@ fn emit_fns_expr(expr) = match expr {
   LLoop(_h, body)            => emit_fns_list(body),
   LBreak(_h, v)              => emit_fns_expr(v),
   LSwitch(_h, s, _c)         => emit_fns_expr(s),
-  LSuspend(_h, _o, f, args)  => { emit_fns_expr(f); emit_fns_list(args) },
+  LSuspend(_h, _o, f, args, ev) => {
+    emit_fns_expr(f); emit_fns_list(args); emit_fns_list(ev)
+  },
   LStateSet(_h, _s, v)       => emit_fns_expr(v),
   LRegion(_h, body)          => emit_fns_list(body),
   LHandleWith(_h, b, hn)     => { emit_fns_expr(b); emit_fns_expr(hn) },
@@ -747,6 +755,9 @@ fn emit_fn_body(name, param_names, body, captures_count) = {
   perform wat_emit(" (local $variant_tmp i32)")
   perform wat_emit(" (local $record_tmp i32)")
   perform wat_emit(" (local $scrut_tmp i32)")
+  perform wat_emit(" (local $callee_closure i32)")
+  perform wat_emit(" (local $alloc_size i32)")
+  perform wat_emit(" (local $loop_i i32)")
   emit_let_locals_list(body)
   perform wat_emit("\n")
   emit_body(body)
@@ -797,7 +808,9 @@ fn emit_let_locals_expr(expr) = match expr {
   },
   LBreak(_h, v)             => emit_let_locals_expr(v),
   LSwitch(_h, s, _c)        => emit_let_locals_expr(s),
-  LSuspend(_h, _o, f, args) => { emit_let_locals_expr(f); emit_let_locals_list(args) },
+  LSuspend(_h, _o, f, args, ev) => {
+    emit_let_locals_expr(f); emit_let_locals_list(args); emit_let_locals_list(ev)
+  },
   LStateSet(_h, _s, v)      => emit_let_locals_expr(v),
   LRegion(_h, body)         => emit_let_locals_list(body),
   LHandleWith(_h, b, hn)    => { emit_let_locals_expr(b); emit_let_locals_expr(hn) },
@@ -1124,12 +1137,74 @@ fn emit_expr(expr) = match expr {
     perform wat_emit("    ;; switch\n")
   },
 
-  LSuspend(_h, _op_h, func, args) => {
-    emit_expr_list(args)
+  LSuspend(_h, _op_h, func, args, ev_slots) => {
+    // H1.6: poly call with transient evidence record. Build a
+    // fresh closure copy of the callee with the same fn_ptr +
+    // captures, plus ev_slots filled from the caller's scope.
+    // Empty ev_slots = the row was non-ground but no ops needed
+    // evidence (degenerate); same shape as today's monomorphic
+    // call_indirect path, just routed through a fresh transient.
+    //
+    // Layout matches LMakeClosure's:
+    //   offset 0 : fn_ptr (copied)
+    //   offset 4 : capture_count nc (copied)
+    //   offset 8 + 4*i              : capture_i (copied via runtime loop)
+    //   offset 8 + 4*nc + 4*j       : ev_slot_j (newly stored)
+    let ne = len(ev_slots)
+    // Save callee closure pointer for header read + capture copy.
     emit_expr(func)
-    perform wat_emit("    ;; evidence-passing call\n")
+    perform wat_emit("    (local.set $callee_closure)\n")
+    // Read nc; allocate transient (size = 8 + 4*(nc + ne)).
+    perform wat_emit("    (i32.const 8)\n")
+    perform wat_emit("    (i32.const ")
+    perform wat_emit(int_to_str(4 * ne))
+    perform wat_emit(")\n")
+    perform wat_emit("    (i32.add)\n")
+    perform wat_emit("    (local.get $callee_closure) (i32.load offset=4)\n")
+    perform wat_emit("    (i32.const 4) (i32.mul)\n")
+    perform wat_emit("    (i32.add)\n")
+    perform wat_emit("    (local.set $alloc_size)\n")
+    // emit_alloc with dynamic size: route through emit_alloc_dyn
+    // (variant of emit_alloc taking i32 from local.get $alloc_size).
+    // Bump-alloc inlines: allocate $alloc_size bytes, store base
+    // into $state_tmp, advance $heap_ptr.
+    perform wat_emit("    (global.get $heap_ptr) (local.set $state_tmp)\n")
+    perform wat_emit("    (global.get $heap_ptr) (local.get $alloc_size) (i32.add) (global.set $heap_ptr)\n")
+    // Copy header (fn_ptr + capture_count = 8 bytes).
+    perform wat_emit("    (local.get $state_tmp) (local.get $callee_closure) (i32.load offset=0) (i32.store offset=0)\n")
+    perform wat_emit("    (local.get $state_tmp) (local.get $callee_closure) (i32.load offset=4) (i32.store offset=4)\n")
+    // Copy each capture from callee_closure[8 + 4*i] to
+    // state_tmp[8 + 4*i] via runtime loop driven by capture_count.
+    perform wat_emit("    (i32.const 0) (local.set $loop_i)\n")
+    perform wat_emit("    (block $copy_done\n")
+    perform wat_emit("      (loop $copy_loop\n")
+    perform wat_emit("        (local.get $loop_i)\n")
+    perform wat_emit("        (local.get $callee_closure) (i32.load offset=4)\n")
+    perform wat_emit("        (i32.ge_u)\n")
+    perform wat_emit("        (br_if $copy_done)\n")
+    // dst = state_tmp + 8 + 4*i
+    perform wat_emit("        (local.get $state_tmp)\n")
+    perform wat_emit("        (local.get $loop_i) (i32.const 4) (i32.mul) (i32.add)\n")
+    perform wat_emit("        (i32.const 8) (i32.add)\n")
+    // src = callee_closure + 8 + 4*i, loaded
+    perform wat_emit("        (local.get $callee_closure)\n")
+    perform wat_emit("        (local.get $loop_i) (i32.const 4) (i32.mul) (i32.add)\n")
+    perform wat_emit("        (i32.const 8) (i32.add)\n")
+    perform wat_emit("        (i32.load)\n")
+    perform wat_emit("        (i32.store)\n")
+    perform wat_emit("        (local.get $loop_i) (i32.const 1) (i32.add) (local.set $loop_i)\n")
+    perform wat_emit("        (br $copy_loop)\n")
+    perform wat_emit("      )\n")
+    perform wat_emit("    )\n")
+    // Store each ev_slot at offset 8 + 4*nc + 4*j.
+    // Computed at runtime: base_offset = 8 + 4*nc; slot j adds 4*j.
+    emit_ev_slots_dynamic(ev_slots, 0)
+    // Dispatch: (state_tmp, args..., fn_ptr) → call_indirect
+    perform wat_emit("    (local.get $state_tmp)\n")
+    emit_expr_list(args)
+    perform wat_emit("    (local.get $state_tmp) (i32.load offset=0)\n")
     perform wat_emit("    (call_indirect (type $ft")
-    perform wat_emit(int_to_str(len(args)))
+    perform wat_emit(int_to_str(len(args) + 1))
     perform wat_emit("))\n")
   },
 
@@ -1338,6 +1413,26 @@ fn emit_ev_slot_stores(ev_exprs, nc, j) =
     perform wat_emit(int_to_str(8 + 4 * nc + 4 * j))
     perform wat_emit(")\n")
     emit_ev_slot_stores(list_tail(ev_exprs), nc, j + 1)
+  }
+
+// H1.6: dynamic-offset variant for LSuspend's transient closure.
+// nc is runtime-known (loaded from $callee_closure[4]); each ev
+// slot's address is base + 8 + 4*nc + 4*j computed at runtime.
+fn emit_ev_slots_dynamic(ev_exprs, j) =
+  if len(ev_exprs) == 0 { () }
+  else {
+    // Address: state_tmp + 8 + 4*nc + 4*j
+    perform wat_emit("    (local.get $state_tmp)\n")
+    perform wat_emit("    (i32.const 8) (i32.add)\n")
+    perform wat_emit("    (local.get $callee_closure) (i32.load offset=4)\n")
+    perform wat_emit("    (i32.const 4) (i32.mul) (i32.add)\n")
+    perform wat_emit("    (i32.const ")
+    perform wat_emit(int_to_str(4 * j))
+    perform wat_emit(") (i32.add)\n")
+    // Value: emit the slot's fn_idx LowExpr
+    emit_expr(list_head(ev_exprs))
+    perform wat_emit("    (i32.store)\n")
+    emit_ev_slots_dynamic(list_tail(ev_exprs), j + 1)
   }
 
 // Emit the stores for each field in an ADT variant record.

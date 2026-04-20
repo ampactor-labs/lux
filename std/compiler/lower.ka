@@ -57,7 +57,7 @@ type LowExpr
   | LLoop(Int, List)
   | LBreak(Int, LowExpr)
   | LSwitch(Int, LowExpr, List)                // emitter lowers MATCH → SWITCH for ints
-  | LSuspend(Int, Int, LowExpr, List)          // evidence-passing poly call
+  | LSuspend(Int, Int, LowExpr, List, List)    // handle, op_h, fn_expr, args, ev_slots
   | LStateGet(Int, Int)
   | LStateSet(Int, Int, LowExpr)
   | LRegion(Int, List)                         // arena scope
@@ -123,7 +123,7 @@ fn lexpr_handle(e) = match e {
   LLoop(h, _)             => h,
   LBreak(h, _)            => h,
   LSwitch(h, _, _)        => h,
-  LSuspend(h, _, _, _)    => h,
+  LSuspend(h, _, _, _, _) => h,
   LStateGet(h, _)         => h,
   LStateSet(h, _, _)      => h,
   LRegion(h, _)           => h,
@@ -164,12 +164,56 @@ fn env_kind_of(name) =
 
 // Default call lowering — the CallExpr dispatch falls back to this
 // when the callee isn't a SchemeKind-recognized constructor or op.
+// Monomorphic case: direct LCall (callee's row is ground; no
+// evidence needed). Polymorphic case: LSuspend with ev_slots
+// derived from the callee's row — each unground op resolves to
+// the global handler arm's fn_idx via the `op_<name>` naming
+// convention H1.4 established.
 fn lower_call_default(handle, f, fh, lo_args) =
   let lo_f = lower_expr(f)
   if monomorphic_at(handle) {
     LCall(handle, lo_f, lo_args)
   } else {
-    LSuspend(handle, fh, lo_f, lo_args)
+    let ev_slots = derive_ev_slots(fh)
+    LSuspend(handle, fh, lo_f, lo_args, ev_slots)
+  }
+
+// H1.6 — derive ev_slots from the callee's row at lower time. Each
+// op_name in the callee's row that needs evidence resolves to a
+// LowExpr loading `(global.get $op_<name>_idx)` — the static fn_idx
+// of the global handler arm. With single-handler-per-op naming
+// (H1.4), this resolution is unambiguous; multi-handler dispatch
+// would need handler_stack tracking, but the compiler-on-itself's
+// monomorphic handlers don't exercise it.
+fn derive_ev_slots(callee_handle) =
+  match perform lookup_ty(callee_handle) {
+    TFun(_, _, row) => derive_ev_slots_from_row(row),
+    _               => []
+  }
+
+fn derive_ev_slots_from_row(row) = match row {
+  EfPure          => [],
+  EfClosed(names) => derive_ev_slots_from_names(names),
+  EfOpen(names, _) => derive_ev_slots_from_names(names),
+  _               => []
+}
+
+fn derive_ev_slots_from_names(names) =
+  derive_ev_slots_loop(names, 0, len(names), [])
+
+fn derive_ev_slots_loop(names, i, n, acc) =
+  if i >= n { acc }
+  else {
+    let name = list_index(names, i)
+    let op_name = match name {
+      ENamed(s)            => s,
+      EParameterized(s, _) => s
+    }
+    // The slot's value is the handler arm's fn_idx — loaded from
+    // the per-arm global emitted by emit_fn_index_globals when
+    // emit_fns_expr lifted the LDeclareFn.
+    let slot_load = LGlobal(0, "op_" |> str_concat(op_name) |> str_concat("_idx"))
+    derive_ev_slots_loop(names, i + 1, n, acc ++ [slot_load])
   }
 
 // ═══ Lower walk — exhaustive, live ═════════════════════════════════
