@@ -36,6 +36,21 @@
     (Synth effect, mentl_default handler, AWrapHandler arm) is
     in place; the oracle integration is its own focused pass.
 
+- **Phase II landings (post-cascade, in-session):**
+  - **FS substrate** (1debfdc) — Filesystem effect + WASI preview1
+    path_open / fd_close / path_create_directory /
+    path_filestat_get + wasi_filesystem handler. First post-
+    cascade effect; exercises the substrate's discipline for
+    adding new effects cleanly.
+    Walkthrough: `docs/rebuild/simulations/FS-filesystem-effect.md`.
+  - **IC cluster** (0116d5d, 573879c, b0008dd, 0b27b0c) — cache.ka
+    (KaiFile record, FNV-1a hash, env serialization round-trip),
+    driver.ka (DAG walk + cache hit/miss + env install),
+    pipeline+main wiring through driver_check. `inka check
+    <module>` operates incrementally; first post-cascade
+    closure of drift mode 10 ("the graph as stateless cache").
+    Walkthrough: `docs/rebuild/simulations/IC-incremental-compilation.md`.
+
 - **Integration trace (post-cascade):** `docs/traces/a-day.md`.
   One developer, one project (Pulse: real-time audio + browser UI +
   cloud server + training variant), one day. Every surface either
@@ -274,17 +289,19 @@ Priority order (what unblocks what):
 conversational latency; anything slower is the graph being
 disrespected by the driver.**
 
-- **Incremental compilation** — per-module `.kai` cached envs +
-  content-hash keying + module DAG + per-module `graph_fork`
-  overlays + cache invalidation by downstream reach. The substrate
-  is built for this (Salsa 3.0 pattern is `graph.ka`'s shape since
-  day one); what pends is the driver. Without it, every save
-  triggers a full recompile — "the graph as stateless cache"
-  drift, tenth mode surfacing at driver level. The thesis "the
-  compiler IS the AI" cannot be tested at full-recompile speeds.
-  Scope: ~400-600 lines across cache/, driver/, LSP wiring.
-  Couples with the LSP arc below (same re-check operation, two
-  drivers).
+- **Incremental compilation** *[LANDED — substrate]* — per-module
+  `.kai` cached envs (cache.ka), module DAG walk + cache hit/miss
+  (driver.ka), source-hash invalidation, env reconstruction from
+  cache. The Filesystem effect (FS substrate) lands underneath,
+  exposing path_open/fd_close/path_create_directory/
+  path_filestat_get to the driver via wasi_filesystem handler.
+  `inka compile <module>` and `inka check <module>` route through
+  driver_check; cold compile equals today's behavior, warm
+  compile after no-op or leaf-edit returns sub-second. Drift
+  mode 10 ("the graph as stateless cache") closed at driver
+  level. IC.3 (per-module overlay separation in graph chase)
+  deferred until name collisions across modules become
+  load-bearing.
 - **LSP handler** — wraps `inka query` in JSON-RPC; maps
   `textDocument/hover` → `QTypeAt` + `QWhy`, `textDocument/rename` →
   cross-module graph rebind, `textDocument/codeAction` → `Explanation.fix`,
