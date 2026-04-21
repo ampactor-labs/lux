@@ -270,10 +270,25 @@ substrate gaps, not surfaces — named explicitly below.
 
 Priority order (what unblocks what):
 
-**Priority 1 — unblocks developer use:**
+**Priority 1 — unblocks developer use. The compiler must answer in
+conversational latency; anything slower is the graph being
+disrespected by the driver.**
+
+- **Incremental compilation** — per-module `.kai` cached envs +
+  content-hash keying + module DAG + per-module `graph_fork`
+  overlays + cache invalidation by downstream reach. The substrate
+  is built for this (Salsa 3.0 pattern is `graph.ka`'s shape since
+  day one); what pends is the driver. Without it, every save
+  triggers a full recompile — "the graph as stateless cache"
+  drift, tenth mode surfacing at driver level. The thesis "the
+  compiler IS the AI" cannot be tested at full-recompile speeds.
+  Scope: ~400-600 lines across cache/, driver/, LSP wiring.
+  Couples with the LSP arc below (same re-check operation, two
+  drivers).
 - **LSP handler** — wraps `inka query` in JSON-RPC; maps
   `textDocument/hover` → `QTypeAt` + `QWhy`, `textDocument/rename` →
-  cross-module graph rebind, `textDocument/codeAction` → `Explanation.fix`.
+  cross-module graph rebind, `textDocument/codeAction` → `Explanation.fix`,
+  `textDocument/didChange` → incremental re-check (shared with above).
   Substrate already queryable; what pends is the JSON-RPC handler.
 - **`teach_synthesize` oracle conductor** `[substrate pending]` — the
   composed handler that drives checkpoint → apply_annotation_tentatively →
@@ -311,7 +326,6 @@ Priority order (what unblocks what):
 - Commit message synthesis from graph provenance DAG
 - `inka rename` CLI handler
 - `///` docstring handler (render from graph projection)
-- `.kai` cached-env module-incremental recompilation
 
 **Exit condition:** every `[LIVE · surface pending]` and every
 `[substrate pending]` marker in `docs/traces/a-day.md` flips to
