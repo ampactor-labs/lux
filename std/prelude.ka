@@ -215,20 +215,20 @@ fn replace(s, old, new) = {
   else { str_slice(s, 0, idx) ++ new ++ replace(str_slice(s, idx + len(old), len(s)), old, new) }
 }
 fn trim(s) = {
-  let cs = chars(s)
-  fn is_ws(c) = c == " " || c == "\t" || char_code(c) == 10 || char_code(c) == 13
-  fn trim_left(i) = if i >= len(cs) { i } else { if is_ws(cs[i]) { trim_left(i + 1) } else { i } }
-  fn trim_right(i) = if i <= 0 { 0 } else { if is_ws(cs[i - 1]) { trim_right(i - 1) } else { i } }
+  let n = byte_len(s)
+  fn is_ws(b) = b == 32 || b == 9 || b == 10 || b == 13
+  fn trim_left(i) = if i >= n { i } else { if is_ws(byte_at(s, i)) { trim_left(i + 1) } else { i } }
+  fn trim_right(i) = if i <= 0 { 0 } else { if is_ws(byte_at(s, i - 1)) { trim_right(i - 1) } else { i } }
   let start = trim_left(0)
-  let end = trim_right(len(cs))
+  let end = trim_right(n)
   if start >= end { "" } else { str_slice(s, start, end) }
 }
 
 // ─── Parsing (pure Inka) ─────────────────────────────────────
 
 fn parse_int(s) = {
-  let cs = chars(s)
-  fn digit(c) = char_code(c) - 48
-  fn go(i, acc) = if i >= len(cs) { acc } else { go(i + 1, acc * 10 + digit(cs[i])) }
-  if len(cs) > 0 && cs[0] == "-" { 0 - go(1, 0) } else { go(0, 0) }
+  let n = byte_len(s)
+  fn digit(b) = b - 48
+  fn go(i, acc) = if i >= n { acc } else { go(i + 1, acc * 10 + digit(byte_at(s, i))) }
+  if n > 0 && byte_at(s, 0) == 45 { 0 - go(1, 0) } else { go(0, 0) }
 }
