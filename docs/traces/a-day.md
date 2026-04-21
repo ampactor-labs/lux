@@ -608,6 +608,32 @@ is where you left it. The substrate IS the state.
 - `///` docstring-handler render (DESIGN Ch 9.12 — substrate has
   comment capture; rendering projection pends)
 
+### Phase II landings since this trace was written
+
+Two pieces of Priority 1 work landed after the trace was first
+authored. Updates:
+
+- **FS substrate** `[LIVE]` — Filesystem effect (fs_exists,
+  fs_read_file, fs_write_file, fs_mkdir) + wasi_filesystem
+  handler + WASI preview1 path_open / fd_close /
+  path_create_directory / path_filestat_get imports. The driver
+  layer reads .ka source and writes .kai cache via this surface.
+  Walkthrough: `docs/rebuild/simulations/FS-filesystem-effect.md`.
+- **Incremental compilation** `[LIVE]` for the substrate; LSP
+  surface still `[LIVE · surface pending]`. `inka compile <module>`
+  and `inka check <module>` consult `.inka/cache/*.kai` files;
+  cold compile equals prior behavior, warm compile after no-op or
+  leaf-edit returns from cache without re-inference. Drift mode
+  10 ("the graph as stateless cache") closed at the driver level.
+  Walkthrough: `docs/rebuild/simulations/IC-incremental-compilation.md`.
+
+These both materially change "0800 — new file" through "1700 —
+deploy" by replacing the implicit full-recompile assumption with
+incremental cache hits. The IDE hover (`inka query --type-at` in
+the trace) still pends LSP wiring, but its underlying queries now
+run against an incrementally-maintained graph instead of a
+cold-rebuilt one.
+
 ### `[substrate pending]` — named substrate gaps
 
 Three. Only three.
