@@ -59,12 +59,99 @@
   teach_synthesize oracle conductor, runtime HandlerCatalog effect.
   Supersedes the per-domain DESIGN.md Ch 10 simulations as the
   integration artifact (those remain for thesis-level promises).
-- **Bootstrap translator.** Not started; out of mind until cascade
-  closes.
+- **Bootstrap translator.** Not started; out of mind until Phase II
+  Priority 1 closes.
 - **Error catalog.** String-coded (prefix-kind + self-documenting
   suffix). See `docs/errors/README.md` for the convention.
 - **Language rename:** Lux → **Inka** (mascot: **Mentl**, an octopus).
 - **File extension:** `.ka` — the last two letters of Inka.
+
+---
+
+## Pending Work — single source of truth
+
+Strictly ordered by what unblocks what. Every item links to its
+walkthrough (existing or to-be-written) and its phase position.
+When an item lands, mark it `[LANDED]` here AND update the matching
+tag in `docs/traces/a-day.md`.
+
+### Three substrate gaps (Phase II Priority 1; ~200 lines total)
+
+1. **`LFeedback` state-machine lowering** — emit-side rewrite of
+   `<~ spec` to a state-machine LIR. Templates in
+   `docs/rebuild/simulations/H3.1-parameterized-effects.md` plus
+   the `<~` discussion in DESIGN.md Ch 2.5. Walkthrough TBD as
+   `simulations/LF-feedback-lowering.md` before code freezes.
+   ~100 lines emit-side.
+2. **`teach_synthesize` oracle conductor** — composed handler in
+   mentl.ka driving checkpoint → apply_annotation_tentatively →
+   verify → commit-or-rollback over gradient candidates. Substrate
+   pieces all exist. Walkthrough section already in
+   `simulations/H5-mentl-arms.md`; expand to its own
+   `simulations/TS-teach-synthesize.md` as design questions
+   surface. ~50-80 lines.
+3. **Runtime `HandlerCatalog` effect** — convert the static table
+   in mentl.ka to an effect with runtime registration. Walkthrough
+   section in H5-mentl-arms.md already names the design.
+   ~40 lines.
+
+### Phase II surface handlers (Priority 1, depends on substrate gaps)
+
+4. **LSP handler** — wraps `inka query` in JSON-RPC; couples to
+   `driver_check` via `textDocument/didChange` for incremental
+   re-check. Walkthrough TBD as `simulations/LSP-language-server.md`.
+   The integration trace `docs/traces/a-day.md` describes every
+   surface this lands; flip those tags from `[LIVE · surface
+   pending]` to `[LIVE]` as it ships.
+
+### Phase II Priority 2 (deployment scenarios)
+
+5. **Audit-driven linker dead-code severance** — reads
+   `AuditReport.severable`; drops WASM imports for proven-severed
+   capabilities. Walkthrough TBD.
+6. **Multi-backend emit** — per-target handler variants on
+   `backends/` (browser, server, trainer, native). Walkthrough TBD;
+   shape mirrors `backends/wasm.ka`'s structure.
+
+### Phase II Priority 3 (specific programs)
+
+7. **Thread effect + per-thread region minting** — Walkthrough TBD.
+8. **RPC/actor handler** — `~>` boundary handler that bifurcates
+   emit and serializes the cross-wire state record. Walkthrough TBD.
+9. **Autodiff handler** — concrete ~15 lines per DESIGN.md 10.2.
+10. **SIMD intrinsic emission** — recognize `tanh` / `gain` etc.
+    as mappable to `v128.*` WAT opcodes.
+
+### Phase II Priority 4 (polish)
+
+11. Commit message synthesis from graph provenance DAG.
+12. `inka rename` CLI handler.
+13. `///` docstring handler.
+
+### Phase II open follow-ups (cascade peers)
+
+14. **IC.3 — graph chase walks overlays** — per-module overlay
+    separation. Lands when name collisions across modules become
+    load-bearing. Driver currently merges envs flat; correct for
+    today's project.
+15. **Cache format binary v3** — only if the textual v2 format
+    measures as a bottleneck. v2 round-trips name + Scheme +
+    SchemeKind; Reasons regenerate as placeholders on cache load.
+16. **Cache dependency-hash invalidation** — currently source-hash
+    only; full chain (cache hit on M requires every dep's recorded
+    imports_hashes match dep's CURRENT hash) lives in IC v2 of
+    `driver_check_module`. Substrate ready; policy adjustment small.
+
+### Phase III (deferred until Phase II Priority 1 closes)
+
+17. **Bootstrap translator** — written as a direct trace of cascade
+    walkthroughs in any language (Rust / Python / hand-WAT —
+    decided at that moment). ~3-5K lines. Deleted forever after
+    Phase IV closes.
+
+### Phase IV
+
+18. **First-light** — `diff inka2.wat inka3.wat` empty.
 
 ---
 
@@ -412,425 +499,6 @@ gap lives within a Phase II Priority 1 item.
 Total substrate remaining: ~200 lines across three focused pieces.
 Everything else is handler installation on the substrate that
 already exists.
-
----
-
-## Cascade Verification — Historical Record
-
-The cascade's internal steps are documented in
-`docs/rebuild/simulations/H*.md` (per-handle walkthroughs with
-riffle-back addenda). The integration trace across all handles is
-`docs/traces/a-day.md`. The sections below preserve the original
-Phase-1-era cascade description for git-history continuity, but
-the actual execution diverged through the γ approach.
-
-### Phase I (historical) — Write VFINAL
-
-Write the complete, correct Inka compiler in Inka. No compromises.
-No "can the bootstrapper handle this?" — write what's right.
-
-#### Codebase Structure
-
-```
-std/
-  compiler/
-    types.ka        — Ty, Reason, Scheme, Node, Expr, Stmt, Pat,
-                       PipeKind, Predicate, Span, Option.
-                       Core effects: Diagnostic, LookupTy, FreshHandle,
-                       Verify, Query, Consume, EnvRead, EnvWrite, Synth.
-                       Specs: 02, 03, 04, 06.
-
-    graph.ka        — SubstGraph flat array. NodeKind, GNode.
-                       SubstGraphRead/Write effects. chase_node,
-                       occurs_in. Spec: 00.
-
-    effects.ka      — EffRow Boolean algebra. EfNeg, EfSub, EfInter.
-                       normalize_row, union_row, diff_row, row_subsumes.
-                       Spec: 01.
-
-    infer.ka        — HM + let-generalization. One walk.
-                       infer_expr, infer_stmt, generalize, instantiate.
-                       Unify against graph. Spec: 04.
-
-    lower.ka        — Live-observer lowering via LookupTy.
-                       No cached types. No subst threading.
-                       Handler elimination (3 tiers). Spec: 05.
-
-    pipeline.ka     — The compiler's spine. Handler composition via ~>.
-                       compile, check, query entry points.
-                       All handlers: graph, env, diagnostics, lookup_ty,
-                       query, verify, mentl. Display functions.
-                       Specs: 04, 05, 06, 10.
-
-    mentl.ka        — Teaching substrate. Annotation, Capability,
-                       Explanation, Patch ADTs. Teach effect (5 ops).
-                       mentl_default handler (Phase 1 stubs).
-                       Spec: 09.
-
-    own.ka          — Ownership as Consume effect. affine_ledger.
-                       Escape check. Spec: 07.
-
-    verify.ka       — Verify ledger (accumulates obligations).
-                       Handler swap to verify_smt in Arc F.1.
-                       Spec: 02.
-
-    clock.ka        — Clock, Tick, Sample, Deadline effects.
-                       Four handler tiers each. Spec: 11.
-
-    lexer.ka        — Tokenizer. Full spans. All 5 pipe operators.
-                       @resume= annotation support.
-
-    parser.ka       — Recursive descent. Produces N(body, span, handle).
-                       All PipeKind variants. Layout-sensitive ~>.
-
-    emit.ka         — WASM emission from LowIR. ty_to_wasm via
-                       live LookupTy. Spec: 05.
-
-  runtime/
-    memory.ka       — Bump allocator as handler. String ops.
-                       List ops. No val_concat. No val_eq.
-
-  main.ka           — Entry point: read stdin, compile, emit WAT.
-```
-
-#### Shape currently in tree
-
-Each module carries the current best-known form for its one
-responsibility. Improvements are welcome — rewriting a module in
-a more powerful form is a valid commit.
-
-| File | Owns | Current form |
-|---|---|---|
-| types.ka | vocabulary + cross-cutting effect signatures | ADTs and effect decls only; no foreign owners |
-| graph.ka | SubstGraph substrate | graph_handler with nodes/trail/epoch/next/overlays; O(1) chase amortized; trail-revert for Mentl's oracle |
-| effects.ka | Boolean row algebra | normalize / union / diff / inter / neg / subsumes / unify / absorb / ground — all pure |
-| infer.ka | the one walk | HM + let-generalization; InferCtx for row accumulation; performs consume at own-uses; TRefined → verify |
-| pipeline.ka | the spine | compile / check / query / teach / audit as \|> + ~> topologies; env_handler, lookup_ty_graph, diagnostics_handler |
-| lower.ka | live-observer lowering | LookupTy chases live; row_is_ground gates monomorphic dispatch; exhaustive match |
-| emit.ka | LowIR → WAT handler | WasmOut effect; ty_to_wasm through LookupTy |
-| own.ka | ownership as Consume | affine_ledger + ref-escape walk + usage-based classifier |
-| verify.ka | refinement obligations | verify_ledger accumulates; Arc F.1 swaps in verify_smt |
-| mentl.ka | the oracle | Teach (5 ops) + Synth (3 ops); speculative gradient via checkpoint/rollback; Why Engine over reason DAG |
-| query.ka | read-only introspection | Question / QueryResult; query_default with chase_type_deep, walk_chain |
-| clock.ka | four peer time effects + IterativeContext | real / test / record / replay tiers each |
-| lexer.ka | tokens with full spans | (sl, sc, el, ec); Newline first-class; all five pipe operators tokenized |
-| parser.ka | produces types.ka Node directly | handle minted at parse via graph_fresh_ty; Hazel NHole on error |
-| main.ka | entry / dispatch | mode dispatch; outermost handler stack is the visible sandbox boundary |
-
-#### Order of Operations — The Cascade
-
-Each step depends on the one before it and empowers the one after.
-This is the most impactful order because each completed piece makes
-the next one expressible in Inka's most powerful form. No step is
-skippable. No step is reorderable. The cascade IS the implementation.
-
----
-
-**Step 1: The Foundation — `types.ka`** (Spec 02, 03, 06)
-
-*Depends on:* nothing. This is bedrock.
-*Unlocks:* everything — every other file imports types.
-
-What to do:
-- Own ONLY shared vocabulary here. Annotation / Capability /
-  Explanation / Teach live in `mentl.ka` (spec 09); Clock / Tick /
-  Sample / Deadline / IterativeContext live in `clock.ka` (spec 11);
-  Question / QueryResult / Query live in `query.ka` (spec 08);
-  EffRow algebra lives in `effects.ka` (spec 01); SubstGraph
-  machinery lives in `graph.ka` (spec 00). `types.ka` names the
-  ADTs and effect signatures; other files own the behaviour.
-- Verify Ty ADT has: TRefined, TCont, TParam with Ownership.
-- Verify every effect signature matches spec 06.
-- Verify Node = N(body, span, handle). Span = Span(sl, sc, el, ec).
-- Verify PipeKind has all six: PForward, PDiverge, PCompose,
-  PTeeBlock, PTeeInline, PFeedback. (PTee splits into Block/Inline
-  per I11 newline-sensitive layout.)
-- **Format:** Express any multi-step ADT construction as `|>` chains.
-  Display functions that transform then format use `|>`. This file
-  is THE vocabulary — every name chosen here echoes everywhere.
-
-*Exit:* Zero duplicate ADTs across the entire codebase. `types.ka`
-is the single canonical source of every type, effect, and ADT.
-
----
-
-**Step 2: The Substrate — `graph.ka`** (Spec 00)
-
-*Depends on:* Step 1 (types: NodeKind, GNode, Reason, Ty).
-*Unlocks:* inference, lowering, query — everything reads the graph.
-
-What to do:
-- Flat array. O(1) chase. Epoch + overlay pattern.
-- graph_handler with REAL state threading:
-  `with nodes = [], epoch = 0, next = 0`
-  - `graph_fresh_ty(reason)` → extends array, bumps next, resumes handle
-  - `graph_bind(h, ty, reason)` → sets node kind, bumps epoch
-  - `graph_chase(h)` → follows chain to terminal, O(1) amortized
-  - `graph_reason_edge(h1, h2)` → returns reason connecting two handles
-- Occurs check: before graph_bind, walk ty for free handles containing
-  h. If found, emit E_OccursCheck, refuse bind.
-- **Format:** The handler definition uses `with state = ...` syntax.
-  Chase operations that involve multiple lookups use `|>` chains.
-  The handler IS the first real demonstration of Inka's handler-state
-  pattern — it must be exemplary.
-
-*Exit:* `graph_handler` accepts `graph_fresh_ty`, `graph_bind`,
-`graph_chase`, `graph_reason_edge`. State is live. A test sequence
-of fresh → bind → chase returns the bound type.
-
----
-
-**Step 3: The Algebra — `effects.ka`** (Spec 01)
-
-*Depends on:* Step 1 (types: EffRow ADT).
-*Unlocks:* inference (effect row unification), ownership (!Consume),
-  capability proofs (!Alloc, !Clock), handler subsumption checks.
-
-What to do:
-- Boolean algebra: `+` union, `-` subtraction, `&` intersection,
-  `!` negation, `Pure` = empty row.
-- normalize_row: canonical form for comparison.
-- row_subsumes: `row_a ⊇ row_b` — the gate for handler installation.
-- union_row, diff_row, inter_row: algebraic operations.
-- **Format:** Each algebraic operation reads as a mathematical
-  transformation. Chain normalize → compare → decide via `|>`.
-  This file is pure functions on data — the cleanest possible Inka.
-
-*Exit:* `row_subsumes(EfClosed([Alloc, IO]), EfClosed([IO]))` = true.
-`diff_row(row, EfClosed([Alloc]))` removes Alloc. `!Alloc` negation
-works via normalize + subsumption.
-
----
-
-**Step 4: The Engine — `infer.ka`** (Spec 04)
-
-*Depends on:* Step 1 (types), Step 2 (graph — writes bindings into
-  the live graph), Step 3 (effects — unifies effect rows).
-*Unlocks:* lowering (reads the post-inference graph), query (reads
-  env + graph), ownership (runs inside this walk).
-
-What to do:
-- One walk. `infer_expr`, `infer_stmt`, `generalize`, `instantiate`.
-- Unification against the graph (not a sidecar subst).
-- Effect row unification via Step 3's algebra.
-- Ownership tracking runs INSIDE this walk — `perform consume(name)`
-  at every `own`-parameter use (spec 07 piggybacks on spec 04).
-- Error handling: Hazel pattern. Mismatch → NErrorHole, continue.
-  Never halt on a type error.
-- **Format:** The inference walk is the canonical `|>` pipeline
-  through AST nodes. `match node.body { ... }` arms are the dispatch.
-  Effect performs (`perform graph_bind`, `perform env_extend`) replace
-  all argument-threading. This file demonstrates WHY effects eliminate
-  state-passing.
-
-*Exit:* `infer_program(ast)` populates graph handles for every node.
-`perform env_lookup(name)` returns typed schemes. No subst sidecar.
-
----
-
-**Step 5: The Env — `env_handler` in `pipeline.ka`** (Spec 04)
-
-*Depends on:* Step 1 (types: Env, Scheme), Step 4 (inference uses
-  EnvRead + EnvWrite effects).
-*Unlocks:* inference can run end-to-end (it needs both graph_handler
-  and env_handler installed to function).
-
-What to do:
-- env_handler with real scoped binding stack:
-  `with entries = [], scopes = []`
-  - `env_extend(name, scheme, reason)` → prepend to entries
-  - `env_lookup(name)` → linear scan, return Option((Scheme, Reason))
-  - `env_scope_enter()` → push len(entries) onto scopes
-  - `env_scope_exit()` → truncate entries to top-of-scopes mark, pop
-- env_with_primitives: install Int, String, Bool, List, Option.
-- **Format:** The handler uses `with state = ...` syntax just like
-  graph_handler. The scoping mechanism (push/pop mark) is elegant
-  Inka — no mutable pointers, just functional list truncation.
-
-*Exit:* env_handler + graph_handler together allow inference to run.
-`env_lookup("x")` after `env_extend("x", ...)` returns the scheme.
-Scoping works: enter → extend → exit → lookup returns None.
-
----
-
-**Step 6: The Observer — `lower.ka`** (Spec 05)
-
-*Depends on:* Step 2 (graph — reads via LookupTy), Step 4 (inference
-  populated the graph), Step 5 (env — reads via EnvRead).
-*Unlocks:* emit (consumes LowIR), the proof that inference produced
-  a complete graph.
-
-What to do:
-- Live-observer lowering. Every `lexpr_ty(e)` calls
-  `perform lookup_ty(e.handle)`. No cached types. No subst.
-- Handler elimination: classify_handler (TailResumptive / Linear /
-  MultiShot). Monomorphic calls → direct `call $h_op`. Polymorphic
-  → evidence-passing thunk.
-- No `_ => TUnit` fallback. No wildcard arms. Exhaustive.
-- **Format:** `lower_expr(node)` is a clean `match node.body { ... }`
-  dispatch. The monomorphic check at each CallExpr reads:
-  ```
-  if monomorphic_at(node.handle) { LCall(...) }
-  else { emit_evidence_thunk(...) }
-  ```
-  This is where the graph's power becomes visible — lowering is a
-  PURE READER of the inference substrate, proven read-only by its
-  effect row (`with SubstGraphRead` — no Write).
-
-*Exit:* `lower_program(ast)` produces LowIR. Every node has a handle
-that chases to NBound or NErrorHole. No NFree survives.
-
----
-
-**Step 7: The Spine — `pipeline.ka`** (Spec 04, 05, 06, 10)
-
-*Depends on:* Steps 1–6 (all components exist). This is assembly.
-*Unlocks:* the compiler runs end-to-end. Compilation is one
-  expression. `inka query` works.
-
-What to do:
-- `compile`, `check`, `query` as `|>` + `~>` topology:
-  ```
-  fn compile(source) =
-    source
-        |> lex
-        |> parse
-        |> infer_program
-        |> lower_program
-        |> emit_module
-        ~> mentl_default
-        ~> verify_ledger
-        ~> env_handler
-        ~> graph_handler
-        ~> diagnostics_handler
-  ```
-- `check` = same pipeline minus `lower_program |> emit_module`.
-- `query` = same pipeline minus lowering, plus `~> query_handler`.
-- Every `~>` line has a capability-stack comment explaining what
-  effects it handles and what passes through.
-- **Format:** THIS IS THE FILE. The `~>` chain is the visual proof
-  that Inka solves Inka. The handler stack IS the compiler's
-  architecture, visible on the page. Sequential `|>` flows down.
-  Block-scoped `~>` wraps the whole chain. The shape of this file
-  IS the shape of the compiler.
-
-*Exit:* `compile(source)` produces WAT. `check(source)` produces
-diagnostics. `query(source, question)` returns structured answers.
-One expression each.
-
----
-
-**Step 8: The Emitter — `emit.ka`** (Spec 05)
-
-*Depends on:* Step 6 (lower — produces LowIR), Step 2 (graph —
-  `ty_to_wasm` reads handles via LookupTy).
-*Unlocks:* actual WASM output. The compiler produces something
-  runnable.
-
-What to do:
-- Port from existing `std/backend/wasm_emit.ka`.
-- `ty_to_wasm` reads `perform lookup_ty(h)` — live, not cached.
-- Emit WAT text format (not binary — keep debugging easy).
-- **Format:** WASM emission is inherently sequential — `|>` chains
-  of instruction emission. Each function → section → module builds
-  up via `|>`.
-
-*Exit:* `emit_module(low_ir)` produces valid WAT that passes
-`wasm-validate`.
-
----
-
-**Step 9: The Runtime — `runtime/memory.ka`** (Spec 06)
-
-*Depends on:* nothing architecturally, but produces the runtime
-  primitives that emitted WASM calls into.
-*Unlocks:* compiled programs actually run.
-
-What to do:
-- Bump allocator as a handler (Alloc effect).
-- String ops: length, concat, compare, slice — all via Memory effect.
-- List ops: cons, head, tail, length — all via Memory effect.
-- **No val_concat. No val_eq.** These are the exact functions that
-  caused v1's type drift. They do not exist.
-- **Format:** Memory operations are `perform load_i32`, `perform
-  store_i32` — clean effect-mediated access. The allocator handler
-  demonstrates `with state = ...` for bump pointer tracking.
-
-*Exit:* String and list operations work in compiled output.
-Bump allocator serves all allocation needs.
-
----
-
-**Step 10: The Entry — `main.ka`**
-
-*Depends on:* Steps 7–9 (pipeline, emit, runtime all exist).
-*Unlocks:* `inka.wasm` — the compiler is a runnable binary.
-
-What to do:
-- Read stdin (source code).
-- Call `compile(source)`.
-- Write WAT to stdout.
-- Install top-level handlers: stderr_diagnostics, real Memory.
-- **Format:** This file is ~30 lines. It is the simplest possible
-  Inka program:
-  ```
-  fn main() =
-    read_stdin()
-        |> compile
-        |> write_stdout
-        ~> stderr_diagnostics
-        ~> memory_handler
-  ```
-
-*Exit:* `wasmtime run inka.wasm < source.ka > output.wat` works.
-
----
-
-**Step 11: The Catalog — `docs/errors/*.md`**
-
-*Depends on:* Steps 1–10 (every error code used in source exists).
-*Unlocks:* Mentl's teach_error can load canonical explanations.
-
-What to do:
-- Walk every `perform report(...)` call in the codebase.
-- Verify each error code has a `docs/errors/<CODE>.md` entry.
-- Each entry: Summary, Why it matters, Canonical fix, Example.
-- **Format:** Markdown. Elm/Roc/Dafny catalog pattern.
-
-*Exit:* Every error code in source has a catalog entry. Zero orphans.
-
----
-
-**Step 12: The Proof — Integration**
-
-*Depends on:* All of the above.
-*Unlocks:* Phase 2 (bootstrap translator has something to compile).
-
-What to do:
-- `inka query` on every file in `std/compiler/`.
-- Verify: zero duplicate ADTs, zero phantom references, zero dead
-  imports, every handler threads real state.
-- Run the exit gate tests:
-  ```
-  inka_compile bootstrap/tests/counter.ka → valid WAT
-  inka_compile bootstrap/tests/pattern.ka → valid WAT
-  Both WATs run correctly under wasmtime.
-  ```
-- Every file follows Anchor 6: pipe topology expressed, canonical
-  formatting applied, handler composition via `~>`.
-
-*Exit:* Phase 1 is complete. The VFINAL codebase compiles test
-programs to working WASM. Every file is in its most powerful form.
-The cascade is closed. Inka is ready to compile herself.
-
----
-
-### Phases III + IV (historical framing) — Bootstrap + First Light
-
-Described above under the four-phase framing. The original Phase 2
-(bootstrap translator) and Phase 3 (self-compilation fixed point)
-remain the terminal steps, but now follow Phase II handler-projection
-work.
 
 ---
 
