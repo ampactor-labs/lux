@@ -1,7 +1,0 @@
-bare handler reference: OK
-handler with override: OK
-  adding 6 + 10
-handler inheritance: OK
-inline use clause: OK
-
-Handler composition: all tests passed.

@@ -1,3 +1,0 @@
-import ./helper
-
-println(to_string(double(21)))

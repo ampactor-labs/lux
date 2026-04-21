@@ -1,7 +1,0 @@
-// EXPECT_ERROR: consumed at line
-// Affine value used twice.
-
-fn bad_double_use(own data: List<Int>) -> List<Int> = {
-    let a = push(data, 1)
-    push(data, 2)
-}

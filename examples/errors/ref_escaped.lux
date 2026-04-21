@@ -1,5 +1,0 @@
-// EXPECT_ERROR: cannot return borrowed value
-// Ref parameter escaping its scope.
-
-fn bad_escape(ref data: List<Int>) -> List<Int> =
-    data

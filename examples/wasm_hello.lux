@@ -1,4 +1,0 @@
-// Crucible 1: Lux speaks through WASM
-// Proves: string constants exist in WASM linear memory.
-
-println("Hello, World!")

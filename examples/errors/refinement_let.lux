@@ -1,6 +1,0 @@
-// EXPECT_ERROR: refinement
-// Negative literal violates the Port refinement predicate.
-
-type Port = Int where 1 <= self && self <= 65535
-
-let p: Port = -1

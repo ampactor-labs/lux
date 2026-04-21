@@ -1,6 +1,0 @@
-// Crucible 2: Strings compose with computation
-// Proves: string concat, int-to-string, println dispatch.
-
-fn fib(n) = if n <= 1 { n } else { fib(n - 1) + fib(n - 2) }
-
-println("fib(10) = " ++ to_string(fib(10)))

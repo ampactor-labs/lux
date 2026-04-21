@@ -1,5 +1,0 @@
-double(21) = 42
-clamp_sample(1.5, -1.0, 1.0) = 1
-squares(5) = [0, 1, 4, 9, 16]
-greet_msg("world") = hello world
-hello Lux

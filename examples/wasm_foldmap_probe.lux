@@ -1,9 +1,0 @@
-fn dbl(x) = x * 2
-fn add(a, b) = a + b
-let xs = [1, 2, 3]
-let ys = map(dbl, xs)
-println("ys=" ++ to_string(len(ys)) ++ " " ++ to_string(ys[0]) ++ " " ++ to_string(ys[1]) ++ " " ++ to_string(ys[2]))
-let z = fold(ys, 0, add)
-println("z=" ++ to_string(z))
-let w = fold(map(dbl, xs), 0, add)
-println("w=" ++ to_string(w))

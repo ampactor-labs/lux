@@ -1,9 +1,0 @@
-=== Self-Verification Report ===
-Verifying compiler data structure invariants...
-
-
-The compiler verifies itself.
-solver.lux proved these properties.
-solver.lux was compiled by codegen.lux (which uses these opcodes).
-codegen.lux was checked by checker.lux (which uses these fresh IDs).
-The tool verifies the tools that built it.

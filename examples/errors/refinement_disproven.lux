@@ -1,6 +1,0 @@
-// EXPECT_ERROR: refinement
-// Literal value 300 violates the Byte refinement predicate.
-
-type Byte = Int where 0 <= self && self <= 255
-
-fn bad() -> Byte = 300

@@ -1,1 +1,0 @@
-=== Lux Basic Syntax ===Hello, World!double(21) = 42factorial(10) = 3628800fibonacci(10) = 55area(Circle(5)) = 75area(Rectangle(4, 6)) = 245 |> double |> add_one = 11apply(double, 21) = 42

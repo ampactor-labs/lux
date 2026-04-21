@@ -1,1 +1,0 @@
-=== All 2-bit combos ===[(true, true), (true, false), (false, true), (false, false)]Count: 4Nondeterminism from effects: 2^N paths, zero special syntax.

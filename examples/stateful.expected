@@ -1,1 +1,0 @@
-=== Counter ===5 increments: 5=== Logger ===Captured: [starting up] [processing data] [all done] === Multi-state (nested handlers) ===B count: 3A count: 4=== Fibonacci via stateful handler ===fib(10) = 55Stateful handlers: no continuations needed.

@@ -1,6 +1,0 @@
-// Bootstrap Compiler — Lux compiles Lux to WASM.
-// One import. One call. The pipeline already does everything.
-
-import compiler/pipeline
-
-compile_wasm(read_stdin())

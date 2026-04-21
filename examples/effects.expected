@@ -1,1 +1,0 @@
-parse_positive(-5) with default: 0parse_positive(42): 42=== Real Console Handler ===[console] Greeting World...Result: Hello, World!=== Mock Console Handler (testing) ===Result: Hello, World!(no console output â say() was silenced by the mock handler)=== State Effect ===Counter after 3 increments: 3

@@ -1,6 +1,0 @@
-fn dispatch(op) = match op {
-  "Add" => "plus",
-  "Mul" => "times",
-  _ => "unknown"
-}
-println(dispatch("Mul"))

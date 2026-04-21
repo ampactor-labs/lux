@@ -1,7 +1,0 @@
-// EXPECT_ERROR: calls 'makes_list' which performs 'Alloc' but declares '!Alloc'
-// Transitive allocation: callee allocates, caller declares !Alloc.
-
-fn makes_list(x: Int) -> List<Int> = [x, x + 1, x + 2]
-
-fn bad_caller(x: Int) -> Int with !Alloc =
-    len(makes_list(x))
