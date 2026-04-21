@@ -636,6 +636,41 @@ fn emit_runtime_imports() = {
     "    (func $fd_write (param i32 i32 i32 i32) (result i32)))\n"
   )
   perform wat_emit(
+    "  (import \"wasi_snapshot_preview1\" \"fd_read\"\n"
+  )
+  perform wat_emit(
+    "    (func $fd_read (param i32 i32 i32 i32) (result i32)))\n"
+  )
+  // FS substrate — WASI preview1 filesystem ops. path_open returns
+  // a fresh fd relative to a preopen base fd (wasmtime grants
+  // preopen fd 3 via --dir=. by convention). fd_close releases.
+  // path_create_directory mkdir's relative to the base fd.
+  // path_filestat_get is the existence check (returns 0 on success).
+  perform wat_emit(
+    "  (import \"wasi_snapshot_preview1\" \"path_open\"\n"
+  )
+  perform wat_emit(
+    "    (func $path_open (param i32 i32 i32 i32 i32 i64 i64 i32 i32) (result i32)))\n"
+  )
+  perform wat_emit(
+    "  (import \"wasi_snapshot_preview1\" \"fd_close\"\n"
+  )
+  perform wat_emit(
+    "    (func $fd_close (param i32) (result i32)))\n"
+  )
+  perform wat_emit(
+    "  (import \"wasi_snapshot_preview1\" \"path_create_directory\"\n"
+  )
+  perform wat_emit(
+    "    (func $path_create_directory (param i32 i32 i32) (result i32)))\n"
+  )
+  perform wat_emit(
+    "  (import \"wasi_snapshot_preview1\" \"path_filestat_get\"\n"
+  )
+  perform wat_emit(
+    "    (func $path_filestat_get (param i32 i32 i32 i32 i32) (result i32)))\n"
+  )
+  perform wat_emit(
     "  (import \"wasi_snapshot_preview1\" \"proc_exit\"\n"
   )
   perform wat_emit(

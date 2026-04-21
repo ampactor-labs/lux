@@ -53,6 +53,7 @@ fn compile(source) =
     |> lower_program
     |> emit_module
     ~> wat_stdout
+    ~> wasi_filesystem       // FS — per-file byte I/O for driver / cache
     ~> string_table          // W5 — compile-time interned string offsets
     ~> emit_memory_bump      // swap for emit_memory_arena to prove surface
     ~> body_context          // H1 — per-fn-body emit metadata
@@ -182,6 +183,31 @@ handler body_context with captures = 0, evidence = [] {
   set_body_captures(n)       => resume(()) with captures = n,
   current_body_evidence()    => resume(evidence),
   set_body_evidence(ev)      => resume(()) with evidence = ev
+}
+
+// ═══ wasi_filesystem — FS substrate (IC prerequisite) ══════════════
+// Four-arm stateless handler delegating to runtime/io.ka primitives.
+// Grants Filesystem capability to IC's cache layer. Installed in
+// `compile`'s ~> chain between wat_stdout and the compiler-internal
+// handlers — fs stays a driver-level capability, not something the
+// compiler's own code accidentally reaches for.
+//
+// Audit implications: a function that doesn't reach fs_* ops proves
+// `with !Filesystem`; audit-driven linker severance drops path_open
+// / fd_close / path_create_directory / path_filestat_get imports
+// from that binary. DESIGN.md 10.3 capability severance realized.
+
+handler wasi_filesystem {
+  fs_exists(path)                => resume(fs_exists_impl(path)),
+  fs_read_file(path)             => resume(fs_read_file_impl(path)),
+  fs_write_file(path, bytes)     => {
+    fs_write_file_impl(path, bytes)
+    resume(())
+  },
+  fs_mkdir(path)                 => {
+    fs_mkdir_impl(path)
+    resume(())
+  }
 }
 
 // ═══ lookup_ty_graph — SubstGraphRead → LookupTy bridge (spec 05) ══

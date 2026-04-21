@@ -609,6 +609,30 @@ effect Consume {
   branch_exit(Span) -> ()                          @resume=OneShot
 }
 
+// ═══ Filesystem (FS) — per-file byte I/O via WASI preview1 ═════════
+// Four ops cover the incremental-compilation cache layer (.kai
+// read/write, mkdir, exists). Operates relative to a preopen fd
+// (wasmtime's --dir=. grants preopen fd 3 by convention).
+//
+// Row semantics: `with Filesystem` declares the function MAY touch
+// the filesystem. `with !Filesystem` PROVES it does not — audit-
+// driven linker severance can drop path_open / fd_close / etc.
+// imports from binaries with proven !Filesystem.
+//
+// v1 takes preopen fd 3 as implicit. Parameterization via
+// `with Filesystem("/workspace")` (H3.1 parameterized effects)
+// lands when audit-driven permission scopes become meaningful.
+//
+// Returns bytes as a flat Inka String (length prefix + bytes) —
+// same shape as read_stdin for uniform downstream handling.
+
+effect Filesystem {
+  fs_exists(String) -> Bool                          @resume=OneShot
+  fs_read_file(String) -> String                     @resume=OneShot
+  fs_write_file(String, String) -> ()                @resume=OneShot
+  fs_mkdir(String) -> ()                             @resume=OneShot
+}
+
 // ═══ Display — one projection, effect-mediated, live-chasing ═══════
 // Every show_* that renders a Ty chases TVars through graph_chase.
 // A raw handle only appears when chase terminates on NFree/NRowFree —

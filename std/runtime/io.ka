@@ -9,16 +9,28 @@
 //   scratch + 4: len  (i32) — byte count
 //   scratch + 8: nwritten (i32) — receives bytes-written count
 //
-// We use scratch addresses in the low stack area:
-//   0x50 (80): iov record (8 bytes)
-//   0x58 (88): nwritten result (4 bytes)
-//   0x60 (96): small scratch buffer for print_int
+// Scratch layout in the low stack area (below HEAP_BASE = 4096,
+// safely below the 1 MiB heap start):
+//   0x50  (80):  iov record (8 bytes) — shared by print + fs
+//   0x58  (88):  nwritten/nread result (4 bytes)
+//   0x60  (96):  small scratch buffer for print_int
+//   0x100 (256): fs path scratch (256 bytes — WASI paths max 255)
+//   0x200 (512): fs filestat scratch (64 bytes for filestat_t)
+//   0x240 (576): fs fd result (4 bytes — path_open returns fd here)
 //
-// These are below the 1 MB heap start and never conflict with Inka
+// These all fit under HEAP_BASE = 4096 and never conflict with Inka
 // heap allocations or the bump allocator. The compiler reserves the
-// first 1 MB page for exactly this purpose.
+// first page for exactly this purpose.
 //
 // Effects declared in std/compiler/types.ka — not re-declared here.
+//
+// FS constants (WASI preview1 flags). Mirrored literally from the
+// WASI spec; documented here to avoid magic numbers at call sites.
+//   FS_PREOPEN_FD         = 3   — wasmtime grants via --dir=.
+//   FS_RIGHTS_READ        = 0x2 — fd_read right
+//   FS_RIGHTS_WRITE       = 0x40 — fd_write right
+//   FS_OFLAGS_CREAT       = 0x1 — create if not exists
+//   FS_OFLAGS_TRUNC       = 0x8 — truncate to zero on open
 
 import compiler/types
 import runtime/strings
@@ -84,3 +96,82 @@ fn read_chunk(buf, size) with Memory + WASI =
   perform store_i32(84, size)
   perform fd_read(0, 80, 1, 88)
   perform load_i32(88)
+
+// ═══ Filesystem (FS) ══════════════════════════════════════════════
+// Four impl functions bridging the Filesystem effect ops to WASI
+// path_* syscalls. Each takes a String path (flat [len][bytes...]
+// shape) and delegates through the iov scratch pattern established
+// by print_string / read_chunk. Preopen fd 3 is the base for all
+// path-relative operations (wasmtime's --dir=. convention).
+
+// Copy a flat Inka string's byte payload into the fs path scratch
+// region at offset 256. Returns the byte length. Used by every fs
+// op before invoking the path_* syscall.
+fn fs_write_path(s) with Memory =
+  let slen = perform load_i32(s)
+  perform mem_copy(256, s + 4, slen)
+  slen
+
+// fs_exists — path_filestat_get returns 0 on success, errno otherwise.
+// The filestat record is written to scratch 512 (64 bytes for
+// filestat_t) but we discard the contents; existence is the boolean.
+fn fs_exists_impl(path_str) with Memory + WASI =
+  let path_len = fs_write_path(path_str)
+  let errno = perform path_filestat_get(3, 0, 256, path_len, 512)
+  errno == 0
+
+// fs_mkdir — path_create_directory relative to preopen fd 3.
+// Idempotent at the handler level (errno-17 EEXIST ignored).
+fn fs_mkdir_impl(path_str) with Memory + WASI =
+  let path_len = fs_write_path(path_str)
+  perform path_create_directory(3, 256, path_len)
+  ()
+
+// fs_read_file — path_open (read flag) + fd_read loop + fd_close.
+// Returns the file bytes as a flat Inka String. On open failure
+// returns an empty string; caller should distinguish via fs_exists.
+fn fs_read_file_impl(path_str) with Memory + Alloc + WASI =
+  let path_len = fs_write_path(path_str)
+  // path_open(base_fd=3, dirflags=0, path_ptr, path_len, oflags=0,
+  //   rights_base=FS_RIGHTS_READ, rights_inheriting=FS_RIGHTS_READ,
+  //   fdflags=0, fd_result_ptr=576)
+  let open_errno = perform path_open(3, 0, 256, path_len, 0, 2, 2, 0, 576)
+  if open_errno != 0 {
+    let empty = perform alloc(4)
+    perform store_i32(empty, 0)
+    empty
+  } else {
+    let fd = perform load_i32(576)
+    let buf = perform alloc(65536)
+    let total = fs_read_loop(fd, buf, 0)
+    perform fd_close(fd)
+    let str = perform alloc(4 + total)
+    perform store_i32(str, total)
+    perform mem_copy(str + 4, buf, total)
+    str
+  }
+
+fn fs_read_loop(fd, buf, offset) with Memory + WASI =
+  perform store_i32(80, buf + offset)
+  perform store_i32(84, 4096)
+  perform fd_read(fd, 80, 1, 88)
+  let nread = perform load_i32(88)
+  if nread == 0 { offset }
+  else { fs_read_loop(fd, buf, offset + nread) }
+
+// fs_write_file — path_open (write+create+trunc) + fd_write + fd_close.
+// Overwrites any existing file at path.
+fn fs_write_file_impl(path_str, bytes_str) with Memory + WASI =
+  let path_len = fs_write_path(path_str)
+  // path_open with FS_OFLAGS_CREAT|FS_OFLAGS_TRUNC = 0x9, FS_RIGHTS_WRITE = 0x40
+  let open_errno = perform path_open(3, 0, 256, path_len, 9, 64, 64, 0, 576)
+  if open_errno != 0 { () }
+  else {
+    let fd = perform load_i32(576)
+    let blen = perform load_i32(bytes_str)
+    perform store_i32(80, bytes_str + 4)
+    perform store_i32(84, blen)
+    perform fd_write(fd, 80, 1, 88)
+    perform fd_close(fd)
+    ()
+  }
