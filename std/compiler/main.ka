@@ -4,26 +4,34 @@
 // What the program has access to is visible on the page. No JSON
 // config. No TOML lockfile. The type system IS the package manager.
 //
-// Five modes, each a sub-expression of the same compilation spine:
+// IC.4: compile / check take entry-MODULE names (e.g.
+// "compiler/main") instead of raw sources. The driver walks
+// imports, consults .kai caches, re-infers only what changed.
 //
-//   inka compile <src>   → WAT bytes (to stdout)
-//   inka check <src>     → diagnostics only
-//   inka query <src> <q> → structured answer
-//   inka teach <src>     → gradient recommendation
-//   inka audit <src>     → capability set + severance
+// Six modes, each a sub-expression of the same compilation spine:
 //
-// The outermost handlers — memory, diagnostics, wat_stdout — are the
-// sandbox boundary. Every inward handler receives narrower capability.
-// Swap `wat_stdout` for `wat_buffer` to get the WAT as a String; swap
-// `memory_bump` for `memory_arena` to get per-request GC.
+//   inka compile <module>      → WAT bytes (to stdout)
+//   inka check <module>        → diagnostics only (incremental)
+//   inka query <module> <q>    → structured answer
+//   inka teach <module>        → gradient recommendation
+//   inka audit <module>        → capability set + severance
+//   inka compile-source <path> → legacy: read raw source, full
+//                                 recompile (no cache)
+//
+// Module names map to <std>/<module>.ka — `compiler/main` reads
+// `std/compiler/main.ka`. The .ka extension is implicit. Strip
+// the std/ prefix and the .ka suffix from a path to get the
+// module name; main.ka also accepts paths via path_to_module().
+//
+// The outermost handlers — memory, diagnostics, wat_stdout,
+// wasi_filesystem — are the sandbox boundary. Every inward
+// handler receives narrower capability.
 
 import compiler/pipeline
 import compiler/backends/wasm
 import compiler/clock
 
 // ═══ Entry — dispatch on mode ══════════════════════════════════════
-// `argv` is threaded by the host (WASI). First arg is the mode; the
-// remaining args go to the corresponding compile function.
 
 fn main(argv) =
   match dispatch_mode(argv) {
@@ -32,25 +40,40 @@ fn main(argv) =
     Some(action) =>
       action()
         ~> wat_stdout
+        ~> wasi_filesystem
         ~> no_iterative_ctx
         ~> diagnostics_handler
         ~> graph_handler
   }
+
+// path_to_module: accept either a module name ("compiler/main") or
+// a file path ("std/compiler/main.ka"). Strip "std/" prefix and
+// ".ka" suffix when present. Idempotent on bare module names.
+fn path_to_module(arg) = {
+  let stripped_prefix = if starts_with(arg, "std/") {
+    str_slice(arg, 4, byte_len(arg))
+  } else { arg }
+  if ends_with(stripped_prefix, ".ka") {
+    str_slice(stripped_prefix, 0, byte_len(stripped_prefix) - 3)
+  } else { stripped_prefix }
+}
 
 fn dispatch_mode(argv) =
   if len(argv) < 2 { None }
   else {
     let mode = argv[1]
     if str_eq(mode, "compile") && len(argv) >= 3 {
-      Some(|| compile(read_file(argv[2])))
+      Some(|| compile(path_to_module(argv[2])))
     } else if str_eq(mode, "check") && len(argv) >= 3 {
-      Some(|| check(read_file(argv[2])))
+      Some(|| check(path_to_module(argv[2])))
     } else if str_eq(mode, "query") && len(argv) >= 4 {
-      Some(|| query(read_file(argv[2]), argv[3]))
+      Some(|| query(path_to_module(argv[2]), argv[3]))
     } else if str_eq(mode, "teach") && len(argv) >= 3 {
-      Some(|| teach(read_file(argv[2])))
+      Some(|| teach(path_to_module(argv[2])))
     } else if str_eq(mode, "audit") && len(argv) >= 3 {
-      Some(|| audit(read_file(argv[2])))
+      Some(|| audit(path_to_module(argv[2])))
+    } else if str_eq(mode, "compile-source") && len(argv) >= 3 {
+      Some(|| compile_source(read_stdin()))
     } else {
       None
     }
@@ -59,9 +82,13 @@ fn dispatch_mode(argv) =
 fn print_help() = {
   eprint_string("inka — the compiler is the oracle\n\n")
   eprint_string("usage:\n")
-  eprint_string("  inka compile <src.ka>        — emit WAT to stdout\n")
-  eprint_string("  inka check <src.ka>          — diagnostics only\n")
-  eprint_string("  inka query <src.ka> <query>  — inspect the graph\n")
-  eprint_string("  inka teach <src.ka>          — gradient recommendation\n")
-  eprint_string("  inka audit <src.ka>          — capability set\n")
+  eprint_string("  inka compile <module>          — emit WAT (incremental)\n")
+  eprint_string("  inka check <module>            — diagnostics (incremental)\n")
+  eprint_string("  inka query <module> <query>    — inspect the graph\n")
+  eprint_string("  inka teach <module>            — gradient recommendation\n")
+  eprint_string("  inka audit <module>            — capability set\n")
+  eprint_string("  inka compile-source < src.ka   — legacy: stdin → WAT\n")
+  eprint_string("\n")
+  eprint_string("module names map to std/<module>.ka — paths accepted too.\n")
+  eprint_string("incremental modes consult .inka/cache/*.kai for cache hits.\n")
 }

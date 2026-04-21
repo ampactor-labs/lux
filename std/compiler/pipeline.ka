@@ -41,17 +41,26 @@ import compiler/verify
 import compiler/mentl
 import compiler/query
 import compiler/clock
+import compiler/cache
+import compiler/driver
 
 // ═══ The spine — entry points as |> + ~> topology ══════════════════
 // Read top-to-bottom: source flows DOWN through `|>`; handlers wrap
 // OUTWARD through `~>`. Outermost handler is the sandbox boundary.
+//
+// IC.4: compile / check now route through driver_check when invoked
+// with an entry-MODULE name (incremental). The legacy single-source
+// entry compile/check_source remain for tests that pass a raw
+// source string. The driver path consults .kai caches via FS;
+// every module either loads cached entries or re-infers + writes
+// fresh cache.
 
-fn compile(source) =
-  source
-    |> frontend
-    |> infer_program
-    |> lower_program
-    |> emit_module
+fn compile(entry_module) =
+  {
+    driver_check(entry_module)
+    let entry_source = perform fs_read_file(driver_module_path(entry_module))
+    entry_source |> frontend |> lower_program |> emit_module
+  }
     ~> wat_stdout
     ~> wasi_filesystem       // FS — per-file byte I/O for driver / cache
     ~> string_table          // W5 — compile-time interned string offsets
@@ -67,7 +76,39 @@ fn compile(source) =
     ~> graph_handler
     ~> diagnostics_handler
 
-fn check(source) =
+fn check(entry_module) =
+  driver_check(entry_module)
+    ~> wasi_filesystem
+    ~> mentl_default
+    ~> affine_ledger
+    ~> verify_ledger
+    ~> env_handler
+    ~> graph_handler
+    ~> diagnostics_handler
+
+// Legacy single-source entry — for tests that pass raw source
+// without filesystem layout. No caching; full re-infer each call.
+fn compile_source(source) =
+  source
+    |> frontend
+    |> infer_program
+    |> lower_program
+    |> emit_module
+    ~> wat_stdout
+    ~> string_table
+    ~> emit_memory_bump
+    ~> body_context
+    ~> mentl_default
+    ~> affine_ledger
+    ~> region_tracker
+    ~> verify_ledger
+    ~> lower_scope
+    ~> lookup_ty_graph
+    ~> env_handler
+    ~> graph_handler
+    ~> diagnostics_handler
+
+fn check_source(source) =
   source
     |> frontend
     |> infer_program
