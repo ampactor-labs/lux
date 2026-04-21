@@ -306,8 +306,18 @@ difference is whether lowering/emit fires after check.
 - H3 (SchemeKind — env entries serialize with construction-origin)  ✓
 - Ω.5 (frame records — env entries are records) ✓
 - F.2 LSP arc (couples to IC's driver — Priority 1)
+- **FS substrate** — Filesystem effect + WASI handler for
+  path_open / fd_read / fd_write / fd_close / path_create_directory.
+  Today `runtime/io.ka` has only stdin/stdout/stderr via fd_write
+  + fd_read. IC needs per-module `.kai` files on disk; that's an
+  FS capability the current substrate doesn't expose. See
+  `docs/rebuild/simulations/FS-filesystem-effect.md` for the
+  prerequisite walkthrough.
 
-No new substrate primitive. Pure handler-projection / driver work.
+IC is handler-projection on the graph substrate. FS is a small
+new effect + WASI handler — named as a prerequisite, not a
+substrate gap (the substrate knows how to be extended with new
+effects; this is just one more).
 
 ---
 
