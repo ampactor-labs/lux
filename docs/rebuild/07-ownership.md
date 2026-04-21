@@ -6,6 +6,14 @@ linearity. `!Consume` proves read-only. `!Alloc` proves no
 allocation. All derived from the Boolean effect algebra (spec 01) —
 no separate ownership analysis.
 
+**Kernel primitive implemented:** #5 — Ownership as an effect
+(DESIGN.md §0.5). Load-bearing because removing it collapses
+Inka's ability to prove real-time safety without lifetime
+annotation ceremony. The `!Mutate` region-freeze and Tofte-Talpin
+region inference both ride the same Boolean algebra — no new
+analysis pass, no new ADT family. Mentl tentacle served: **Trace**
+(ownership violations diagnose + proven-fix surface).
+
 **Research anchors.**
 - DESIGN.md (`own` affine / `ref` scoped as annotation ladder).
 - Perceus / FBIP (PLDI'21, PLDI'24) — precise RC + in-place reuse.

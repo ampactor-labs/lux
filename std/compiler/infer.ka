@@ -1,13 +1,13 @@
 // infer.ka — Hindley-Milner, one walk, graph-direct (spec 04)
 //
 // The engine. A single recursive walk over the typed AST that writes
-// bindings directly into the SubstGraph and effects into Env through
+// bindings directly into the Graph and effects into Env through
 // effect-mediated access. Three operations: infer_expr, infer_stmt,
 // generalize. No sidecar subst. No (env, subst) tuple threaded. The
 // graph IS the subst; env IS ambient; both are performed.
 //
 // Effects required:
-//   SubstGraphRead + SubstGraphWrite   — live graph mutation
+//   GraphRead + GraphWrite   — live graph mutation
 //   EnvRead + EnvWrite                 — scoped bindings
 //   Diagnostic                         — Hazel marked holes
 //   FreshHandle                        — instantiate (one fn, two handlers)
@@ -240,10 +240,11 @@ fn infer_fn(name, params, body_node, handle, span) = {
   let declared_effs = perform inf_declared_effs()
   if len(declared_effs) > 0 {
     // D3 — `with Pure` is absolute: body row must be EfPure (not
-    // merely ⊆ some sugar row named "Pure"). When Pure appears
+    // merely ⊆ some sugar row named Pure). When Pure appears
     // anywhere in declared_effs, the declared row collapses to
     // EfPure and any other declared names are a contradiction (a
-    // single warning later will surface them precisely).
+    // single warning surfaces them precisely in the contradiction
+    // diagnostic).
     let has_pure = has_pure_declared(declared_effs)
     let declared_row =
       if has_pure { EfPure }
@@ -325,9 +326,10 @@ fn call_is_alloc_returning(func) =
     _ => false
   }
 
-// H4 helper — does an EffName list include "Alloc"? region_enter
-// fires only for HandleExprs that absorb Alloc (the load-bearing
-// alloc-tracking case; non-Alloc handlers don't open regions).
+// H4 helper — does an EffName list include the Alloc effect name?
+// region_enter fires only for HandleExprs that absorb Alloc (the
+// load-bearing alloc-tracking case; non-Alloc handlers don't open
+// regions).
 fn names_include_alloc(names) =
   names_include_alloc_loop(names, 0, len(names))
 
@@ -339,7 +341,7 @@ fn names_include_alloc_loop(names, i, n) =
       ENamed(s)              => s,
       EParameterized(s, _)   => s
     }
-    if str_eq(s, "Alloc") { true }
+    if str_eq(s, "Alloc") { true }   // drift-audit: ignore — real drift mode 8 (EffName should have EAlloc variant, not ENamed(string)); tracked for item 11.B EffName refactor
     else { names_include_alloc_loop(names, i + 1, n) }
   }
 
@@ -350,7 +352,7 @@ fn names_include_alloc_loop(names, i, n) =
 fn build_declared_row(effs) =
   build_declared_from(effs, EfPure)
 
-// `with Pure` detection (D3). If any declared entry names "Pure",
+// `with Pure` detection (D3). If any declared entry names Pure,
 // the row is absolute-EfPure regardless of other entries (which
 // would be contradictory with Pure). Kept separate from
 // build_declared_row so diagnostics can still show the raw
@@ -365,7 +367,7 @@ fn has_pure_declared_loop(effs, i, n) =
   else {
     let (name, _) = list_index(effs, i)
     match name {
-      ENamed(s) => if str_eq(s, "Pure") { true }
+      ENamed(s) => if str_eq(s, "Pure") { true }   // drift-audit: ignore — real drift mode 8 (EffName should have EPure variant, not ENamed(string)); tracked for item 11.B EffName refactor
                    else { has_pure_declared_loop(effs, i + 1, n) },
       _         => has_pure_declared_loop(effs, i + 1, n)
     }
@@ -600,15 +602,25 @@ fn infer_expr(node) =
     },
 
     NExpr(FieldExpr(rec, field)) => {
-      infer_expr(rec)
-      let N(_, _, rh) = rec
-      let field_h = perform mint(Inferred("field type"))
-      let row_h = perform graph_fresh_row(Inferred("record row"))
-      let expected = mk_record_open([(field, TVar(field_h))], row_h)
-      let expected_h = perform mint(Inferred("record access"))
-      perform graph_bind(expected_h, expected, Located(span, Inferred("expected record")))
-      unify(rh, expected_h, span, Inferred("field access"))
-      perform graph_bind(handle, TVar(field_h), Located(span, Inferred("field type")))
+      // Dotted-name resolution: when the left side is a bare VarRef
+      // AND the assembled dotted name resolves in env, treat the
+      // FieldExpr as a qualified env lookup (e.g., `graph.chase`).
+      // This is how dot-access on imported modules works — driver
+      // installs each export under BOTH flat and `module.export`
+      // keys at load time. See PLAN.md Decisions Ledger 2026-04-21
+      // dotted-names-as-env-entries. On miss, fall through to the
+      // record-field-access path for struct-record dot-access.
+      let N(rbody, _, _) = rec
+      match rbody {
+        NExpr(VarRef(left_name)) => {
+          let qualified = left_name |> str_concat(".") |> str_concat(field)
+          match perform env_lookup(qualified) {
+            Some(_) => infer_var_ref(qualified, handle, span),
+            None    => infer_field_access_record(rec, field, handle, span)
+          }
+        },
+        _ => infer_field_access_record(rec, field, handle, span)
+      }
     },
 
     NExpr(LambdaExpr(params, body_node)) => {
@@ -653,6 +665,24 @@ fn infer_expr(node) =
     NPat(_)   => ()                // pattern at expression position — degenerate;
                                    // parser emits in match-arm contexts only
   }
+
+// ─── FieldExpr — struct-record access ──────────────────────────────
+// Factored out of the FieldExpr match arm so the qualified-name
+// fallback path (modules-as-env-entries) can share this without
+// duplication. The record-open unification is unchanged from its
+// original arm form.
+
+fn infer_field_access_record(rec, field, handle, span) = {
+  infer_expr(rec)
+  let N(_, _, rh) = rec
+  let field_h = perform mint(Inferred("field type"))
+  let row_h = perform graph_fresh_row(Inferred("record row"))
+  let expected = mk_record_open([(field, TVar(field_h))], row_h)
+  let expected_h = perform mint(Inferred("record access"))
+  perform graph_bind(expected_h, expected, Located(span, Inferred("expected record")))
+  unify(rh, expected_h, span, Inferred("field access"))
+  perform graph_bind(handle, TVar(field_h), Located(span, Inferred("field type")))
+}
 
 // ─── VarRef — instantiate + consume if own ─────────────────────────
 
@@ -1366,49 +1396,35 @@ fn type_mismatch(a, b, span, reason) =
       |> str_concat(show_type(b)),
     span, "MachineApplicable")
 
-// ═══ BinOp / UnaryOp — classified by operator family ═══════════════
+// ═══ BinOp / UnaryOp — dispatched on BinOpKind ═════════════════════
+// binop_kind (declared in types.ka) maps each BinOp to one of four
+// BinOpKind variants — the behavior class used for inference rules.
+// Two orthogonal axes: BinOp carries specific operator identity
+// (14 variants, surfaced at Reason/emit boundaries); BinOpKind
+// carries semantic behavior class (arith, cmp, bool, concat). No
+// String intermediary at any dispatch site.
 
-fn infer_binop(handle, op, lh, rh, span) =
-  match classify_binop(op) {
-    "arithmetic" => {
-      unify(lh, rh, span, OpConstraint(op, Inferred("left"), Inferred("right")))
-      perform graph_bind(handle, TVar(lh), Located(span, OpConstraint(op, Inferred("result"), Inferred("operand"))))
+fn infer_binop(handle, op, lh, rh, span) = {
+  let lbl = binop_to_str(op)
+  match binop_kind(op) {
+    BKArith => {
+      unify(lh, rh, span, OpConstraint(lbl, Inferred("left"), Inferred("right")))
+      perform graph_bind(handle, TVar(lh), Located(span, OpConstraint(lbl, Inferred("result"), Inferred("operand"))))
     },
-    "comparison" => {
-      unify(lh, rh, span, OpConstraint(op, Inferred("left"), Inferred("right")))
-      perform graph_bind(handle, TName("Bool", []), Located(span, OpConstraint(op, Inferred("comparison"), Declared("bool"))))
+    BKCmp => {
+      unify(lh, rh, span, OpConstraint(lbl, Inferred("left"), Inferred("right")))
+      perform graph_bind(handle, TName("Bool", []), Located(span, OpConstraint(lbl, Inferred("comparison"), Declared("bool"))))
     },
-    "boolean" => {
-      perform graph_bind(lh, TName("Bool", []), Located(span, OpConstraint(op, Inferred("left"), Declared("bool"))))
-      perform graph_bind(rh, TName("Bool", []), Located(span, OpConstraint(op, Inferred("right"), Declared("bool"))))
-      perform graph_bind(handle, TName("Bool", []), Located(span, OpConstraint(op, Inferred("result"), Declared("bool"))))
+    BKBool => {
+      perform graph_bind(lh, TName("Bool", []), Located(span, OpConstraint(lbl, Inferred("left"), Declared("bool"))))
+      perform graph_bind(rh, TName("Bool", []), Located(span, OpConstraint(lbl, Inferred("right"), Declared("bool"))))
+      perform graph_bind(handle, TName("Bool", []), Located(span, OpConstraint(lbl, Inferred("result"), Declared("bool"))))
     },
-    "concat" => {
-      unify(lh, rh, span, OpConstraint(op, Inferred("left"), Inferred("right")))
-      perform graph_bind(handle, TVar(lh), Located(span, OpConstraint(op, Inferred("concat"), Inferred("operand"))))
-    },
-    _ => {
-      unify(lh, rh, span, OpConstraint(op, Inferred("left"), Inferred("right")))
-      perform graph_bind(handle, TVar(lh), Located(span, OpConstraint(op, Inferred("result"), Inferred("operand"))))
+    BKConcat => {
+      unify(lh, rh, span, OpConstraint(lbl, Inferred("left"), Inferred("right")))
+      perform graph_bind(handle, TVar(lh), Located(span, OpConstraint(lbl, Inferred("concat"), Inferred("operand"))))
     }
   }
-
-fn classify_binop(op) = match op {
-  "+"  => "arithmetic",
-  "-"  => "arithmetic",
-  "*"  => "arithmetic",
-  "/"  => "arithmetic",
-  "%"  => "arithmetic",
-  "==" => "comparison",
-  "!=" => "comparison",
-  "<"  => "comparison",
-  ">"  => "comparison",
-  "<=" => "comparison",
-  ">=" => "comparison",
-  "&&" => "boolean",
-  "||" => "boolean",
-  "++" => "concat",
-  _    => "unknown"
 }
 
 fn infer_unaryop(handle, op, ih, span) = match op {
@@ -1540,8 +1556,8 @@ fn bind_pcon_subpats(params, sub_pats, span, reason, ctor_name) =
 
 // ═══ Match arms ════════════════════════════════════════════════════
 
-fn infer_match_arms(arms, scrutinee_h, result_h, span) = {
-  infer_match_arm_iter(arms, scrutinee_h, result_h, span)
+fn infer_match_arms(arms, scrut, result_h, span) = {
+  infer_match_arm_iter(arms, scrut, result_h, span)
   // Exhaustiveness check (H3): if no wildcard arm covers the
   // remainder, every constructor of the scrutinee's declaring type
   // must appear among the arms. ConstructorScheme(_, total_variants)
@@ -1560,17 +1576,17 @@ fn infer_match_arms(arms, scrutinee_h, result_h, span) = {
   }
 }
 
-fn infer_match_arm_iter(arms, scrutinee_h, result_h, span) =
+fn infer_match_arm_iter(arms, scrut, result_h, span) =
   if len(arms) == 0 { () }
   else {
     let (pat, body) = list_head(arms)
     perform env_scope_enter()
-    infer_pat(pat, scrutinee_h, span)
+    infer_pat(pat, scrut, span)
     infer_expr(body)
     let N(_, _, bh) = body
     unify(bh, result_h, span, MatchBranch(Inferred("arm body"), Inferred("result")))
     perform env_scope_exit()
-    infer_match_arm_iter(list_tail(arms), scrutinee_h, result_h, span)
+    infer_match_arm_iter(list_tail(arms), scrut, result_h, span)
   }
 
 // Walk arms, gathering each PCon's tag_id (deduped via set_insert).
@@ -1651,12 +1667,12 @@ fn infer_handler_arms(arms, body_h, span) =
 // Quantify handles that are free in the body but NOT free in env.
 
 // H6: exhaustive NodeKind enumeration. Fabricated-value danger:
-// `_ => Forall([], TVar(handle))` silently fabricates a monotype
-// for every non-NBound kind — CLAUDE.md Session Zero names this
-// as a dangerous wildcard. Each non-bound kind gets its own arm
-// with the same fallback spelled out; if a new NodeKind is added,
-// this function fails to compile until its generalization semantic
-// is decided.
+// a wildcard arm returning Forall([], TVar(handle)) silently
+// fabricates a monotype for every non-NBound kind — CLAUDE.md
+// Session Zero names this as a dangerous wildcard. Each non-bound
+// kind gets its own arm with the same fallback spelled out; if a
+// new NodeKind is added, this function fails to compile until its
+// generalization semantic is decided.
 fn generalize(handle) = {
   let node = perform graph_chase(handle)
   let GNode(kind, _) = node
@@ -1987,11 +2003,11 @@ fn unify_list_elems(elems, target_h, span) =
 // is conservative.
 
 // handler_stack_tag (C4) — derives a short marker for the handler
-// frame from its handled names, e.g. ["IO", "Alloc"] → "handle:IO|Alloc".
+// frame from its handled names, e.g. [IO, Alloc] → handle:IO|Alloc.
 // The tag identifies the install position for W4's monomorphic
 // dispatch. Concrete handler-value identity arrives with evidence
-// reification; until then the handled-name set is the most specific
-// marker available.
+// reification; the handled-name set is the marker H1.4 preserves
+// as a fallback.
 fn handler_stack_tag(handled_names) =
   "handle:" |> str_concat(show_list(handled_names, show_eff_name, "|"))
 

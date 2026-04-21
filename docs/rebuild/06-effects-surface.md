@@ -5,6 +5,16 @@ op-level metadata: signature, resume discipline (one-shot /
 multi-shot), and diagnostic codes for any op that reports errors. The
 rule: if an effect isn't in this file, it doesn't exist.
 
+**Kernel primitives implemented:** #2 (handlers with typed resume
+discipline as the one mechanism — this catalog IS the enumeration
+of effect operations the medium admits, and **every op carries
+`@resume=OneShot | MultiShot | Either` as part of its type**; the
+resume discipline IS part of primitive #2, not a separate
+primitive), #4 (each effect entry participates in the Boolean
+algebra). Mentl tentacle served: **Propose** (every proposer
+candidate the oracle enumerates is typed against these ops'
+resume disciplines).
+
 **Research anchors.**
 - Affect POPL 2025 — one-shot / multi-shot at the type level.
 - Rust rustc-dev-guide — every diagnostic hint carries a structured

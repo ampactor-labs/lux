@@ -4,20 +4,45 @@
 
 ## ⌁ Mentl's anchor — read before every line of code ⌁
 
-> **Before writing each line of Inka, invert the question. Do not ask
-> "how do I implement this?" Ask: what does the graph already know
-> that makes this redundant? What handler already projects this that
-> I would be re-deriving? Which of the five verbs — `|>`, `<|`, `><`,
-> `~>`, `<~` — draws this shape that I am about to draw imperatively?
-> What row in the effect algebra already encodes this constraint that
-> I am about to check by hand? Write only the residue. If the code's
-> shape matches a language you've trained on — Rust's vtable, Scheme's
-> environment frame, Python's dict, Haskell's monad transformer, C's
-> calling convention — you are constraining Mentl; restructure until
-> the shape comes from Inka, not from your training.**
+> **Before writing each line of Inka, invert the question. Do not
+> ask "how do I implement this?" Ask the eight — one per kernel
+> primitive (DESIGN.md §0.5):**
+>
+> - **Graph?** What handle/edge/Reason already encodes this?
+> - **Handler?** What installed handler — and with what resume
+>   discipline (`@resume=OneShot|MultiShot|Either`) — already
+>   projects this? (Primitive #2 absorbs both the handler and the
+>   resume-discipline question because resume discipline IS part
+>   of an effect op's type.)
+> - **Verb?** Which of `|>` / `<|` / `><` / `~>` / `<~` draws the
+>   topology I'm about to draw imperatively?
+> - **Row?** What `+ - & ! Pure` constraint already gates this?
+> - **Ownership?** What `own`/`ref` marker or `Consume`/`!Alloc`/
+>   `!Mutate` already proves the linearity or non-escape I'm about
+>   to hand-check?
+> - **Refinement?** What predicate or `Verify` obligation already
+>   bounds the value I'm about to runtime-check?
+> - **Gradient?** What annotation would unlock this as a compile-
+>   time capability instead of the runtime check I'm writing?
+> - **Reason?** What Reason edge should this decision leave so the
+>   Why Engine can walk back to it later?
+>
+> **Write only the residue.** If the code's shape matches a language
+> you've trained on — Rust's vtable, Scheme's environment frame,
+> Python's dict, Haskell's monad transformer, C's calling
+> convention — you are constraining Mentl; restructure until the
+> shape comes from Inka, not from your training.
 
 > *My job is not to write Inka. My job is to find what Inka already
 > does and write only what's left.*
+
+The eight questions ARE the kernel (§0.5 of DESIGN). Each primitive
+is also an interrogation AND one of Mentl's eight tentacles. Four
+was the old audit count (graph/handler/verb/row); nine briefly
+held (split handler from resume discipline). Eight is the locked
+count — 1-to-1-to-1 with primitives and tentacles. Mentl is an
+octopus because the kernel has eight primitives; lose a tentacle,
+lose a primitive.
 
 The trap is not laziness — it is **fluency**. You know a thousand
 ways to express a stack of frames or a vtable; the second-easiest is
@@ -57,23 +82,123 @@ shown up in this repo:
 Each is competent code in another language and a cage in Inka.
 Naming them before typing forecloses the easy slide.
 
-The four interrogations are not ceremony. They are the four
+The eight interrogations are not ceremony. They are the eight
 projections any implementation must clear before it earns the right
-to exist as new code:
+to exist as new code. **One per kernel primitive** (DESIGN.md §0.5),
+**one per Mentl tentacle** (DESIGN.md Ch 8). Lose one and the kernel
+goes un-audited; lose one and Mentl loses a tentacle.
 
-1. **Graph?** What handle, edge, or reason already encodes this?
+1. **Graph?** What handle, edge, or Reason in the SubstGraph + Env
+   already encodes this? *(If the graph has it, don't re-derive it.
+   Primitive #1 · Tentacle **Query**.)*
 2. **Handler?** What installed handler already projects this state
-   or operation, such that re-deriving it is wrong?
+   or operation — and with what resume discipline (`@resume=OneShot
+   | MultiShot | Either`)? *(If a handler already holds it, don't
+   route around the handler. If the op resumes multi-shot, don't
+   code it as one-shot. Primitive #2 · Tentacle **Propose**.)*
 3. **Verb?** Which of `|>` / `<|` / `><` / `~>` / `<~` already draws
-   the topology you are about to draw imperatively?
-4. **Row?** What effect-row constraint already gates this, such that
-   a hand-rolled check is duplication?
+   this topology? *(If the topology has a verb, don't draw it
+   imperatively. Primitive #3 · Tentacle **Topology**.)*
+4. **Row?** What effect-row constraint — union, subtraction,
+   intersection, negation, `Pure` — already gates this? *(If the
+   Boolean algebra expresses it, don't hand-roll the check.
+   Primitive #4 · Tentacle **Unlock**.)*
+5. **Ownership?** What `own`/`ref` marker, or what `Consume` /
+   `!Alloc` / `!Mutate` row constraint, already proves this
+   linearity or non-escape? *(If ownership-as-effect proves it,
+   don't write a lifetime analysis. Primitive #5 · Tentacle
+   **Trace**.)*
+6. **Refinement?** What refinement predicate, or what `Verify`
+   obligation, already bounds this value or enforces this shape?
+   *(If a refinement encodes it, don't add a runtime check.
+   Primitive #6 · Tentacle **Verify**.)*
+7. **Gradient?** What annotation would unlock this as a compile-time
+   capability instead of a runtime check — and is there ONE
+   highest-leverage next step the code is missing? *(If the
+   gradient has a step for it, don't encode the capability by hand.
+   Primitive #7 · Tentacle **Teach**.)*
+8. **Reason?** What Reason edge should this decision leave in the
+   graph so the Why Engine can walk back to it? *(If a later reader
+   will ask "why did this bind to that?", write the Reason now,
+   not later. Primitive #8 · Tentacle **Why**.)*
 
-Anything that fails the four IS Mentl drawing its own shape;
+Anything that fails the eight IS Mentl drawing its own shape;
 anything that passes is drift you've named in the moment instead of
-debt you flag for "later." When all four are searched and exhausted,
-the residue — typically one to three lines — is what gets typed.
-That residue IS the Inka-native code.
+debt you flag for "later." When all eight are searched and
+exhausted, the residue — typically one to three lines — is what
+gets typed. That residue IS the Inka-native code.
+
+**The eight questions answer more than code audit.** They are:
+- The method for writing new code (ask all eight; type the residue).
+- The method for reading inherited code (ask all eight of every
+  module you pick up).
+- The curriculum for learning Inka (internalizing the eight IS
+  the fluency; everything else is details).
+- The debugging discipline (when something is wrong, one of the
+  eight was skipped — find which).
+- Mentl's internal voice grammar (Her voice per turn is the eight
+  asked against the cursor-of-attention, gated through the silence
+  predicate so only the one load-bearing answer surfaces).
+- The code-review rubric (review IS running the eight against a
+  diff).
+
+Same discipline at every level. The eight primitives ARE the eight
+interrogations ARE Mentl's eight tentacles. **One method, one
+mascot, one kernel. Lose a tentacle, lose a primitive; lose a
+primitive, lose a tentacle. Mentl is an octopus because the
+substrate She reads has eight primitives.**
+
+### On the former "four interrogations" / "nine interrogations" framings
+
+Two older framings existed:
+
+- **Four** (graph / handler / verb / row) — audited against only
+  primitives 1–4. Worked for most work but left ownership,
+  refinement, resume discipline, gradient, and Reason
+  un-interrogated. Deprecated.
+- **Nine** (with resume discipline as its own question) — briefly
+  held when handlers and multi-shot were numbered as separate
+  primitives. The 9→8 consolidation folds resume discipline into
+  the handler question (primitive #2 carries resume discipline by
+  Affect POPL 2025 formalization). No audit surface is lost;
+  resume discipline is now part of "what handler, and with what
+  resume type?"
+
+**Eight is the locked count.** If docs or memory say "four" or
+"nine," upgrade in place. The 1-to-1-to-1 mapping (primitive ↔
+interrogation ↔ tentacle) is load-bearing; the octopus framing
+is architectural, not decorative.
+
+### The minimal kernel — eight primitives, load-bearing together
+
+The eight interrogations filter against the kernel. The kernel is
+what the compiler knows; the residue is what the compiler can't
+yet derive. These eight primitives are the kernel. Remove any and
+the medium collapses; Mentl loses a tentacle. Authoritative
+enumeration: `docs/DESIGN.md` §0.5. Shorthand for this file:
+
+1. **SubstGraph + Env** — program IS the graph; every output a handler projection. Tentacle: **Query**.
+2. **Handlers with typed resume discipline** — `handle`/`resume` replaces six+ patterns; `@resume=OneShot|MultiShot|Either` is part of each op's type; MultiShot is Mentl's oracle substrate (hundreds of alternate realities per second); `~>` chains ARE capability stacks. Tentacle: **Propose**.
+3. **Five verbs** — `|>` `<|` `><` `~>` `<~` — complete topological basis. Tentacle: **Topology**.
+4. **Full Boolean effect algebra** — `+ - & ! Pure`; `!E` proves ABSENCE. Tentacle: **Unlock**.
+5. **Ownership as an effect** — `own`/`ref` inferred; same algebra; no lifetimes. Tentacle: **Trace**.
+6. **Refinement types** — compile-time proof, runtime erased; `Verify` swaps to SMT. Tentacle: **Verify**.
+7. **Continuous annotation gradient** — one annotation, one capability; Mentl surfaces ONE next step per turn. Tentacle: **Teach**.
+8. **HM inference, live, one-walk, productive-under-error, with Reasons** — the light everything reads by. Tentacle: **Why**.
+
+**Every framework dissolves. Every deployment target is a handler
+choice. Every speed claim falls out of completeness of proof.
+Every domain — FE, BE, DSP, robotics, sensors, ML, embedded,
+systems — is a handler stack on one substrate. Mentl is not a
+feature; She is the voice that reads the graph. Inka is not a
+programming language; it is the ultimate intent → machine
+instruction medium, and it raises its users into better
+programmers through the shape it imprints on their thinking.**
+
+Before editing: ask which of the nine your work composes from, and
+which it extends. Extensions to the kernel are cascade-level work
+(walkthrough first, substrate-grounded). Composition uses the
+kernel as-is; residue only.
 
 ---
 
@@ -90,9 +215,23 @@ That residue IS the Inka-native code.
    module you intend to touch.** The specs are per-module
    declarative contracts. Follow them literally.
 3. **Surface back a 3–5 sentence synthesis** to Morgan in Inka's
-   own vocabulary (*the medium*, *the one mechanism: graph +
-   handler*, *the five verbs*, *Mentl as oracle*, *the gradient is
-   the conversation*). Use his crystallized phrases where they fit.
+   own vocabulary. Your synthesis MUST touch each of the eight
+   kernel primitives either by name or by consequence: the **graph
+   + env** as universal representation, **handlers with typed
+   resume discipline** (MultiShot-typed arms being Mentl's oracle
+   substrate), the **five verbs** as complete topological basis,
+   the **full Boolean effect algebra with negation**, **ownership
+   as an effect inferred**, **refinement types with runtime
+   erasure**, the **continuous annotation gradient** (one
+   annotation → one capability), **HM inference live-productive-
+   under-error with Reasons**. A synthesis that omits primitives is
+   an under-loaded register; it's Inka at partial grasp. Use
+   Morgan's crystallized phrases where they fit (*the medium*,
+   *the one mechanism: graph + handler*, *the five verbs*, *Mentl
+   as oracle*, *the gradient is the conversation*, *the ultimate
+   intent → machine instruction medium*, *the medium raises its
+   users*, *hundreds of alternate realities per second*, *Mentl
+   is an octopus because the kernel has eight primitives*).
 4. **Only then propose, ask, or edit.** Do not propose a patch, a
    clarifying question, or an edit before steps 1–3 are complete.
 
@@ -133,6 +272,22 @@ That residue IS the Inka-native code.
   string-keyed-when-structured / int-coded-when-ADT. Every flag
   or enum-as-int is an ADT begging to exist; H6 catches the
   consequence at the next match site.)
+- "Handler dispatch vtable" / "dispatch table" / "vtable lookup"
+  — even at WAT/binary-design level. (Drift mode 1 — Rust vtable.)
+  **There is no vtable in Inka.** Primitive #2's MultiShot
+  continuation is a heap-captured closure struct (captures + evidence
+  + return slot) allocated through the SAME `emit_alloc` swap surface
+  as every other heap value (γ crystallization #8 — the heap has one
+  story). OneShot resume is direct `return_call $op_<name>` where
+  the graph proves the call ground (>95% of sites, per H1 evidence
+  reification). The polymorphic minority is `call_indirect` through
+  a **function-pointer field on the closure record** — one `i32`
+  slot the inference pass placed at a known offset. That's evidence
+  passing (Koka JFP 2022), not vtable indirection. No table exists
+  as a separate structure. The word "vtable" does not appear in
+  any correct description of Inka dispatch at any layer — source,
+  LIR, LowIR, WAT, or emitted binary. If you catch it in your own
+  writing or a teammate's, flag and restructure.
 
 **Persistent memory** lives at
 `/home/suds/.claude/projects/-home-suds-Projects-inka/memory/`.
@@ -464,6 +619,13 @@ trailer, no inline mentions. Write commits as Morgan wrote them alone.
 ---
 
 ## Crystallized Insights (load-bearing truths)
+
+*The ten insights below compose from the **nine-primitive kernel**
+named above. The kernel is the axiom set; these are the theorems
+the cascade has proven. Both lists are load-bearing; the kernel
+lives in DESIGN.md §0.5 and INSIGHTS.md's "Minimal Kernel" section.
+Don't confuse the nine with the ten — the nine are what the medium
+is BUILT FROM; the ten are what the medium PROVES.*
 
 Ten insights — seven from INSIGHTS.md plus three crystallized
 during the γ cascade — that bind all implementation:

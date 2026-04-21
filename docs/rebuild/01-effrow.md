@@ -5,6 +5,9 @@
 (`Pure`, `!IO`, `!Alloc`, `!Network`) and handler absorption
 (`body - handled`) all fall out of one mechanism.
 
+**Kernel primitive implemented:** #4 — Full Boolean effect algebra with negation (DESIGN.md §0.5).
+Mentl tentacle served: **Unlock** (capability-unlock via `!E` surfacing).
+
 **Research anchors.**
 - Tang & Lindley POPL 2025 / 2026 — Modal Effect Types, `⟨E₁|E₂⟩(E) =
   E₂ + (E − E₁)`. Rows and capabilities both encodable.

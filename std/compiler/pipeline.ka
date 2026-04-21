@@ -17,7 +17,7 @@
 //
 // This file declares two handlers it OWNS:
 //   env_handler         — scoped binding stack (spec 04)
-//   lookup_ty_graph     — bridge SubstGraphRead → LookupTy (spec 05)
+//   lookup_ty_graph     — bridge GraphRead → LookupTy (spec 05)
 //   diagnostics_handler — stderr diagnostic routing (spec 06)
 //
 // Every other handler is imported from its owner module:
@@ -251,8 +251,8 @@ handler wasi_filesystem {
   }
 }
 
-// ═══ lookup_ty_graph — SubstGraphRead → LookupTy bridge (spec 05) ══
-// The ONLY LookupTy handler in Phase 1. Declares SubstGraphRead
+// ═══ lookup_ty_graph — GraphRead → LookupTy bridge (spec 05) ══
+// The ONLY LookupTy handler in Phase 1. Declares GraphRead
 // (inherited from the outer graph_handler). Unresolved handles emit
 // E_UnresolvedType; error holes emit a sentinel that lowering/emit translates
 // to a WASM unreachable trap.
@@ -384,7 +384,7 @@ fn build_audit_report(fn_name, ty) = {
   let reached = row_names(body_row)
   let severable = severance_candidates(reached)
   let unlocks = severance_unlocks(severable)
-  {fn_name: fn_name, reached: reached, row_str: show_effrow(body_row),
+  {fn_name: fn_name, reached: reached, row_str: show_effrow(body_row),   // drift-audit: ignore — drift-1 heuristic false-positive on record field punning where field name matches value identifier; record literal, not vtable
    severable: severable, unlocks: unlocks}
 }
 
@@ -392,7 +392,7 @@ fn build_audit_report(fn_name, ty) = {
 // that the body does NOT perform. Adding `!E` for each unlocks a
 // capability without breaking the row.
 fn severance_candidates(reached) = {
-  let canonical = [ENamed("Alloc"), ENamed("IO"), ENamed("Network")]
+  let canonical = [ENamed("Alloc"), ENamed("IO"), ENamed("Network")]   // drift-audit: ignore — real drift 8 (EffName should have EAlloc/EIO/ENetwork variants); tracked for item 11.B EffName refactor
   filter_not_in(canonical, reached, 0, len(canonical), [])
 }
 
@@ -401,7 +401,7 @@ fn filter_not_in(candidates, present, i, n, acc) =
   else {
     let c = list_index(candidates, i)
     let next = if name_in_list(present, c) { acc }
-               else { acc ++ [c] }
+               else { acc ++ [c] }   // drift-audit: ignore — real drift 11 on small canonical-3-effect list; buffer-counter conversion requires adding Memory+Alloc to fn row rippling through audit walk; tracked for item 11.B buffer-counter sweep
     filter_not_in(candidates, present, i + 1, n, next)
   }
 

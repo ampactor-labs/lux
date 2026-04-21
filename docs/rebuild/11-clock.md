@@ -7,6 +7,15 @@ effects, each with its own capability negation (`!Clock`, `!Tick`,
 handler family. Every compilation gate that depends on determinism,
 real-time, or causal ordering falls out of this substrate.
 
+**Kernel primitives implemented:** #2 (handlers with typed resume
+discipline — time is a handler, not a runtime service), #4
+(Boolean algebra — `!Clock`, `!Tick`, `!Deadline` are the usual
+negation mechanism). The `<~` feedback verb (primitive #3)
+requires an iterative context established by one of these
+handlers; Clock's `Sample(rate)` handler is what makes a
+`<~ delay(N)` mean "N samples at 44100Hz" vs. "N ticks" vs. "N
+ms of wall time." The handler decides the unit.
+
 **Research anchors.**
 - Google Spanner / TrueTime — bounded-uncertainty time as the
   foundation for global consistency.

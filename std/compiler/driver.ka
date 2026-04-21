@@ -110,7 +110,7 @@ fn driver_extract_imports_loop(ast, i, n, acc) =
 // publishes (for the caller to install into env_handler).
 
 fn driver_check_module(module_name)
-  with Memory + Alloc + Filesystem + EnvRead + EnvWrite + SubstGraphRead + SubstGraphWrite + Diagnostic + LookupTy + Verify + InferCtx = {
+  with Memory + Alloc + Filesystem + EnvRead + EnvWrite + GraphRead + GraphWrite + Diagnostic + LookupTy + Verify + InferCtx = {
   let path = driver_module_path(module_name)
   if !perform fs_exists(path) {
     perform report("driver", "E_MissingModule", "MissingVariable",
@@ -122,7 +122,7 @@ fn driver_check_module(module_name)
     []
   } else {
     let source = perform fs_read_file(path)
-    let current_hash = cache_hash_source(source)
+    let current_hash = cache.hash_source(source)
     let cached = cache_read(module_name)
     match cached {
       Some(kai) => {
@@ -131,7 +131,7 @@ fn driver_check_module(module_name)
           // No re-inference for this module. Diagnostics emitted
           // at compile time of THIS module are also skipped; if
           // they mattered, the cache wouldn't have been written.
-          driver_install_entries(kai.exported_entries)
+          driver_install_entries(module_name, kai.exported_entries)
           kai.exported_entries
         } else {
           // Cache miss (source hash differs) — re-infer.
@@ -144,7 +144,7 @@ fn driver_check_module(module_name)
 }
 
 fn driver_reinfer_module(module_name, source, source_hash)
-  with Memory + Alloc + Filesystem + EnvRead + EnvWrite + SubstGraphRead + SubstGraphWrite + Diagnostic + LookupTy + Verify + InferCtx = {
+  with Memory + Alloc + Filesystem + EnvRead + EnvWrite + GraphRead + GraphWrite + Diagnostic + LookupTy + Verify + InferCtx = {
   let tokens = lex(source)
   let ast = parse_program(tokens)
   let imports = driver_extract_imports_loop(ast, 0, len(ast), [])
@@ -164,6 +164,9 @@ fn driver_reinfer_module(module_name, source, source_hash)
   // the head; take the first (n_after - n_before).
   let new_count = n_after - n_before
   let exported = driver_take_first(entries_after, new_count)
+  // Flat names already in env from infer_program. Add qualified
+  // `module.export` aliases so importing modules can dot-access.
+  driver_install_qualified_only(module_name, exported)
   // Write cache.
   let kai = {
     compiler_version: cache_compiler_version(),
@@ -181,18 +184,19 @@ fn driver_reinfer_module(module_name, source, source_hash)
 // cache-write moment so future invalidation can compare). For
 // caches written now, "now's" hash is what we record.
 fn driver_collect_dep_hashes(imports) with Memory + Alloc + Filesystem =
-  driver_collect_dep_hashes_loop(imports, 0, len(imports), [])
+  let n = len(imports)
+  driver_collect_dep_hashes_loop(imports, 0, n, make_list(n))
 
-fn driver_collect_dep_hashes_loop(imports, i, n, acc)
+fn driver_collect_dep_hashes_loop(imports, i, n, buf)
   with Memory + Alloc + Filesystem =
-  if i >= n { acc }
+  if i >= n { buf }
   else {
     let m = list_index(imports, i)
     let path = driver_module_path(m)
     let h = if perform fs_exists(path) {
-      cache_hash_source(perform fs_read_file(path))
+      cache.hash_source(perform fs_read_file(path))
     } else { 0 }
-    driver_collect_dep_hashes_loop(imports, i + 1, n, acc ++ [h])
+    driver_collect_dep_hashes_loop(imports, i + 1, n, list_set(buf, i, h))
   }
 
 fn driver_take_first(entries, count) =
@@ -205,17 +209,65 @@ fn driver_take_first(entries, count) =
 // can env_lookup them. Entries from cache carry placeholder Reasons
 // (Inferred("loaded from cache")); the typing data is preserved
 // faithfully which is what cross-module type-checking needs.
+//
+// Dual-install: each export registers under TWO env keys — the flat
+// short name (enables selective-import semantics + existing call
+// sites) AND the qualified `module_short.export` form (enables
+// `graph.chase(h)` dot-access). Both keys point to the same Scheme.
+// This is the Inka-native form of "modules as namespaces" — not a
+// record-of-functions type, just more env entries at qualified
+// keys. See PLAN.md Decisions Ledger 2026-04-21 dotted-names-as-env.
 
-fn driver_install_entries(entries) with EnvWrite =
-  driver_install_loop(entries, 0, len(entries))
+fn driver_install_entries(module_name, entries) with Memory + Alloc + EnvWrite =
+  let short = module_short_name(module_name)
+  driver_install_loop(short, entries, 0, len(entries))
 
-fn driver_install_loop(entries, i, n) with EnvWrite =
+fn driver_install_loop(short, entries, i, n) with Memory + Alloc + EnvWrite =
   if i >= n { () }
   else {
     let entry = list_index(entries, i)
     let (name, scheme, reason, kind) = entry
+    // Flat short-name install (current behavior).
     perform env_extend(name, scheme, reason, kind)
-    driver_install_loop(entries, i + 1, n)
+    // Qualified install — dotted name as env key.
+    let dotted = short |> str_concat(".") |> str_concat(name)
+    perform env_extend(dotted, scheme, reason, kind)
+    driver_install_loop(short, entries, i + 1, n)
+  }
+
+// module_short_name: last path segment of an import path.
+//   "compiler/graph"  -> "graph"
+//   "dsp/signal"      -> "signal"
+//   "prelude"         -> "prelude"
+
+fn module_short_name(path) with Memory + Alloc =
+  let n = byte_len(path)
+  let last_slash = module_find_last_slash(path, 0, n, 0 - 1)
+  if last_slash < 0 { path }
+  else { str_slice(path, last_slash + 1, n) }
+
+fn module_find_last_slash(path, i, n, last) =
+  if i >= n { last }
+  else if byte_at(path, i) == 47 { module_find_last_slash(path, i + 1, n, i) }
+  else { module_find_last_slash(path, i + 1, n, last) }
+
+// Install only qualified `module.export` aliases. Used on the
+// reinfer path where `infer_program` has already env_extended each
+// export under its flat short name; only the dotted aliases remain
+// to be registered.
+
+fn driver_install_qualified_only(module_name, entries) with Memory + Alloc + EnvWrite =
+  let short = module_short_name(module_name)
+  driver_install_qualified_loop(short, entries, 0, len(entries))
+
+fn driver_install_qualified_loop(short, entries, i, n) with Memory + Alloc + EnvWrite =
+  if i >= n { () }
+  else {
+    let entry = list_index(entries, i)
+    let (name, scheme, reason, kind) = entry
+    let dotted = short |> str_concat(".") |> str_concat(name)
+    perform env_extend(dotted, scheme, reason, kind)
+    driver_install_qualified_loop(short, entries, i + 1, n)
   }
 
 // ═══ Public API ════════════════════════════════════════════════════
@@ -225,13 +277,13 @@ fn driver_install_loop(entries, i, n) with EnvWrite =
 // runs its inference, every imported name is in env_handler.
 
 fn driver_check(entry_module)
-  with Memory + Alloc + Filesystem + EnvRead + EnvWrite + SubstGraphRead + SubstGraphWrite + Diagnostic + LookupTy + Verify + InferCtx = {
+  with Memory + Alloc + Filesystem + EnvRead + EnvWrite + GraphRead + GraphWrite + Diagnostic + LookupTy + Verify + InferCtx = {
   let modules = driver_collect_dag(entry_module)
   driver_check_modules_loop(modules, 0, len(modules))
 }
 
 fn driver_check_modules_loop(modules, i, n)
-  with Memory + Alloc + Filesystem + EnvRead + EnvWrite + SubstGraphRead + SubstGraphWrite + Diagnostic + LookupTy + Verify + InferCtx =
+  with Memory + Alloc + Filesystem + EnvRead + EnvWrite + GraphRead + GraphWrite + Diagnostic + LookupTy + Verify + InferCtx =
   if i >= n { () }
   else {
     let m = list_index(modules, i)

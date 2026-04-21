@@ -299,7 +299,7 @@ fn row_subsumes(body_row, gate_row) =
         |> row_subsumes(body_row)
   }
 
-// ═══ Unification — writes through SubstGraphWrite ══════════════════
+// ═══ Unification — writes through GraphWrite ══════════════════
 // Called by inference when unifying TFun types (spec 04). Writes
 // through graph_bind_row. Spec 01 table:
 //

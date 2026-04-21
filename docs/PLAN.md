@@ -3,14 +3,209 @@
 > **THE plan.** Singular, authoritative, evolvable. Edits land as
 > commits; supersedes everything. No other document overrides this one.
 
-## Status — 2026-04-19 (γ cascade in flight)
+---
+
+## What this plan serves
+
+Inka is the **ultimate intent → machine instruction medium**. Not a
+programming language — a medium that sees every domain (frontend,
+backend, DSP, robotics, sensors, ML, embedded, systems) through one
+kernel, compiles to optimal code for every target through handler
+choice, and teaches its users into better programmers through the
+shape the medium imprints on their thinking.
+
+The kernel is eight primitives (DESIGN.md §0.5, summary in
+INSIGHTS.md, pointer in CLAUDE.md). Load-bearing together. Every
+phase of this plan is work on the kernel (cascade-level) or work
+composing handler projections from the kernel (Phase II and later).
+**Nothing in this plan exists without a kernel grounding.**
+
+The kernel, in shorthand: **(1)** SubstGraph + Env / **(2)** handlers
+with typed resume discipline `@resume=OneShot|MultiShot|Either` /
+**(3)** five verbs `|> <| >< ~> <~` / **(4)** full Boolean effect
+algebra with negation / **(5)** ownership as effect / **(6)**
+refinement types / **(7)** continuous annotation gradient / **(8)**
+HM inference live-productive-under-error with Reasons. Mentl — the
+voice that reads the graph — explores hundreds of alternate
+realities per second via primitive #2's MultiShot arms, and
+surfaces ONE proven suggestion per turn. **Mentl is an octopus
+because the kernel has eight primitives; each tentacle is one
+primitive's voice surface (Query / Propose / Topology / Unlock /
+Trace / Verify / Teach / Why).** The compiler IS the AI.
+
+---
+
+## Decisions Ledger — load-bearing commitments, dated
+
+Every entry here is a decision that ripples across the repo and
+supersedes earlier framings. Append-only; do not rewrite history
+(except to fix typos).
+
+- **2026-03-15** — Project inception as Lux (Rust prototype).
+- **2026-04-18** — Lux → **Inka** rename; mascot **Mentl** (She/Her, octopus).
+- **2026-04-18** — DESIGN.md v1 (manifesto, 12 chapters) frozen.
+- **2026-04-19** — γ cascade closed (all handles landed substrate-complete).
+- **2026-04-20** — Phase II reframed; LSP-as-paradigm dissolved into `Interact` effect; multi-shot `enumerate_inhabitants` owned by Mentl; VS Code plugin via LSP confirmed as v1 transport.
+- **2026-04-20** — Nine-primitive kernel named; 9→8 merge (handlers + typed resume discipline fused) yields final eight-primitive kernel. 1-to-1-to-1 locked: primitives ↔ interrogations ↔ Mentl's tentacles. Mentl is octopus because kernel is eight.
+- **2026-04-20** — Bootstrap direction: **hand-written WAT**, not Rust/C translator. Hand-WAT image IS the reference soundness artifact (kept forever, not deleted).
+- **2026-04-20** — Four-pass audit sequence named: self-simulation → simplification → determinism → feature-usage, in that order, before hand-WAT.
+- **2026-04-21** — **File extension: `.nx`** (flat-typography two-letter form, phonetic match to "Inka" via the nk/ks sound, zero collision verified). Supersedes `.ka`. Full migration folded into simplification/restructure.
+- **2026-04-21** — **`SubstGraph` → `Graph`** ADT rename. The substrate IS a graph; naming it Graph aligns ADT with INSIGHTS crystallization #6 ("The Graph IS the Program"). Keeps `GraphRead` / `GraphWrite` effect names unchanged.
+- **2026-04-21** — **`examples/` as a miscellany directory dissolves; curated teaching content remains as `lib/tutorial/`.** *(Revised within-day after drift audit.)* Earlier framing claimed `examples/` dissolves entirely; that overstated. The dissolution is: no `examples/` dumping ground; compiler's `src/` is the reference Inka program; stdlib's `lib/` is the canonical domain demonstration; integration projects (Pulse, a-day.md) live in separate repositories. **But curated teaching content IS substance** — "how to teach the eight primitives in order" — and lives at `lib/tutorial/` as 5–10 escalating `.nx` files that Mentl's Teach tentacle narrates over. The files are runnable Inka code, not documentation; Mentl projects them into a tutorial experience. Not a directory of demos; curriculum substrate.
+- **2026-04-21** — **`tests/` directory dissolves.** Training-pattern leak; tests dissolve via three collapses: (A) type system proves correctness directly (60-80% of peer-language tests disappear); (B) runnable behavior demonstrations ARE the stdlib + compiler source; (C) chaos/replay/fuzzing is handler swap via named entry-handlers declared at top-level in source. No `.test.nx` files anywhere. No separate test runner. `inka run . --with test_run` is the test invocation.
+- **2026-04-21** — **Entry-handler paradigm (NOT a dedicated file).** *(Revised within-day after drift audit.)* Earlier framing claimed `run.nx` as a dedicated entry-handler file. That was Makefile/package.json-shaped drift. Correct form: entry-handlers are normal handlers declared at top-level in `main.nx` (or any imported module). CLI `--with <name>` resolves by handler symbol through ordinary import — no special filename, no manifest file. `src/main.nx` declares `compile_run`, `test_run`, `deterministic_run`, `audit_run` inline alongside `fn main`; the CLI reads the requested name and wraps `main()` in the resolved handler before emit. Handlers are handlers. No new file category.
+- **2026-04-21** — **Repository interim six-directory shape** (pre-first-light): `src/` (compiler), `lib/` (stdlib, including `lib/tutorial/` for Mentl's curriculum content), `docs/` (docs), `bootstrap/` (hand-WAT), `tools/` (shell scripts for agent / git hooks), plus root-level markdown + license. No `examples/`, no `tests/`, no `std/`. **Further dissolution expected post-first-light:** `tools/` dissolves when its scripts can be rewritten as Inka programs (drift-audit becomes a handler on the graph); `docs/` partially dissolves when `doc_handler` generates from graph + `///` comments; final form probably `src/`, `lib/`, `bootstrap/`, minimal `docs/`. The six-dir shape is an honest interim template, not the terminal form.
+- **2026-04-21** — **The plan itself eventually dissolves.** *(Within-day audit naming.)* This PLAN.md markdown file is a pre-first-light compromise. Post-first-light, "the plan" should be a handler projection: `plan_handler` reads graph provenance + commit history + pending-item state and speaks the plan through Mentl's Teach tentacle. The 51-item markdown list IS fluency residue (industrial-project-management shape imported from training); acceptable pre-first-light but explicitly named so it doesn't ossify as Inka-native.
+- **2026-04-21** — **Hα — operator-semantics-as-handlers** named as open future-cascade handle.
+  Today's BinOp + LBinOp + direct WAT emission is fixed-semantics.
+  Dream form: `+` lowers to `perform add(l, r)` on parameterized
+  `Arithmetic(mode: ArithMode)` effect; handler chain decides
+  semantics (`Wrapping | Checked | Saturating`). Row algebra carries
+  the mode. Cascade-level work — changes entire compilation pipeline.
+  NOT in any current Pending Work item; surfaced during 11.B.1 audit
+  as legitimate post-first-light substrate question. Walkthrough
+  drafts only after first-light closes and Phase II absorbs the
+  current Pending Work queue.
+
+### 2026-04-21 — pre-walkthrough decisions (hand-wave prevention)
+
+*To prevent design sessions from exploding past safe scope when
+each walkthrough lands, the following decisions are committed
+inline HERE, not inside walkthroughs. Each becomes a constraint
+the corresponding walkthrough must respect.*
+
+- **`Interact` effect shape:** ONE effect with 8 tentacle ops (not 8 peer effects). Ops 1-1 the kernel primitives (`query`, `propose`, `topology`, `unlock`, `trace`, `verify`, `teach`, `why`). Plus shared ops: `focus(Cursor)`, `speak(VoiceLine)`, `edit(Patch)`, `ask(Question)`, `run_op(RunOp)`.
+- **`propose`'s `enumerate_inhabitants`:** multi-shot resume per-candidate (streaming, not batch). Handler arm resumes with each verified candidate one at a time; accumulator handler collects what passes; cap N=8 branches per hole (per MV §5).
+- **`speak` discipline:** one-shot per turn. One VoiceLine surfaces, gated by silence predicate. Streaming voice is not a substrate; silence is the default.
+- **`Cursor` shape:** `type Cursor = { handle: Int, span: Span, intent: Option<Intent> }`. Handle is graph-native; span is human-visible; intent is declared-goal. Matches Records-Are-Handler-State-Shape (γ crystallization #9).
+- **`.inka/` cache layout:** per-project root `.inka/cache/` + `.inka/handlers/` (content-addressed handler blobs). Per-user overlay `~/.inka/handlers/` consulted first via `~>` fall-through in default Package handler. Cache key is `(source_hash, handler_chain_hash)` — same source + different handler chain = different WAT; key encodes both.
+- **CLI shape:** single `inka` binary, git-style subcommands. `inka --with <name>` is the universal form; subcommands are aliases: `inka compile` ≡ `--with compile_run`, `inka check` ≡ `--with check_run`, `inka audit` ≡ `--with audit_run`, `inka query <q>` ≡ `--with query_run` + arg, `inka teach` ≡ `--with teach_run`, `inka run` ≡ `--with compile_run && wasmtime output`. Bare `inka` (no args) launches Mentl over the current project (equivalent to `inka teach`); if no `main.nx` exists, Mentl offers to start from `lib/tutorial/`.
+- **`inka new <project>` command:** creates a new project from `lib/tutorial/00-hello.nx` as template.
+- **`Test` effect:**
+  - `assert(cond)` — lifts to compile-time proof when `cond` is statically decidable (via `verify_assert` handler in compile-run chain); runtime check otherwise.
+  - `assert_eq(a, b)` — structural equality (records by sorted fields, variants by tag + sub-eq, primitives direct); rejects closure comparison with `E_ComparesClosures` at compile time.
+  - `assert_near(a, b, eps)` — explicit epsilon required; no default implicit; rejects calls missing epsilon at compile time.
+- **Mentl's voice register (tiebreak chain for ranking candidates):** row-minimality → reason-chain depth (shorter = more local = preferred) → declared-intent alignment → source-span earliness → lexicographic on candidate name (deterministic fallback, load-bearing for first-light bit-identical output).
+- **Mentl's voice personhood:** first-person "I" used SPARINGLY — for refusals, multi-shot summaries, proof-chain walks only. Suggestions drop first-person ("Adding `!Alloc` unlocks CRealTime", not "I suggest..."). Human addressed as "you" (pair-programmer register, not "we"). Refusals are firm + proof-linked: "I won't — `own` at line 40 forbids. Two fixes type: [#fix1] [#fix2]."
+- **`lib/tutorial/` contents:** 9 files (00-08) keyed to kernel primitives:
+  - `00-hello.nx` — minimum-teachable-subset (primitives 1 + 2 + 3)
+  - `01-graph.nx` — primitive 1 (SubstGraph + Env)
+  - `02-handlers.nx` — primitive 2 (handlers + resume discipline)
+  - `03-verbs.nx` — primitive 3 (five verbs)
+  - `04-row.nx` — primitive 4 (Boolean effect algebra)
+  - `05-ownership.nx` — primitive 5 (ownership as effect)
+  - `06-refinement.nx` — primitive 6 (refinement types)
+  - `07-gradient.nx` — primitive 7 (gradient)
+  - `08-reasons.nx` — primitive 8 (HM + Reasons / Why Engine)
+  Each ≤ 50 lines. Mentl's Teach tentacle walks in order. `00-hello.nx` doubles as `inka new <project>` template.
+- **Hand-WAT file organization:** single monolithic `bootstrap/inka.wat` file pre-first-light. No includes, no macros, no fragments. Auditability > editability for the reference soundness artifact. Post-first-light, if multi-file is desired, separate concern.
+- **EH walkthrough scope:** absorbs the `src/main.nx` CLI rewrite (from current subcommand dispatch to entry-handler resolution). One walkthrough, complete design.
+
+### 2026-04-21 — "Inka solves Inka" dissolutions of remaining hand-waves
+
+*Running each previously-flagged item through the eight-interrogation
+lens. Every one dissolves into existing kernel primitives + handler
+composition. Nothing remains as a separate substrate question.*
+
+- **Multi-shot × arena (D.1) dissolves** into three peer handlers on Resume + Alloc: `replay_safe`, `fork_deny`, `fork_copy`. User picks; compiler proves compatibility at handler install via row subsumption. Default v1: `replay_safe` matches trail rollback semantics. No policy-as-flag; three handlers.
+- **Package effect signatures dissolve.** The three sketched ops (`fetch`, `resolve`, `audit`) collapse: `fetch` unifies with `Filesystem` as one `resolve_source(ModuleId) -> Source` where `ModuleId = LocalPath(Path) | Remote(Hash)`; handlers (`local_fs_resolver`, `hash_store_resolver`, `github_resolver`) chain via `~>`. `audit` is NOT a Package op — it's `inka audit`, a projection of primitive #4 (Boolean algebra) on GraphRead. `resolve(row)` is NOT a Package op — it's Mentl's Propose tentacle (primitive #2) asking HandlerCatalog. **One new op, unified with Filesystem. No separate Package effect.**
+- **Cross-wire RPC serialization dissolves.** State struct = record. Record has canonical sorted-field layout (H2 substrate). Record bytes ARE the wire format. Function pointers cross as content-addressed hashes, resolved via `resolve_source(Remote(hash))` on receiver. No new format; composition of H2 + primitive #2 handler identity + content addressing.
+- **"Terminal IDE" as a product dissolves.** Bare `inka` installs `mentl_voice_default` as minimum surface; adding `editor_handler` / `filetree_handler` / `command_palette_handler` upgrades it. Same program, different handler stack. "Terminal IDE" is industry-residue nomenclature; in Inka, it's just the handler stack the user chose.
+- **`inka new <project>` dissolves** into `inka --with new_project(name="foo")` — an entry-handler with an argument. Same substrate as any `--with`. No special-case "new" mode.
+- **REPL dissolves** into an entry-handler: `inka repl` ≡ `inka --with repl_run` where `repl_run` is a line-at-a-time handler reading stdin, compiling each line in current env, running, printing. Another `_run` alias. No new substrate.
+- **Error triage (40 errors at once) dissolves.** Cursor-of-attention + silence predicate + one-at-a-time rule already triage: Mentl speaks about the cursor. Other errors exist in graph as `NErrorHole` nodes; human asks `inka query --all-errors` to surface them. No "triage mode"; composition of existing primitives.
+- **First-invocation greeting dissolves.** Empty graph → no proof-surfaceable content → silence predicate returns "nothing to say." First VoiceLine fires when the first proof-derivable observation arises (user types first line, cursor moves to a handle with type/row/Reason content). No "greeting" substrate. Tone of what Mentl DOES say when graph is non-empty is character work (Morgan's).
+- **Error catalog fate:** pre-first-light hand-maintained; post-first-light generated by `doc_handler` from `///` + graph provenance. Already in "Post-first-light dissolutions" section.
+- **IDE integration beyond LSP:** LSP, DAP, custom-wire-protocol, terminal, web, plugin — each a handler on `Interact`. Already covered by "peer handlers on Interact."
+- **Final subcommand-alias map** (adds REPL + new):
+  - `inka` (bare) ≡ `inka --with teach_run` (Mentl over current project; silence if graph empty)
+  - `inka compile` ≡ `--with compile_run`
+  - `inka check` ≡ `--with check_run`
+  - `inka audit` ≡ `--with audit_run`
+  - `inka query <q>` ≡ `--with query_run <q>`
+  - `inka teach` ≡ `--with teach_run`
+  - `inka run` ≡ `--with compile_run && wasmtime output`
+  - `inka repl` ≡ `--with repl_run`
+  - `inka new <name>` ≡ `--with new_project(name)`
+  - `inka test` ≡ `--with test_run` (dev sugar; `assert` + `assert_reporter` activated)
+
+### What remains (not substrate — tone, implementation detail, Morgan's domain)
+
+- Exact words in Mentl's example VoiceLines (20-line register test).
+- CLI flag conventions (`--with <name>` positional vs keyword; long vs short).
+- Content-addressed handler hash input (source-hash vs inferred-env-hash vs both).
+- Whether CLI subcommand aliases are in-source-table or in-shell-wrapper.
+
+**None of these trigger design sessions beyond safe scope.** They resolve as implementation encounters them or as Morgan decides register.
+
+**The kernel is closed. The substrate is complete. What remains is mechanical transcription + handler composition.**
+
+### 2026-04-21 — sequencing rule surfaced by drift-audit hook
+
+*The first attempt at item 1 (LFeedback) revealed a cascade-level sequencing constraint the walkthroughs had not named.*
+
+**The rule:** **Feature work on a file requires that file's drift-audit to be clean first.** The PreToolUse/PostToolUse hooks in the global config run `tools/drift-audit.sh` against any `.ka` file touched; a non-zero audit blocks the edit from counting as complete. Pre-existing drift in a file therefore blocks ANY edit to that file until the pre-existing drift is swept.
+
+**What this means for item ordering:** priority substrate items (1, 2) cannot land before each target file's drift-audit is clean. If item 11's full-tree simplification hasn't run yet, each file must get a **narrow per-file drift sweep** as a pre-gate before feature work lands on it.
+
+**New substrate discipline pattern:** before any feature-adding commit to a `.ka` file whose audit is non-zero:
+
+1. Inspect pre-existing drift hits.
+2. Apply narrow simplification to that file (rewrite drift-9 comment phrasing; suppress false-positive drift-12 matches ONLY where they're heuristic false-alarms for actually-mode-8 drift tracked for real item-11 sweep; convert real drift where scope permits).
+3. Verify `drift-audit.sh <file>` exits 0.
+4. Execute the feature-adding edit.
+5. Verify audit remains 0.
+
+**Tracked known-drift-sites (discovered during item 1 attempt, pending real fix at item 11 execution):**
+
+- `src/backends/wasm.ka` (pre-restructure: `std/compiler/backends/wasm.ka`):
+  - Line ~1387 `fn emit_binop(op: String)` + match on string literals `"+"`, `"=="`, `"<"`, etc. → **real drift mode 8 (string-keyed-when-structured);** should be `BinOp` ADT. Requires multi-file refactor touching `types.ka` (add `BinOp` ADT), `parser.ka` (construct BinOp not String), `infer.ka` (match BinOp in BinOpExpr arm), `lower.ka` (LBinOp carries BinOp), `wasm.ka` (match BinOp in emit_binop). **Tracked as simplification-sub-pattern for item 11 commit 11.B (drift-mode screen). For item 1's pre-gate, the ONE flagged line (the `"==" =>` arm which both drift-12 regexes happen to match) is suppressed with `// drift-audit: ignore` + explanatory comment.**
+
+**This is the hook working exactly as intended.** The hook is not over-gating; it's enforcing the substrate discipline that simplification must lead feature work. The walkthrough underspecified by not naming the pre-gate constraint. Now named.
+
+### 2026-04-21 — REVISED: dotted names ARE env entries (not modules-as-records)
+
+*Initial framing was "modules ARE records at the type level." Running the eight interrogations at implementation time revealed that framing was drift-1-adjacent (record-of-functions namespace, from Rust/Haskell habits). The Inka-native resolution is simpler AND smaller.*
+
+**The reframe.** Dotted names (`graph.chase`) are not record field accesses — they are **env entries with qualified keys**. The graph ALREADY stores `(name, Scheme, Reason, SchemeKind)` entries in env via `env_extend`; names are already strings. A qualified name like `"graph.chase"` is just another valid env key. **No new type variant. No module record. No record-of-schemes.**
+
+**Substrate mechanics** (~15 lines total across driver.ka + infer.ka):
+
+1. **In `driver.ka`'s install path** (~10 lines). After flat-installing each export `(name, scheme, reason, kind)` from an imported module, ALSO install `(module_short_name ++ "." ++ name, scheme, reason, kind)` as a second env entry with the qualified key. `module_short_name` = last path segment of the import path (e.g., `compiler/graph` → `graph`).
+
+2. **In `infer.ka`'s `FieldExpr` arm** (~5 lines). Before constraining to record unification, check if the assembled dotted string (`left_side_name ++ "." ++ field`) resolves in env. Hit → use that binding's scheme. Miss → fall through to existing record-field-access path.
+
+**Why this is Inka-native:**
+- Graph? — env entries already keyed by names (strings); dotted names are more-qualified strings. Same substrate.
+- Handler? — `env_lookup` is the existing handler. No new handler. No new effect.
+- Verb? — no verb change; `graph.chase(h)` is still a unary call on a resolved name.
+- Row? — no row change.
+- All other interrogations: N/A.
+
+**Drift modes avoided** (and named):
+- **Drift 1 (Rust vtable)** — NOT building a record-of-functions namespace. Just env entries. The record-of-functions interpretation was the fluency-trap; this reframe avoids it.
+- **Drift 6 (primitive-type-special-case)** — modules are not a special kind of thing; they contribute env entries like every other declaration.
+- **Drift 8 (string-keyed-when-structured)** — the string IS the structured form here; env already keys by strings; dotted is more-structured-via-prefix, not less.
+
+**Same mechanism. Same env. More entries.** No new type variant, no new handler, no new effect.
+
+**Consequences for NS-naming §1.1:** the "modules-as-records" framing is superseded. The dot-access convention (`graph.chase(h)` instead of `graph_chase(h)`) becomes a mechanical rename + two env-extension + fieldexpr-arm extensions. Scope shrinks from "~30 lines of infer extension" to "~15 lines across driver + infer."
+
+**This is the LAST substrate decision gating walkthroughs.** Everything past this is mechanical transcription or handler composition.
+
+---
+
+## Status — 2026-04-21 (γ cascade closed; all seven pre-migration walkthroughs LANDED; migrations + audits + bootstrap sequenced)
 
 - **Specs.** Twelve specs in `docs/rebuild/00–11` plus `docs/SYNTAX.md`
   (Σ phase, canonical syntax). Read them as declarative contracts;
   update them when the code teaches us something better.
+  *(Restructure item 17' relocates to `docs/specs/00–11`; spec 00
+  retitled to `00-graph.md` reflecting `SubstGraph → Graph`.)*
 - **Cascade walkthroughs.** `docs/rebuild/simulations/H*.md` — one per
   handle. Each resolves design before code freeze. Riffle-back
   addenda capture how prior decisions read in new substrate.
+  *(Restructure item 17' relocates to `docs/specs/simulations/`.)*
 - **γ cascade — CLOSED.** All handles + their surfaced peers landed:
   Σ (SYNTAX.md), Ω.0–Ω.5 (audit sweeps + parser refactor + frame
   consolidation), H6 (wildcard audit), H3 (ADT instantiation),
@@ -54,108 +249,366 @@
 - **Integration trace (post-cascade):** `docs/traces/a-day.md`.
   One developer, one project (Pulse: real-time audio + browser UI +
   cloud server + training variant), one day. Every surface either
-  fires `[LIVE]`, is `[LIVE · surface pending]`, or is one of three
-  named `[substrate pending]` gaps: LFeedback state-machine lowering,
-  teach_synthesize oracle conductor, runtime HandlerCatalog effect.
+  fires `[LIVE]`, is `[LIVE · surface pending]`, or is one of two
+  named substrate gaps post-reframe: **LFeedback state-machine
+  lowering** (item 1) and **Mentl-voice substrate** (item 2, which
+  absorbed the former teach_synthesize and HandlerCatalog gaps).
   Supersedes the per-domain DESIGN.md Ch 10 simulations as the
   integration artifact (those remain for thesis-level promises).
-- **Bootstrap translator.** Not started; out of mind until Phase II
-  Priority 1 closes.
+- **Bootstrap approach.** Hand-written WAT, not a Rust/C translator
+  (decision 2026-04-20). Hand-WAT IS the reference soundness
+  artifact; kept forever, not deleted. Item 26+ of Pending Work.
+- **Four-pass audit sequence:** self-simulation → simplification →
+  determinism → feature-usage, in that order, gating bootstrap.
+  Items 11 + 23–25 of Pending Work.
+- **Eight-primitive kernel locked.** 1-to-1-to-1 with Mentl's eight
+  tentacles and the eight interrogations. See DESIGN.md §0.5 for
+  the authoritative enumeration.
 - **Error catalog.** String-coded (prefix-kind + self-documenting
   suffix). See `docs/errors/README.md` for the convention.
-- **Language rename:** Lux → **Inka** (mascot: **Mentl**, an octopus).
-- **File extension:** `.ka` — the last two letters of Inka.
+- **Language rename:** Lux → **Inka** (mascot: **Mentl**, She/Her, an octopus).
+- **File extension:** `.nx` (decided 2026-04-21). Two letters,
+  flat typography (no ascenders / descenders), zero collision
+  verified, phonetic match to "Inka" via the N-K sound. Supersedes
+  `.ka`. Migration is item 10 of Pending Work.
+- **Repository shape:** six top-level directories (`src/` compiler,
+  `lib/` stdlib, `docs/` docs, `bootstrap/` hand-WAT, `tools/`
+  scripts, plus root markdown + license). No `examples/`, no
+  `tests/`. Item 17' of Pending Work; shape IS the canonical Inka
+  user-project template.
 
 ---
 
-## Pending Work — single source of truth
+## Pending Work — single source of truth, exhaustive
 
-Strictly ordered by what unblocks what. Every item links to its
-walkthrough (existing or to-be-written) and its phase position.
-When an item lands, mark it `[LANDED]` here AND update the matching
-tag in `docs/traces/a-day.md`.
+Every item below is the work remaining between today and first-light,
+with status, dependencies, scope, walkthrough reference, and
+deliverables. Strictly ordered by dependency. Each item marked
+`[PENDING]` / `[IN-FLIGHT]` / `[LANDED]` / `[DEFERRED]`. When an item
+lands, mark `[LANDED]` here AND update the matching tag in
+`docs/traces/a-day.md` where applicable.
 
-### Three substrate gaps (Phase II Priority 1; ~200 lines total)
+**Legend:**
+- 📋 = walkthrough (design document); lands as a file in `docs/specs/simulations/` before code freezes
+- ⚙️ = substrate (code-level change)
+- 🔁 = migration (repo-wide mechanical change; one focused commit)
+- 📖 = documentation update (cross-cutting; folds into related work)
+- 🧪 = audit pass (exhaustive review; produces inventory / diff / report)
+- 🌱 = seed artifact (new file establishing a convention)
 
-1. **`LFeedback` state-machine lowering** — emit-side rewrite of
-   `<~ spec` to a state-machine LIR. Templates in
-   `docs/rebuild/simulations/H3.1-parameterized-effects.md` plus
-   the `<~` discussion in DESIGN.md Ch 2.5. Walkthrough TBD as
-   `simulations/LF-feedback-lowering.md` before code freezes.
-   ~100 lines emit-side.
-2. **`teach_synthesize` oracle conductor** — composed handler in
-   mentl.ka driving checkpoint → apply_annotation_tentatively →
-   verify → commit-or-rollback over gradient candidates. Substrate
-   pieces all exist. Walkthrough section already in
-   `simulations/H5-mentl-arms.md`; expand to its own
-   `simulations/TS-teach-synthesize.md` as design questions
-   surface. ~50-80 lines.
-3. **Runtime `HandlerCatalog` effect** — convert the static table
-   in mentl.ka to an effect with runtime registration. Walkthrough
-   section in H5-mentl-arms.md already names the design.
-   ~40 lines.
+### Critical path overview
 
-### Phase II surface handlers (Priority 1, depends on substrate gaps)
+```
+Priority 1 substrate gaps  (items 1-3)
+        │
+        ▼
+Walkthroughs for naming + restructure + entry-handlers  (items 4-9)
+        │
+        ▼
+Simplification + structural migration  (items 10-22)
+        │
+        ▼
+Self-simulation + determinism + feature-usage audits  (items 23-25)
+        │
+        ▼
+Bootstrap walkthrough + hand-WAT + first-light  (items 26-31)
+        │
+        ▼
+Post-first-light handler projections  (items 32-49)
+```
 
-4. **LSP handler** — wraps `inka query` in JSON-RPC; couples to
-   `driver_check` via `textDocument/didChange` for incremental
-   re-check. Walkthrough TBD as `simulations/LSP-language-server.md`.
-   The integration trace `docs/traces/a-day.md` describes every
-   surface this lands; flip those tags from `[LIVE · surface
-   pending]` to `[LIVE]` as it ships.
-
-### Phase II Priority 2 (deployment scenarios)
-
-5. **Audit-driven linker dead-code severance** — reads
-   `AuditReport.severable`; drops WASM imports for proven-severed
-   capabilities. Walkthrough TBD.
-6. **Multi-backend emit** — per-target handler variants on
-   `backends/` (browser, server, trainer, native). Walkthrough TBD;
-   shape mirrors `backends/wasm.ka`'s structure.
-
-### Phase II Priority 3 (specific programs)
-
-7. **Thread effect + per-thread region minting** — Walkthrough TBD.
-8. **RPC/actor handler** — `~>` boundary handler that bifurcates
-   emit and serializes the cross-wire state record. Walkthrough TBD.
-9. **Autodiff handler** — concrete ~15 lines per DESIGN.md 10.2.
-10. **SIMD intrinsic emission** — recognize `tanh` / `gain` etc.
-    as mappable to `v128.*` WAT opcodes.
-
-### Phase II Priority 4 (polish)
-
-11. Commit message synthesis from graph provenance DAG.
-12. `inka rename` CLI handler.
-13. `///` docstring handler.
-
-### Phase II open follow-ups (cascade peers)
-
-14. **IC.3 — graph chase walks overlays** — per-module overlay
-    separation. Lands when name collisions across modules become
-    load-bearing. Driver currently merges envs flat; correct for
-    today's project.
-15. **Cache format binary v3** — only if the textual v2 format
-    measures as a bottleneck. v2 round-trips name + Scheme +
-    SchemeKind; Reasons regenerate as placeholders on cache load.
-16. **Cache dependency-hash invalidation** — currently source-hash
-    only; full chain (cache hit on M requires every dep's recorded
-    imports_hashes match dep's CURRENT hash) lives in IC v2 of
-    `driver_check_module`. Substrate ready; policy adjustment small.
-
-### Phase III (deferred until Phase II Priority 1 closes)
-
-17. **Bootstrap translator** — written as a direct trace of cascade
-    walkthroughs in any language (Rust / Python / hand-WAT —
-    decided at that moment). ~3-5K lines. Deleted forever after
-    Phase IV closes.
-
-### Phase IV
-
-18. **First-light** — `diff inka2.wat inka3.wat` empty.
+Items 4–22 are the "pre-bootstrap" block — design, simplify,
+restructure, migrate extension, rename Graph. Items 23–25 are the
+three audits that confirm readiness. Items 26–31 are bootstrap
+itself. 32+ are post-first-light surfaces.
 
 ---
 
-## The Approach: Write the Wheel, Then Build the Lathe
+### Priority 1 substrate gaps (in-flight; close these before bootstrap prep begins)
+
+1. **⚙️📋 `LFeedback` state-machine lowering.**
+   - Status: `[PENDING]`. Walkthrough `docs/specs/simulations/LF-feedback-lowering.md` not yet drafted.
+   - Deliverable: walkthrough + ~100 lines emit-side in `src/backends/wasm.nx`. Closes the final `<~` verb's runtime realization.
+   - Depends on: nothing; independent.
+   - Gate for: item 25 feature-usage audit may surface that VFINAL doesn't use `<~` internally, in which case hand-WAT can skip it — but the substrate must still land for user programs.
+
+2. **⚙️📋 Mentl-voice substrate.**
+   - Status: `[IN-FLIGHT]` — walkthrough `docs/specs/simulations/MV-mentl-voice.md` exists with scaffold, has open §2 Q1–Q6 design questions and §9 first-hour scenario unresolved.
+   - Deliverable: closed walkthrough → `Interact` effect declaration + `mentl_voice` 8-tentacle handler + silence predicate + LSP adapter handler + VS Code extension package. Absorbs former `teach_synthesize` conductor gap + former `HandlerCatalog` gap.
+   - Depends on: nothing substrate-wise; character/register work is its own closure.
+   - Gate for: VS Code plugin v1 shipping. NOT gating for bootstrap — Mentl-voice code can land post-first-light if needed.
+   - Scope: ~600–1000 lines `.nx` + ~200 lines TypeScript extension glue.
+
+3. **⚙️ Three-gap residue swept.**
+   - Status: `[DEFERRED INTO ITEMS 1+2]`. The three former Priority 1 gaps (LFeedback, teach_synthesize conductor, HandlerCatalog) are now: #1 is item 1; #2 and #3 are both inside item 2.
+
+---
+
+### Walkthroughs to draft before migrations freeze (Anchor 7: walkthrough-first)
+
+*All seven walkthroughs drafted 2026-04-21 in one focused session.*
+
+4. **📋 `NS-naming.md`** (naming-audit walkthrough). **`[LANDED 2026-04-21]`** — 560 lines.
+   - Covers: dot-access module convention (eliminates `module_fn` C-style prefixes); `lexer.nx`→`lex.nx` + `parser.nx`→`parse.nx` rename; `SubstGraph → Graph` ADT rename; effect-name normalization (`HostClock` merged into Clock; `IterativeContext` dissolved into row constraint); docstring consistency (canonical template per module); delete `SYNTHESIS_CROSSWALK.md`; modules-as-records inference extension.
+   - Gate for: item 11 simplification audit execution.
+
+5. **📋 `NS-structure.md`** (structural-reshape walkthrough). **`[LANDED 2026-04-21]`** — 662 lines.
+   - Covers: six-directory top-level (`src/`, `lib/`, `docs/`, `bootstrap/`, `tools/`, root). Maps every current file to new path. `lib/tutorial/` 9-file curriculum (00-hello + 01..08 per kernel primitive). `bootstrap/README.md` + `first-light.sh` scaffold. `.inka/` gitignored cache layout. README's "Repository layout" as canonical template. Post-first-light dissolutions named.
+   - Gate for: item 17' structural migration.
+
+6. **📋 `EH-entry-handlers.md`** (entry-handler substrate walkthrough). **`[LANDED 2026-04-21]`** — 700 lines.
+   - Covers: entry-handlers as normal top-level handler declarations (NOT a dedicated file). CLI `--with <name>` universal form + subcommand alias table (compile/check/audit/query/teach/run/repl/test/new). `src/main.nx` rewrite from subcommand dispatch to entry-handler resolution. `Test` effect (assert + assert_eq + assert_near) + `assert_reporter` + `verify_assert` compile-time-lifting handler. Seven new error codes for the catalog.
+   - Gate for: item 20 CLI `--with` substrate implementation.
+
+7. **📋 `SIMP-simplification-audit.md`** (simplification-pass discipline walkthrough). **`[LANDED 2026-04-21]`** — 273 lines.
+   - Covers: the eight-interrogation + nine-drift-mode pass methodology; per-site rewriting rules; 6-commit sequence for execution (11.A naming sweep → 11.B drift-mode screen → 11.C bug-class screen → 11.D eight-interrogation audit → 11.E docstring harmonization → 11.F cleanup/deletion).
+   - Gate for: item 11 simplification audit execution.
+
+8. **📋 `DET-determinism-audit.md`** (determinism-audit discipline walkthrough). **`[LANDED 2026-04-21]`** — 330 lines.
+   - Covers: 10 determinism rules (canonical iteration order, no timestamps, no random seeds in emit, canonical number formatting, etc.); single-process double-compile test; cross-session test; `tools/determinism-gate.sh` regression harness; non-determinism detection patterns.
+   - Gate for: item 24 determinism audit execution.
+
+9. **📋 `LF-feedback-lowering.md`** (`<~` state-machine lowering walkthrough). **`[LANDED 2026-04-21]`** — 364 lines.
+   - Covers: LFeedback lowering for `delay(1)` (v1 scope); state-slot allocation in enclosing handler's state record; `$fb_prior`/`$fb_current` WAT pattern; ~100-line rewrite of `LFeedback` emit arm in `src/backends/wasm.nx`; sub-handles LF.1/LF.2/LF.3 for delay(N), accumulate, filter_spec (post-first-light).
+   - Gate for: item 1 LFeedback implementation.
+
+10. **📋 `Hβ-bootstrap.md`** (final cascade handle — hand-WAT walkthrough). **`[LANDED 2026-04-21]`** — 371 lines.
+    - Covers: 12 WAT emission conventions (HEAP_BASE invariant, graph layout, closure records with NO vtable, tail calls, match dispatch, string/list/tuple/record/row layout, feedback slots, entry-handler installation); three-tier hand-WAT structure (Tier 1 runtime → Tier 2 template-expansion → Tier 3 incremental self-hosting); ~200-line expander script approach.
+    - Gate for: items 27-30 (hand-WAT writing + first-light harness).
+
+*(Renumbering: the original "9. Hβ-bootstrap" becomes item 10 to accommodate LF-feedback-lowering as item 9; LFeedback is now specified by LF walkthrough (item 9) and implemented as item 1 separately. No cascade inconsistency — LF's walkthrough is the 9th walkthrough drafted; LFeedback lowering is the 1st Priority 1 substrate item to implement.)*
+
+---
+
+### Extension + Graph rename propagation (folded into simplification audit)
+
+10. **🔁 `.ka` → `.nx` migration.**
+    - Status: `[PENDING]`.
+    - Deliverable: every `.ka` file renamed to `.nx`; every reference in every doc, memory file, comment, CLAUDE.md, README.md, DESIGN.md, PLAN.md, SYNTAX.md, INSIGHTS.md, errors/README.md, every spec, every walkthrough, every tool script, `.gitignore` updated for `.inka/` cache directory pattern; drift-audit.sh patterns updated if any reference `.ka`.
+    - Depends on: walkthrough closure for items 4, 5.
+    - Lands with: items 11–22 (single simplification+restructure commit or tightly-sequenced commits).
+
+11. **🧪⚙️ Simplification audit execution.**
+    - Status: `[PENDING]`.
+    - Deliverable: every site in every `.nx` file rewritten to residue form per item 7's discipline. Includes: dot-access conversion (Finding 1 — ~548 `fn` declarations lose module prefixes; every call site rewritten); lex/parse rename; `SubstGraph → Graph` rename; effect-name normalization; delete SYNTHESIS_CROSSWALK.md; drift-mode audit per file.
+    - Depends on: item 4 walkthrough, item 7 walkthrough.
+    - Gate for: items 23–25 audits.
+    - Expected diff: 10-20% line reduction in `src/`; higher in what was `std/runtime/`.
+    - **Named peer sub-handles (land in their own commits inside 11.B / post-11):**
+      - **11.B.1.R** — Refinement-typed `op_to_binop` parameter (primitive #6 exercise).
+        Scope: refactor `fn op_to_binop(k)` from `Option<BinOp>` return to
+        `fn op_to_binop(k) -> BinOp where is_binop_token(k)` refinement
+        form; add `is_binop_token(k)` predicate; Verify discharges the
+        refinement at the caller site in `binop_loop`. Eliminates the
+        unreachable-ICE arm from 11.B.1. Lands post-11.B simplification-
+        audit when refinement ledger substrate is exercised by Phase II.
+      - **11.B.M** — Diagnostic module parameterization (primitive #2 parameterized-effect exercise).
+        Scope: `effect Diagnostic(module: ModuleName) { report(...) }`;
+        replace every `perform report("module_name", ...)` call site
+        with `perform report(...)` under a module-parameterized handler
+        installed at module entry. Dissolves drift mode 8 across every
+        `report` call-site in the compiler. ModuleName ADT: ModParser,
+        ModInfer, ModLower, ModWasm, ModDriver, ModCache, ... Row algebra
+        distinguishes `Diagnostic(ModParser)` from `Diagnostic(ModInfer)`.
+        Cross-cutting refactor; lands as its own focused commit.
+
+12. **📖 DESIGN.md updates**: `SubstGraph → Graph` in §0.5 + Ch 4 (~40 refs); Ch 8 tentacle list verification; Ch 9.1 packaging rewrite (`.inka/` cache + `~>` as manifest); Ch 9.2 testing rewrite (entry-handler + `run.nx` paradigm; "no `tests/` directory" as substrate claim); Ch 9 examples-dissolution note; every Ch 10 scenario's file paths updated; extension `.ka → .nx` throughout.
+
+13. **📖 INSIGHTS.md updates**: kernel shorthand `SubstGraph → Graph`; any `std/compiler/` path refs; extension throughout.
+
+14. **📖 CLAUDE.md updates**: Mentl's anchor kernel refs `SubstGraph → Graph`; interrogation #1 refs; file map (every `std/compiler/X.ka` → `src/X.nx`); file-extension line (`.ka` → `.nx`); bug-classes path refs.
+
+15. **📖 README.md updates**: kernel enumeration `SubstGraph → Graph`; Repository layout rewritten to six-directory template; extension `.ka → .nx`.
+
+16. **📖 SYNTAX.md updates**: file extension throughout; entry-handler declaration form (new section: `handler name_run { ~> stack }`); `Test` effect interaction; layout + token refs where `.ka` appears.
+
+17. **📖 PLAN.md updates**: (this file, being updated now) — extension finalized; restructure step tracked; examples-dissolution tracked; `run.nx` substrate tracked; all future pending work rolled into item list.
+
+18. **📖 errors/README.md updates**: extension; any file refs.
+
+19. **📖 Per-spec files `docs/specs/00-11`**: 
+    - `00-substgraph.md` retitled to `00-graph.md`; body rewritten to use `Graph`.
+    - Cross-spec references to old paths updated.
+    - Extension `.ka → .nx` in all examples.
+20. **📖 All walkthroughs `docs/specs/simulations/`**: `HB`, `H1-H6`, `H2.3`, `H3.1`, `FS`, `IC`, `MV`, `TS` — each scanned for `SubstGraph`, `std/compiler/` paths, `.ka` extension; updated.
+
+21. **📖 `docs/traces/a-day.md`**: extension `.ka → .nx` and any path refs.
+
+22. **📖 Memory files (`~/.claude/projects/-home-suds-Projects-inka/memory/`)**:
+    - `MEMORY.md` index: extension / path refs.
+    - `project_canonical_docs.md`: path refs.
+    - `project_extension_ka.md`: REWRITE (or delete + new memory `project_extension_nx.md`) for `.nx`.
+    - `project_mentl_voice_reframe.md`: `SubstGraph` refs.
+    - Every other memory scanned for path / SubstGraph / extension refs.
+
+---
+
+### Structural migration (one focused commit, gated on item 5 walkthrough)
+
+Lands after items 10-22 so simplification + extension migration ride through alongside restructure, avoiding twice-churn of call sites.
+
+17'. **🔁 Directory restructure** — single commit:
+- `std/compiler/*` → `src/*`
+- `std/compiler/backends/` → `src/backends/`
+- `std/runtime/` → `lib/runtime/`
+- `std/prelude.ka` → `lib/prelude.nx`
+- `std/test.ka` → `lib/test.nx`
+- `std/types.ka` merged into `lib/prelude.nx` (absorbed)
+- `std/dsp/` → `lib/dsp/`
+- `std/ml/` → `lib/ml/`
+- `docs/rebuild/` → `docs/specs/`
+- `docs/rebuild/simulations/` → `docs/specs/simulations/`
+- `bootstrap/` created with `README.md`, empty `inka.wat`, `first-light.sh` scaffold
+- `lib/tutorial/` directory created with 5–10 escalating `.nx` files (curriculum content; Mentl's Teach tentacle narrates over these) — NOT a "starter template"; substantive teaching substrate
+- Entry-handlers (compile_run / verify_run / deterministic_run / audit_run) declared at top-level in `src/main.nx` (NOT a separate `run.nx` file — corrected 2026-04-21)
+- Every `import X` statement in every `.nx` file updated to new paths
+- Every doc path reference updated
+- `.gitignore` updated for `.inka/` cache
+- README's Repository layout rewritten as canonical template
+
+(Numbered 17' so it lands between items 17 and 23 in execution order without renumbering everything below.)
+
+---
+
+### Audit passes (gated on items 10–17' closing)
+
+23. **🧪 Self-simulation audit of VFINAL source.**
+    - Walk every `src/*.nx`, `lib/*.nx` through lex → parse → infer → lower → emit (on paper or via the self-hosted pipeline). Any site that would yield `NErrorHole` at LIR or blocking V_Pending is a correctness bug to fix. Walkthrough `SSA-self-simulation.md` drafted only if scope warrants (~if > 20 issues surface).
+    - Deliverable: zero correctness bugs in VFINAL source; issue log committed to docs or closed in-place.
+
+24. **🧪 Determinism audit execution** (per item 8 walkthrough).
+    - Deliverable: every emit path proven deterministic; compile-same-source-twice-in-one-process yields byte-identical WAT; fix log committed.
+
+25. **🧪 Feature-usage audit.**
+    - Grep every `.nx` for which verbs, effects, refinements, ownership markers appear post-simplification.
+    - Deliverable: `bootstrap/features-used.md` — the hand-WAT minimum scope inventory.
+
+---
+
+### Bootstrap — hand-written WAT (Phase III; gated on items 23–25)
+
+26. **📋 `Hβ-bootstrap.md`** walkthrough (item 9) closed first. Re-confirmed here as the gate.
+
+27. **🌱⚙️ Hand-WAT Tier 1: runtime + handler dispatch.**
+    - Pure hand-written WAT for `lib/runtime/*.nx` (bump allocator, string/list/tuple primitives, WASI I/O) + handler dispatch machinery (closure record layout per HB, direct-call for OneShot, `call_indirect` through evidence-field for polymorphic MultiShot — NO vtable).
+    - Scope: ~10–30k lines WAT.
+    - Deliverable: `bootstrap/inka.wat` with Tier 1 sections populated; `wat2wasm` assembles; `wasm-validate` clean; a tiny test program (hello-world) runs under `wasmtime`.
+
+28. **🌱⚙️ Hand-WAT Tier 2: template-expanded compiler modules.**
+    - Template-expansion script (bash/awk, ~200 lines, no Inka semantics — just pastes WAT fragments from cascade walkthrough templates per `.nx` module) for repetitive compiler code: match dispatch, closure allocation, variant construction, pipeline lowering.
+    - Scope: ~20–70k lines WAT generated.
+
+29. **🌱⚙️ Hand-WAT Tier 3: incremental self-hosting.**
+    - Order: `lib/runtime/*` → `src/types` → `src/graph` → `src/effects` → `src/infer` → `src/lower` → `src/backends/wasm` → `src/lex` → `src/parse` → `src/pipeline` → `src/main` + `src/mentl` + `src/query` + `src/cache` + `src/driver` + `src/own` + `src/verify` + `src/clock` + `src/run`.
+    - Each module: once Tier 1+2 compile it, use VFINAL-on-partial-WAT to compile the next module; diff against hand-WAT; correct drift.
+    - Deliverable: `bootstrap/inka.wat` complete; every compiler module compiles itself through the assembled binary.
+
+30. **🌱 Assembly + first-light harness** — `bootstrap/first-light.sh`:
+    ```bash
+    wat2wasm bootstrap/inka.wat -o bootstrap/inka.wasm
+    wasm-validate bootstrap/inka.wasm
+    cat src/*.nx lib/**/*.nx | wasmtime run bootstrap/inka.wasm > inka2.wat
+    diff bootstrap/inka.wat inka2.wat   # empty = first-light
+    ```
+
+31. **🎯 First-light.**
+    - Run item 30. `diff` empty.
+    - Tag: `first-light`.
+    - Hand-WAT **kept forever** as reference soundness artifact (NOT deleted, unlike a Rust translator would be).
+    - Update `docs/traces/a-day.md` — every `[LIVE · surface pending]` tag now either resolves or moves to post-first-light follow-up.
+
+---
+
+### Post-first-light dissolutions (tracked so interim shapes don't ossify)
+
+The following are interim compromises that should dissolve once
+the corresponding Inka-native substrate exists. Named explicitly
+to prevent them from fossilizing as "Inka-native" just because they
+shipped pre-first-light.
+
+- **`tools/` directory dissolves.** `drift-audit.sh`,
+  `setup-git-hooks.sh`, `apply-claude-config.sh` are shell because
+  Inka didn't exist when they were written. Post-first-light,
+  rewrite as Inka programs that users import from `lib/`. The
+  drift audit becomes a handler on the graph (exactly the voice
+  surface Mentl's Query tentacle already enables).
+- **`docs/` largely dissolves.** DESIGN.md's §9.12 names
+  documentation as a handler on the graph. Post-first-light, the
+  `doc_handler` projects docs from `///` comments + graph
+  provenance. DESIGN.md / INSIGHTS.md as human-written
+  manifestos remain; generated specs / error catalogs /
+  walkthroughs become projections.
+- **`PLAN.md` itself dissolves.** This file is industrial-project-
+  management-shaped. Post-first-light, "the plan" is a handler
+  projection: `plan_handler` reads graph provenance + commit
+  history + pending state and speaks the plan through Mentl's
+  Teach tentacle. The 51-item markdown list is fluency residue;
+  acceptable pre-first-light, explicitly named so it doesn't
+  ossify. Decisions Ledger stays as append-only human-history
+  record.
+- **Six-directory shape → probably four.** Post-`tools/`-dissolution
+  and post-`docs/`-partial-dissolution, final repo is `src/` +
+  `lib/` + `bootstrap/` + minimal `docs/`. Four.
+
+### Post-first-light handler projections (do not gate first-light; ship incrementally after)
+
+**Priority P1 — user-facing surface:**
+
+32. **⚙️ Mentl-voice surface code** — implement the `Interact` effect, `mentl_voice` 8-tentacle handler, silence predicate, LSP adapter handler, VS Code extension (per items 2 + MV walkthrough closure). Post-first-light because compiling the compiler doesn't need Mentl's voice — users do.
+
+33. **⚙️ VS Code extension marketplace publish** — package, publish, auto-update handling.
+
+34. **⚙️ Batch CLI unified with Mentl's voice** — `inka compile`, `inka check`, `inka audit`, `inka query`, `inka teach`, `inka run` all speak the same VoiceLine grammar.
+
+**Priority P2 — deployment scenarios:**
+
+35. **📋⚙️ Audit-driven linker dead-code severance** — reads `AuditReport.severable`; issues `--drop-import` at WAT → WASM. Walkthrough TBD.
+
+36. **📋⚙️ Multi-backend emit** — per-target handler variants in `src/backends/`:
+    - `browser.nx` — browser WASM with DOM import
+    - `server.nx` — server WASM with WASI
+    - `trainer.nx` — full imports + larger arena
+    - `native.nx` — Arc F.5, hand-rolled x86-64
+
+37. **📋⚙️ Runtime `HandlerCatalog` effect** — replaces static table with runtime-registered handler catalog (user-defined handlers register at module load; Mentl's `AWrapHandler` proposal reads the registry).
+
+**Priority P3 — specific programs:**
+
+38. **📋⚙️ Thread effect + per-thread region minting** — `spawn(f)` op; per-thread handler install pattern; region id per thread.
+
+39. **📋⚙️ RPC/actor handler** — `~>` boundary handler that bifurcates emit and serializes the cross-wire state record.
+
+40. **⚙️ Autodiff handler** — ~15 lines per DESIGN.md 10.2; records tape, resumes with forward values, `backward()` walks the tape in reverse.
+
+41. **⚙️ SIMD intrinsic emission** — recognize `tanh`, `gain`, etc. as mappable to `v128.*` WAT opcodes.
+
+42. **⚙️ Refinement SMT (Arc F.1)** — `verify_ledger` → `verify_smt` handler swap, with Z3/cvc5/Bitwuzla dispatch by residual theory.
+
+**Priority P4 — polish:**
+
+43. **⚙️ Commit message synthesis from graph provenance DAG.**
+
+44. **⚙️ `inka rename` CLI handler** — cross-module graph rebind.
+
+45. **⚙️ `///` docstring handler** — render docs from graph projection.
+
+46. **📋⚙️ Terminal IDE (MV.3)** — native Inka surface, direct `Interact`, no LSP overhead.
+
+47. **📋⚙️ Web playground (MV.4)** — browser-hosted, guided-tutorial first visit.
+
+48. **Desktop client** — distant future, optional.
+
+**Cascade follow-ups (lands when load-bearing):**
+
+49. **⚙️ IC.3 — graph chase walks overlays** — per-module overlay separation. Lands when name collisions across modules become load-bearing. Driver currently merges envs flat; correct for today's project.
+
+50. **⚙️ Cache format binary v3** — only if textual v2 format measures as a bottleneck.
+
+51. **⚙️ Cache dependency-hash invalidation v2** — full chain (cache hit on M requires every dep's recorded imports_hashes match dep's CURRENT hash). Substrate ready; policy adjustment small.
+
+---
+
+## The Approach: Write the Wheel, Then Hand-Write Its WAT
 
 Traditional self-hosted compilers bootstrap forward: write V1, use V1
 to compile V2, delete V1. This taints V2 with V1's constraints.
@@ -163,47 +616,65 @@ to compile V2, delete V1. This taints V2 with V1's constraints.
 **Inka bootstraps backward.** Write the final-form compiler
 unconstrained — the perfect, complete, un-improvable codebase — and
 THEN solve "how do I compile this the first time?" as a separate,
-disposable engineering problem.
+honest engineering problem.
+
+**Revised 2026-04-20:** the "how do I compile this the first time?"
+answer is NOT a Rust/C translator. A Rust translator would duplicate
+Inka's semantics in another language's idioms — importing fluency
+drift into the soundness artifact. Instead, **hand-write the WAT
+directly**, using the cascade walkthroughs as the transcription
+spec. No intermediate semantic layer; no foreign-language fluency
+taint; the hand-WAT is the reference soundness artifact **kept
+forever**, not scaffolding to delete.
 
 ```
-VFINAL (perfect Inka source)
+VFINAL (perfect Inka source, simplification-audited, determinism-proven)
     ↓
-Bootstrap translator (disposable, ~3-5K lines, any language)
+Hand-written WAT transcribed from cascade walkthroughs
+    ↓ (wat2wasm, WABT, full-fidelity)
+inka.wasm (the seed compiler)
+    ↓ (wasmtime)
+VFINAL source → inka2.wat
     ↓
-VFINAL.wasm (first compilation)
-    ↓
-VFINAL.wasm compiles VFINAL source → VFINAL2.wat
-VFINAL.wasm compiles VFINAL source → VFINAL3.wat
-diff VFINAL2.wat VFINAL3.wat → byte-identical (fixed point)
-    ↓
-Delete bootstrap translator. Inka compiles itself.
-Tag: first-light.
+diff bootstrap/inka.wat inka2.wat   # empty = first-light
 ```
 
 **Why this is right:**
-- VFINAL is designed for correctness. The translator is designed for
-  disposability. Independent concerns.
-- No architectural contamination from any prior compiler.
-- Go, Rust, and Zig all bootstrapped this way. It works.
+- VFINAL is designed for correctness. The hand-WAT is a direct
+  transcription from walkthroughs that VFINAL already embodies.
+  No third language in the loop.
+- No architectural contamination from any prior compiler OR
+  from any fluency-imported pattern.
 - CLAUDE.md anchor #4: "Build the wheel. Never wrap the axle."
-  VFINAL is the wheel. Everything else is scaffolding.
+  VFINAL is the wheel. The hand-WAT is the wheel's serialization
+  to binary — not scaffolding, but the reference artifact that
+  proves self-compilation once and proves future targets forever.
+- CLAUDE.md Mentl's anchor + drift mode 1 (Rust vtable): a Rust
+  translator would be 4k lines of drift-mode-1 fluency risk. WAT
+  is the substrate Inka targets anyway; transcribing directly is
+  the honest path.
 
-**The translator doesn't need to understand Inka deeply.** It performs
-a mechanical translation from Inka syntax to WASM:
-- Parse Inka syntax (recursive descent — straightforward)
-- Desugar handlers into direct calls (85%+ are tail-resumptive)
-- Emit WASM linear memory ops (bump allocator)
-- Handle pattern matching (lower to if/else chains)
+**The hand-WAT doesn't need to understand Inka semantics — the
+cascade walkthroughs did that work.** Hand-WAT performs a
+mechanical serialization:
+- Runtime primitives (bump allocator, tagged values, string/list/tuple ops) — Tier 1, pure hand-written (~10-30k lines).
+- Handler dispatch machinery (closure records, direct-call for OneShot, call_indirect through evidence-field for polymorphic MultiShot — NO vtable) — Tier 1 (~5-15k lines).
+- Repetitive compiler-module patterns (match dispatch, ADT construction, pipe chain lowering) — Tier 2 template-expansion from walkthrough fragments (~20-70k lines).
+- Module bodies — Tier 3 incremental self-hosting, using VFINAL-on-partial-WAT to compile subsequent modules as Tiers 1+2 light up.
 
-No effect algebra needed. No type inference needed. No refinement
-checking. Just syntax-directed translation, correct enough for the
-~15 files in `std/compiler/`. Used once. Deleted forever.
+No effect algebra re-implemented. No type inference re-implemented.
+No refinement checking re-implemented. Walkthroughs specify the
+WAT shape; hand-WAT transcribes it. Assembled via `wat2wasm`;
+validated via `wasm-validate`; executed via `wasmtime`. **First-
+light once; the hand-WAT stays forever as the reference.**
 
 ---
 
-## Vision: the ultimate programming language
+## Vision: the ultimate intent → machine instruction medium
 
-What Inka IS when complete:
+Not "the ultimate programming language" — that undersells. Inka is
+the medium that makes the language-vs-framework-vs-tool distinction
+evaporate. What Inka IS when complete:
 
 **One mechanism replaces six.** Exceptions, state, generators, async,
 dependency injection, backtracking — all `handle`/`resume`. Master
@@ -259,16 +730,21 @@ Every subsequent action observes them.*
 ### 1. Write the final form. No intermediate versions.
 
 There is no V1, no V2, no VFINAL. There is only **Inka**. The code
-in `std/compiler/` IS the compiler. It is written to be correct,
-complete, and un-improvable. It is not a stepping stone, not a draft,
-not a version. It is the thing itself.
+in `src/` IS the compiler (post-restructure, previously
+`std/compiler/`). It is written to be correct, complete, and
+un-improvable. It is not a stepping stone, not a draft, not a
+version. It is the thing itself.
 
-### 2. The bootstrap translator is disposable scaffolding.
+### 2. The bootstrap is hand-WAT, kept forever.
 
-The translator exists solely to compile Inka once. It is not part of
-Inka. It does not need to be elegant, extensible, or maintainable. It
-needs to produce WASM that runs correctly enough for Inka to compile
-itself. Then it is deleted. Forever.
+Superseded 2026-04-20: NOT "disposable translator, deleted forever."
+The bootstrap is **hand-written WAT transcribed from cascade
+walkthroughs**, assembled via `wat2wasm`, and **kept forever as the
+reference soundness artifact**. No Rust/C translator. No third
+language. Hand-WAT writes the compiler's binary image directly; the
+VFINAL compiler self-compiles through it; the byte-identical diff
+IS first-light. The hand-WAT stays — future Wasm targets/engines
+are validated by re-running the fixed-point test against it.
 
 ### 3. The `~>` chain IS the extension point.
 
@@ -284,9 +760,12 @@ If the rebuild becomes patch-laden, we have accomplished nothing.
 
 ### 5. The closure moment is named `first-light`.
 
-When `diff VFINAL2.wat VFINAL3.wat` returns empty — when Inka is
-byte-identical when it compiles itself — tag `first-light`. Morgan
-writes the tag. Claude prepares the tree.
+When `diff bootstrap/inka.wat inka2.wat` returns empty — when Inka
+compiled through its hand-WAT reference image is byte-identical to
+the hand-WAT itself — tag `first-light`. Morgan writes the tag.
+Claude prepares the tree. The hand-WAT is preserved forever, not
+deleted; it is the reference against which future Wasm targets
+are validated.
 
 ### 6. Composition is the contribution, not invention.
 
@@ -389,20 +868,21 @@ disrespected by the driver.**
   level. IC.3 (per-module overlay separation in graph chase)
   deferred until name collisions across modules become
   load-bearing.
-- **LSP handler** — wraps `inka query` in JSON-RPC; maps
-  `textDocument/hover` → `QTypeAt` + `QWhy`, `textDocument/rename` →
-  cross-module graph rebind, `textDocument/codeAction` → `Explanation.fix`,
-  `textDocument/didChange` → incremental re-check (shared with above).
-  Substrate already queryable; what pends is the JSON-RPC handler.
-- **`teach_synthesize` oracle conductor** `[substrate pending]` — the
-  composed handler that drives checkpoint → apply_annotation_tentatively →
-  verify → commit-or-rollback in a loop over gradient candidates. Substrate
-  pieces all exist; the conductor that sequences them is ~50-80 lines.
+- **Mentl-voice substrate** `[substrate pending]` — absorbs the
+  former "teach_synthesize oracle" and "HandlerCatalog" gaps plus
+  what was "LSP handler." The thesis: Mentl is the one proposer; the
+  multi-shot `enumerate_inhabitants` op is how She covers the
+  candidate space; the `Interact` effect is the one surface that
+  REPL, CLI, web playground, and later IDE-like clients all
+  project. LSP as a paradigm is dissolved here (the graph knows,
+  so there is no editor↔compiler bridge to build). Walkthrough TBD
+  as `simulations/MV-mentl-voice.md`; CLI/REPL (`inka live`)
+  surfaces first — text transport forces voice discipline.
 - **`LFeedback` state-machine lowering** `[substrate pending]` — emit-
   side rewrite of `<~ spec` to a state-machine LIR (handler-local state
   slot for the delayed sample; Z-transform structure for DSP; RNN hidden-
   state for training). The verb, row, type-inference all fire; emit
-  stubs.
+  stubs. **Independent of Mentl-voice work.**
 
 **Priority 2 — unblocks deployment scenarios:**
 - **Audit-driven linker dead-code severance** — reads
@@ -410,10 +890,9 @@ disrespected by the driver.**
 - **Multi-backend emit** — per-target handler variants on `backends/`
   (browser, server, trainer, wasi). Today's single `backends/wasm.ka`
   generalizes; each target adds a handler.
-- **Runtime `HandlerCatalog` effect** `[substrate pending]` — today's
-  static `catalog_handled_effects` table becomes an effect-based
-  registry. User-defined handlers register at module load; Mentl's
-  `AWrapHandler` proposal reads the registry.
+- *(Former: Runtime `HandlerCatalog` effect — folded into
+  Mentl-voice substrate at Priority 1. The registry is what Mentl
+  reads when enumerating wrap candidates.)*
 
 **Priority 3 — unblocks specific programs:**
 - **Thread effect + per-thread region minting** — `spawn(f)` op;
@@ -435,68 +914,67 @@ disrespected by the driver.**
 `[substrate pending]` marker in `docs/traces/a-day.md` flips to
 `[LIVE]`. The trace becomes the scoreboard.
 
-### Phase III — Bootstrap
+### Phase III — Bootstrap (hand-WAT)
 
-Deliberately last. A one-shot translator (Rust / Python / hand-
-written WAT — language TBD at that moment) that reads the closed
-substrate and produces the first `inka.wasm`. The translator is
-written as a DIRECT TRACE of the cascade simulations, not as a
-separate interpretation — this is the mitigation for the main risk
-(a bug in the translator corrupts the seed).
+Deliberately last. **Hand-written WAT** transcribed from cascade
+walkthroughs (not a Rust/C translator — see The Approach section
+above for rationale). Tier 1 pure hand-write for runtime + handler
+dispatch; Tier 2 template-expansion for repetitive compiler
+patterns; Tier 3 incremental self-hosting as modules light up.
+Assembled via `wat2wasm` (WABT). **Kept forever as reference
+soundness artifact**, NOT deleted.
 
-Scope estimate: ~3-5K lines of whichever language, reading the
-substrate at its walkthrough-verified form. Deleted forever after
-Phase IV closes.
+Items 26–30 of Pending Work. `Hβ-bootstrap.md` walkthrough (item 9)
+gates the hand-write.
 
 ### Phase IV — First-light
 
 The soundness proof:
 
 ```
-bootstrap/translate std/compiler/*.ka -o inka.wasm       # one-shot
-cat std/compiler/*.ka | wasmtime run inka.wasm  > inka2.wat
-wat2wasm inka2.wat -o inka2.wasm
-cat std/compiler/*.ka | wasmtime run inka2.wasm > inka3.wat
-diff inka2.wat inka3.wat                                  # empty
+wat2wasm bootstrap/inka.wat -o bootstrap/inka.wasm
+wasm-validate bootstrap/inka.wasm
+cat src/*.nx lib/**/*.nx | wasmtime run bootstrap/inka.wasm > inka2.wat
+diff bootstrap/inka.wat inka2.wat     # empty = first-light
 ```
 
 When the diff is empty, the substrate is self-compiling byte-
-identically. Bootstrap deletes. Inka is. Post-first-light arcs
-(the Phase II handler projections that weren't on the critical
-path) continue as ongoing work, not as a separate phase.
+identically through its own hand-WAT image. Tag: `first-light`.
+Hand-WAT is preserved as reference. Post-first-light arcs (items
+32–51 of Pending Work — Mentl-voice surface, multi-backend emit,
+audit-driven severance, refinement SMT, terminal IDE, web
+playground, etc.) continue as ongoing work.
 
 ---
 
-## The Three Substrate Gaps
+## The Substrate Gaps — revised 2026-04-20
 
-Three — and only three — genuine substrate pieces remain.
-Everything else is handler projection on the closed cascade. Each
-gap lives within a Phase II Priority 1 item.
+Originally three named gaps (LFeedback, teach_synthesize,
+HandlerCatalog). Post-reframe:
 
-1. **`LFeedback` state-machine lowering.** At emit, `LFeedback(handle,
-   body, spec)` currently emits `;; <~ feedback (iterative ctx)` as
-   a stub. The verb, row, type inference, and AST all fire. What
-   pends: lowering to a state-machine LIR — handler-local state slot
-   for `<~ delay(N)`, RNN hidden-state structure for `<~ step_fn`.
-   Templates in H3.1 walkthrough. Scope: ~100 lines emit-side.
+**Gap 1 remains independent:**
 
-2. **`teach_synthesize` oracle conductor.** `graph_push_checkpoint` /
-   `apply_annotation_tentatively` / `verify` / `graph_rollback` all
-   fire individually. What pends: the composed handler that
-   sequences them over a gradient-candidate list, scores by row
-   subsumption, returns the proven set. Walkthrough in
-   H5-mentl-arms.md. Scope: ~50-80 lines; one new handler in
-   mentl.ka plus a conductor function.
+1. **`LFeedback` state-machine lowering.** At emit,
+   `LFeedback(handle, body, spec)` currently emits
+   `;; <~ feedback (iterative ctx)` as a stub. The verb, row,
+   type inference, and AST all fire. What pends: lowering to a
+   state-machine LIR — handler-local state slot for `<~ delay(N)`,
+   RNN hidden-state structure for `<~ step_fn`. Templates in H3.1
+   walkthrough. Scope: ~100 lines emit-side. **Item 1 of Pending
+   Work.** Walkthrough `LF-feedback-lowering.md` (TBD).
 
-3. **Runtime `HandlerCatalog` effect.** Today's static table in
-   `mentl.ka` (`catalog_handled_effects`) serves the compiler-built-
-   in handlers. For user-level handler discovery (the AWrapHandler
-   proposal reading user-defined absorbers), the catalog becomes an
-   effect: `catalog_register(name, handled_effects, op_arms)` at
-   module load; `catalog_lookup_for(effect)` at Mentl propose time.
-   Scope: ~one effect declaration + one handler, ~40 lines.
+**Gaps 2 + 3 absorbed into the Mentl-voice substrate:**
 
-Total substrate remaining: ~200 lines across three focused pieces.
+2. **Mentl-voice substrate** (absorbs former `teach_synthesize`
+   conductor + static `HandlerCatalog`). The `Interact` effect;
+   multi-shot `enumerate_inhabitants` as the proposing primitive
+   Mentl owns; the voice grammar (eight tentacles, 1-to-1 with
+   kernel primitives); the cursor-of-attention; session state.
+   **Item 2 of Pending Work.** Walkthrough
+   `MV-mentl-voice.md` (in-flight; has open §2 Q1-Q6 and §9
+   first-hour scenario). Scope: walkthrough closure then
+   ~600-1000 lines `.nx` + ~200 lines TypeScript extension glue.
+
 Everything else is handler installation on the substrate that
 already exists.
 
@@ -538,26 +1016,45 @@ Erased at runtime — zero cost.
 
 ---
 
-### Arc F.2 — LSP + ChatLSP  *[PRIORITY 1]*
+### Arc F.2 — Mentl-voice + `Interact` surfaces  *[PRIORITY 1 — REFRAMED 2026-04-20]*
 
-Query + Mentl tentacles wrapped in JSON-RPC. No new substrate.
-The `inka query` surface is live; the JSON-RPC handler that translates
-LSP methods to Query/Mentl ops is the unwritten projection.
+**Formerly "LSP + ChatLSP."** LSP as a paradigm is dissolved by the
+Inka thesis: LSP exists in other languages because editors don't
+know what code means; Inka's graph IS the program, so there is no
+editor↔compiler bridge to build. An LLM proposer (ChatLSP-style) is
+a distant architectural possibility, not a Priority 1 substrate —
+Mentl is the proposer, owning the multi-shot `enumerate_inhabitants`
+primitive that covers the candidate space deterministically.
 
-**What it does:** Every `inka query` command becomes an LSP method:
-- `textDocument/hover` → `QTypeAt` + `teach_why`
-- `textDocument/completion` → `Synth` effect
-- `textDocument/diagnostics` → `Diagnostic` + `teach_error`
-- `textDocument/codeAction` → `Explanation.fix`
+**What replaces it:** an `Interact` effect, projected by handlers
+for the REPL (`inka live`), the CLI (`inka teach`, `inka audit`,
+`inka query`), eventually a web playground and IDE-like client.
+All peer handlers on one effect; Mentl's voice is shared substrate.
 
-ChatLSP extension: typed context (bindings, effect rows, ownership)
-sent to LLM for completion. `!Alloc` masks free prompt budget.
+**Design + build order:**
+- `simulations/MV-mentl-voice.md` walkthrough — `Interact` op
+  set, voice grammar, register, session state, one-at-a-time
+  surfacing discipline, silence predicate, rust-analyzer
+  architecture study. Gating design session.
+- **MV.2 — LSP adapter + VS Code extension (v1).** First
+  integration. LSP JSON-RPC ↔ `Interact` ops; VS Code extension
+  published to marketplace. How developers first meet Mentl.
+- **Batch CLI subcommands** (`inka compile`, `inka audit`, etc.) —
+  unified into the `Interact` substrate so their voice matches
+  VS Code's. One-shot session shape.
+- **MV.3 — Terminal IDE (later).** Native Inka surface, direct
+  `Interact`, no LSP overhead. Designed after VS Code surface
+  teaches us what Mentl's voice needs in practice.
+- **MV.4 — Web playground (later).** Browser-hosted, guided-
+  tutorial first visit. Onboarding surface.
+- **Desktop client** — distant future, optional, post-first-light.
 
-- **Research:** ChatLSP OOPSLA 2024.
-- **Spec:** 08-query.md, 09-mentl.md.
-
-**What it unlocks:** IDE intelligence that is the compiler's own
-reasoning, not a separate ML model. Mentl teaches; the IDE renders.
+**What it unlocks:** Inka's own rendition of a pair-programmer
+surface — a deterministic partner so effective that people will
+want to call Her AI even though She transcends the definition.
+The thesis that makes modern agentic coding AI obsolete, made
+operational. No subscription. No hallucination. The oracle you
+talk to.
 
 ---
 
@@ -836,26 +1333,36 @@ one continuous graph.
 
 ### Arc G — Rename (Lux → Inka)  *[LANDED]*
 
-Done. `.ka` is the extension; `lux3.wasm` is archaeology.
+Done. Extension is `.nx` (2026-04-21); `.ka` is the previous
+extension being migrated out per Pending Work item 10;
+`lux3.wasm` is archaeology.
 
 ---
 
-### Arc H — Examples-as-Proofs  *[PRIORITY 4]*
+### Arc H — Examples-as-Proofs  *[DISSOLVED 2026-04-21]*
 
-One runnable example per framework-dissolution claim. Each 50-200
-lines. Each runs. Each proves a claim from INSIGHTS.md:
+**Retired.** The `examples/` directory dissolves (see Decisions
+Ledger 2026-04-21 entry). Every thesis claim originally scoped
+as "one runnable example" is now satisfied by:
 
-- **Web server** — handler swap: same code, different transport.
-- **DSP audio** — `<~` feedback loop, `!Alloc` + `Sample` proven.
-- **Parser combinator** — effects as backtracking.
-- **State machine** — handlers as state transitions.
-- **Dependency injection** — handler swap, no framework.
-- **Iterator/generator** — `Iterate` effect, `yield` via perform.
-- **Error handling** — `~>` per-stage vs block-scoped.
-- **Testing** — handler swap for every effect (clock, IO, memory).
+- The compiler's own `src/` — demonstrates handlers, pipes,
+  effect algebra, ownership, refinements, HM inference,
+  gradient, Reasons (every kernel primitive exercised in
+  production).
+- The stdlib's `lib/dsp/` — demonstrates `<~ delay(N)` feedback,
+  `!Alloc + Sample(N)` proven real-time, DSP-as-handlers.
+- The stdlib's `lib/ml/` — demonstrates autodiff-as-handler,
+  training-vs-inference as handler swap.
+- The stdlib's `lib/` more broadly — demonstrates Iterate effect,
+  prelude, handlers-as-DI.
+- `run.nx` entry-handlers — demonstrate testing-as-handler-swap,
+  chaos testing, replay testing, all without separate test source.
+- Integration projects (Pulse, a-day.md's worked scenarios) —
+  live in their own separate repositories post-first-light.
 
-Each example demonstrates the five pipe operators where they
-naturally express the computation's topology.
+The arc's original intent (one artifact per claim) is subsumed
+by "the stdlib + compiler IS the set of artifacts." No separate
+`examples/` directory.
 
 ---
 
@@ -874,11 +1381,12 @@ measures accumulation; post-F.1 measures the trend toward zero.
 
 ## Spec Inventory
 
-All twelve specs in `docs/rebuild/`:
+All twelve specs in `docs/specs/` (relocated from `docs/rebuild/`
+per Pending Work item 17'):
 
-| Spec | File | Governs |
+| Spec | File (post-restructure) | Governs |
 |---|---|---|
-| 00 | 00-substgraph.md | SubstGraph, flat array, O(1) chase |
+| 00 | 00-graph.md (was substgraph) | Graph, flat array, O(1) chase |
 | 01 | 01-effrow.md | EffRow Boolean algebra |
 | 02 | 02-ty.md | Ty ADT, TRefined, TCont, Verify |
 | 03 | 03-typed-ast.md | Node, Span, Expr, Stmt, Pat, PipeKind |
@@ -1109,9 +1617,12 @@ Priority list.
   obligations). Exposure PENDING: SMT handler swap (verify_smt with
   Z3/cvc5/Bitwuzla) — Arc F.1.
 
-- **LSP.** Substrate LIVE (`inka query` surface, Question/QueryResult
-  ADT, render_query_result). Exposure PENDING: JSON-RPC handler,
-  ChatLSP extensions — Arc F.2 = Priority 1.
+- **Mentl-voice surfaces** (formerly "LSP"). Substrate LIVE for the
+  read side (`inka query` + Question/QueryResult ADT + render_query_result).
+  Exposure PENDING: the `Interact` effect + Mentl's voice grammar +
+  `enumerate_inhabitants` multi-shot primitive + REPL/CLI/playground
+  peer handlers — Arc F.2 = Priority 1 (reframed). LSP as a paradigm
+  is dissolved by the thesis.
 
 - **Scoped arenas.** Substrate LIVE (Alloc effect, !Alloc negation,
   region_tracker with tag_alloc_join, EmitMemory swap surface).
@@ -1142,8 +1653,9 @@ are recorded for the project's memory; active risks lead.
 | Risk | Mitigation |
 |---|---|
 | Bootstrap translator is the one-shot moment a non-Inka language reads a closed substrate — a bug there corrupts the seed | Write the translator as a DIRECT TRACE of the cascade walkthroughs, not a separate interpretation. Verify by replaying the translator through `docs/traces/a-day.md`. |
-| LSP handler surfaces substrate errors that didn't fire through terminal `inka query` | Mirror every CLI query's test through the LSP handler before Priority 2 lands. The trace's `[LIVE · surface pending]` tags ARE the test list. |
-| `teach_synthesize` oracle conductor thrashes checkpoint/rollback on candidates that don't prove | Cap exploration at N candidates per error (default 8); score by EffName subsumption before apply; reject candidates whose apply cost exceeds a budget. |
+| Mentl's voice ships before the voice design session closes; surfaces drift into cliché/chatbot register | `MV-mentl-voice.md` walkthrough is gating for ANY voice-surface code. Voice grammar (proof-shape templates, silence discipline) lands on paper before a single byte of REPL or CLI surface code. Character design is as load-bearing as substrate design here. |
+| Mentl-voice surfaces proliferate before the core Interact effect stabilizes | Design order is CLI/REPL first; text transport forces discipline. Web playground, IDE-like client are later renderers on the same substrate. If Mentl's voice works in a terminal, it works everywhere; reverse is false. |
+| Multi-shot `enumerate_inhabitants` thrashes checkpoint/rollback on branches that don't prove | Cap at N=8 verified-or-rejected branches per hole; pre-filter each resumed branch with `row_subsumes` before `graph_bind`; stop resuming once the cap is reached or the continuation exhausts. The pre-filter is load-bearing, not an optimization. |
 | Multi-backend emit introduces per-target divergence that drifts over time | Shared substrate invariants live in `types.ka` and `effects.ka`; each backend handler declares its own effect row. Row subsumption proves which invariants the backend honors. |
 | User-declared nullary variants collide with HEAP_BASE threshold (4096) | Total variants per type are bounded by tag_id length; no realistic ADT approaches 4096 variants. If a type ever does, the threshold widens; the invariant documents the coupling. |
 | WASM stack overflow from deep recursion | Emit `return_call` for tail calls; wasmtime supports the proposal |
@@ -1191,15 +1703,29 @@ terminal invariant).
 
 ## Key Documents
 
+*(Paths reflect post-restructure state — item 17' of Pending Work.
+Pre-restructure: `docs/specs/` = `docs/rebuild/`, `.nx` = `.ka`,
+`src/` = `std/compiler/`, `lib/` = `std/runtime/` + `std/*.ka`.)*
+
 | Document | Role |
 |---|---|
-| **docs/PLAN.md** | THIS FILE. The single roadmap. Four phases, the three substrate gaps, handler-projection priority. |
-| **docs/SYNTAX.md** | Σ canonical syntax. The wheel the parser was shaped to. |
-| **docs/rebuild/00–11** | The 12 executable specs. |
-| **docs/rebuild/simulations/H*.md** | Per-handle cascade walkthroughs with riffle-back addenda. Reasoning record. |
-| **docs/traces/a-day.md** | Post-cascade integration trace. One developer, one project, one day. Every claim tagged `[LIVE]` / `[LIVE · surface pending]` / `[substrate pending]`. The scoreboard. |
-| **docs/INSIGHTS.md** | Core truths. Living compendium. |
-| **docs/DESIGN.md** | Language manifesto. Chapter 10 is the thesis-level simulations; `docs/traces/a-day.md` is the integration. |
-| **CLAUDE.md** | Anchors + eight-anchor discipline + nine drift modes + ten crystallizations. Required reading at session start. |
-| **docs/errors/** | Error catalog (prefix-kind string codes). |
-| **CLAUDE.md** | Session Zero + seven anchors for AI assistants. |
+| **docs/PLAN.md** | THIS FILE. The single roadmap. Decisions Ledger + four phases + Pending Work exhaustive list (items 1–51). |
+| **docs/DESIGN.md** | The manifesto. §0.5 enumerates the eight-primitive kernel; Ch 1–11 develop each; Ch 12 closes the medium thesis. Required reading end-to-end. |
+| **docs/INSIGHTS.md** | Living compendium of crystallized truths. Kernel shorthand at top. |
+| **docs/SYNTAX.md** | Canonical syntax. Every parser decision implements something here. Maps each surface to a kernel primitive + Mentl tentacle. |
+| **docs/specs/00–11** | The 12 executable specs (`00-graph.md` onward). Each spec names its kernel primitive(s) and Mentl tentacle(s). |
+| **docs/specs/simulations/H*.md** | Per-handle cascade walkthroughs. Reasoning record. |
+| **docs/specs/simulations/MV-mentl-voice.md** | Mentl-voice substrate walkthrough (in-flight). |
+| **docs/specs/simulations/NS-naming.md** | Naming-audit walkthrough (TBD, item 4 of Pending Work). |
+| **docs/specs/simulations/NS-structure.md** | Structural-reshape walkthrough (TBD, item 5). |
+| **docs/specs/simulations/EH-entry-handlers.md** | Entry-handler substrate walkthrough (TBD, item 6). |
+| **docs/specs/simulations/SIMP-simplification-audit.md** | Simplification-pass discipline (TBD, item 7). |
+| **docs/specs/simulations/DET-determinism-audit.md** | Determinism-audit walkthrough (TBD, item 8). |
+| **docs/specs/simulations/LF-feedback-lowering.md** | LFeedback state-machine lowering (TBD, gates item 1). |
+| **docs/specs/simulations/Hβ-bootstrap.md** | Final cascade handle — hand-WAT conventions (TBD, item 9). |
+| **docs/traces/a-day.md** | Integration trace. One developer, one project, one day. Every claim tagged `[LIVE]` / `[LIVE · surface pending]` / `[substrate pending]`. The scoreboard. |
+| **docs/errors/** | Error catalog (prefix-kind string codes, kernel-grounded). |
+| **CLAUDE.md** | Mentl's anchor + eight interrogations (one per kernel primitive, one per tentacle) + nine drift modes + Session Zero + ten crystallizations. Required reading at session start. |
+| **README.md** | First-read; kernel enumeration; Repository layout as canonical Inka-project template. |
+| **bootstrap/inka.wat** | Hand-written WAT reference image (empty until hand-write begins post-item 9; kept forever post-first-light). |
+| **bootstrap/first-light.sh** | Fixed-point test harness. |

@@ -702,3 +702,35 @@ handler installation away from firing.
 Bootstrap remains out of mind until the cascade's handler-projection
 work closes the last exposure. The substrate is whole. Now we build
 the surfaces.
+
+---
+
+## Which kernel primitives each scene exercises
+
+*This trace is the integration artifact for the eight-primitive
+kernel (DESIGN.md §0.5). Each scene exercises a subset; all eight
+fire across the day. Domain-universal reach (FE, BE, DSP, ML,
+robotics-adjacent, distributed, embedded-adjacent) falls out of
+the kernel being complete, not from a menu of features. The eight
+tentacles (Query / Propose / Topology / Unlock / Trace / Verify /
+Teach / Why) are the voice surfaces for these primitives.*
+
+| Scene            | Primitives exercised (new 8-numbering)                               |
+|------------------|----------------------------------------------------------------------|
+| 0800 New file    | 1 (graph), 4 (row inferred), 7 (gradient surfaces `E1` as open), 8 (HM live) |
+| 0900 First stage | 1, 4 (row union), 7 (row tightens), 8 (infer one-walk)               |
+| 1000 DSP + RT    | 3 (`<~`), 4 (`!Alloc`), 5 (`own`), 6 (refinement if present), 2 (Mentl's oracle explores wrap candidates via MultiShot), 7 (capability unlock surfaces), 8 |
+| 1100 Training    | 2 (`autodiff_tape` handler + MultiShot for proposer's rate-convert enumeration), 3 (`~>`), 4 (parameterized rows), 8 |
+| 1300 Checkout    | 2 (`~>` as host boundary + MultiShot for distributed RPC-as-continuation), 3, 4 |
+| 1400 Audit       | 1 (graph projection), 4 (severance = `!E` enumeration), 7 (capability unlocks surfaced) |
+| 1500 Rename      | 1 (graph reverse-walk), 8 (Reasons — not a literal string)           |
+| 1600 Error chain | 8 (Reason DAG → Why Engine), 1 (Located spans on every node)         |
+| 1700 Deploy      | 2 (backend handlers), 4 (`!E` → `--drop-import`), 6 (refinements at target gates) |
+| 1800 Commit      | 1 (graph provenance DAG), 8 (Reasons render commit message)          |
+
+**Every primitive fires in the day.** Remove any and at least one
+scene stops working; remove enough and Pulse (real-time audio + UI
++ cloud + training) can't be built as one program. The kernel's
+load-bearing-together property IS the domain-universal claim. And
+the scenes' voice surfaces cover all eight tentacles — Pulse's day
+is Mentl's day too.

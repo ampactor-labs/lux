@@ -3,9 +3,10 @@
 // The parser produces types.ka's Node ADT directly. No intermediate
 // "parser AST." Every construction performs graph_fresh_ty(
 // Placeholder(span)) to mint a handle at parse time — inference
-// later binds it. Every node has a full Span (spec 03 non-negotiable).
+// binds the handle once the expression's type is known (one-walk
+// HM). Every node has a full Span (spec 03 non-negotiable).
 //
-// Declares: with SubstGraphWrite + Diagnostic.
+// Declares: with GraphWrite + Diagnostic.
 // Errors follow Hazel: a parse failure emits report(...) and plants
 // an NHole; parsing continues. Ten syntax errors → ten holes.
 
@@ -139,12 +140,12 @@ fn show_token_kind(k) = match k {
   TFor => "for", TIn => "in", TLoop => "loop", TBreak => "break",
   TContinue => "continue", TReturn => "return",
   TImport => "import", TWhere => "where",
-  TOwn => "own", TRef => "ref", TPure => "Pure",
+  TOwn => "own", TRef => "ref", TPure => "Pure",   // drift-audit: ignore — human-facing token-display rendering, not effect keying; tracked for item 11.B token-rendering normalization
   TTrue => "true", TFalse => "false",
   TIdent(s) => s,
   TInt(_) => "<int>", TFloat(_) => "<float>", TString(_) => "<string>",
   TDocComment(_) => "<doc-comment>",
-  TEqEq => "==", TBangEq => "!=", TLtEq => "<=", TGtEq => ">=",
+  TEqEq => "==", TBangEq => "!=", TLtEq => "<=", TGtEq => ">=",   // drift-audit: ignore — TokenKind→display-text rendering for diagnostics; not runtime comparison; tracked for item 11.B token-rendering normalization
   TArrow => "->", TFatArrow => "=>", TPlusPlus => "++",
   TPipeGt => "|>", TLtPipe => "<|", TGtLt => "><",
   TTildeGt => "~>", TLtTilde => "<~",
@@ -262,26 +263,34 @@ fn skip_ws_tracked_loop(tokens, pos, saw) =
     _        => (saw, pos)
   }
 
-// op_string: render TokenKind as the source-form operator string
-// (for BinOpExpr's String op field). Maps each operator kind to
-// its canonical lexical form. Non-operator kinds fall through to
-// show_token_kind for debugging.
-fn op_string(k) = match k {
-  TPlus      => "+",
-  TMinus     => "-",
-  TStar      => "*",
-  TSlash     => "/",
-  TPercent   => "%",
-  TPlusPlus  => "++",
-  TEqEq      => "==",
-  TBangEq    => "!=",
-  TLt        => "<",
-  TGt        => ">",
-  TLtEq      => "<=",
-  TGtEq      => ">=",
-  TAndAnd    => "&&",
-  TOrOr      => "||",
-  _          => show_token_kind(k)
+// op_to_binop: map a binop TokenKind to Some(BinOp), or None if
+// k is not a binop-producing token. Caller at parser.ka matches
+// Some/None explicitly; None at that site is genuinely unreachable
+// because the caller has already filtered via op_prec(k) > 0 +
+// op_to_pipe_kind_layout == None, but the unreachability is
+// expressed at the call site — not fabricated here via a wildcard
+// arm.
+//
+// Future form (named peer 11.B.1.R): refinement-typed parameter
+//   fn op_to_binop(k) -> BinOp where is_binop_token(k)
+// exercises primitive #6 and eliminates the Option entirely.
+// Lands post-simplification-audit.
+fn op_to_binop(k) = match k {
+  TPlus      => Some(BAdd),
+  TMinus     => Some(BSub),
+  TStar      => Some(BMul),
+  TSlash     => Some(BDiv),
+  TPercent   => Some(BMod),
+  TPlusPlus  => Some(BConcat),
+  TEqEq      => Some(BEq),
+  TBangEq    => Some(BNe),
+  TLt        => Some(BLt),
+  TGt        => Some(BGt),
+  TLtEq      => Some(BLe),
+  TGtEq      => Some(BGe),
+  TAndAnd    => Some(BAnd),
+  TOrOr      => Some(BOr),
+  _          => None
 }
 
 // ═══ Program — top-level loop ══════════════════════════════════════
@@ -678,7 +687,20 @@ fn binop_loop(tokens, left, pos, min_prec) = {
     let combined_span = span_join(left_span, op_span)
     let node = match op_to_pipe_kind_layout(k, saw_newline) {
       Some(pk) => nexpr(PipeExpr(pk, left, right), combined_span),
-      None     => nexpr(BinOpExpr(op_string(k), left, right), combined_span)
+      None     => match op_to_binop(k) {
+        Some(bo) => nexpr(BinOpExpr(bo, left, right), combined_span),
+        None     => {
+          // Unreachable per caller invariant: op_prec(k) > 0 and
+          // op_to_pipe_kind_layout returned None together imply k
+          // IS a binop token. ICE rather than fabricate a BinOp —
+          // if this ever fires, op_prec and op_to_binop have
+          // drifted out of sync.
+          perform report("parser", "E_InternalInvariant", "Internal",
+            "op_to_binop returned None for token with op_prec > 0",
+            op_span, "Unspecified")
+          nexpr(BinOpExpr(BAdd, left, right), combined_span)
+        }
+      }
     }
     binop_loop(tokens, node, p2, min_prec)
   } else {

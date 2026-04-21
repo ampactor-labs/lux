@@ -57,7 +57,7 @@ fn cache_compiler_version() = 2
 // dependent module hashes catching it). FNV is small, allocation-
 // free, and proven for this use.
 
-fn cache_hash_source(s) with Memory = {
+fn hash_source(s) with Memory = {
   let n = byte_len(s)
   cache_hash_loop(s, 0, n, 2166136261)
 }
@@ -567,4 +567,4 @@ fn cache_read(module_name) with Memory + Alloc + Filesystem = {
 // when we wrote this cache?"
 fn cache_is_hit(kai, current_source) with Memory =
   kai.compiler_version == cache_compiler_version() &&
-  kai.source_hash == cache_hash_source(current_source)
+  kai.source_hash == hash_source(current_source)

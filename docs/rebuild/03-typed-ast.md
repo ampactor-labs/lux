@@ -6,6 +6,11 @@ the SubstGraph from spec 00) and a full `Span`, not a point. Type
 resolution is always a live chase via `LookupTy` — never a cached Ty
 field.
 
+**Kernel primitives implemented:** #1 (every AST node handle is a
+SubstGraph handle), #8 (productive-under-error — `NErrorHole`
+placeholders let the walk continue). Also carries the surface for
+#3 (the five verbs as `PipeKind`).
+
 **Research anchors.**
 - Hazel POPL 2024 — Total Type Error Localization: ill-typed
   expressions become marked holes; downstream services keep working.

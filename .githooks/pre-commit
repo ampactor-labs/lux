@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Inka pre-commit — fluency-trap enforcement.
+#
+# Runs tools/drift-audit.sh over all staged .ka files. Blocks the commit
+# if any drift mode fires. This is the last line of defense; Claude Code
+# PostToolUse already runs the audit during editing, but git hooks survive
+# any editor, any model, any future tooling change.
+#
+# Enable with:
+#   git -C ~/Projects/inka config core.hooksPath .githooks
+# Or run the one-time setup: bash tools/setup-git-hooks.sh
+#
+# Bypass (rare, for non-.ka emergency fixes only) with --no-verify.
+# Do not bypass for .ka files — the drift-audit is exactly the discipline
+# CLAUDE.md establishes.
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+AUDIT="$REPO_ROOT/tools/drift-audit.sh"
+
+if [[ ! -x "$AUDIT" ]]; then
+    echo "pre-commit: drift-audit.sh not found or not executable — skipping" >&2
+    exit 0
+fi
+
+# Collect staged .ka files.
+staged=()
+while IFS= read -r f; do
+    [[ -n "$f" && -f "$REPO_ROOT/$f" ]] && staged+=("$REPO_ROOT/$f")
+done < <(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.ka$' || true)
+
+if [[ ${#staged[@]} -eq 0 ]]; then
+    exit 0
+fi
+
+echo "pre-commit: running drift-audit on ${#staged[@]} staged .ka file(s)..."
+if bash "$AUDIT" "${staged[@]}"; then
+    exit 0
+else
+    echo ""
+    echo "pre-commit: drift detected. The commit is blocked."
+    echo "Rewrite in residue form per the plan. If a match is a true false-positive,"
+    echo "suppress the single line with a trailing '# drift-audit: ignore' comment"
+    echo "(but first verify it is NOT one of the nine drift modes in disguise)."
+    exit 1
+fi

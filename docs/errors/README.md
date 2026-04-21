@@ -4,6 +4,20 @@ Canonical explanations for every error/warning/teach code the
 compiler emits. Mentl's `teach_error` op (spec 09) resolves each
 reserved code to its file here.
 
+**Kernel grounding.** Errors are not punitive — they are Mentl's
+voice catching the developer at the moment the graph noticed
+something load-bearing. Every entry traces to one or more of the
+eight kernel primitives (DESIGN.md §0.5): `E_OwnershipViolation`
+to primitive #5 (tentacle Trace), `E_PurityViolated` /
+`E_EffectMismatch` to #4 (Unlock), `E_RefinementRejected` /
+`V_*` to #6 (Verify), `E_FeedbackNoContext` to #3 (Topology),
+`E_PatternInexhaustive` / `E_OccursCheck` to #8 (Why / infer),
+`T_*` to #7 (Teach). The structured-code + canonical-explanation +
+applicability-tagged-fix format IS the projection of the gradient
+(#7) — every `E_` has a canonical fix when mechanically derivable;
+every `T_` is a gradient nudge; every `V_` is a pending proof
+obligation.
+
 **Naming.** Codes are strings of the form `<kind-prefix>_<Name>`.
 No numbers; no renumbering; the code IS the name.
 

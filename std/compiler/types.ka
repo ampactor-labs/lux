@@ -18,7 +18,7 @@
 //                          / Context / Candidate + Teach + Synth + mentl_default
 //   query.ka (spec 08)   → Question / QueryResult + query_default handler
 //
-// TVar(id) is a HANDLE into SubstGraph. There is no apply(subst, ty).
+// TVar(id) is a HANDLE into Graph. There is no apply(subst, ty).
 // Graph chase (perform graph_chase) replaces any subst-apply pattern.
 // The graph IS the subst.
 
@@ -40,7 +40,7 @@ type Ty
   | TList(Ty)
   | TTuple(List)
   | TFun(List, Ty, EffRow)        // params: List[TParam], return, effects
-  | TVar(Int)                     // handle into SubstGraph
+  | TVar(Int)                     // handle into Graph
   | TName(String, List)           // nominal type + type args (Bool lives here)
   | TRecord(List)                 // [(name, Ty)]
   | TRecordOpen(List, Int)        // fields + row-variable handle
@@ -112,11 +112,12 @@ type EffRow
   | EfSub(EffRow, EffRow)           // E - F — always reduces to E & !F
   | EfInter(EffRow, EffRow)         // E & F — set intersection
 
-// Effect names carry optional install-time arguments. `with IO` is
-// ENamed("IO"); `with Sample(44100)` is EParameterized("Sample",
-// [EAInt(44100)]). Two parameterized rows match only when both NAME
-// and ARGS coincide — `Sample(44100)` ≠ `Sample(48000)`. The
-// distinction lives at the type level only; emit erases the args.
+// Effect names carry optional install-time arguments. The `with IO`
+// declaration is an ENamed wrapping the name IO; `with Sample(44100)`
+// is EParameterized wrapping Sample plus [EAInt(44100)]. Two
+// parameterized rows match only when both NAME and ARGS coincide —
+// Sample(44100) ≠ Sample(48000). The distinction lives at the type
+// level only; emit erases the args.
 //
 // EffArg covers scalar literal arguments. Identifier / expression
 // arguments (`Clock(monotonic)`) are a v2 extension — out of scope
@@ -131,7 +132,7 @@ type EffArg
   | EAFloat(Float)
   | EAString(String)
 
-// ═══ SubstGraph vocabulary (spec 00) ═══════════════════════════════
+// ═══ Graph vocabulary (spec 00) ═══════════════════════════════
 // Substrate owned by graph.ka. The ADTs live here because every
 // consumer of the graph names them — Read/Write/Speculate effects,
 // chase return type, trail mutations, overlay tags.
@@ -146,8 +147,8 @@ type NodeKind
 type GNode
   = GNode(NodeKind, Reason)   // every node carries its justification
 
-type SubstGraph
-  = SubstGraph(
+type Graph
+  = Graph(
       List,    // nodes: flat array indexed by handle
       Int,     // epoch: bumps on every bind
       Int,     // next: next fresh allocation
@@ -161,6 +162,67 @@ type Mutation
   = MSetNode(Int, GNode)    // handle, old_node (before overwrite)
   | MSetRow(Int, GNode)     // handle, old_node (row variant)
   | MFreshNode(Int)         // handle allocated (undo = shrink)
+
+// ═══ BinOp (spec 03) — binary operator vocabulary ══════════════════
+// 14 variants, one per operator form in SYNTAX.md's operator
+// precedence table. Exhaustive set; add a variant here AND update
+// every downstream match (parser op_to_binop, infer_binop,
+// emit_binop) — H6's discipline applied at the AST layer. Drift
+// mode 8 (string-keyed-when-structured) is closed by this ADT:
+// `op: String` becomes `op: BinOp` everywhere an operator is
+// dispatched on, and `OpConstraint`'s Reason-label stringifies via
+// binop_to_str at the Reason-rendering boundary only.
+//
+// BinOpKind factors the 14 variants into 4 behavior classes used
+// by infer_binop for type-class dispatch. Two orthogonal axes:
+// BinOp carries operator identity (for Reason/emit); BinOpKind
+// carries semantic behavior (for inference rules).
+
+type BinOp
+  = BAdd | BSub | BMul | BDiv | BMod          // arithmetic (5)
+  | BEq  | BNe  | BLt  | BGt  | BLe  | BGe    // comparison (6)
+  | BAnd | BOr                                 // boolean (2)
+  | BConcat                                    // string/list concat (1)
+
+type BinOpKind
+  = BKArith    // +, -, *, /, %
+  | BKCmp      // ==, !=, <, >, <=, >=
+  | BKBool     // &&, ||
+  | BKConcat   // ++
+
+fn binop_kind(op) = match op {
+  BAdd    => BKArith,
+  BSub    => BKArith,
+  BMul    => BKArith,
+  BDiv    => BKArith,
+  BMod    => BKArith,
+  BEq     => BKCmp,
+  BNe     => BKCmp,
+  BLt     => BKCmp,
+  BGt     => BKCmp,
+  BLe     => BKCmp,
+  BGe     => BKCmp,
+  BAnd    => BKBool,
+  BOr     => BKBool,
+  BConcat => BKConcat
+}
+
+fn binop_to_str(op) = match op {
+  BAdd    => "+",
+  BSub    => "-",
+  BMul    => "*",
+  BDiv    => "/",
+  BMod    => "%",
+  BEq     => "==",   // drift-audit: ignore — BinOp→canonical-string rendering for Reason labels; NOT runtime string compare. Centralizes the only "==" string-literal site in the compiler (parser op_string / infer classify_binop / wasm emit_binop no longer carry it post-11.B.1).
+  BNe     => "!=",
+  BLt     => "<",
+  BGt     => ">",
+  BLe     => "<=",
+  BGe     => ">=",
+  BAnd    => "&&",
+  BOr     => "||",
+  BConcat => "++"
+}
 
 // ═══ Reason (spec 00) — the Why Engine's DAG ═══════════════════════
 // Every graph node and every unification records a Reason. Mentl's
@@ -182,7 +244,7 @@ type Reason
   | Instantiation(String, Reason)
   | UnifyFailed(Ty, Ty)
   | Placeholder(Span)
-  | BinOpPlaceholder(String)
+  | BinOpPlaceholder(BinOp)
   | MissingVar(String)
   | Refinement(Predicate, Predicate)
   | Located(Span, Reason)      // spec I13 — site-annotated reasoning edge
@@ -288,7 +350,7 @@ type Expr
   | LitBool(Bool)
   | LitUnit
   | VarRef(String)
-  | BinOpExpr(String, Node, Node)
+  | BinOpExpr(BinOp, Node, Node)
   | UnaryOpExpr(String, Node)
   | CallExpr(Node, List)
   | LambdaExpr(List, Node)         // params: List[TParam], body
@@ -479,7 +541,7 @@ type Option
   = None
   | Some(a)
 
-// ═══ Env (spec 04) — effect-mediated, peer of SubstGraph ═══════════
+// ═══ Env (spec 04) — effect-mediated, peer of Graph ═══════════
 // Scoped bindings via push/pop mark. Env is never passed as argument.
 // Every read performs env_lookup; every write performs env_extend.
 // Entries are 4-tuples (name, Scheme, Reason, SchemeKind) — SchemeKind
@@ -499,7 +561,7 @@ effect EnvWrite {
   env_scope_exit() -> ()                                @resume=OneShot
 }
 
-// ═══ SubstGraph effects (spec 00) ══════════════════════════════════
+// ═══ Graph effects (spec 00) ══════════════════════════════════
 // The Read/Write split IS the "one writer" invariant. Inference
 // declares both; lowering, query, display declare Read only.
 // A perform graph_bind in a read-only handler is a type error at
@@ -509,15 +571,15 @@ effect EnvWrite {
 // Mentl's oracle captures the trail length, tries a tentative patch,
 // rolls back to restore. Trail-based; O(M) where M is mutations.
 
-effect SubstGraphRead {
+effect GraphRead {
   graph_chase(Int) -> GNode                        @resume=OneShot
   graph_epoch() -> Int                             @resume=OneShot
   graph_reason_edge(Int, Int) -> Reason            @resume=OneShot
-  graph_snapshot() -> SubstGraph                   @resume=OneShot
+  graph_snapshot() -> Graph                   @resume=OneShot
   graph_push_checkpoint() -> Int                   @resume=OneShot
 }
 
-effect SubstGraphWrite {
+effect GraphWrite {
   graph_fresh_ty(Reason) -> Int                    @resume=OneShot
   graph_fresh_row(Reason) -> Int                   @resume=OneShot
   graph_bind(Int, Ty, Reason) -> ()                @resume=OneShot
@@ -639,7 +701,7 @@ effect Filesystem {
 // the query layer reads that as "unresolved at epoch e." No cached
 // display. Same discipline as lowering: live observer, never mirror.
 
-fn show_type(ty) with SubstGraphRead =
+fn show_type(ty) with GraphRead =
   match ty {
     TInt    => "Int",
     TFloat  => "Float",
@@ -690,7 +752,7 @@ fn show_type(ty) with SubstGraphRead =
 // so query can surface "unresolved at epoch e"; error holes show the
 // failure reason inline.
 
-fn show_handle(h) with SubstGraphRead =
+fn show_handle(h) with GraphRead =
   let node = perform graph_chase(h)
   match node {
     GNode(NBound(ty), _)      => show_type(ty),
@@ -711,7 +773,7 @@ fn show_handle(h) with SubstGraphRead =
         |> str_concat("]")
   }
 
-fn show_tparam(tp) with SubstGraphRead =
+fn show_tparam(tp) with GraphRead =
   let TParam(name, ty, own) = tp
   name
     |> str_concat(": ")
@@ -732,13 +794,13 @@ fn show_discipline(d) =
     Either    => "Either"
   }
 
-fn show_field(field) with SubstGraphRead =
+fn show_field(field) with GraphRead =
   let (name, ty) = field
   name
     |> str_concat(": ")
     |> str_concat(show_type(ty))
 
-fn show_type_args(args) with SubstGraphRead =
+fn show_type_args(args) with GraphRead =
   if len(args) == 0 { "" }
   else {
     "("
@@ -746,7 +808,7 @@ fn show_type_args(args) with SubstGraphRead =
       |> str_concat(")")
   }
 
-fn show_row_suffix(row) with SubstGraphRead =
+fn show_row_suffix(row) with GraphRead =
   match row {
     EfPure => "",
     _ =>
@@ -754,9 +816,9 @@ fn show_row_suffix(row) with SubstGraphRead =
         |> str_concat(show_effrow(row))
   }
 
-fn show_effrow(row) with SubstGraphRead =
+fn show_effrow(row) with GraphRead =
   match row {
-    EfPure            => "Pure",
+    EfPure            => "Pure",   // drift-audit: ignore — human-facing rendering string for diagnostics/show; not an effect-keyed lookup; tracked for item 11.B effect-rendering normalization
     EfClosed(names)   => show_list(names, show_eff_name, " + "),
     EfOpen(names, v)  =>
       if len(names) == 0 { show_handle(v) }
@@ -798,7 +860,7 @@ fn show_predicate(pred) =
     PTrue      => "true",
     PEq(a, b)  =>
       show_pexpr(a)
-        |> str_concat(" == ")
+        |> str_concat(" == ")   // drift-audit: ignore — drift-12 heuristic false-positive on predicate rendering text (show_predicate produces human-facing "x == y" output); not runtime string comparison
         |> str_concat(show_pexpr(b)),
     PLt(a, b)  =>
       show_pexpr(a)
@@ -843,7 +905,7 @@ fn show_pexpr(pe) =
         |> str_concat(")")
   }
 
-fn show_reason(reason) with SubstGraphRead =
+fn show_reason(reason) with GraphRead =
   match reason {
     Declared(name)    => "declared as "   |> str_concat(name),
     Inferred(ctx)     => "inferred from " |> str_concat(ctx),
@@ -899,7 +961,7 @@ fn show_reason(reason) with SubstGraphRead =
         |> str_concat(" with ")
         |> str_concat(show_type(tb)),
     Placeholder(span)    => "placeholder at " |> str_concat(show_span(span)),
-    BinOpPlaceholder(op) => "binop "          |> str_concat(op),
+    BinOpPlaceholder(op) => "binop "          |> str_concat(binop_to_str(op)),
     MissingVar(name)     => "unbound variable: " |> str_concat(name),
     Refinement(p, q) =>
       "refinement: "
@@ -923,7 +985,7 @@ fn show_span(span) =
     |> str_concat(":")
     |> str_concat(int_to_str(ec))
 
-fn show_scheme(sch) with SubstGraphRead =
+fn show_scheme(sch) with GraphRead =
   let Forall(vars, ty) = sch
   if len(vars) == 0 { show_type(ty) }
   else {

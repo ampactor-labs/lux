@@ -2,7 +2,7 @@
 //
 // `inka query` is the read-only projection of the inference result.
 // No mutations. No side effects. Every question reads through
-// SubstGraphRead + EnvRead; write attempts fail at handler install
+// GraphRead + EnvRead; write attempts fail at handler install
 // via spec 01's subsumption gate. The forensic substrate is airtight
 // by type.
 //

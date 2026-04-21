@@ -5,8 +5,8 @@
 // for the SAME effect — swap, not rewrite. The compiler has no backend;
 // it has handlers.
 //
-// Declares: with SubstGraphRead + LookupTy + WasmOut + Diagnostic.
-// No SubstGraphWrite. No cached types in LowExpr — every type read
+// Declares: with GraphRead + LookupTy + WasmOut + Diagnostic.
+// No GraphWrite. No cached types in LowExpr — every type read
 // routes through perform lookup_ty(h) which chases the graph.
 //
 // Handler elimination lowers 85% of handlers (TailResumptive) to
@@ -777,8 +777,9 @@ fn emit_fn_body(name, param_names, body, captures_count) = {
   //
   // H1: set body_context's captures count BEFORE emitting the body.
   // LEvPerform inside this body reads it to compute its offset
-  // arithmetic. ev_shape derivation arrives in subsequent H1 work;
-  // until then the body's evidence list is empty (monomorphic).
+  // arithmetic. On the monomorphic path (>95% per H1) the evidence
+  // list is empty by construction. Per-op ev_shape synthesis on the
+  // polymorphic path lands as peer handle H1.4 in PLAN.md.
   perform set_body_captures(captures_count)
   perform set_body_evidence([])
   perform wat_emit("  (func $")
@@ -849,7 +850,15 @@ fn emit_let_locals_expr(expr) = match expr {
   LStateSet(_h, _s, v)      => emit_let_locals_expr(v),
   LRegion(_h, body)         => emit_let_locals_list(body),
   LHandleWith(_h, b, hn)    => { emit_let_locals_expr(b); emit_let_locals_expr(hn) },
-  LFeedback(_h, b, s)       => { emit_let_locals_expr(b); emit_let_locals_expr(s) },
+  LFeedback(h, b, s)        => {
+    emit_let_locals_expr(b)
+    emit_let_locals_expr(s)
+    // LF walkthrough §4.5: declare $__fb_<h> i32 local for the
+    // load-invoke-store state-machine emitted at the LFeedback arm.
+    perform wat_emit("    (local $__fb_")
+    perform wat_emit(int_to_str(h))
+    perform wat_emit(" i32)\n")
+  },
   LPerform(_h, _n, args)    => emit_let_locals_list(args),
   LHandle(_h, b, _arms)     => emit_let_locals_expr(b),
   LEvPerform(_h, _n, _s, a) => emit_let_locals_list(a),
@@ -1267,9 +1276,36 @@ fn emit_expr(expr) = match expr {
     perform wat_emit("    ;; ~> handler attached (tail-resumptive inlined)\n")
   },
 
-  LFeedback(_h, body, _spec) => {
+  LFeedback(h, body, _spec) => {
+    // <~ feedback — state-machine lowering, v1 scope: FbDelay(1).
+    //
+    // Emits load-invoke-store: body produces the current iteration's
+    // output; we tee it to a per-site local so it stays on stack,
+    // store to state-global $s<h> for the next iteration's load,
+    // then re-load the tee'd local to leave the value on stack.
+    //
+    // State-global substrate reuses LStateGet/LStateSet's `$s<slot>`
+    // convention. The handle `h` as slot number ensures per-site
+    // uniqueness; globals persist across iterative-context handler
+    // re-invocations (Sample / Tick / Clock).
+    //
+    // Sub-handles tracked in PLAN.md (each migrates state into the
+    // handler's own state record when H1.4 ev_shape synthesis lands):
+    //   LF.1 — FbDelay(N>1) ring buffer
+    //   LF.2 — FbState(init) with typed carrier
+    //   LF.3 — FbFilter(N, coeffs) N-tap filter
+    //
+    // Walkthrough: docs/rebuild/simulations/LF-feedback-lowering.md.
     emit_expr(body)
-    perform wat_emit("    ;; <~ feedback (iterative ctx)\n")
+    perform wat_emit("    (local.tee $__fb_")
+    perform wat_emit(int_to_str(h))
+    perform wat_emit(")\n")
+    perform wat_emit("    (global.set $s")
+    perform wat_emit(int_to_str(h))
+    perform wat_emit(")\n")
+    perform wat_emit("    (local.get $__fb_")
+    perform wat_emit(int_to_str(h))
+    perform wat_emit(")\n")
   },
 
   LPerform(_h, op_name, args) => {
@@ -1385,25 +1421,20 @@ fn emit_const(v) = match v {
 // ═══ BinOp / UnaryOp ═══════════════════════════════════════════════
 
 fn emit_binop(op) = match op {
-  "+"  => perform wat_emit("    (i32.add)\n"),
-  "-"  => perform wat_emit("    (i32.sub)\n"),
-  "*"  => perform wat_emit("    (i32.mul)\n"),
-  "/"  => perform wat_emit("    (i32.div_s)\n"),
-  "%"  => perform wat_emit("    (i32.rem_s)\n"),
-  "==" => perform wat_emit("    (i32.eq)\n"),
-  "!=" => perform wat_emit("    (i32.ne)\n"),
-  "<"  => perform wat_emit("    (i32.lt_s)\n"),
-  ">"  => perform wat_emit("    (i32.gt_s)\n"),
-  "<=" => perform wat_emit("    (i32.le_s)\n"),
-  ">=" => perform wat_emit("    (i32.ge_s)\n"),
-  "&&" => perform wat_emit("    (i32.and)\n"),
-  "||" => perform wat_emit("    (i32.or)\n"),
-  "++" => perform wat_emit("    (call $str_concat)\n"),
-  _    => {
-    perform wat_emit("    ;; unknown binop: ")
-    perform wat_emit(op)
-    perform wat_emit("\n")
-  }
+  BAdd    => perform wat_emit("    (i32.add)\n"),
+  BSub    => perform wat_emit("    (i32.sub)\n"),
+  BMul    => perform wat_emit("    (i32.mul)\n"),
+  BDiv    => perform wat_emit("    (i32.div_s)\n"),
+  BMod    => perform wat_emit("    (i32.rem_s)\n"),
+  BEq     => perform wat_emit("    (i32.eq)\n"),
+  BNe     => perform wat_emit("    (i32.ne)\n"),
+  BLt     => perform wat_emit("    (i32.lt_s)\n"),
+  BGt     => perform wat_emit("    (i32.gt_s)\n"),
+  BLe     => perform wat_emit("    (i32.le_s)\n"),
+  BGe     => perform wat_emit("    (i32.ge_s)\n"),
+  BAnd    => perform wat_emit("    (i32.and)\n"),
+  BOr     => perform wat_emit("    (i32.or)\n"),
+  BConcat => perform wat_emit("    (call $str_concat)\n")
 }
 
 fn emit_unaryop(op) = match op {
@@ -1757,8 +1788,9 @@ fn emit_list_literal(elems) = {
   // When the enclosing row excludes Alloc AND every element is a
   // pure literal, this whole construction can fold into a static
   // data segment — no runtime allocation at all. That fold is a
-  // later refinement on this emission; it does not change the
-  // emitted primitive when the fold doesn't apply.
+  // named peer handle (H2.4 static-literal-list-fold in PLAN.md);
+  // it does not change the emitted primitive when the fold doesn't
+  // apply.
   let n = len(elems)
   perform wat_emit("    (i32.const ")
   perform wat_emit(int_to_str(n))

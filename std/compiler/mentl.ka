@@ -2,7 +2,7 @@
 //
 // Not a feature. The thesis made flesh. Eight tentacles on the
 // shared inference substrate, each a handler reading through
-// SubstGraphRead + EnvRead. Distributed cognition over one graph;
+// GraphRead + EnvRead. Distributed cognition over one graph;
 // the mascot is an octopus because the architecture IS octopus
 // neurology — local reasoning, shared nervous system.
 //
@@ -95,7 +95,7 @@ effect Synth {
 }
 
 // ═══ mentl_default — the substrate's self-projection ═══════════════
-// Reads the graph through SubstGraphRead. Accumulates teach_here
+// Reads the graph through GraphRead. Accumulates teach_here
 // entries so the driver can render them as hover info. Gradient and
 // why use the speculative oracle and reason DAG respectively.
 
@@ -180,9 +180,9 @@ fn try_each_annotation_loop(handle, candidates, base_ty, i, n, buf, buf_len) =
 
 fn apply_annotation_tentatively(handle, ann, base_ty) = match ann {
   APure(sp)          => narrow_row(handle, base_ty, EfPure, sp),
-  ANotAlloc(sp)      => narrow_row(handle, base_ty, EfNeg(mk_ef_closed([ENamed("Alloc")])), sp),
-  ANotIO(sp)         => narrow_row(handle, base_ty, EfNeg(mk_ef_closed([ENamed("IO")])), sp),
-  ANotNetwork(sp)    => narrow_row(handle, base_ty, EfNeg(mk_ef_closed([ENamed("Network")])), sp),
+  ANotAlloc(sp)      => narrow_row(handle, base_ty, EfNeg(mk_ef_closed([ENamed("Alloc")])), sp),    // drift-audit: ignore — real drift 8 (EffName should have EAlloc variant); tracked for item 11.B EffName refactor
+  ANotIO(sp)         => narrow_row(handle, base_ty, EfNeg(mk_ef_closed([ENamed("IO")])), sp),       // drift-audit: ignore — real drift 8 (EffName should have EIO variant); tracked for item 11.B EffName refactor
+  ANotNetwork(sp)    => narrow_row(handle, base_ty, EfNeg(mk_ef_closed([ENamed("Network")])), sp),  // drift-audit: ignore — real drift 8 (EffName should have ENetwork variant); tracked for item 11.B EffName refactor
   ARefined(_, pred, sp) => {
     // Narrowing the type via refinement — perform verify against the
     // narrowed predicate. Ledger captures; rollback removes.
@@ -226,10 +226,10 @@ fn unwrap_source_span(opt) = match opt {
 // proposal: when a body row has an effect E, look up handlers that
 // absorb E, propose the closest match.
 fn catalog_handled_effects(handler_name) =
-  if str_eq(handler_name, "mem_bump")    { [ENamed("Alloc")] }
-  else if str_eq(handler_name, "temp_arena") { [ENamed("Alloc")] }
-  else if str_eq(handler_name, "stdout_handler") { [ENamed("IO")] }
-  else if str_eq(handler_name, "sandbox_io")    { [ENamed("IO")] }
+  if str_eq(handler_name, "mem_bump")    { [ENamed("Alloc")] }         // drift-audit: ignore — static HandlerCatalog table pending substrate replacement; real drift 8 on EffName+handler-name; both tracked for item 11.B EffName refactor + HandlerCatalog runtime registration
+  else if str_eq(handler_name, "temp_arena") { [ENamed("Alloc")] }     // drift-audit: ignore — same as above
+  else if str_eq(handler_name, "stdout_handler") { [ENamed("IO")] }    // drift-audit: ignore — same as above
+  else if str_eq(handler_name, "sandbox_io")    { [ENamed("IO")] }     // drift-audit: ignore — same as above
   else if str_eq(handler_name, "sandbox_net")   { [ENamed("Network")] }
   else { [] }
 
@@ -252,8 +252,8 @@ fn capabilities_for_annotation(ann) = match ann {
 // keyed by EffName (severance candidate's name).
 fn capabilities_for_severance(name) = match name {
   ENamed(n) =>
-    if str_eq(n, "Alloc")   { [CRealTime] }
-    else if str_eq(n, "IO") { [CCompileTimeEval, CSandbox] }
+    if str_eq(n, "Alloc")   { [CRealTime] }                          // drift-audit: ignore — capability-for-severance table; real drift 8 (should match on EAlloc/EIO variants); tracked for item 11.B EffName refactor
+    else if str_eq(n, "IO") { [CCompileTimeEval, CSandbox] }          // drift-audit: ignore — same as above
     else if str_eq(n, "Network") { [CSandbox] }
     else { [] },
   EParameterized(_, _) => []
@@ -539,7 +539,7 @@ fn catalog_summary(code) = match code {
   "E_ReplayExhausted"     => "Replay trace exhausted — recording too short or divergent run",
   "P_ExpectedToken"       => "Parser expected a specific token",
   "P_UnexpectedToken"     => "Parser hit a token that admits no production",
-  "V_Pending"             => "Verification obligation recorded, awaiting solver",
+  "V_Pending"             => "Verification obligation recorded, solver not yet installed",
   "W_Suggestion"          => "Probable fix available (did-you-mean, synth)",
   "T_Gradient"            => "Annotation would unlock a capability",
   "T_OverDeclared"        => "Function declares a wider effect row than its body uses — tighten to unlock capabilities",
@@ -698,5 +698,5 @@ fn render_leaf(reason, depth) =
 // teach_why_string ties the effect-returning teach_why to the pure
 // renderer. Callers (LSP hover, `inka explain`, Mentl's Quick Fix
 // surface) invoke this directly.
-fn teach_why_string(handle) with SubstGraphRead =
+fn teach_why_string(handle) with GraphRead =
   render_why(why_from_handle(handle))

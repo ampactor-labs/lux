@@ -6,6 +6,14 @@ the SubstGraph (spec 00) as it encounters them. Every expression
 contributes bindings or binds a handle; every FnStmt generalizes.
 Types, effects, and ownership all fall out of this one walk.
 
+**Kernel primitive implemented:** #8 — HM inference, live, one-walk,
+productive-under-error, with Reasons (DESIGN.md §0.5). **The light
+every handler projection reads by.** Also realizes the substrate
+consequence that no separate check vs infer phase exists: types +
+effect rows (#4) + ownership (#5) + refinement obligations (#6)
+all inferred in one pass. Mentl tentacle served: **Why** (the
+Reason DAG this spec writes IS what Why walks).
+
 **Research anchors.**
 - Salsa 3.0 — flat-array + epoch + overlay pattern (from spec 00).
 - Polonius 2026 alpha — lazy constraint rewrite for refinement

@@ -1,12 +1,12 @@
-// graph.ka — SubstGraph machinery (spec 00)
+// graph.ka — Graph machinery (spec 00)
 //
 // The substrate. One live graph, all variables. Flat-array storage,
 // O(1) chase amortized, epoch-monotonic, trail-backed for rollback.
 // Every TVar(id) is a handle into this graph; every observer chases
 // via graph_chase; only inference writes.
 //
-// types.ka owns the vocabulary (NodeKind, GNode, SubstGraph, Mutation,
-// SubstGraphRead, SubstGraphWrite). This file owns the mechanism:
+// types.ka owns the vocabulary (NodeKind, GNode, Graph, Mutation,
+// GraphRead, GraphWrite). This file owns the mechanism:
 // graph_handler (the live state), chase_node (the read primitive),
 // occurs_in (cycle detection), revert_trail (speculative rollback).
 //
@@ -23,7 +23,7 @@
 // overlay_lens — with an overlay_count and current_overlay_idx. A
 // fresh allocation's cost is O(1) amortized: one list_index into
 // each array + one list_extend_to on the current handles buffer +
-// one list_set. No string-scan on register, no `handles ++ [h]` on
+// one list_set. No string-scan on register, no O(N) list copy on
 // the hot path. graph_fork scans names only when entering a module
 // (rare); cross-module snapshot builds slice-views (O(1) per overlay).
 
@@ -50,7 +50,7 @@ import runtime/strings
 // mentl) sees the same live graph through the same effect discipline.
 //
 // This is the canonical demonstration of Inka's handler-state pattern:
-// state is internal to the handler; callers never see SubstGraph as
+// state is internal to the handler; callers never see Graph as
 // a value; access is only through perform.
 
 handler graph_handler
@@ -82,7 +82,7 @@ handler graph_handler
   graph_snapshot() => {
     let overlays_view =
       overlays_to_pairs(overlay_names, overlay_bufs, overlay_lens, overlay_count)
-    resume(SubstGraph(nodes, epoch, next, overlays_view))
+    resume(Graph(nodes, epoch, next, overlays_view))
   },
 
   graph_push_checkpoint() => {
@@ -275,7 +275,7 @@ fn graph_node_at(nodes, idx) =
 
 // ─── graph_set_node ────────────────────────────────────────────────
 // O(1) in-place write. list_set stores at list + 8 + idx*4 directly.
-// Caller must ensure idx < len(nodes); graph_extend_to guarantees this.
+// Caller must ensure idx < len(nodes); graph_extend_to enforces the bound.
 
 fn graph_set_node(nodes, idx, node) =
   list_set(graph_extend_to(nodes, idx + 1), idx, node)

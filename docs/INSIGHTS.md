@@ -5,6 +5,48 @@ they are consequences of getting the foundations right. Never lose these.*
 
 ---
 
+## The Minimal Kernel — The Eight Primitives
+
+*Load-bearing together. Removing any one collapses the thesis AND
+costs Mentl a tentacle. See DESIGN.md §0.5 for the authoritative
+enumeration; the list below is the shorthand every other insight
+composes from.*
+
+1. **SubstGraph + Env** — the program IS the graph; every output is a handler projection. *(Mentl tentacle: **Query**.)*
+2. **Handlers with typed resume discipline** — `handle`/`resume` replaces six+ named patterns; `@resume=OneShot|MultiShot|Either` is part of each op's type; MultiShot is the substrate Mentl's oracle uses to explore hundreds of alternate realities per second; `~>` chains ARE capability stacks. *(Tentacle: **Propose**.)*
+3. **Five verbs** — `|>` `<|` `><` `~>` `<~` — topologically complete basis for computation graphs. *(Tentacle: **Topology**.)*
+4. **Full Boolean effect algebra** — `+ - & ! Pure`; negation (`!E`) proves ABSENCE; four compilation gates fall out of one subsumption. *(Tentacle: **Unlock**.)*
+5. **Ownership as an effect** — `own` performs `Consume`, `ref` is a row constraint; no lifetime annotations; Rust-level safety without the ceremony. *(Tentacle: **Trace**.)*
+6. **Refinement types** — compile-time proof, runtime erasure; `Verify` effect swappable to SMT by residual theory. *(Tentacle: **Verify**.)*
+7. **The continuous annotation gradient** — each annotation unlocks one specific compile-time capability; bottom and top converge; Mentl surfaces ONE next step per turn. *(Tentacle: **Teach**.)*
+8. **HM inference, live, one-walk, productive-under-error, with Reasons** — the light every handler projection reads by; Why Engine walks the reason DAG. *(Tentacle: **Why**.)*
+
+**Composition IS the medium.** Every insight below, every
+framework-dissolution, every performance claim, every teaching
+surface — a consequence of these eight composed. Inka is not a
+programming language; it is the **ultimate intent → machine
+instruction medium** that also raises its users into better
+programmers. The programs are the means; the programmers they
+become are the end.
+
+**Mentl is an octopus because the kernel has eight primitives.**
+Lose a tentacle, lose a primitive; lose a primitive, lose a
+tentacle. The mascot framing is architectural, not decorative.
+
+### The eight primitives ARE the eight interrogations ARE Mentl's eight tentacles
+
+The same eight are also **the eight structural questions asked
+before every line of Inka**, one per primitive, AND **the eight
+tentacles of Mentl's voice**. Graph? Handler? Verb? Row?
+Ownership? Refinement? Gradient? Reason? Pass all eight, type the
+residue. This is the full method — for writing, reading, teaching,
+debugging, code review, and Mentl's internal voice grammar. See
+CLAUDE.md or DESIGN.md §0.5 for the expanded forms. **One kernel;
+eight primitives; eight interrogations; eight tentacles; one
+method applied at every level.**
+
+---
+
 ## The First Truth: Inference IS the Light
 
 *Everything else in this document is a consequence of this.*
@@ -1161,12 +1203,14 @@ see what they meant, running.
 
 Before every change, every design decision, every line of code, ask:
 
-> **Is this what the ultimate programming language would do?**
+> **Is this what the ultimate intent → machine instruction medium
+> would do?**
 > If not, design the way it SHOULD be.
 
 Not "is this good enough." Not "does this work." Is this **the best it
 could possibly be**? Would you be proud to show this to Dennis Ritchie,
-to Robin Milner, to Simon Peyton Jones?
+to Robin Milner, to Simon Peyton Jones? To every programmer who ever
+reached for a framework their language couldn't provide?
 
 Inka is not a language that happens to have effects. Effects are what make
 Inka *Inka*. The pipe operator is not convenience — it's the universal

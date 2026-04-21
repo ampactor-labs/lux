@@ -8,6 +8,27 @@ DESIGN.md articulates the medium's vision. The 12 specs in `docs/rebuild/` descr
 
 ---
 
+## Syntax ↔ the eight-primitive kernel
+
+Every form below exists to make one primitive of the kernel (DESIGN.md §0.5) reachable as text. No form exists without a kernel correspondence. This is not decoration — it is a load-bearing constraint: a syntactic feature with no kernel primitive behind it has no semantic home, and every such feature in peer languages has been regretted. The kernel has eight primitives; Mentl has eight tentacles; the surface forms below have eight corresponding surfacing groups.
+
+| # | Kernel primitive                                    | Tentacle   | Surface form                                                    |
+|---|-----------------------------------------------------|------------|-----------------------------------------------------------------|
+| 1 | SubstGraph + Env                                    | Query      | AST nodes implicit; `import` brings module envs together         |
+| 2 | Handlers with typed resume discipline               | Propose    | `effect`, `handler`, `handle`/`~>`, `perform`, `resume`; `@resume=OneShot \| MultiShot \| Either` on effect ops |
+| 3 | Five verbs                                          | Topology   | `\|>`  `<\|`  `><`  `~>`  `<~` with canonical layout             |
+| 4 | Full Boolean effect algebra (`+ - & ! Pure`)        | Unlock     | `with E1 + !E2 + Pure` in fn sigs, handler sigs, types           |
+| 5 | Ownership as an effect                              | Trace      | `own` / `ref` parameter markers; inferred by default             |
+| 6 | Refinement types                                    | Verify     | `type Name = Base where predicate`                               |
+| 7 | Continuous annotation gradient                      | Teach      | Every `with`-clause, every ownership marker, every refinement is one point on the gradient; zero annotations is the default (code runs) |
+| 8 | HM inference with Reasons                           | Why        | No turbofish; generic params declared, inferred at call; wildcard `_` holes admit productive-under-error continuation |
+
+**Rule:** before adding a syntactic form, ask: which kernel primitive does it surface (and therefore which tentacle speaks for it)? If none, the form doesn't belong. If multiple, they were missing a shared form — consolidate.
+
+Each section below labels which primitive(s) its forms surface.
+
+---
+
 ## Governing principles
 
 Five rules every syntactic decision below honors:
@@ -1142,6 +1163,6 @@ Every diagnostic carries a Located reason chain, source span, applicability tag 
 
 This document supersedes any syntactic decisions implicit in DESIGN.md, INSIGHTS.md, the 12 specs, or current parser behavior. Where another document conflicts with SYNTAX.md, SYNTAX.md is correct and the other document gets a corrective revision.
 
-Mentl's discipline applies to syntax: every form below was decided by asking the four projections — graph (what AST does it produce?), handler (what installed handler reads it?), verb (which verb's topology does it draw?), row (what effect-algebra constraint does it gate?). Forms that failed the four were rejected.
+Mentl's discipline applies to syntax: every form below was decided by asking the eight interrogations — one per kernel primitive (DESIGN.md §0.5), one per Mentl tentacle. Graph (what AST does it produce?), handler + resume discipline (what installed handler reads it, with what resume type?), verb (which topology?), row (what `+ - & !` constraint?), ownership (what `own`/`ref` does it carry?), refinement (what predicate does it admit?), gradient (what annotation would it unlock?), Reason (what edge does it leave for the Why Engine?). Forms that failed any of the eight were rejected.
 
 When questions arise about syntax not yet covered here: open a γ-style walkthrough in `docs/rebuild/simulations/syntax/<topic>.md`, resolve the design question, then update this document.

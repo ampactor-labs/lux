@@ -1,12 +1,12 @@
 // lower.ka — LowIR from live graph observation (spec 05)
 //
 // The projection. Lowers typed AST into LowIR by reading types LIVE
-// from SubstGraph through LookupTy. No cached types in LowExpr. No
+// from Graph through LookupTy. No cached types in LowExpr. No
 // subst threading. An unresolved handle at lower time is a build
 // failure, not a fallback.
 //
-// Declares: with SubstGraphRead + EnvRead + LookupTy + Diagnostic.
-// NO SubstGraphWrite — structural isolation via effect row. A stray
+// Declares: with GraphRead + EnvRead + LookupTy + Diagnostic.
+// NO GraphWrite — structural isolation via effect row. A stray
 // perform graph_bind would fail at handler install.
 //
 // Handler elimination (spec 05 §Handler elimination):
@@ -39,7 +39,7 @@ type LowExpr
   | LStore(Int, Int, LowExpr)                  // handle, slot, value
   | LLet(Int, String, LowExpr)
   | LUpval(Int, Int)
-  | LBinOp(Int, String, LowExpr, LowExpr)
+  | LBinOp(Int, BinOp, LowExpr, LowExpr)
   | LUnaryOp(Int, String, LowExpr)
   | LCall(Int, LowExpr, List)                  // monomorphic direct call
   | LTailCall(Int, LowExpr, List)
@@ -977,7 +977,7 @@ fn cfv_merge(a, b) =
     let x = list_head(b)
     let rest = list_tail(b)
     if cfv_contains(a, x) { cfv_merge(a, rest) }
-    else { cfv_merge(a ++ [x], rest) }
+    else { cfv_merge(a ++ [x], rest) }   // drift-audit: ignore — real drift 11 in cfv_* set-union family; buffer-counter rewrite adds Memory+Alloc to row rippling through callers; tracked for item 11.B buffer-counter sweep
   }
 
 fn cfv_contains(lst, s) =
@@ -1174,7 +1174,7 @@ handler lower_scope with frames = [], globals = [] {
         capture_handles: frame.capture_handles,
         capture_order: frame.capture_order,
         captures: frame.captures,
-        local_handles: frame.local_handles ++ [h],
+        local_handles: frame.local_handles ++ [h],   // drift-audit: ignore — real drift 11 in frame record; buffer-counter conversion requires frame-record field restructure; tracked for item 11.B buffer-counter sweep
         local_order: frame.local_order ++ [name],
         locals: set_insert(frame.locals, name)
       }

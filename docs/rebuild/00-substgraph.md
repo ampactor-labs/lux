@@ -4,6 +4,10 @@
 variable the program produces and exposes a live, O(1) chase interface
 to every downstream observer. One substrate, many readers.
 
+**Kernel primitive implemented:** #1 — SubstGraph + Env (DESIGN.md §0.5).
+Also the substrate primitive #8 (HM inference with Reasons) writes into.
+Mentl tentacle served: **Query**.
+
 **Research anchor.** Salsa 3.0 — flat-array storage with epoch +
 persistent overlay. Astral `ty` Python checker (SYNTHESIS_CROSSWALK.md
 Tier 1): 4.7ms recompile. Polonius 2026 alpha — lazy constraint

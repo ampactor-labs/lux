@@ -3,7 +3,14 @@
 **Purpose.** One subcommand, `inka query <file> <question>`, that runs
 lex + parse + infer on a single file and answers forensic questions
 against the resulting SubstGraph. Sub-second per query. Substrate for
-Arc F.2 LSP (every LSP method = a Query variant).
+Arc F.2 (the Mentl-voice surface and its LSP projection — every LSP
+method decomposes to a Query variant).
+
+**Kernel primitives implemented:** #1 (Query IS a handler projection
+of the graph) and #8 (Reasons — the Why Engine is one Query
+variant). This is the purest demonstration of "the graph IS the
+program": no new machinery, no cache, just read the live substrate.
+Mentl tentacles served: **Query** (primary) and **Why** (secondary).
 
 **Research anchors.**
 - ChatLSP OOPSLA 2024 — typed context for LLM completion. The same

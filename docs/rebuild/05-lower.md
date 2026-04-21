@@ -5,6 +5,12 @@ by reading types LIVE from the SubstGraph (spec 00). No cached types
 in LowExpr nodes. No per-module subst snapshot. An unresolved handle
 at lower time is a build failure, not a fallback.
 
+**Kernel primitives implemented:** consumer of #1 (reads graph live)
+and #8 (reads Reasons). Lowers #2 handlers to direct calls (>95%
+monomorphic) — OneShot-typed arms become direct `call`,
+MultiShot-typed arms become heap-captured continuations, Either
+dynamic dispatch; #3 five verbs to control flow.
+
 **Research anchor.** Koka generalized evidence passing (JFP 2022) +
 Koka C backend (2024). When the graph proves a call's handler stack
 is monomorphic, emit `call $h_foo` directly. Kills `val_concat` drift

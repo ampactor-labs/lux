@@ -90,7 +90,218 @@ every module is already perfect. It measures itself against the
 vision, not against any bootstrap compiler. It is the wheel, not the
 lathe.
 
-**There is one mechanism. Everything else falls out.**
+**There is one mechanism. Everything else falls out.** But the one
+mechanism rests on eight primitives, each load-bearing. Remove any
+and the thesis collapses. The next section enumerates them; the
+rest of this document develops each in depth.
+
+---
+
+## 0.5. The Minimal Kernel — Eight Primitives
+
+Inka is not a programming language. It is a **medium** for
+expressing human intent as machine instruction, with an oracle
+(Mentl) that reads the substrate and teaches the programmer
+one step forward at a time. The medium is composed of eight
+primitives. Each is load-bearing. Remove any one and the
+composition collapses. What follows — every framework
+dissolution, every performance claim, every domain unification,
+every teaching surface, every oracle behavior — is a consequence
+of these eight composed.
+
+**Eight, not more or fewer.** Mentl is an octopus because the
+kernel has eight primitives. Mentl's eight tentacles (Ch 8) are
+the eight primitives made voice — each tentacle is one primitive's
+human-facing projection. The octopus framing is not decoration;
+it IS the architecture. Eight primitives ↔ eight interrogations
+(what the programmer asks before each line) ↔ eight tentacles
+(what Mentl surfaces per turn). One kernel expressed at three
+levels.
+
+1. **SubstGraph + Env as universal representation.** The program
+   IS the graph — flat-array handles, O(1) chase, epoch-versioned,
+   trail-based checkpoint/rollback. Every output (WAT, hover,
+   diagnostic, audit, Mentl's voice) is a handler projection.
+   Inference writes the graph; every other component reads it.
+   *(Ch 4, spec 00.)*
+
+2. **Handlers with typed resume discipline as the one mechanism.**
+   Exceptions, state, generators, async, dependency injection,
+   backtracking — all `handle`/`resume`. One mechanism replaces
+   six+ named patterns plus everything peer languages handle as
+   framework (testing, mocking, GC, package management,
+   distributed RPC). Each effect op carries its resume discipline
+   in its type: `@resume=OneShot | MultiShot | Either`. OneShot →
+   direct `call`; MultiShot → heap-captured continuation; Either
+   → dynamic. Handler chains (`~>`) ARE capability stacks,
+   trust-ordered, proven at compile time. **The MultiShot-typed
+   arms are the substrate Mentl's oracle uses to explore hundreds
+   of alternate realities per second** under trail-based rollback —
+   also powers backtracking, hyperparameter search, speculative
+   execution, distributed RPC-as-delimited-continuation.
+   *(Ch 1, Ch 6.6, Ch 8, spec 06.)*
+
+3. **Five verbs as a topologically complete basis.** `|>` converge,
+   `<|` diverge, `><` parallel compose, `~>` handler-attach, `<~`
+   feedback. Every directed graph decomposes into these five.
+   `<~` is genuinely novel — no production language makes feedback
+   edges visible, typed, and optimizable. DSP, ML, distributed
+   systems, compiler pipelines all share one notation. *(Ch 2,
+   spec 10.)*
+
+4. **Full Boolean effect algebra.** `+ - & ! Pure`. Normal form
+   `EfPure | EfClosed(names) | EfOpen(names, handle)`. **Negation
+   (`!E`) proves ABSENCE of capability** — strictly more expressive
+   than every production effect system (Rust + Haskell + Koka +
+   Austral combined). The four compilation gates (`Pure` →
+   memoize/parallelize/compile-time-eval; `!IO` → CTE; `!Alloc` →
+   real-time/GPU/kernel-safe; `!Network` → sandbox) are four uses
+   of one subsumption mechanism, not four separate checks. *(Ch 3,
+   spec 01.)*
+
+5. **Ownership as an effect, inferred.** `own` performs `Consume`;
+   `ref` is a row constraint; `affine_ledger` enforces linearity.
+   Same Boolean algebra as every other effect. No separate
+   ownership analysis, no separate compiler pass, no lifetime
+   annotations in function bodies. Rust-level safety without
+   Rust's ceremony. Vale-style `!Mutate` region-freeze falls out.
+   Tofte-Talpin region inference maps onto handler identity =
+   region identity. *(Ch 6, spec 07.)*
+
+6. **Refinement types with compile-time proof, runtime erasure.**
+   `type Port = Int where 1 <= self && self <= 65535`.
+   `type Tensor<T, S> where self.len() == product(S)`. The
+   `Verify` effect discharges predicates — ledger today; swappable
+   to SMT (Z3/cvc5/Bitwuzla by residual theory) without source
+   change. Array bounds, port validity, tensor shapes — proven
+   statically, zero cost at runtime. *(Ch 9.7, spec 02/06.)*
+
+7. **The continuous annotation gradient.** Each annotation unlocks
+   one specific compile-time capability. Zero annotations → code
+   runs (full inference). Each step narrows; capabilities unlock.
+   Bottom (pure inference) and top (total specification) converge
+   — both are "you say what you mean, the language handles the
+   rest." Mentl's gradient engine surfaces ONE highest-leverage
+   next step per turn, proven before offered. Never a wall of
+   warnings. *(Ch 5, Ch 8, spec 09.)*
+
+8. **HM inference, live, one-walk, productive-under-error, with
+   Reasons.** Types + effect rows + ownership + refinement
+   obligations inferred in a single recursive pass. No separate
+   check vs infer. Graph-direct — no subst threading. Errors
+   become `NErrorHole` placeholders; walk continues; unrelated
+   code still types (Hazel marked-hole productivity). Every
+   binding records a `Reason`; the Why Engine walks the reason
+   DAG and renders proof chains. Polymorphic dispatch monomorphizes
+   where ground (>95% in practice); Koka-style evidence vectors
+   for the rest — monomorphization speed without code bloat.
+   *(Ch 4, spec 04.)*
+
+### What falls out from composing the eight
+
+- **Every framework dissolves into a handler.** GC, package
+  managers, test runners, build tools, DI containers, LSP
+  servers, doc generators, debuggers, REPLs, ML frameworks,
+  DSP frameworks, RPC systems, ORMs, reactive UIs. What the
+  industry has been building as separate ecosystems is a
+  handler on one substrate in Inka. *(Ch 9.)*
+
+- **Every deployment target is a backend handler choice.** WASM,
+  native x86/ARM, GPU SPIR-V, bytecode interpreter, test
+  sandbox, distributed actor. Same source, different `~>` chain,
+  different binary. *(Ch 7, Ch 10.2.)*
+
+- **Every speed claim falls out of completeness of proof.**
+  `Pure` proven → memoize + parallelize + CTE. `!Alloc` proven →
+  emit without allocation-tracking. `!IO` proven → constant-fold.
+  Evidence-passing → direct `call` on 95%+ of polymorphic sites.
+  **The ergonomic default is the performant default.** Inka
+  isn't fast because it sacrificed ergonomics (C, Rust); it's
+  fast because proof is the ergonomic path, and proof is what
+  the compiler needs to emit optimal code.
+
+- **Every domain is a handler stack on one substrate.** Frontend,
+  backend, DSP, robotics, sensors, ML, embedded, systems. The
+  industry's domain-specialty fragmentation (frontend devs
+  don't do ML; ML devs don't do audio; audio devs don't do
+  distributed) is a consequence of language fragmentation.
+  Inka's kernel admits every domain's discipline as a handler
+  stack on the same graph. The medium's reach determines the
+  programmer's reach.
+
+- **Mentl — the voice that reads the graph — surfaces ONE
+  proven suggestion per turn**, exploring hundreds of alternate
+  realities underneath via MultiShot-typed handler arms (primitive
+  2's resume discipline) + trail-based rollback. She renders
+  modern agentic coding AI obsolete not by competing with it
+  but by making the compiler itself the oracle that proves
+  before it speaks. The compiler IS the AI. The LLM was
+  pretending. *(Ch 8.)*
+
+- **The closing fixed point** — byte-identical self-compilation
+  — is the soundness proof stronger than any external checker.
+  Inka's substrate is complete enough to describe its own
+  compiler; the compiler's image is reproducible under its own
+  semantics. *(Ch 11.)*
+
+### What this implies — the thesis, stated plainly
+
+Inka is the **ultimate intent → machine instruction medium** —
+which happens to compile to optimal code, host every domain
+without impedance mismatch, and teach its users to be better
+programmers through the shape of the medium itself. The programs
+a developer writes in Inka are the means; **the developer they
+become** — thinking in pipelines, in effect rows, in proof
+obligations, in handler swap, in graph queries — **is the end**.
+The medium raises its users. Over time, this compounds: codebases
+built by Inka-thinkers have fewer bugs before Mentl looks; teams
+trained in Inka reason more clearly about real-time constraints
+and distributed state and concurrent logic; the medium's shape
+imprints on the domain's shape.
+
+The eight primitives compose. The composition IS the medium. The
+medium IS the deliverable. **Mentl is an octopus because the
+kernel has eight primitives, and Mentl is the kernel made voice.**
+
+### The eight primitives ARE the eight interrogations ARE Mentl's eight tentacles
+
+The eight primitives are simultaneously:
+
+- **Eight primitives** — the kernel's minimal substrate (above).
+- **Eight interrogations** — the structural questions a programmer
+  asks before every line of Inka (one per primitive). Pass all
+  eight, type the residue.
+- **Eight tentacles** — Mentl's voice surfaces (Ch 8). Each tentacle
+  is one primitive's human-facing projection. Mentl's speech per
+  turn is: ask all eight internally, silence-gate, surface the
+  one load-bearing answer.
+
+The 1-to-1-to-1 alignment is load-bearing, not aesthetic. **Mentl
+is an octopus because the substrate She reads has eight primitives.
+Lose a tentacle, lose a primitive; lose a primitive, lose a
+tentacle. The mascot IS the architecture.**
+
+| # | Primitive (what the medium is BUILT from)        | Interrogation (what the programmer asks before each line) | Tentacle (what Mentl surfaces as voice)        |
+|---|--------------------------------------------------|------------------------------------------------------------|------------------------------------------------|
+| 1 | SubstGraph + Env                                 | **Graph?** — what handle/edge/Reason already encodes this? | **Query** — render what the graph knows here  |
+| 2 | Handlers with typed resume discipline            | **Handler?** — which installed handler (and with what resume discipline) already projects this? | **Propose** — `AWrapHandler`; hole-fill via MultiShot oracle |
+| 3 | Five verbs                                       | **Verb?** — which of `\|>` `<\|` `><` `~>` `<~` draws this topology? | **Topology** — suggest a pipe chain over nested calls |
+| 4 | Full Boolean effect algebra                      | **Row?** — what `+ - & ! Pure` constraint already gates this? | **Unlock** — "adding `!E` unlocks capability C" |
+| 5 | Ownership as an effect                           | **Ownership?** — what `own`/`ref` or `Consume`/`!Alloc`/`!Mutate` already proves this linearity or non-escape? | **Trace** — diagnose consume-twice / ref-escape + proven fixes |
+| 6 | Refinement types                                 | **Refinement?** — what predicate or `Verify` obligation already bounds this? | **Verify** — surface pending obligations; SMT discharge when installed |
+| 7 | Continuous annotation gradient                   | **Gradient?** — what annotation would unlock this as a compile-time capability? | **Teach** — ONE highest-leverage next step per turn |
+| 8 | HM inference, live, one-walk, productive-under-error, with Reasons | **Reason?** — what edge should this decision leave for the Why Engine? | **Why** — walk the reason DAG on demand |
+
+Pass all eight, type the residue. This is the full method — for
+writing code, for reading inherited code, for learning Inka, for
+debugging, for code review, and for Mentl's own internal voice
+(her grammar per turn is the eight asked against the cursor of
+attention, gated through silence so only the load-bearing answer
+surfaces). See CLAUDE.md for the expanded forms.
+
+**One kernel. Eight primitives. Eight interrogations. Eight
+tentacles. Six applications (write / read / teach / debug /
+review / voice). One method.**
 
 ---
 
@@ -1448,13 +1659,15 @@ speculative search, Mentl is an oracle that PROVES its suggestions —
 not an LLM that guesses. The compiler IS the AI.*
 
 Mentl is not a feature of Inka. Mentl is what the substrate *becomes*
-when you project it toward a human. Eight tentacles, each a handler
-on the shared inference substrate, each reasoning locally, each
-independent — the mascot is an octopus because octopus neurology
-*is* the architecture. Distributed cognition over a shared central
-nervous system.
+when you project it toward a human. **Eight tentacles, because the
+kernel has eight primitives (§0.5). Each tentacle IS one primitive's
+human-facing projection** — one-to-one, not arbitrary. Octopus
+neurology (distributed cognition over a shared central nervous
+system) matches the architecture because the architecture IS
+distributed cognition: eight tentacles reasoning locally against
+one graph, each surfacing what one primitive wants to say.
 
-### The architecture
+### The architecture — eight tentacles, one per kernel primitive
 
 ```
                 ╔═══════════════════════════════════════╗
@@ -1462,20 +1675,40 @@ nervous system.
                 ║    (shared inference substrate)       ║
                 ╚═══════════════════════════════════════╝
                                     │
-    ┌──────────┬──────────┬─────────┼─────────┬──────────┬──────────┐
-    │          │          │         │         │          │          │
- compile    check      query      why       teach      hover     suggest
-    │          │          │         │         │          │          │
-  WAT     Diagnostic  QueryResult  Reason  Annotation   LSP     Candidate
-                                          + Capability JSON-RPC  + Verified
+    ┌───────┬────────┬────────┬─────┴────┬────────┬────────┬────────┐
+    │       │        │        │          │        │        │        │
+  Query  Propose Topology  Unlock     Trace    Verify   Teach    Why
+  (#1)    (#2)    (#3)     (#4)       (#5)     (#6)    (#7)     (#8)
+    │       │        │        │          │        │        │        │
+  graph  hole-fill  pipe    capab.   ownership refine  gradient reason
+  reads  / Wrap   / topol.  unlock   diagnose  obligs   step     DAG
+          (MS-    suggest  via `!E`
+          oracle)
 ```
 
-(The verify tentacle is the eighth — it reads the same substrate via
-the `Verify` effect; see Chapter 9.7.)
+| Tentacle    | Kernel primitive                             | Surfaces                                                            |
+|-------------|----------------------------------------------|---------------------------------------------------------------------|
+| **Query**   | #1 SubstGraph + Env                          | what the graph knows at a site (type, row, ownership, refinements)  |
+| **Propose** | #2 Handlers + typed resume discipline        | wrap-handler candidates (AWrapHandler); hole-fill candidates via MultiShot-typed `enumerate_inhabitants` — the oracle exploring hundreds of alternate realities per second |
+| **Topology**| #3 Five verbs                                | topology suggestions (`\|>` chain over nested calls; `<\|` over shared-source tuple; warnings when `<\|` would consume `own`) |
+| **Unlock**  | #4 Boolean effect algebra                    | capability-unlock surfacing: "adding `!Alloc` unlocks `CRealTime` — proven path" |
+| **Trace**   | #5 Ownership as effect                       | `own`/`ref` violations with proven fixes; region-escape diagnostics; `!Mutate` freeze suggestions |
+| **Verify**  | #6 Refinement types                          | pending `V_Pending` refinement obligations; SMT discharge when `verify_smt` installed |
+| **Teach**   | #7 Annotation gradient                       | ONE highest-leverage next step per turn; the gradient's conversation |
+| **Why**     | #8 HM inference with Reasons                 | walk the Reason DAG on demand; compress the proof chain into a sentence |
 
 Each tentacle reads the same graph through `SubstGraphRead`, the same
 env through `EnvRead`. None coordinate with each other. Each reasons
-locally and surfaces a projection for the human.
+locally and surfaces a projection for the human. **One primitive per
+tentacle; one tentacle per primitive. Mentl is the kernel made voice.**
+
+(Older references in this chapter used functional names —
+`compile` / `check` / `query` / `why` / `teach` / `hover` /
+`suggest` / `verify`. Those were surface-task labels; the
+kernel-aligned names above are the correct enumeration because
+they 1-to-1 the primitives. `compile` and `check` are not
+tentacles — they are pipeline routes that activate the full
+tentacle set.)
 
 ### The Teach effect
 

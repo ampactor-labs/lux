@@ -7,6 +7,14 @@ divergence, parallel composition, side-channel observation, and
 feedback. Effects + handlers + the Boolean row algebra make the
 *semantics* universal; the five verbs make the *shapes* visible.
 
+**Kernel primitive implemented:** #3 — The five verbs as a
+topologically complete basis (DESIGN.md §0.5). Together with #2
+(handlers with typed resume discipline — `~>` is handler-attach)
+and #4 (Boolean effect algebra — pipe rules compose rows). `<~`
+is the genuinely novel one; no other production language makes
+feedback edges visible, typed, and optimizable at the syntactic
+level. Mentl tentacle served: **Topology**.
+
 **Research anchors.** DSP signal-flow graphs (Widrow, Oppenheim);
 TensorFlow / PyTorch computation graphs; Koka pipe `x.f.g`; control-
 theoretic block diagrams (feedback edges, informing `<~`); reactive

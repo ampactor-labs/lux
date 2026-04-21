@@ -1,0 +1,48 @@
+# drift-patterns.tsv — fluency-trap regex catalog for Inka
+# Format: mode_num<TAB>mode_name<TAB>regex<TAB>scope<TAB>notes
+# scope: ka | all | <comma-separated exts, e.g., ka,lux>
+# mode_num 1-9 = CLAUDE.md drift modes; 10+ = bug-classes and keyword drift
+# Suppress a single line with a trailing `# drift-audit: ignore` comment.
+# Append patterns; do not edit the script.
+#
+1	Rust vtable (closure-as-vtable)	\{\s*(fn|handler)_\w+\s*:\s*(fn|\|)	ka	A record of functions named like a vtable is Mentl drawn as Rust. Use graph + handler.
+2	Scheme env frame (scope-as-frame-stack)	\b(parent_env|env_stack|push_frame|pop_frame|env_chain)\b	ka	Env lookup is an effect. `perform env_lookup(name)` — no parent-pointer frame walk.
+3	Python dict (effect-name-set-as-strings)	perform\s+"[A-Z]	ka	Effect names are EffName ADTs. Raw strings flatten parameterization.
+3	Python dict (string-keyed effect match)	"Pure"|"Alloc"|"IO"|"State"|"Console"	ka	Flat effect names. Post-H3.1, EffName is parameterized ADT. These strings signal the old shape.
+4	Haskell monad transformer (nested handle chain)	handle\s*\(\s*handle\s*\(\s*handle	ka	Compose with ~> chains, not stacked handle(handle(handle(...))).
+5	C calling convention (__closure/__ev separate)	__closure\b.*__ev\b|__ev\b.*__closure\b	ka	Unified __state per H1 substrate. Separate __closure and __ev is the pre-H1 shape.
+6	Primitive-type-special-case (Bool carveout)	\b(if|match).*\b(is_bool|bool_special|Bool_ty\b)	ka	Nullary ADTs share compilation discipline. Bool special-casing is drift.
+7	Parallel-arrays-instead-of-record (locals/captures pairs)	\b(locals|captures|frames|handlers)\s*,\s*\1_h\b	ka	Frame consolidation (Ω.5): one record + sorted-set, not parallel arrays.
+7	Parallel-arrays-instead-of-record (naming tell)	\b\w+_h\b\s*,\s*\w+_h\b	ka	Paired _h arrays surface a record-shape begging to exist.
+8	String-keyed-when-structured (int-coded mode)	\bmode\s*==\s*\d	ka	Flag-as-int is an ADT begging to exist. H6 will catch it anyway.
+8	String-keyed-when-structured (token kind as int)	\btoken_kind\s*==\s*\d	ka	Tokens are ADTs post-Ω.4.
+8	String-keyed-when-structured (SchemeKind as int)	\bscheme_kind\s*==\s*\d	ka	SchemeKind is ADT post-H3.
+9	Deferred-by-omission (TODO / for now / later)	//\s*(TODO|FIXME|XXX|for now|until\b|deferred|later\b|short[- ]term)	ka	Land whole or surface as named peer handle. No deferred-in-committed-code.
+9	Deferred-by-omission (stub/placeholder tell)	//\s*(placeholder|stub|not\s+implemented)	ka	Same as above — surface as peer handle in PLAN.md.
+#
+# --- Bug classes from CLAUDE.md that have cost hours ---
+10	Wildcard-fabricates (_ arm returning Forall)	_\s*=>\s*Forall\s*\(	ka	Wildcard fabricates a Scheme. Enumerate variants explicitly.
+10	Wildcard-fabricates (_ arm returning TVar)	_\s*=>\s*TVar\s*\(	ka	Fabricated TVar silently absorbs a new variant.
+10	Wildcard-fabricates (_ arm returning "Pure")	_\s*=>\s*"Pure"	ka	String-Pure default. Use EffRow algebra.
+11	Loop-accumulator O(N²) (acc ++ [x])	\+\+\s*\[[^\]]*\]	ka	Use list_extend_to + list_set + counter + slice. Bump allocator traps at 16 MB.
+12	Bare string equality (== on strings)	==\s*"	ka	Use str_eq(a, b). Runtime-built strings fail pointer-compare in WASM.
+12	Bare string equality (string == var)	"\s*==	ka	Use str_eq(a, b). Post-Ω.2, returns Bool: `if str_eq(a, b) { ... }`.
+13	Failure-mask (|| true)	\|\|\s*true	ka	A bug is zero or blocking. No `|| true` to hide a gate.
+14	Decorated-removal (removed-for comments)	//\s*removed\s+(for|because)	ka	Delete, don't decorate. No removal comments.
+15	Unused-decoration (leading underscore retain)	\blet\s+_[a-z]\w+\s*=	ka	Unused variables are deleted, not renamed with underscore.
+16	println-in-report (corrupts WAT stdout)	report\s*\([^)]*println	ka	println inside report(...) handler arms corrupts WAT stdout.
+#
+# --- Foreign-language keyword drift (the fluency trap surface) ---
+20	Rust keyword drift (impl)	^\s*impl\b|\bimpl\s+\w+\s+for\b	ka	`impl` is Rust. Inka has handlers on the graph.
+20	Rust keyword drift (trait/struct/enum/pub/mod)	^\s*(trait|struct|enum|pub|mod|crate)\s	ka	Rust keywords. ADTs are declared with Inka's own grammar.
+21	Python keyword drift (def/class)	^\s*(def|class)\s+\w+\s*[:(]	ka	`def`/`class` are Python. Functions in Inka are `fn`, structure is ADT.
+21	Python keyword drift (lambda)	\blambda\s+\w+\s*:	ka	Lambda is a Python keyword. Use Inka's `|x| expr` closure.
+22	Haskell/OCaml drift (do-notation / typeclass)	\bdo\s*\{|\binstance\s+\w+\s+where\b	ka	Do-notation is monad-transformer drift (mode 4). Use ~> chains.
+23	C/Go drift (typedef/void/sizeof)	\b(typedef|void|sizeof)\s*\(	ka	C primitives. Inka has ADTs + refinement types.
+24	JS drift (async/await/Promise)	\b(async|await|Promise\b)	ka	Async is an effect in Inka, handled — not a keyword.
+25	OOP drift (new/self/this/super)	\b(new\s+\w+\s*\(|self\.|this\.|super\.)	ka	Inka has no classes. `new`/`self`/`this` are OOP drift.
+#
+# --- Inka-native shape violations (residue discipline) ---
+30	Imperative-loop-where-verb-exists (for/while)	^\s*(for|while)\s	ka	Loops are rarely the Inka shape. Use |> transforms or <~ feedback. If truly needed, justify in a comment and suppress.
+31	Tuple-return-where-record-fits (multi-arg with _h suffix)	->\s*\([^)]*_h[^)]*,	ka	Anchor 6 + H1.3: if components carry _h suffix, reach for a record.
+32	Handler-as-function-argument (plain env param)	\(\s*env\s*:\s*\w+|\bctx\.env\.	ka	Env is effect-mediated. `perform env_lookup(name)` — not a function parameter.

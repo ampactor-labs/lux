@@ -7,6 +7,20 @@ suggest, LSP hover, verification-obligation surface. Each is one of
 Mentl's tentacles; the shared substrate is the SubstGraph + Env
 (specs 00, 04) read through effects.
 
+**Kernel primitives implemented:** #7 (continuous annotation gradient
+— Mentl's `teach_gradient` picks ONE highest-leverage next step per
+turn) and consumer of ALL EIGHT. Specifically: primitive #2's
+MultiShot-typed resume is **how** Mentl explores alternate realities
+at substrate speed; primitive #8 (Reasons) is **what** She walks to
+compress proofs into voice; the gradient (#7) is **the discipline
+that governs what surfaces**. Mentl is not a primitive — She is
+the primitive composition that makes the compiler a tutor instead
+of an adversary. **Her eight tentacles (DESIGN.md Ch 8) are the
+eight primitives made voice**, 1-to-1 — Query / Propose / Topology /
+Unlock / Trace / Verify / Teach / Why. See also
+`docs/rebuild/simulations/MV-mentl-voice.md` for the voice
+substrate design session.
+
 **Scope.** This spec defines the module `std/compiler/mentl.ka` — the
 full teaching surface: gradient logic, Why Engine, suggest, error
 catalog, LSP hover, verification-obligation rendering — plus the
