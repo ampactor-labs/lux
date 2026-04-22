@@ -266,15 +266,19 @@ fn cache_parse_int_list_field(bytes, prefix) = {
   if byte_len(raw) == 0 { [] }
   else {
     let parts = split(raw, ",")
-    cache_parse_int_list_loop(parts, 0, len(parts), [])
+    let n = len(parts)
+    let (buf, count) = cache_parse_int_list_loop(parts, 0, n, make_list(n), 0)
+    slice(buf, 0, count)
   }
 }
 
-fn cache_parse_int_list_loop(parts, i, n, acc) =
-  if i >= n { acc }
+fn cache_parse_int_list_loop(parts, i, n, buf, count) =
+  if i >= n { (buf, count) }
   else {
-    cache_parse_int_list_loop(parts, i + 1, n,
-      acc ++ [parse_int(list_index(parts, i))])
+    let value = parse_int(list_index(parts, i))
+    let extended = list_extend_to(buf, count + 1)
+    let written  = list_set(extended, count, value)
+    cache_parse_int_list_loop(parts, i + 1, n, written, count + 1)
   }
 
 // ═══ Entry encoding ════════════════════════════════════════════════
@@ -304,17 +308,24 @@ fn cache_show_entries_loop(entries, i, n, acc) =
 fn cache_parse_entries(bytes) = {
   // Walk lines; collect those starting with "E:".
   let lines = split(bytes, "\n")
-  cache_parse_entries_loop(lines, 0, len(lines), [])
+  let n = len(lines)
+  let (buf, count) = cache_parse_entries_loop(lines, 0, n, make_list(n), 0)
+  slice(buf, 0, count)
 }
 
-fn cache_parse_entries_loop(lines, i, n, acc) =
-  if i >= n { acc }
+fn cache_parse_entries_loop(lines, i, n, buf, count) =
+  if i >= n { (buf, count) }
   else {
     let line = list_index(lines, i)
-    let next = if cache_starts_with(line, "E:") {
-      acc ++ [cache_parse_entry(line)]
-    } else { acc }
-    cache_parse_entries_loop(lines, i + 1, n, next)
+    let (next_buf, next_count) = if cache_starts_with(line, "E:") {
+      let entry = cache_parse_entry(line)
+      let extended = list_extend_to(buf, count + 1)
+      let written  = list_set(extended, count, entry)
+      (written, count + 1)
+    } else {
+      (buf, count)
+    }
+    cache_parse_entries_loop(lines, i + 1, n, next_buf, next_count)
   }
 
 fn cache_parse_entry(line) = {
@@ -515,12 +526,14 @@ fn cache_parse_fields(s) = {
   if byte_len(s) == 0 { [] }
   else {
     let parts = split(s, ",")
-    cache_parse_fields_loop(parts, 0, len(parts), [])
+    let n = len(parts)
+    let (buf, count) = cache_parse_fields_loop(parts, 0, n, make_list(n), 0)
+    slice(buf, 0, count)
   }
 }
 
-fn cache_parse_fields_loop(parts, i, n, acc) =
-  if i >= n { acc }
+fn cache_parse_fields_loop(parts, i, n, buf, count) =
+  if i >= n { (buf, count) }
   else {
     let part = list_index(parts, i)
     let colon = cache_find_byte(part, 58, 0)        // ':'
@@ -530,7 +543,9 @@ fn cache_parse_fields_loop(parts, i, n, acc) =
                   let ty = cache_parse_ty(str_slice(part, colon + 1, byte_len(part)))
                   (name, ty)
                 }
-    cache_parse_fields_loop(parts, i + 1, n, acc ++ [entry])
+    let extended = list_extend_to(buf, count + 1)
+    let written  = list_set(extended, count, entry)
+    cache_parse_fields_loop(parts, i + 1, n, written, count + 1)
   }
 
 // ═══ Public API — read/write through Filesystem effect ═════════════

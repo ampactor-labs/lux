@@ -42,13 +42,15 @@ fn driver_module_path(module_name) =
 // the discipline is cheap and forward-proof).
 
 fn driver_collect_dag(entry_module) with Memory + Alloc + Filesystem = {
-  let collected = []
+  let buf = make_list(16)
   let visited = []
-  let result = driver_collect_visit(entry_module, collected, visited)
-  let (final_collected, _final_visited) = result
-  final_collected
+  let ((final_buf, final_count), _final_visited) =
+    driver_collect_visit(entry_module, (buf, 0), visited)
+  slice(final_buf, 0, final_count)
 }
 
+// collected is a (buf, count) pair threaded through DAG traversal.
+// Post-order: append self AFTER visiting deps.
 fn driver_collect_visit(module_name, collected, visited)
   with Memory + Alloc + Filesystem = {
   if set_contains(visited, module_name) {
@@ -60,14 +62,20 @@ fn driver_collect_visit(module_name, collected, visited)
       // Module source missing — treat as terminal (no further deps).
       // Driver's per-module check will surface E_MissingModule when
       // it tries to process this name.
-      (collected ++ [module_name], visited2)
+      let (buf, count) = collected
+      let extended = list_extend_to(buf, count + 1)
+      let written  = list_set(extended, count, module_name)
+      ((written, count + 1), visited2)
     } else {
       let source = perform fs_read_file(path)
       let imports = driver_extract_imports(source)
       // Visit dependencies first, then add self (post-order).
       let (after_deps_collected, after_deps_visited) =
         driver_collect_visit_list(imports, collected, visited2)
-      (after_deps_collected ++ [module_name], after_deps_visited)
+      let (buf, count) = after_deps_collected
+      let extended = list_extend_to(buf, count + 1)
+      let written  = list_set(extended, count, module_name)
+      ((written, count + 1), after_deps_visited)
     }
   }
 }
@@ -89,19 +97,25 @@ fn driver_collect_visit_list(modules, collected, visited)
 fn driver_extract_imports(source) with Memory + Alloc = {
   let tokens = lex(source)
   let ast = parse_program(tokens)
-  driver_extract_imports_loop(ast, 0, len(ast), [])
+  let n = len(ast)
+  let (buf, count) = driver_extract_imports_loop(ast, 0, n, make_list(n), 0)
+  slice(buf, 0, count)
 }
 
-fn driver_extract_imports_loop(ast, i, n, acc) =
-  if i >= n { acc }
+fn driver_extract_imports_loop(ast, i, n, buf, count) =
+  if i >= n { (buf, count) }
   else {
     let node = list_index(ast, i)
     let N(body, _, _) = node
-    let next = match body {
-      NStmt(ImportStmt(path)) => acc ++ [path],
-      _                       => acc
+    let (next_buf, next_count) = match body {
+      NStmt(ImportStmt(path)) => {
+        let extended = list_extend_to(buf, count + 1)
+        let written  = list_set(extended, count, path)
+        (written, count + 1)
+      },
+      _ => (buf, count)
     }
-    driver_extract_imports_loop(ast, i + 1, n, next)
+    driver_extract_imports_loop(ast, i + 1, n, next_buf, next_count)
   }
 
 // ═══ Per-module check ══════════════════════════════════════════════

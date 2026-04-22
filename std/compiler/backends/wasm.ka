@@ -167,7 +167,7 @@ fn ty_to_wasm_type(ty) = match ty {
 // includes the `__state` slot).
 
 fn emit_module(lowered) = {
-  let all_fn_names = collect_fn_names(lowered, [])
+  let all_fn_names = collect_fn_names(lowered)
   let top_fn_names = collect_top_level_fn_names(lowered)
   // W5 string interning — collect every LString in the lowered
   // program, assign each unique literal a 4-byte-aligned offset in
@@ -198,82 +198,85 @@ fn emit_module(lowered) = {
 // `4 + byte_length(s)` bytes with layout [len:i32][utf8_bytes].
 
 fn collect_string_literals(lowered) = {
-  let (entries, _) = collect_strings_list(lowered, [], 65536)
-  entries
+  let buf = make_list(16)
+  let (final_buf, final_count, _) = collect_strings_list(lowered, buf, 0, 65536)
+  slice(final_buf, 0, final_count)
 }
 
-fn collect_strings_list(exprs, acc, next_offset) =
-  if len(exprs) == 0 { (acc, next_offset) }
+fn collect_strings_list(exprs, buf, count, next_offset) =
+  if len(exprs) == 0 { (buf, count, next_offset) }
   else {
-    let (acc2, off2) = collect_strings_expr(list_head(exprs), acc, next_offset)
-    collect_strings_list(list_tail(exprs), acc2, off2)
+    let (buf2, count2, off2) = collect_strings_expr(list_head(exprs), buf, count, next_offset)
+    collect_strings_list(list_tail(exprs), buf2, count2, off2)
   }
 
-fn collect_strings_expr(expr, acc, next_offset) = match expr {
+fn collect_strings_expr(expr, buf, count, next_offset) = match expr {
   LConst(_, LString(s)) => {
-    if string_entry_exists(acc, s, 0, len(acc)) { (acc, next_offset) }
+    if string_entry_exists(buf, s, 0, count) { (buf, count, next_offset) }
     else {
       let size = 4 + byte_len(s)                // 4-byte length prefix + UTF-8 bytes
       let aligned_size = (size + 3) / 4 * 4     // round up to 4-byte multiple
-      (acc ++ [(s, next_offset)], next_offset + aligned_size)
+      let extended = list_extend_to(buf, count + 1)
+      let written  = list_set(extended, count, (s, next_offset))
+      (written, count + 1, next_offset + aligned_size)
     }
   },
-  LConst(_, _)                => (acc, next_offset),
-  LLocal(_, _)                => (acc, next_offset),
-  LGlobal(_, _)               => (acc, next_offset),
-  LUpval(_, _)                => (acc, next_offset),
-  LStore(_, _, v)             => collect_strings_expr(v, acc, next_offset),
-  LLet(_, _, inner)           => collect_strings_expr(inner, acc, next_offset),
-  LBinOp(_, _, l, r)          => collect_strings_bin(l, r, acc, next_offset),
-  LUnaryOp(_, _, inner)       => collect_strings_expr(inner, acc, next_offset),
-  LCall(_, f, args)           => collect_strings_bin_list(f, args, acc, next_offset),
-  LTailCall(_, f, args)       => collect_strings_bin_list(f, args, acc, next_offset),
-  LReturn(_, inner)           => collect_strings_expr(inner, acc, next_offset),
+  LConst(_, _)                => (buf, count, next_offset),
+  LLocal(_, _)                => (buf, count, next_offset),
+  LGlobal(_, _)               => (buf, count, next_offset),
+  LUpval(_, _)                => (buf, count, next_offset),
+  LStore(_, _, v)             => collect_strings_expr(v, buf, count, next_offset),
+  LLet(_, _, inner)           => collect_strings_expr(inner, buf, count, next_offset),
+  LBinOp(_, _, l, r)          => collect_strings_bin(l, r, buf, count, next_offset),
+  LUnaryOp(_, _, inner)       => collect_strings_expr(inner, buf, count, next_offset),
+  LCall(_, f, args)           => collect_strings_bin_list(f, args, buf, count, next_offset),
+  LTailCall(_, f, args)       => collect_strings_bin_list(f, args, buf, count, next_offset),
+  LReturn(_, inner)           => collect_strings_expr(inner, buf, count, next_offset),
   LMakeClosure(_, LFn(_, _, _, body, _), caps, ev) => {
-    let (acc1, o1) = collect_strings_list(body, acc, next_offset)
-    let (acc2, o2) = collect_strings_list(caps, acc1, o1)
-    collect_strings_list(ev, acc2, o2)
+    let (buf1, count1, o1) = collect_strings_list(body, buf, count, next_offset)
+    let (buf2, count2, o2) = collect_strings_list(caps, buf1, count1, o1)
+    collect_strings_list(ev, buf2, count2, o2)
   },
   LDeclareFn(LFn(_, _, _, body, _)) =>
-    collect_strings_list(body, acc, next_offset),
+    collect_strings_list(body, buf, count, next_offset),
   LIf(_, c, t, e) => {
-    let (a1, o1) = collect_strings_expr(c, acc, next_offset)
-    let (a2, o2) = collect_strings_list(t, a1, o1)
-    collect_strings_list(e, a2, o2)
+    let (b1, c1, o1) = collect_strings_expr(c, buf, count, next_offset)
+    let (b2, c2, o2) = collect_strings_list(t, b1, c1, o1)
+    collect_strings_list(e, b2, c2, o2)
   },
-  LBlock(_, stmts)            => collect_strings_list(stmts, acc, next_offset),
-  LMakeList(_, elems)         => collect_strings_list(elems, acc, next_offset),
-  LMakeTuple(_, elems)        => collect_strings_list(elems, acc, next_offset),
-  LMakeRecord(_, fs)          => collect_strings_list(fs, acc, next_offset),
-  LMakeVariant(_, _, fs)      => collect_strings_list(fs, acc, next_offset),
-  LIndex(_, b, i, _)          => collect_strings_bin(b, i, acc, next_offset),
-  LMatch(_, s, _arms)         => collect_strings_expr(s, acc, next_offset),
-  LLoop(_, body)              => collect_strings_list(body, acc, next_offset),
-  LBreak(_, v)                => collect_strings_expr(v, acc, next_offset),
-  LSwitch(_, s, _c)           => collect_strings_expr(s, acc, next_offset),
+  LBlock(_, stmts)            => collect_strings_list(stmts, buf, count, next_offset),
+  LMakeList(_, elems)         => collect_strings_list(elems, buf, count, next_offset),
+  LMakeTuple(_, elems)        => collect_strings_list(elems, buf, count, next_offset),
+  LMakeRecord(_, fs)          => collect_strings_list(fs, buf, count, next_offset),
+  LMakeVariant(_, _, fs)      => collect_strings_list(fs, buf, count, next_offset),
+  LIndex(_, b, i, _)          => collect_strings_bin(b, i, buf, count, next_offset),
+  LMatch(_, s, _arms)         => collect_strings_expr(s, buf, count, next_offset),
+  LLoop(_, body)              => collect_strings_list(body, buf, count, next_offset),
+  LBreak(_, v)                => collect_strings_expr(v, buf, count, next_offset),
+  LSwitch(_, s, _c)           => collect_strings_expr(s, buf, count, next_offset),
   LSuspend(_, _, f, args, ev) => {
-    let (acc1, o1) = collect_strings_bin_list(f, args, acc, next_offset)
-    collect_strings_list(ev, acc1, o1)
+    let (buf1, count1, o1) = collect_strings_bin_list(f, args, buf, count, next_offset)
+    collect_strings_list(ev, buf1, count1, o1)
   },
-  LStateGet(_, _)             => (acc, next_offset),
-  LStateSet(_, _, v)          => collect_strings_expr(v, acc, next_offset),
-  LRegion(_, body)            => collect_strings_list(body, acc, next_offset),
-  LHandleWith(_, b, hn)       => collect_strings_bin(b, hn, acc, next_offset),
-  LFeedback(_, b, s)          => collect_strings_bin(b, s, acc, next_offset),
-  LPerform(_, _, args)        => collect_strings_list(args, acc, next_offset),
-  LHandle(_, b, _arms)        => collect_strings_expr(b, acc, next_offset),
-  LEvPerform(_, _, _, args)   => collect_strings_list(args, acc, next_offset),
-  LFieldLoad(_, rec, _)       => collect_strings_expr(rec, acc, next_offset)
+  LStateGet(_, _)             => (buf, count, next_offset),
+  LStateSet(_, _, v)          => collect_strings_expr(v, buf, count, next_offset),
+  LRegion(_, body)            => collect_strings_list(body, buf, count, next_offset),
+  LHandleWith(_, b, hn)       => collect_strings_bin(b, hn, buf, count, next_offset),
+  LFeedback(_, b, s)          => collect_strings_bin(b, s, buf, count, next_offset),
+  LPerform(_, _, args)        => collect_strings_list(args, buf, count, next_offset),
+  LHandle(_, b, _arms)        => collect_strings_expr(b, buf, count, next_offset),
+  LEvPerform(_, _, _, args)   => collect_strings_list(args, buf, count, next_offset),
+  LFieldLoad(_, rec, _)       => collect_strings_expr(rec, buf, count, next_offset)
 }
 
-fn collect_strings_bin(a, b, acc, off) = {
-  let (acc1, o1) = collect_strings_expr(a, acc, off)
-  collect_strings_expr(b, acc1, o1)
+fn collect_strings_bin(a, b, buf, count, off) = {
+  let (buf1, count1, o1) = collect_strings_expr(a, buf, count, off)
+  collect_strings_expr(b, buf1, count1, o1)
 }
 
-fn collect_strings_bin_list(a, bs, acc, off) = {
-  let (acc1, o1) = collect_strings_expr(a, acc, off)
-  collect_strings_list(bs, acc1, o1)
+fn collect_strings_bin_list(a, bs, buf, count, off) = {
+  let (buf1, count1, o1) = collect_strings_expr(a, buf, count, off)
+  collect_strings_list(bs, buf1, count1, o1)
 }
 
 fn string_entry_exists(entries, target, i, n) =
@@ -316,68 +319,95 @@ fn emit_string_bytes(s, i, n) =
 // function name in encounter order. Each name gets a stable table
 // index (its position in this list). Lifts inline lambdas alongside
 // top-level functions — no lambda left behind.
-fn collect_fn_names(lowered, acc) =
-  collect_fn_names_list(lowered, acc)
+fn collect_fn_names(lowered) = {
+  let buf = make_list(16)
+  let (final_buf, final_count) = collect_fn_names_list(lowered, buf, 0)
+  slice(final_buf, 0, final_count)
+}
 
-fn collect_fn_names_list(exprs, acc) =
-  if len(exprs) == 0 { acc }
+fn collect_fn_names_list(exprs, buf, count) =
+  if len(exprs) == 0 { (buf, count) }
   else {
-    let after_head = collect_fn_names_expr(list_head(exprs), acc)
-    collect_fn_names_list(list_tail(exprs), after_head)
+    let (buf2, count2) = collect_fn_names_expr(list_head(exprs), buf, count)
+    collect_fn_names_list(list_tail(exprs), buf2, count2)
   }
 
-fn collect_fn_names_expr(expr, acc) = match expr {
+fn collect_fn_names_expr(expr, buf, count) = match expr {
   LMakeClosure(_h, LFn(name, _arity, _ps, body, _row), captures, ev) => {
-    let after_body = collect_fn_names_list(body, acc ++ [name])
-    let after_caps = collect_fn_names_list(captures, after_body)
-    collect_fn_names_list(ev, after_caps)
+    let extended = list_extend_to(buf, count + 1)
+    let written  = list_set(extended, count, name)
+    let (buf1, count1) = collect_fn_names_list(body, written, count + 1)
+    let (buf2, count2) = collect_fn_names_list(captures, buf1, count1)
+    collect_fn_names_list(ev, buf2, count2)
   },
-  LDeclareFn(LFn(name, _arity, _ps, body, _row)) =>
-    collect_fn_names_list(body, acc ++ [name]),
-  LLet(_h, _n, inner)        => collect_fn_names_expr(inner, acc),
-  LStore(_h, _s, val)        => collect_fn_names_expr(val, acc),
-  LBinOp(_h, _op, l, r)      => collect_fn_names_expr(r, collect_fn_names_expr(l, acc)),
-  LUnaryOp(_h, _op, inner)   => collect_fn_names_expr(inner, acc),
-  LCall(_h, f, args)         => collect_fn_names_list(args, collect_fn_names_expr(f, acc)),
-  LTailCall(_h, f, args)     => collect_fn_names_list(args, collect_fn_names_expr(f, acc)),
-  LReturn(_h, inner)         => collect_fn_names_expr(inner, acc),
+  LDeclareFn(LFn(name, _arity, _ps, body, _row)) => {
+    let extended = list_extend_to(buf, count + 1)
+    let written  = list_set(extended, count, name)
+    collect_fn_names_list(body, written, count + 1)
+  },
+  LLet(_h, _n, inner)        => collect_fn_names_expr(inner, buf, count),
+  LStore(_h, _s, val)        => collect_fn_names_expr(val, buf, count),
+  LBinOp(_h, _op, l, r) => {
+    let (b1, c1) = collect_fn_names_expr(l, buf, count)
+    collect_fn_names_expr(r, b1, c1)
+  },
+  LUnaryOp(_h, _op, inner)   => collect_fn_names_expr(inner, buf, count),
+  LCall(_h, f, args) => {
+    let (b1, c1) = collect_fn_names_expr(f, buf, count)
+    collect_fn_names_list(args, b1, c1)
+  },
+  LTailCall(_h, f, args) => {
+    let (b1, c1) = collect_fn_names_expr(f, buf, count)
+    collect_fn_names_list(args, b1, c1)
+  },
+  LReturn(_h, inner)         => collect_fn_names_expr(inner, buf, count),
   LIf(_h, c, t, e) => {
-    let a1 = collect_fn_names_expr(c, acc)
-    let a2 = collect_fn_names_list(t, a1)
-    collect_fn_names_list(e, a2)
+    let (b1, c1) = collect_fn_names_expr(c, buf, count)
+    let (b2, c2) = collect_fn_names_list(t, b1, c1)
+    collect_fn_names_list(e, b2, c2)
   },
-  LBlock(_h, stmts)          => collect_fn_names_list(stmts, acc),
-  LMakeList(_h, elems)       => collect_fn_names_list(elems, acc),
-  LMakeTuple(_h, elems)      => collect_fn_names_list(elems, acc),
-  LMakeRecord(_h, fs)        => collect_fn_names_list(fs, acc),
-  LMakeVariant(_h, _t, fs)   => collect_fn_names_list(fs, acc),
-  LIndex(_h, b, i, _)        => collect_fn_names_expr(i, collect_fn_names_expr(b, acc)),
-  LMatch(_h, s, _arms)       => collect_fn_names_expr(s, acc),
-  LLoop(_h, body)            => collect_fn_names_list(body, acc),
-  LBreak(_h, v)              => collect_fn_names_expr(v, acc),
-  LSwitch(_h, s, _c)         => collect_fn_names_expr(s, acc),
-  LSuspend(_h, _o, f, args, ev) =>
-    collect_fn_names_list(ev,
-      collect_fn_names_list(args,
-        collect_fn_names_expr(f, acc))),
-  LStateSet(_h, _s, v)       => collect_fn_names_expr(v, acc),
-  LRegion(_h, body)          => collect_fn_names_list(body, acc),
-  LHandleWith(_h, b, hn)     => collect_fn_names_expr(hn, collect_fn_names_expr(b, acc)),
-  LFeedback(_h, b, s)        => collect_fn_names_expr(s, collect_fn_names_expr(b, acc)),
-  LPerform(_h, _n, args)     => collect_fn_names_list(args, acc),
-  LHandle(_h, b, _arms)      => collect_fn_names_expr(b, acc),
-  LEvPerform(_h, _n, _s, a)  => collect_fn_names_list(a, acc),
-  LFieldLoad(_h, rec, _off)  => collect_fn_names_expr(rec, acc),
+  LBlock(_h, stmts)          => collect_fn_names_list(stmts, buf, count),
+  LMakeList(_h, elems)       => collect_fn_names_list(elems, buf, count),
+  LMakeTuple(_h, elems)      => collect_fn_names_list(elems, buf, count),
+  LMakeRecord(_h, fs)        => collect_fn_names_list(fs, buf, count),
+  LMakeVariant(_h, _t, fs)   => collect_fn_names_list(fs, buf, count),
+  LIndex(_h, b, i, _) => {
+    let (b1, c1) = collect_fn_names_expr(b, buf, count)
+    collect_fn_names_expr(i, b1, c1)
+  },
+  LMatch(_h, s, _arms)       => collect_fn_names_expr(s, buf, count),
+  LLoop(_h, body)            => collect_fn_names_list(body, buf, count),
+  LBreak(_h, v)              => collect_fn_names_expr(v, buf, count),
+  LSwitch(_h, s, _c)         => collect_fn_names_expr(s, buf, count),
+  LSuspend(_h, _o, f, args, ev) => {
+    let (b1, c1) = collect_fn_names_expr(f, buf, count)
+    let (b2, c2) = collect_fn_names_list(args, b1, c1)
+    collect_fn_names_list(ev, b2, c2)
+  },
+  LStateSet(_h, _s, v)       => collect_fn_names_expr(v, buf, count),
+  LRegion(_h, body)          => collect_fn_names_list(body, buf, count),
+  LHandleWith(_h, b, hn) => {
+    let (b1, c1) = collect_fn_names_expr(b, buf, count)
+    collect_fn_names_expr(hn, b1, c1)
+  },
+  LFeedback(_h, b, s) => {
+    let (b1, c1) = collect_fn_names_expr(b, buf, count)
+    collect_fn_names_expr(s, b1, c1)
+  },
+  LPerform(_h, _n, args)     => collect_fn_names_list(args, buf, count),
+  LHandle(_h, b, _arms)      => collect_fn_names_expr(b, buf, count),
+  LEvPerform(_h, _n, _s, a)  => collect_fn_names_list(a, buf, count),
+  LFieldLoad(_h, rec, _off)  => collect_fn_names_expr(rec, buf, count),
   // H6: exhaustive LowExpr enumeration. Leaves with no fn-names
   // inside (scalars, locals, globals, upvals, state reads) return
-  // acc unchanged. A new LIR variant must decide its contribution
-  // explicitly — `_ => acc` would silently miss closures inside
-  // a new construct.
-  LConst(_, _)               => acc,
-  LLocal(_, _)               => acc,
-  LGlobal(_, _)              => acc,
-  LUpval(_, _)               => acc,
-  LStateGet(_, _)            => acc
+  // the accumulator unchanged. A new LIR variant must decide its
+  // contribution explicitly — `_ => (buf, count)` would silently
+  // miss closures inside a new construct.
+  LConst(_, _)               => (buf, count),
+  LLocal(_, _)               => (buf, count),
+  LGlobal(_, _)              => (buf, count),
+  LUpval(_, _)               => (buf, count),
+  LStateGet(_, _)            => (buf, count)
 }
 
 // Top-level fn names — only top-level LLet-wrapped closures have
@@ -1675,11 +1705,14 @@ fn emit_match_arms_mixed(arms) = {
 
 // Keep arms whose LPCon fits the requested shape; always keep
 // wildcards/vars/lits/records (always-match terminals).
-fn filter_arms_by_shape(arms, want_shape) =
-  filter_arms_by_shape_loop(arms, want_shape, 0, len(arms), [])
+fn filter_arms_by_shape(arms, want_shape) = {
+  let n = len(arms)
+  let (buf, count) = filter_arms_by_shape_loop(arms, want_shape, 0, n, make_list(n), 0)
+  slice(buf, 0, count)
+}
 
-fn filter_arms_by_shape_loop(arms, want_shape, i, n, acc) =
-  if i >= n { acc }
+fn filter_arms_by_shape_loop(arms, want_shape, i, n, buf, count) =
+  if i >= n { (buf, count) }
   else {
     let arm = list_index(arms, i)
     let (pat, _) = arm
@@ -1691,8 +1724,14 @@ fn filter_arms_by_shape_loop(arms, want_shape, i, n, acc) =
       },
       _ => true
     }
-    let next = if keep { acc ++ [arm] } else { acc }
-    filter_arms_by_shape_loop(arms, want_shape, i + 1, n, next)
+    let (next_buf, next_count) = if keep {
+      let extended = list_extend_to(buf, count + 1)
+      let written  = list_set(extended, count, arm)
+      (written, count + 1)
+    } else {
+      (buf, count)
+    }
+    filter_arms_by_shape_loop(arms, want_shape, i + 1, n, next_buf, next_count)
   }
 
 // Per-field binding for LPRecord arms. Mirrors emit_pat_field_binds

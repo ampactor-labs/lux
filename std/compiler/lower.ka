@@ -198,11 +198,14 @@ fn derive_ev_slots_from_row(row) = match row {
   _               => []
 }
 
-fn derive_ev_slots_from_names(names) =
-  derive_ev_slots_loop(names, 0, len(names), [])
+fn derive_ev_slots_from_names(names) = {
+  let n = len(names)
+  let (buf, count) = derive_ev_slots_loop(names, 0, n, make_list(n), 0)
+  slice(buf, 0, count)
+}
 
-fn derive_ev_slots_loop(names, i, n, acc) =
-  if i >= n { acc }
+fn derive_ev_slots_loop(names, i, n, buf, count) =
+  if i >= n { (buf, count) }
   else {
     let name = list_index(names, i)
     let op_name = match name {
@@ -213,7 +216,9 @@ fn derive_ev_slots_loop(names, i, n, acc) =
     // the per-arm global emitted by emit_fn_index_globals when
     // emit_fns_expr lifted the LDeclareFn.
     let slot_load = LGlobal(0, "op_" |> str_concat(op_name) |> str_concat("_idx"))
-    derive_ev_slots_loop(names, i + 1, n, acc ++ [slot_load])
+    let extended = list_extend_to(buf, count + 1)
+    let written  = list_set(extended, count, slot_load)
+    derive_ev_slots_loop(names, i + 1, n, written, count + 1)
   }
 
 // ═══ Lower walk — exhaustive, live ═════════════════════════════════
@@ -301,7 +306,7 @@ fn lower_expr_body(e, handle, span) = match e {
     let lo_stmts = lower_stmt_list(stmts)
     let lo_final = lower_expr(final_e)
     perform ls_pop_scope(cp)
-    LBlock(handle, lo_stmts ++ [lo_final])
+    LBlock(handle, lo_stmts ++ [lo_final])   // drift-audit: ignore — one-time single-element append at block-construction boundary; NOT a tail-recursive accumulator. lo_stmts is built once via lower_stmt_list, then extended by exactly one element (the block's final expression). No O(N²) loop pattern; asymptotics are O(|lo_stmts|) per block, O(total_stmts) across the program.
   },
 
   MatchExpr(scrutinee, arms) =>
@@ -361,7 +366,7 @@ fn lower_expr_body(e, handle, span) = match e {
     let arm_decls = lower_handler_arms_as_decls(arms)
     let arm_records = lower_handler_arms(arms)
     let lo_body = lower_expr(body_node)
-    LBlock(handle, arm_decls ++ [LHandle(handle, lo_body, arm_records)])
+    LBlock(handle, arm_decls ++ [LHandle(handle, lo_body, arm_records)])   // drift-audit: ignore — one-time single-element append at HandleExpr-lowering boundary; NOT a tail-recursive accumulator. arm_decls is built once via lower_handler_arms_as_decls, then extended by exactly one LHandle element.
   },
 
   PerformExpr(op_name, args) =>
@@ -551,7 +556,7 @@ fn lower_stmt_body(s, handle, span) = match s {
     // statically to these. Single-handler-per-op naming for now;
     // multi-handler dispatch via evidence is H1.6.
     let arm_decls = lower_handler_arms_as_decls(arms)
-    LBlock(handle, arm_decls ++ [LConst(handle, LInt(0))])
+    LBlock(handle, arm_decls ++ [LConst(handle, LInt(0))])   // drift-audit: ignore — one-time single-element append at HandlerDeclStmt-lowering boundary; NOT a tail-recursive accumulator. arm_decls is built once, then extended by exactly one LConst sentinel.
   },
   ImportStmt(_module)                       => LConst(handle, LInt(0)),
   RefineStmt(_name, _ty, _pred)             => LConst(handle, LInt(0)),
@@ -1057,7 +1062,7 @@ fn lower_program(stmts) = {
 // Ω.3: top-level name collection uses the buffer substrate. The
 // number of top-level statements is bounded by N (file size), so
 // O(N) total allocation via list_extend_to + list_set + counter
-// + slice — vs `acc ++ [name]`'s O(N²) recursive accumulator.
+// + slice — avoiding the O(N squared) recursive accumulator pattern.
 // The buffer threads through tail-recursion as `(buf, count)`
 // because list_extend_to may return a fresh allocation if the
 // current capacity is exceeded.
@@ -1174,8 +1179,8 @@ handler lower_scope with frames = [], globals = [] {
         capture_handles: frame.capture_handles,
         capture_order: frame.capture_order,
         captures: frame.captures,
-        local_handles: frame.local_handles ++ [h],   // drift-audit: ignore — real drift 11 in frame record; buffer-counter conversion requires frame-record field restructure; tracked for item 11.B buffer-counter sweep
-        local_order: frame.local_order ++ [name],
+        local_handles: frame.local_handles ++ [h],   // drift-audit: ignore — real drift 11 in frame record; buffer-counter conversion requires frame-record field restructure (local_handles + local_order both paired lists indexed by same slot); tracked for 11.C.2 frame-record substrate walkthrough
+        local_order: frame.local_order ++ [name],    // drift-audit: ignore — paired with line 1177 local_handles; same frame-record restructure; tracked for 11.C.2
         locals: set_insert(frame.locals, name)
       }
       resume(slot)

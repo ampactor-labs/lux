@@ -1171,29 +1171,45 @@ fn unify_record_fields_loop_shared(fa, fb, names, span, reason) =
     unify_record_fields_loop_shared(fa, fb, list_tail(names), span, reason)
   }
 
-fn intersect_record_fields(fa, fb) =
-  intersect_record_fields_loop(fa, fb, 0, len(fa), [])
+fn intersect_record_fields(fa, fb) = {
+  let n = len(fa)
+  let (buf, count) = intersect_record_fields_loop(fa, fb, 0, n, make_list(n), 0)
+  slice(buf, 0, count)
+}
 
-fn intersect_record_fields_loop(fa, fb, i, n, acc) =
-  if i >= n { acc }
+fn intersect_record_fields_loop(fa, fb, i, n, buf, count) =
+  if i >= n { (buf, count) }
   else {
     let (name, _) = list_index(fa, i)
-    let next = if find_record_field_pos(fb, name) >= 0 { acc ++ [name] }
-    else { acc }
-    intersect_record_fields_loop(fa, fb, i + 1, n, next)
+    let (next_buf, next_count) = if find_record_field_pos(fb, name) >= 0 {
+      let extended = list_extend_to(buf, count + 1)
+      let written  = list_set(extended, count, name)
+      (written, count + 1)
+    } else {
+      (buf, count)
+    }
+    intersect_record_fields_loop(fa, fb, i + 1, n, next_buf, next_count)
   }
 
-fn record_fields_diff(left, right) =
-  record_fields_diff_loop(left, right, 0, len(left), [])
+fn record_fields_diff(left, right) = {
+  let n = len(left)
+  let (buf, count) = record_fields_diff_loop(left, right, 0, n, make_list(n), 0)
+  slice(buf, 0, count)
+}
 
-fn record_fields_diff_loop(left, right, i, n, acc) =
-  if i >= n { acc }
+fn record_fields_diff_loop(left, right, i, n, buf, count) =
+  if i >= n { (buf, count) }
   else {
     let entry = list_index(left, i)
     let (name, _) = entry
-    let next = if find_record_field_pos(right, name) < 0 { acc ++ [entry] }
-    else { acc }
-    record_fields_diff_loop(left, right, i + 1, n, next)
+    let (next_buf, next_count) = if find_record_field_pos(right, name) < 0 {
+      let extended = list_extend_to(buf, count + 1)
+      let written  = list_set(extended, count, entry)
+      (written, count + 1)
+    } else {
+      (buf, count)
+    }
+    record_fields_diff_loop(left, right, i + 1, n, next_buf, next_count)
   }
 
 fn find_record_field_pos(fields, name) =
