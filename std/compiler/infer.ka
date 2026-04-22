@@ -201,8 +201,8 @@ fn infer_fn(name, params, body_node, handle, span) = {
   perform env_scope_enter()
 
   let param_handles = mint_params(params, name)
-  let ret_handle = perform mint(FnReturn(name, Fresh(0)))
-  let row_handle = perform graph_fresh_row(Inferred("fn effects"))
+  let ret_handle = perform mint(FnReturn(name, Inferred("return of '" |> str_concat(name) |> str_concat("'"))))
+  let row_handle = perform graph_fresh_row(Inferred("effects of '" |> str_concat(name) |> str_concat("'")))
 
   let fn_ty = TFun(
     build_param_types(params, param_handles),
@@ -712,22 +712,32 @@ fn check_consume_at_use(name, span) = {
 
 // ─── Call — allocate expected fn type, unify, bind result ──────────
 
+// RX.4 — extract callee name from func node for Why chain
+fn callee_name(func_node) with Pure =
+  let N(body, _, _) = func_node
+  match body {
+    NExpr(VarRef(name)) => name,
+    NExpr(FieldExpr(_, field)) => field,
+    _ => "<expr>"
+  }
+
 fn infer_call(func, args, handle, span) = {
   let N(_, _, fh) = func
+  let cname = callee_name(func)
   let arg_handles = collect_handles(args)
-  let ret_h = perform mint(Inferred("call return"))
-  let row_h = perform graph_fresh_row(Inferred("call effects"))
+  let ret_h = perform mint(InferredCallReturn(cname, Inferred("return")))
+  let row_h = perform graph_fresh_row(InferredCallReturn(cname, Inferred("effects")))
 
   let expected = TFun(
     build_inferred_params(arg_handles),
     TVar(ret_h),
     mk_ef_open([], row_h)
   )
-  let expected_h = perform mint(Inferred("expected fn"))
-  perform graph_bind(expected_h, expected, Located(span, Inferred("expected fn type")))
+  let expected_h = perform mint(InferredCallReturn(cname, Inferred("expected function type")))
+  perform graph_bind(expected_h, expected, Located(span, InferredCallReturn(cname, Inferred("expected"))))
 
-  unify(fh, expected_h, span, Inferred("call target"))
-  perform graph_bind(handle, TVar(ret_h), Located(span, Inferred("call result")))
+  unify(fh, expected_h, span, InferredCallReturn(cname, Inferred("unification")))
+  perform graph_bind(handle, TVar(ret_h), Located(span, InferredCallReturn(cname, Inferred("result"))))
 
   // The callee's effect row flows into the caller's row.
   // After unification, row_h is bound to the callee's row;
@@ -796,17 +806,17 @@ fn infer_pipe(kind, left, right, handle, span) =
     // |> converge — right applied to left. Transparent wire;
     // unification pairs slots structurally (Parameters ARE tuples).
     PForward => {
-      let ret_h = perform mint(Inferred("|> return"))
-      let row_h = perform graph_fresh_row(Inferred("|> effects"))
+      let ret_h = perform mint(InferredPipeResult("|>", Inferred("return")))
+      let row_h = perform graph_fresh_row(InferredPipeResult("|>", Inferred("effects")))
       let expected = TFun(
         [TParam("_", TVar(lh), Inferred)],
         TVar(ret_h),
         mk_ef_open([], row_h)
       )
-      let expected_h = perform mint(Inferred("|> expected fn"))
-      perform graph_bind(expected_h, expected, Located(span, Inferred("|> expected")))
-      unify(rh, expected_h, span, Inferred("|> target"))
-      perform graph_bind(handle, TVar(ret_h), Located(span, Inferred("|> result")))
+      let expected_h = perform mint(InferredPipeResult("|>", Inferred("expected fn")))
+      perform graph_bind(expected_h, expected, Located(span, InferredPipeResult("|>", Inferred("expected"))))
+      unify(rh, expected_h, span, InferredPipeResult("|>", Inferred("target")))
+      perform graph_bind(handle, TVar(ret_h), Located(span, InferredPipeResult("|>", Inferred("result"))))
       // callee's row flows into caller's row
       let row_node = perform graph_chase(row_h)
       match row_node {
@@ -835,13 +845,13 @@ fn infer_pipe(kind, left, right, handle, span) =
     PTeeBlock => {
       perform inf_push_handler("pipe_tee")
       perform graph_bind(handle, TVar(lh),
-        Located(span, Inferred("~> handler attachment (block form)")))
+        Located(span, InferredPipeResult("~>", Inferred("handler attachment (block)"))))
       perform inf_pop_handler()
     },
     PTeeInline => {
       perform inf_push_handler("pipe_tee")
       perform graph_bind(handle, TVar(lh),
-        Located(span, Inferred("~> handler attachment (inline form)")))
+        Located(span, InferredPipeResult("~>", Inferred("handler attachment (inline)"))))
       perform inf_pop_handler()
     },
 
@@ -854,11 +864,11 @@ fn infer_pipe(kind, left, right, handle, span) =
           perform report("infer", "E_FeedbackNoContext", "error",
             "<~ requires an iterative context (Clock, Sample, or Tick handler)",
             span, "MachineApplicable")
-          perform graph_bind(handle, TVar(lh), Located(span, Inferred("<~ no context")))
+          perform graph_bind(handle, TVar(lh), Located(span, InferredPipeResult("<~", Inferred("no context"))))
         },
         Some(_) => {
-          unify(lh, rh, span, Inferred("<~ feedback wiring"))
-          perform graph_bind(handle, TVar(lh), Located(span, Inferred("<~ feedback")))
+          unify(lh, rh, span, InferredPipeResult("<~", Inferred("feedback wiring")))
+          perform graph_bind(handle, TVar(lh), Located(span, InferredPipeResult("<~", Inferred("feedback"))))
         }
       }
     }
@@ -1895,7 +1905,7 @@ fn mint_params_at(params, owner_name, idx) =
   if len(params) == 0 { [] }
   else {
     let TParam(name, _, _) = list_head(params)
-    let h = perform mint(FnParam(owner_name, idx, Fresh(0)))
+    let h = perform mint(FnParam(owner_name, idx, Inferred("param of '" |> str_concat(owner_name) |> str_concat("'"))))
     perform env_extend(name, Forall([], TVar(h)), Declared(name), FnScheme)
     [h] ++ mint_params_at(list_tail(params), owner_name, idx + 1)
   }

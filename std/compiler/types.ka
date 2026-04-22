@@ -248,6 +248,10 @@ type Reason
   | MissingVar(String)
   | Refinement(Predicate, Predicate)
   | Located(Span, Reason)      // spec I13 — site-annotated reasoning edge
+  // RX.2 — high-intent structured variants (replacing mechanism-speak strings)
+  | InferredCallReturn(String, Reason)   // callee_name, inner — "return of call to 'process'"
+  | InferredPipeResult(String, Reason)   // pipe_verb ("|>", "~>", "<~"), inner — verb identity in Why chain
+  | FreshInContext(Int, String)          // handle, context_name — "fresh in 'process'" not "fresh 42"
 
 // ═══ Span (spec 03) — non-negotiable full 4-tuple ══════════════════
 
@@ -989,7 +993,23 @@ fn show_reason(reason) with GraphRead =
       "at "
         |> str_concat(show_span(span))
         |> str_concat(": ")
-        |> str_concat(show_reason(inner))
+        |> str_concat(show_reason(inner)),
+    // RX.2 — high-intent structured variants
+    InferredCallReturn(callee, inner) =>
+      "call to '"
+        |> str_concat(callee)
+        |> str_concat("' → ")
+        |> str_concat(show_reason(inner)),
+    InferredPipeResult(verb, inner) =>
+      verb
+        |> str_concat(" pipe → ")
+        |> str_concat(show_reason(inner)),
+    FreshInContext(id, ctx) =>
+      "fresh "
+        |> str_concat(show_handle(id))
+        |> str_concat(" in '")
+        |> str_concat(ctx)
+        |> str_concat("'")
   }
 
 fn show_span(span) =
