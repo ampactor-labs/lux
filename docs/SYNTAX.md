@@ -573,6 +573,8 @@ fn pure_op(x: Int) -> Int with !Alloc + !IO =
 
 `!E` proves ABSENCE of effect E. Stronger than not-mentioning E because it propagates transitively through the call graph: any callee that performs E causes the whole declaration to fail with `E_EffectMismatch`.
 
+When used alone (e.g., `with !Mutate`), it creates a **capability stance** representing "anything except this effect" (universe-minus). This is how Inka expresses region-freezes and borrows (`ref`) mathematically without a separate borrow-checker.
+
 `Pure` is shorthand for "the body's row must be EfPure (literally empty)":
 ```
 fn pure_op(x) with Pure = x + 1

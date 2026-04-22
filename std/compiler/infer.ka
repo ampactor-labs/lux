@@ -218,6 +218,10 @@ fn infer_stmt(node) =
     NStmt(EffectDeclStmt(name, ops)) =>
       register_effect_ops(name, ops),
 
+    NStmt(CapabilityDeclStmt(name, effs)) => {
+      perform env_extend(name, Forall([], TTuple([])), Declared(name), CapabilityScheme(effs))
+    },
+
     NStmt(HandlerDeclStmt(hname, ename, arms)) =>
       register_handler(hname, ename, arms),
 
@@ -416,9 +420,35 @@ fn names_include_alloc_loop(names, i, n) =
 // positive names union. Normalization reduces to canonical form.
 
 fn build_declared_row(effs) = {
-  let (pos, neg) = partition_declared(effs, [], [])
+  let expanded_effs = expand_capabilities(effs)
+  let (pos, neg) = partition_declared(expanded_effs, [], [])
   build_from_partition(pos, neg)
 }
+
+fn expand_capabilities(effs) =
+  if len(effs) == 0 { [] }
+  else {
+    let (name, negated) = list_head(effs)
+    let expanded_part = match name {
+      ENamed(s) => match perform env_lookup(s) {
+        Some(entry) => {
+          let (_, _, _, kind) = entry
+          match kind {
+            CapabilityScheme(cap_effs) => {
+              if negated {
+                perform report("infer", "E_CannotNegateCapability", "error", "cannot negate capability bundle " |> str_concat(s), span_zero(), "MachineApplicable")
+                cap_effs
+              } else { cap_effs }
+            },
+            _ => [(name, negated)]
+          }
+        },
+        None => [(name, negated)]
+      },
+      _ => [(name, negated)]
+    }
+    expanded_part ++ expand_capabilities(list_tail(effs))
+  }
 
 fn has_pure_declared(effs) =
   has_pure_declared_loop(effs, 0, len(effs))

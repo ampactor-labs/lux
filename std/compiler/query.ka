@@ -19,6 +19,7 @@ import compiler/effects
 type Question
   = QTypeOf(String)          // "type of NAME"
   | QTypeAt(Span)            // "type at L:C"
+  | QIntentOf(Int)           // "intent of handle N"
   | QUnresolved              // every handle that chases to NFree
   | QSubstChain(Int)         // "subst trace for handle N"
   | QEffects(String)         // "effects of NAME"
@@ -31,6 +32,7 @@ type Question
 
 type QueryResult
   = QRType(Ty, Reason)
+  | QRIntent(List)           // [(EffName, Bool)]
   | QRUnresolved(List)       // [(name, Ty, List)]
   | QRChain(List)            // [(handle, GNode)]
   | QREffects(EffRow)
@@ -66,7 +68,7 @@ handler query_default {
       },
 
     QTypeAt(_span) => {
-      let Graph(_, _, _, _, span_index) = perform graph_snapshot()
+      let Graph(_, _, _, _, span_index, _) = perform graph_snapshot()
       match find_tightest(span_index, _span, None, 999999999) {
         None => resume(QRError("no enclosing span found in AST index")),
         Some(handle) => {
@@ -80,6 +82,14 @@ handler query_default {
             _ => resume(QRError("AST node is not a type handle"))
           }
         }
+      }
+    },
+
+    QIntentOf(handle) => {
+      let Graph(_, _, _, _, _, intent_index) = perform graph_snapshot()
+      match find_intent(intent_index, handle, 0, len(intent_index)) {
+        None => resume(QRError("no intent recorded for handle " |> str_concat(int_to_str(handle)))),
+        Some(effs) => resume(QRIntent(effs))
       }
     },
 
@@ -290,4 +300,12 @@ fn find_tightest(idx, target, best_h, best_area) with Pure =
     } else {
       find_tightest(list_tail(idx), target, best_h, best_area)
     }
+  }
+
+fn find_intent(intent_index, handle, i, n) =
+  if i >= n { None }
+  else {
+    let (h, effs) = list_index(intent_index, i)
+    if h == handle { Some(effs) }
+    else { find_intent(intent_index, handle, i + 1, n) }
   }

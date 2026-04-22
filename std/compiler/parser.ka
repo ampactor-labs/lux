@@ -332,6 +332,7 @@ fn parse_stmt(tokens, pos) = match kind_at(tokens, pos) {
   TType     => parse_type_decl(tokens, pos + 1),
   TEffect   => parse_effect_decl(tokens, pos + 1),
   THandler  => parse_handler_decl(tokens, pos + 1),
+  TCapability => parse_capability_decl(tokens, pos + 1),
   TImport   => parse_import(tokens, pos + 1),
   // DS.2 — docstring attachment: collect consecutive /// lines,
   // parse the following declaration, wrap in Documented(doc, stmt).
@@ -389,7 +390,10 @@ fn parse_fn(tokens, pos) = {
   let p8 = if at(tokens, p7, TEq) { p7 + 1 } else { p7 }
   let (body, p9) = parse_body(tokens, skip_ws(tokens, p8))
 
-  (nstmt(FnStmt(name, params, ret_node, effs, body), start), p9)
+  let stmt_node = nstmt(FnStmt(name, params, ret_node, effs, body), start)
+  let N(_, _, h) = stmt_node
+  perform graph_index_intent(h, effs)
+  (stmt_node, p9)
 }
 
 fn parse_fn_params(tokens, pos) = {
@@ -653,6 +657,16 @@ fn parse_handler_arms(tokens, pos) = {
     let arm = {args: args, body: body, op_name: op_name}
     ([arm] ++ rest, p7)
   }
+}
+
+// ─── capability X = effs ──────────────────────────────────────────
+
+fn parse_capability_decl(tokens, pos) = {
+  let start = span_at(tokens, pos)
+  let name = ident_at(tokens, pos)
+  let p = expect(tokens, skip_ws(tokens, pos + 1), TEq)
+  let (effs, p2) = parse_effect_list(tokens, skip_ws(tokens, p))
+  (nstmt(CapabilityDeclStmt(name, effs), start), p2)
 }
 
 fn parse_arg_names(tokens, pos) = {
