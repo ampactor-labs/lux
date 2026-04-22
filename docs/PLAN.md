@@ -2129,7 +2129,26 @@ mode 9 flipped (work landing before its prerequisite):
   (check with `git config --get core.hooksPath`; if not, run the
   command before the first commit).
 - `git log --oneline -10` — current landing state.
-- `wabt` installed: `wasm-decompile` / `wasm-objdump` available.
+- **WABT** (WebAssembly Binary Toolkit) — full inventory:
+  - `wat2wasm` — WAT → WASM assembly. Flags: `--debug-names`,
+    `--enable-tail-call`, `--enable-exceptions`, `-v`.
+  - `wasm-validate` — spec conformance validation.
+  - `wasm2wat` — WASM → WAT disassembly (round-trip verification).
+  - `wasm-objdump` — section layout, imports/exports, disassembly.
+  - `wasm-decompile` — WASM → C-like pseudocode (readable).
+  - `wasm-interp` — stack-based interpreter (determinism cross-check).
+  - `wasm-stats` — module statistics (function count, code sizes).
+  - `wasm-strip` — remove debug/custom sections (production builds).
+  - `wat-desugar` — canonicalize WAT formatting (diff normalization).
+  - `wasm2c` — WASM → C source (escape hatch, distant future).
+  See `docs/rebuild/simulations/Hβ-bootstrap.md` §5.1 for detailed
+  roles + commands.
+- **wasmtime** v44.0.0 (April 2026) — runtime target. Tail calls
+  stable/default-on. WASI preview1 fully supported.
+- **WASM 3.0** (W3C standard, September 2025) — tail calls, SIMD,
+  multiple memories, exception handling, 64-bit memory all
+  standardized. Inka uses tail calls (OneShot dispatch); does NOT
+  use WasmGC (own bump allocator), Component Model, or WASI 0.2/0.3.
 
 ### If stuck — honest options
 - **Pause.** Do not decorate, do not add flags, do not "get it

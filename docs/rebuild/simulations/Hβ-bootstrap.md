@@ -287,12 +287,159 @@ Item 27-30's execution (Tier 1 / Tier 2 / Tier 3 / harness setup) reads this wal
 
 ---
 
+## 5.1 WABT tooling — every tool and its bootstrap role
+
+WABT (WebAssembly Binary Toolkit) is the primary toolchain for
+assembling, validating, inspecting, and verifying the hand-WAT seed
+compiler. Every tool below is available via `apt install wabt` or
+from source at `github.com/WebAssembly/wabt`.
+
+### Core pipeline (used in every tier)
+
+| Tool | Role | When |
+|------|------|------|
+| `wat2wasm` | WAT text → WASM binary assembly | Every commit that touches `bootstrap/inka.wat` |
+| `wasm-validate` | Validates WASM binary against spec | Immediately after `wat2wasm`; proves type/structural correctness |
+
+**`wat2wasm` flags for bootstrap:**
+```bash
+wat2wasm bootstrap/inka.wat -o bootstrap/inka.wasm \
+  --debug-names          # Preserve $func_name in name section (debugging) \
+  --enable-tail-call     # return_call / return_call_indirect (OneShot handlers) \
+  --enable-exceptions    # try/catch/throw (if structured EH used) \
+  -v                     # Verbose output (surface parsing issues early)
+```
+
+**Note:** `--enable-all` enables every experimental feature but may
+accept invalid WAT that a stricter flag set would reject. Use explicit
+flags to match only the features Inka actually requires.
+
+### Verification tools (first-light harness)
+
+| Tool | Role | When |
+|------|------|------|
+| `wasm2wat` | WASM binary → WAT text (disassembly) | Round-trip verification: `wat2wasm → wasm2wat → diff` catches subtle assembler misunderstandings |
+| `wat-desugar` | Canonicalizes WAT format (s-expr/flat/mixed → flat) | Normalizes formatting before diff; eliminates false positives from whitespace/indentation differences |
+| `wasm-interp` | Stack-based WASM interpreter (no JIT) | Determinism verification: run same binary under `wasm-interp` AND `wasmtime`; compare output. Proves behavior isn't JIT-dependent |
+
+**Round-trip verification script (add to `bootstrap/first-light.sh`):**
+```bash
+# Assemble
+wat2wasm bootstrap/inka.wat -o bootstrap/inka.wasm --debug-names --enable-tail-call
+wasm-validate bootstrap/inka.wasm
+
+# Round-trip check: assembler understood what we wrote?
+wasm2wat bootstrap/inka.wasm -o /tmp/roundtrip.wat
+wat-desugar bootstrap/inka.wat --stdout > /tmp/original-canonical.wat
+wat-desugar /tmp/roundtrip.wat --stdout > /tmp/roundtrip-canonical.wat
+diff /tmp/original-canonical.wat /tmp/roundtrip-canonical.wat
+# Non-empty diff = assembler misunderstanding; fix before proceeding
+
+# Self-compilation
+cat src/*.nx lib/**/*.nx | wasmtime run bootstrap/inka.wasm > inka2.wat
+
+# Normalize both and diff
+wat-desugar bootstrap/inka.wat --stdout > /tmp/expected.wat
+wat-desugar inka2.wat --stdout > /tmp/actual.wat
+diff /tmp/expected.wat /tmp/actual.wat
+# Empty = first-light
+```
+
+### Inspection tools (debugging + audit)
+
+| Tool | Role | When |
+|------|------|------|
+| `wasm-objdump` | Section layout, function list, import/export tables, disassembly | Debugging: inspect section sizes, verify imports match WASI preview1 signatures, count functions per tier |
+| `wasm-decompile` | WASM → readable C-like pseudocode | Reading the seed compiler's actual behavior without tracing WAT; useful for verifying handler dispatch paths |
+| `wasm-stats` | Module statistics (function count, code size, section sizes) | Tier scope validation: verify Tier 1 = ~10-30k lines, Tier 2 = ~20-70k lines. Track growth across incremental commits |
+
+**Tier scope validation command:**
+```bash
+wasm-stats bootstrap/inka.wasm -o /tmp/stats.txt
+# Check: function_count, code_section_size, data_section_size
+# Compare against estimates in §2 of this walkthrough
+```
+
+**Function inventory per tier:**
+```bash
+wasm-objdump -x bootstrap/inka.wasm | grep -c 'func\['
+# Should match: Tier 1 runtime (~50-100 functions) + Tier 2 compiler (~500-1000)
+```
+
+### Production tools (post-first-light)
+
+| Tool | Role | When |
+|------|------|------|
+| `wasm-strip` | Removes custom/debug sections | Production builds: strip name section + debug info for smaller `.wasm` |
+| `wasm2c` | WASM → C source + header | Escape hatch: generate C version for platforms without WASM runtimes (distant future) |
+
+### Spec test tools (not used in bootstrap)
+
+| Tool | Role |
+|------|------|
+| `wast2json` | Spec test format → JSON + WASM binaries |
+| `spectest-interp` | Runs spec tests from JSON |
+
+These are for WebAssembly spec conformance testing. Not relevant to
+Inka's bootstrap unless we contribute upstream spec tests.
+
+---
+
+## 5.2 WebAssembly 3.0 — features Inka depends on
+
+WASM 3.0 became a W3C standard in September 2025. Wasmtime v44
+(April 2026) supports all features below as stable/default-on.
+
+### Features Inka uses
+
+| Feature | Wasm 3.0 status | Inka usage | `wat2wasm` flag |
+|---------|----------------|------------|----------------|
+| **Tail calls** | Standardized | `return_call` for OneShot handler dispatch; tail-recursive loops | `--enable-tail-call` |
+| **128-bit SIMD** | Standardized | Future: `v128.*` opcodes for DSP/ML (item 41) | `--enable-simd` |
+| **Multiple memories** | Standardized | Not currently used; potential for graph/trail isolation | `--enable-multi-memory` |
+| **Exception handling** | Standardized | Potential for structured effect resume paths | `--enable-exceptions` |
+| **64-bit memory** | Standardized | Not needed pre-first-light (bump allocator fits in 32-bit) | `--enable-memory64` |
+
+### Features Inka does NOT use
+
+| Feature | Why not |
+|---------|---------|
+| **WasmGC** | Inka has its own bump allocator + region-based ownership. No managed GC needed. The bump allocator IS the substrate. |
+| **Component Model** | Inka's module system is env-based, not component-model-based. Components are for language-agnostic composition; Inka IS the language. |
+| **WASI 0.2 / 0.3** | Inka uses WASI preview1 (`fd_read`, `fd_write`, `path_open`, `proc_exit`, `fd_close`, `path_create_directory`, `path_filestat_get`). Preview1 is stable and sufficient. Migration to 0.2/0.3 is post-first-light if needed. |
+
+### Runtime target: `wasmtime`
+
+- Current: `wasmtime` v44.0.0 (April 2026)
+- Monthly release cadence
+- Tail calls: stable, enabled by default
+- WasmGC: stable (not used by Inka)
+- WASI preview1: fully supported, not deprecated
+- WASI 0.3 async: experimental (not used by Inka)
+- Security: active vulnerability scanning + coordinated releases
+
+**Determinism note:** `wasmtime` uses Cranelift JIT. For
+determinism verification (item 24), also run under `wasm-interp`
+(WABT's stack-based interpreter) to confirm output matches.
+`wasm-interp` has no JIT, no optimization passes, no
+non-deterministic scheduling — it's the ground truth.
+
+```bash
+# Determinism cross-check
+cat src/*.nx | wasmtime run bootstrap/inka.wasm > /tmp/out-jit.wat
+cat src/*.nx | wasm-interp --run-all-exports bootstrap/inka.wasm > /tmp/out-interp.wat
+diff /tmp/out-jit.wat /tmp/out-interp.wat
+# Empty = deterministic
+```
+
 ## 6. Post-edit audit commands
 
 For item 27 (Tier 1 runtime hand-WAT):
-```
-wat2wasm bootstrap/inka.wat -o /tmp/probe.wasm
+```bash
+wat2wasm bootstrap/inka.wat -o /tmp/probe.wasm --debug-names --enable-tail-call
 wasm-validate /tmp/probe.wasm
+wasm-stats /tmp/probe.wasm         # verify function count matches Tier 1 expectations
+wasm-objdump -x /tmp/probe.wasm    # inspect imports/exports
 # runs a minimal test program in wasmtime (hello-world through the runtime)
 ```
 
