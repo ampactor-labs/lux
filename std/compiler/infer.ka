@@ -865,13 +865,13 @@ fn infer_pipe(kind, left, right, handle, span) =
     // "pipe_tee" tag marks the frame. W4 will refine this to carry
     // the concrete handler identity once evidence reification lands.
     PTeeBlock => {
-      perform inf_push_handler("pipe_tee")
+      perform inf_push_handler(callee_name(right))
       perform graph_bind(handle, TVar(lh),
         Located(span, InferredPipeResult("~>", Inferred("handler attachment (block)"))))
       perform inf_pop_handler()
     },
     PTeeInline => {
-      perform inf_push_handler("pipe_tee")
+      perform inf_push_handler(callee_name(right))
       perform graph_bind(handle, TVar(lh),
         Located(span, InferredPipeResult("~>", Inferred("handler attachment (inline)"))))
       perform inf_pop_handler()
