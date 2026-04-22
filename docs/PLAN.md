@@ -401,7 +401,13 @@ itself. 32+ are post-first-light surfaces.
         - `94389fb` — 11.B.2 lexer.ka byte-native refactor (drift mode 12 cure; 14 hits).
         - `b1a2bf0` — 11.B.3 prelude.ka trim + parse_int byte-native (drift mode 12 cure; 2 hits).
         Full std/ tree (29 .ka files) drift-audit CLEAN post-11.B.3.
-      - **11.C** — Pass 3 bug-class screen. Status: `[PENDING]`. Sweep `acc ++ [x]` loops (7 files; see 11.T below), `_ => <fabricated>` on load-bearing ADTs, `str_eq(a,b) == 1` deprecated form, `println` in report arms. Bundles 11.T drift-audit regex fix.
+      - **11.C** — Pass 3 bug-class screen. Status: `[IN-FLIGHT]` — 11.T + 11.C.0 + 11.C.1 landed; 11.C.2 + 11.C.3 pending walkthroughs.
+        - `944f443` — **11.T** drift-audit mode-11 regex fix (character-class escape; surfaced 22 previously-masked drift-11 hits).
+        - (within `4bddfe4`) — **11.C.0** inline suppressions for 5 false positives (lower.ka one-time LBlock appends + prose comment + frame-record paired-list tracked for 11.C.2).
+        - `4bddfe4` — **11.C.1** buffer-counter sweep for 13 genuine tail-recursive accumulator loops (lower/cache/driver/infer/wasm).
+        - **11.C.2** — `[PENDING WALKTHROUGH]`. Frame-record paired-list restructure at lower.ka:1177/78 (local_handles + local_order both `++ [x]` in handler-arm record update). Requires frame-record field restructure (list→buffer+counter pair) or introduction of O(1) snoc primitive. Walkthrough-worthy substrate design.
+        - **11.C.3** — `[PENDING WALKTHROUGH]`. prelude.ka Iterate handler substrate redesign (4 remaining mode-11 hits at lines 35/41/83/93 are handler-arm `resume(()) with acc = acc ++ [x]` state updates). Inka-native cure: factor accumulation OUT of map/filter/take handlers into a composable `collector` handler (`source |> iterate ~> map_h(f) ~> filter_h(p) ~> collector`). Walkthrough-worthy; the design move is "transform-handlers emit; materialize-handler captures."
+        - **11.C.4** — `[PENDING]`. Post-walkthrough bug-class screens: `_ => <fabricated>` sweep, `str_eq(a,b) == 1` deprecated form check, `println` in report arms audit. Currently drift-audit-clean; may surface during 11.D semantic pass.
       - **11.D** — Pass 4 eight-interrogation audit (semantic).
       - **11.E** — Pass 5 docstring harmonization.
       - **11.F** — Cleanup (delete SYNTHESIS_CROSSWALK.md, etc.).
