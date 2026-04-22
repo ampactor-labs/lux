@@ -151,7 +151,22 @@ fn (a, b) => a * b
 fn (point) => point.x + point.y
 ```
 
-### Block body lambda — rare, allowed
+### Short form — `|params| expr`
+
+The pipe-fence form is the canonical short lambda for inline use:
+
+```
+map(|x| x + 1, xs)
+fold(xs, 0, |acc, x| acc + x)
+filter(|x| x > 0, xs)
+zip_with(|a, b| a * b, xs, ys)
+```
+
+`|params|` fences the parameter list; the body is a single expression. This is the common case — inline closures passed to higher-order functions. No `fn` keyword, no `=>`, minimal ceremony.
+
+### Explicit form — `fn (params) => expr`
+
+The `fn` keyword form is available for block bodies and multi-statement lambdas:
 
 ```
 fn (input) => {
@@ -161,6 +176,15 @@ fn (input) => {
 ```
 
 Same brace discipline: braces ONLY when statements precede the final expression.
+
+**Rule:** use `|x| expr` for inline single-expression closures; use `fn (x) => { ... }` when you need a block body. One mechanism, two surfaces, clear intent.
+
+### Returned closures
+
+```
+fn compose(f, g) = |x| g(f(x))
+fn id(x) with Pure = x
+```
 
 ### Tuple destructure in params
 
@@ -1086,7 +1110,7 @@ type TokenKind
 | `TLt`           | `<`              | —         | less-than; generic-param open                  |
 | `TGt`           | `>`              | —         | greater-than; generic-param close              |
 | `TBang`         | `!`              | —         | logical not; effect negation                   |
-| `TPipe`         | `\|`             | —         | type variant separator; lambda param fence (future) |
+| `TPipe`         | `\|`             | —         | type variant separator; lambda param fence (`\|x\| expr`) |
 | `TTilde`        | `~`              | —         | reserved                                       |
 | `TAt`           | `@`              | —         | annotation marker (`@resume=OneShot`)          |
 | `TQuestion`     | `?`              | —         | hole / placeholder                             |

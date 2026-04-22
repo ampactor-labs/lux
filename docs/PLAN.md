@@ -66,6 +66,38 @@ supersedes earlier framings. Append-only; do not rewrite history
   as legitimate post-first-light substrate question. Walkthrough
   drafts only after first-light closes and Phase II absorbs the
   current Pending Work queue.
+- **2026-04-22** — **Phase A: Substrate Truth-Telling** landed (`eafd973`).
+  Eight high-priority architectural drifts and memory-safety bugs resolved:
+  `row_subsumes` argument swap, `driver_extract_imports_loop` arity mismatch,
+  grow-on-demand I/O buffers (replacing static 64 KiB), arity checks in
+  `unify_type_lists`/`unify_args_to_params`, duplicate `MakeTupleExpr` arm
+  removed, `int_to_str(INT_MIN)` + float-formatting padding bugs fixed,
+  `driver_reinfer_module` → `driver_infer_module` ("no re-doing work" rule).
+- **2026-04-22** — **Phase B: Cache Dissolution** landed (`7eee2b8`).
+  Text-parsing cache layer dissolved; replaced with binary `Pack`/`Unpack`
+  effects in `std/runtime/binary.ka`. Every Ty/Scheme/SchemeKind/EffRow/
+  Ownership/ResumeDiscipline variant gets an exhaustive tag byte. The graph
+  projects itself through its own effect system.
+- **2026-04-22** — **`Pack` / `Unpack` effects** named as Inka's byte-direction
+  primitives. Replaces the earlier exploration of Put/Get (too generic,
+  collides with database/HTTP/state vocabulary), BinaryWrite/BinaryRead
+  (verbose), and Encode/Decode (implies format knowledge). `Pack`/`Unpack`
+  is precise, domain-free, unambiguous. Implementation: `std/runtime/binary.ka`
+  with `buffer_packer` and `buffer_unpacker(source)` handlers.
+- **2026-04-22** — **`|x| expr` lambda formalized** in SYNTAX.md as the canonical
+  short-form lambda for inline closures. `fn (x) => expr` remains for block
+  bodies. SYNTAX.md TPipe token updated to remove "(future)" qualifier.
+  19 existing call sites across prelude.ka, ml/tensor.ka, dsp/processors.ka
+  confirmed as canonical.
+- **2026-04-22** — **Bitwise operators formally excluded.** `&` is claimed by
+  effect intersection, `|` by ADT variants + pipes. XOR/shift/AND/OR don't
+  pass the eight interrogations — they're hardware concerns that leak
+  mechanism into vocabulary. Inka handles byte-level work through Memory
+  effects (store_i32/load_i8) and Pack/Unpack effects.
+- **2026-04-22** — **Unauthorized `^` operator** identified in cache.ka:78
+  (used for FNV-1a XOR). Not in SYNTAX.md. Dissolved when cache.ka's text
+  layer was replaced by Pack/Unpack. XOR reimplemented via byte-level
+  arithmetic decomposition (bit extraction through `%` and `/`).
 
 ### 2026-04-21 — pre-walkthrough decisions (hand-wave prevention)
 
@@ -245,6 +277,14 @@ composition. Nothing remains as a separate substrate question.*
     <module>` operates incrementally; first post-cascade
     closure of drift mode 10 ("the graph as stateless cache").
     Walkthrough: `docs/rebuild/simulations/IC-incremental-compilation.md`.
+  - **Phase A — Substrate Truth-Telling** (eafd973) — eight high-priority
+    logic/memory-safety fixes across effects.ka, graph.ka, driver.ka,
+    cache.ka, infer.ka, lower.ka, strings.ka, io.ka.
+  - **Phase B — Cache Dissolution** (7eee2b8) — text-parsing cache layer
+    dissolved. NEW: `std/runtime/binary.ka` (Pack/Unpack effects +
+    buffer_packer/buffer_unpacker handlers). cache.ka rewritten from
+    text serialization to binary Pack/Unpack (503 ins, 416 del).
+    cache_compiler_version bumped to v3.
 
 - **Integration trace (post-cascade):** `docs/traces/a-day.md`.
   One developer, one project (Pulse: real-time audio + browser UI +
@@ -703,7 +743,10 @@ shipped pre-first-light.
 
 49. **⚙️ IC.3 — graph chase walks overlays** — per-module overlay separation. Lands when name collisions across modules become load-bearing. Driver currently merges envs flat; correct for today's project.
 
-50. **⚙️ Cache format binary v3** — only if textual v2 format measures as a bottleneck.
+50. **⚙️ Cache format binary v3** — **`[LANDED 2026-04-22 · 7eee2b8]`**.
+    Text-parsing cache layer dissolved; replaced with binary Pack/Unpack
+    effects. Every Ty variant gets an exhaustive tag byte. Unauthorized
+    `^` operator eliminated; XOR via byte-level arithmetic.
 
 51. **⚙️ Cache dependency-hash invalidation v2** — full chain (cache hit on M requires every dep's recorded imports_hashes match dep's CURRENT hash). Substrate ready; policy adjustment small.
 
