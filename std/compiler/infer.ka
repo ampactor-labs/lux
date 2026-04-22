@@ -1043,7 +1043,7 @@ fn infer_diverge_branches(branches, span: ValidSpan, i, n) =
 // store `Located(span, reason)` so graph_reason_edge naturally
 // returns `Unified(Located, Located)` per DESIGN Ch 8.
 
-fn unify(h_a, h_b, span: ValidSpan, reason) = {
+fn unify(h_a, h_b, span: ValidSpan, reason) =
   if h_a == h_b { () }
   else {
     let na = perform graph_chase(h_a)
@@ -1064,7 +1064,6 @@ fn unify(h_a, h_b, span: ValidSpan, reason) = {
       _             => ()
     }
   }
-}
 
 fn unify_types(ref a, ref b, span: ValidSpan, reason) =
   match a {

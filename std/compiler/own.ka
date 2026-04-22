@@ -28,48 +28,51 @@ import runtime/strings
 //                   and merges. Stack shape naturally supports nested
 //                   branches (e.g. (a >< b) >< c).
 
-fn get_authored_ownership(ref name) with !Mutate = {
-  match perform env_lookup(name) {
-    Some(entry) => {
-      let (scheme, _, _) = entry
-      match scheme {
-        Forall(_, TVar(h)) => {
-          let node = perform graph_chase(h)
-          let GNode(_, reason) = node
-          match reason {
-            FnParam(owner_name, idx, _) => {
-              match perform env_lookup(owner_name) {
-                Some(owner_entry) => {
-                  let (owner_scheme, _, _) = owner_entry
-                  match owner_scheme {
-                    Forall(_, TVar(fn_h)) => {
-                      let fn_node = perform graph_chase(fn_h)
-                      let GNode(kind, _) = fn_node
-                      match kind {
-                        NBound(TFun(params, _, _)) => {
-                          if idx < len(params) {
-                            let TParam(_, _, auth, _) = list_index(params, idx)
-                            Some(auth)
-                          } else { None }
-                        },
-                        _ => None
-                      }
-                    },
-                    _ => None
-                  }
-                },
-                _ => None
-              }
-            },
-            _ => None
-          }
-        },
-        _ => None
-      }
-    },
-    None => None
-  }
+handler catch_abort {
+  abort() => None
 }
+
+fn unwrap_env(opt) with Abort = match opt {
+  Some(entry) => {
+    let (scheme, _, _) = entry
+    scheme
+  },
+  None => perform abort()
+}
+
+fn extract_param_owner(scheme) with Abort = match scheme {
+  Forall(_, TVar(h)) => match perform graph_chase(h) {
+    GNode(_, FnParam(owner_name, idx, _)) => (owner_name, idx),
+    _ => perform abort()
+  },
+  _ => perform abort()
+}
+
+fn extract_fn_params(scheme) with Abort = match scheme {
+  Forall(_, TVar(fn_h)) => match perform graph_chase(fn_h) {
+    GNode(NBound(TFun(params, _, _)), _) => params,
+    _ => perform abort()
+  },
+  _ => perform abort()
+}
+
+fn get_authored_ownership(ref name) with !Mutate =
+  name
+    |> perform env_lookup
+    |> unwrap_env
+    |> extract_param_owner
+    |> fn ((owner_name, idx)) = {
+         let params = owner_name
+           |> perform env_lookup
+           |> unwrap_env
+           |> extract_fn_params
+           
+         if idx < len(params) {
+           let TParam(_, _, auth, _) = list_index(params, idx)
+           Some(auth)
+         } else { None }
+       }
+    ~> catch_abort
 
 handler affine_ledger with used = [], used_sites = [], branches = [] {
 

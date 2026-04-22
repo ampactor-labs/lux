@@ -629,6 +629,13 @@ effect Diagnostic {
   // source, code, kind, msg, span, applicability        @resume=OneShot
 }
 
+// ═══ Abort — universal short-circuit / early return ════════════════
+// Flattens the "Option Monad" into the topological pipeline.
+
+effect Abort {
+  abort() -> !                                     @resume=OneShot
+}
+
 // ═══ LookupTy (spec 05) — live chase, never cache ══════════════════
 // The ONLY route from a TypeHandle to a resolved Ty. Delegates to
 // graph_chase. No cache. No staleness. Every observer reads live.

@@ -54,7 +54,7 @@ fn hash_source(s) with Memory = {
   cache_hash_loop(s, 0, n, 2166136261)
 }
 
-fn cache_hash_loop(s, i, n, h) with Memory = {
+fn cache_hash_loop(s, i, n, h) with Memory =
   if i >= n { h }
   else {
     let b = byte_at(s, i)
@@ -63,7 +63,6 @@ fn cache_hash_loop(s, i, n, h) with Memory = {
     let mixed = xored * 16777619
     cache_hash_loop(s, i + 1, n, mixed)
   }
-}
 
 // XOR two integers. perform i32_xor(a, b) is a Memory-level
 // intrinsic — the emitter recognizes it by name and lowers

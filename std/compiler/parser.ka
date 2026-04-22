@@ -1185,7 +1185,7 @@ fn parse_body(ref tokens, pos) = {
 
 // ═══ Patterns ══════════════════════════════════════════════════════
 
-fn parse_pat(ref tokens, pos) = {
+fn parse_pat(ref tokens, pos) =
   match kind_at(tokens, pos) {
     TIdent(v) => {
       if str_eq(v, "_") { (PWild, pos + 1) }
@@ -1224,7 +1224,6 @@ fn parse_pat(ref tokens, pos) = {
     },
     _ => (PWild, pos + 1)
   }
-}
 
 // Parse `{name, age}` or `{name: sub_pat, age: sub_pat}`. Field
 // puning is the default — `{name}` ≡ `{name: PVar("name")}`.

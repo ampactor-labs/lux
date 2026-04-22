@@ -597,6 +597,31 @@ the immediately preceding stage. This is the *one* place in Inka where
 whitespace is semantically load-bearing, and it is load-bearing because
 the visual layout *is* the computation graph.
 
+### Flattening the Option Monad with `|>` and `~>`
+In legacy languages, deep optional data unwrapping (e.g., parsing graph nodes)
+requires specialized syntax like Rust's `?` operator or Haskell's `do` notation
+to avoid "pyramids of doom" from deeply nested `match` statements. Inka requires
+no such syntactic sugar. 
+
+By defining a simple local `Abort` effect, you can draw a perfectly straight line
+down the left edge of the screen, mapping stages via `|>` and capturing the abort
+at the boundary with `~>`.
+
+```inka
+effect Abort { abort() -> ! }
+
+fn get_authored_ownership(name) =
+  name
+    |> env_lookup
+    |> unwrap_env            // performs abort() if None
+    |> extract_param_owner   // performs abort() if wrong node type
+    |> get_auth_marker
+    ~> catch_abort           // abort() => None
+```
+This is the ultimate realization of Inka's algebraic thesis: Control flow anomalies
+(like missing data or mismatches) are just effects. The Five Verbs are topologically
+complete; no monad transformers needed.
+
 **Type rule.** `row(expr ~> h) = row(expr) - handled(h) + row(h)`.
 The handler subtracts what it absorbs; anything its arms themselves
 perform is added. This falls out of the effect algebra (Chapter 3).
