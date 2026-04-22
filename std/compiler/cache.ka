@@ -59,54 +59,22 @@ fn cache_hash_loop(s, i, n, h) with Memory = {
   else {
     let b = byte_at(s, i)
     // XOR via Memory scratch — no ^ operator in SYNTAX.md.
-    let xored = i32_xor_via_memory(h, b)
+    let xored = i32_xor(h, b)
     let mixed = xored * 16777619
     cache_hash_loop(s, i + 1, n, mixed)
   }
 }
 
-// XOR two integers using Memory scratch. store_i32 writes native
-// encoding; we read bytes, flip, and reconstruct. This replaces
-// the unauthorized `a ^ b` operator.
-fn i32_xor_via_memory(a, b) with Memory + Alloc = {
-  // XOR via byte-level arithmetic decomposition. Each byte is
-  // decomposed into bits via % and / on powers of 2, XORed per-bit,
-  // then reassembled. No bitwise operators needed — SYNTAX.md has
-  // none, and Inka's effect system handles byte-level work through
-  // Memory effects. This is correct and complete.
-  let scratch_a = perform alloc(4)
-  let scratch_b = perform alloc(4)
-  let scratch_r = perform alloc(4)
-  perform store_i32(scratch_a, a)
-  perform store_i32(scratch_b, b)
-  // Byte-by-byte XOR using arithmetic: xor(x,y) per byte
-  i32_xor_byte_loop(scratch_a, scratch_b, scratch_r, 0)
-  perform load_i32(scratch_r)
-}
-
-fn i32_xor_byte_loop(a_ptr, b_ptr, r_ptr, i) with Memory =
-  if i >= 4 { () }
-  else {
-    let ab = perform load_i8(a_ptr + i)
-    let bb = perform load_i8(b_ptr + i)
-    perform store_i8(r_ptr + i, byte_xor(ab, bb))
-    i32_xor_byte_loop(a_ptr, b_ptr, r_ptr, i + 1)
-  }
-
-// XOR two bytes (0-255) using arithmetic. This is the truth table
-// decomposition: process each bit via division and modulus.
-fn byte_xor(a, b) with Pure =
-  byte_xor_bit(a, b, 0, 0, 1)
-
-fn byte_xor_bit(a, b, result, bit, place) with Pure =
-  if bit >= 8 { result }
-  else {
-    let a_bit = (a / place) % 2
-    let b_bit = (b / place) % 2
-    // XOR: 1 if exactly one is 1
-    let xor_bit = if a_bit == b_bit { 0 } else { 1 }
-    byte_xor_bit(a, b, result + xor_bit * place, bit + 1, place * 2)
-  }
+// XOR two integers. perform i32_xor(a, b) is a Memory-level
+// intrinsic — the emitter recognizes it by name and lowers
+// directly to WASM's `i32.xor` instruction. Same pattern as
+// store_i32, load_i8, alloc, mem_copy: the developer writes
+// the intent, the substrate emits the instruction.
+//
+// No bitwise operator in the language. No 64-op arithmetic
+// decomposition. One perform, one WASM instruction.
+fn i32_xor(a, b) with Memory =
+  perform i32_xor(a, b)
 
 // ═══ Cache path conventions ════════════════════════════════════════
 // All cache files live under <project>/.inka/cache/. Each module's
