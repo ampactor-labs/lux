@@ -1777,81 +1777,225 @@ Pre-restructure: `docs/specs/` = `docs/rebuild/`, `.nx` = `.ka`,
 
 ---
 
-## Handoff Posture — 2026-04-22 (Claude Code → Google Antigravity / Opus 4.6)
+## Handoff Posture — 2026-04-22 (Antigravity IDE / Opus 4.6 — single thread)
 
-Claude Code weekly quota exhausted 2026-04-22 after FV.2 + FV.3 landed.
-Work resumes in Antigravity IDE under Opus 4.6 for ~1 day. This block
-captures the operating posture a fresh session needs beyond what
-`memory/MEMORY.md` and `CLAUDE.md` already carry.
+Claude Code weekly quota exhausted 2026-04-22 (99%). Work resumes in
+Google Antigravity under Opus 4.6 for ~1 day. **Antigravity is a
+single thread**: no skills (no `/inka-plan`), no subagent dispatch
+(no `inka-planner`, no `inka-implementer`), no user settings for
+hooks. Opus 4.6 plays every role inline. This block is a complete
+self-contained operating manual.
 
-### Cursor
-- Last commit on `rebuild`: `9217d15` (PLAN.md sync — FV.2 at `005d66d`,
-  FV.3 at `f7c6774`, FV.3.1–FV.3.4 named as peer sub-handles).
+### Read order on session open (every time — this IS Session Zero)
+1. `CLAUDE.md` end-to-end (~8k words; non-negotiable).
+2. `docs/DESIGN.md` end-to-end on first session; thereafter §0.5
+   (kernel primitives) + the chapter for the module about to be
+   touched.
+3. The relevant `docs/rebuild/simulations/H*.md` or topical walkthrough
+   (FU / HC / MV).
+4. This Handoff Posture section.
+5. `memory/MEMORY.md` index + any file it points to that feels relevant.
+6. Synthesize back in 3–5 sentences touching each of the 8 kernel
+   primitives. Only then propose or edit.
+
+### Cursor (as of 2026-04-22)
+- Last commits on `rebuild`: `1ae46f9` (initial handoff block),
+  `934dedd` (FV.3.1 `TagId` applied). FV.2 at `005d66d`, FV.3 at
+  `f7c6774`.
 - Full `std/` tree (29 `.ka` files) drift-audit CLEAN.
-- No in-flight dispatches. No uncommitted working-tree edits.
+- Zero uncommitted working-tree edits. Zero in-flight dispatches.
+
+---
+
+### The `inka-plan` contract — inlined (since the skill is unreachable)
+
+**Every `.ka` edit follows this shape before tokens are typed.**
+Write the plan either in chat or in your head; type the residue
+only. Opus 4.6, you are the planner. Do not skip sections because
+"it's just a small edit" — fluency is the trap this contract closes.
+
+**§1 Session Zero stub (3-5 sentences).** Pre-filled template:
+> This edit lands inside [handle / module]. The medium here is the
+> [SubstGraph / Env / handler chain / LowIR] already carrying [what].
+> The one mechanism — graph + handler — means [how it hosts this
+> without new substrate]. The verb drawing this topology is [`|>` /
+> `<|` / `><` / `~>` / `<~`] because [reason]. Mentl, as oracle,
+> already [projects / audits / teaches] [what]; the residue is [1-3
+> lines of shape].
+
+**§2 Walkthrough citation.** Quote the exact paragraph from the
+relevant `docs/rebuild/simulations/*.md` that decides this design
+point. **Not a summary — the paragraph.** If no walkthrough exists
+for this work, the plan is premature; write the walkthrough first.
+
+**§3 The 8 interrogations, answered per edit site.** (One per kernel
+primitive; see `CLAUDE.md` §"Mentl's anchor" for the canonical
+framing. Four-question and nine-question earlier forms are
+superseded.)
+- **Graph?** What handle / edge / Reason in SubstGraph + Env already
+  encodes this?
+- **Handler?** What installed handler projects this — and with what
+  resume discipline (`@resume=OneShot|MultiShot|Either`)?
+- **Verb?** Which of `|>` `<|` `><` `~>` `<~` draws this topology?
+- **Row?** What `+ - & ! Pure` constraint already gates this?
+- **Ownership?** What `own` / `ref` / `Consume` / `!Alloc` /
+  `!Mutate` already proves linearity or non-escape?
+- **Refinement?** What `where` predicate or `Verify` obligation
+  already bounds the value?
+- **Gradient?** What annotation unlocks this as a compile-time
+  capability instead of a runtime check?
+- **Reason?** What Reason edge should this decision leave for the
+  Why Engine?
+
+**§4 Edits as literal tokens at file:line.** Not prose. Exact form:
+```
+std/compiler/<file>.ka:<line_range>
+  DELETE: <current tokens, verbatim>
+  WRITE:  <new tokens, verbatim, canonical formatting>
+```
+Canonical formatting (Anchor 6): `|>`/`~>` at LEFT edge, `><`/`<~`
+at INDENTED CENTER, `<|` at left edge before branch tuple, handler
+composition as `~>` chains not nested `handle(handle(...))`.
+
+**§5 Forbidden-pattern list, scoped per edit.** For each of drift
+modes 1-9 (`CLAUDE.md` → Mentl's anchor), name the specific pattern
+that would silently absorb this edit if typed fluently, or write
+"N/A — [why]." **Do not omit this section** — fluency is highest
+precisely when you feel most competent.
+
+Also screen for bug classes at the edit site: `_ => <fabricated>`
+masks, `acc ++ [x]` loops, `list[i]` in Snoc paths, bare `==` on
+strings (use `str_eq`), `println` inside `report`, `mode == 0`
+int-coded dispatch, `|| true` failure-masks, `HEAP_BASE` constant
+collisions.
+
+**§6 Post-edit audit.** Always:
+```
+bash tools/drift-audit.sh <files touched>
+```
+Must exit 0. Non-zero = edit not complete. **Do not commit.**
+Antigravity lacks Claude Code's PreToolUse hooks that auto-gate
+this — the discipline is manual.
+
+**§7 Landing discipline.** Is this a whole handle that lands in one
+commit, or a peer sub-handle named in PLAN.md with its own
+walkthrough? If "substrate done / wiring later" tempts you, STOP —
+that is drift mode 9 (deferred-by-omission). Land whole, OR split
+the deferred piece into its own named peer sub-handle with its own
+walkthrough and its own plan.
+
+---
+
+### The `inka-implementer` discipline — inlined
+
+Opus 4.6, you are the implementer too. Hold both roles honestly:
+
+- **Refuse prose-only plans.** "Implement frame consolidation in
+  H1.3" is not a plan. The plan is delete/write tokens at
+  file:line. If you catch yourself planning in prose, restart in
+  tokens.
+- **Run drift-audit after every file touch.** Manual discipline —
+  Antigravity has no hooks. `bash tools/drift-audit.sh <file>`.
+- **Refuse to commit with non-zero audit.** Diagnose and fix.
+  **Never `|| true`, never `--no-verify`.** If unsure how to fix,
+  pause — do not decorate.
+- **One peer sub-handle per commit.** No "substrate done / wiring
+  later" splits.
+- **No Claude attribution in commits.** Ever. No `Co-Authored-By`,
+  no `🤖` trailer, no inline mentions. Morgan writes commits alone.
+- **Never dream-code drift.** If a construct doesn't parse yet in
+  the current compiler, that's fine — this IS dream code. But the
+  shape must be Inka-native, not a foreign-language pattern in
+  Inka clothing.
+
+---
+
+### FV queue order for single-thread Opus 4.6
+
+All FV items are now single-tier (Opus 4.6 plans + edits + audits +
+commits inline). Recommended order by **single-thread safety**
+(mechanical first; judgment work deferred to fresh Claude Code):
+
+| # | Item | Kind | Scope |
+|---|---|---|---|
+| 1 | **FV.3.2** `ValidOffset` → lexer + parser byte positions | Mechanical | ~15 sites in lexer.ka + parser.ka |
+| 2 | **FV.3.4** `ValidSpan` → every `Span(sl,sc,el,ec)` construction | Mechanical | ~25 sites across lexer / parser / infer |
+| 3 | **FV.3.3** `NonEmptyList<A>` → where comments assert `len > 0` | Mechanical | Grep for "len > 0" / "non-empty" assertions |
+| 4 | **FV.9** docstring harmonization | Mechanical | BLOCKED — lock NS-naming template first |
+| 5 | FV.4 ownership markers (`own` / `ref` / `!Mutate`) | Judgment | Per-fn analysis |
+| 6 | FV.5 five-verb exemplar (`<\|` / `><` / `<~` one site each) | Judgment | Per-site judgment |
+| 7 | FV.1 `!E` negation sweep | Judgment | **Recommended to DEFER** to fresh Claude Code |
+| 8 | FV.8 parameterized Diagnostic / 11.B.M | Judgment + cross-cutting | **Recommended to DEFER** |
+| — | FV.6 string interpolation | BLOCKED | Lexer `scan_string` does not parse `${}` |
+| — | FV.7 `~>` chain sweep | Likely no-op | Pre-audit found no nested `handle(handle(...))` |
+
+**Why defer FV.1 / FV.8 to fresh Claude Code:** those items earn
+cross-cutting judgment under the `inka-implementer` system prompt's
+discipline that this inline contract approximates but does not
+replicate fully (subagent-isolation, hooks, PostToolUse drift audit).
+Mechanical FV.3.x items exercise the full inline discipline safely;
+judgment items amplify drift risk in single-thread.
+
+---
 
 ### Do NOT touch before first-light
-Every one of these is a "rise after the floor is up" surface. Drifting
-into any of them before hand-WAT Tier 3 delivers byte-identical
-self-compilation is a shape drift the cascade discipline refuses.
-
+Rise-after-floor-is-up surfaces. Drifting into any of them before
+hand-WAT Tier 3 delivers byte-identical self-compilation is drift
+mode 9 flipped (work landing before its prerequisite):
 - **Syntax highlighting** / TextMate grammar / tree-sitter wrapper.
-- **MV.2 `mentl_voice_default` implementation.** `MV-mentl-voice.md`
-  §2.8 AT1–AT10 ARE the contract; substrate lands post-first-light.
-- **LSP adapter + VS Code extension.** Surface lands post-first-light.
+- **`mentl_voice_default` implementation.** `MV-mentl-voice.md`
+  §2.8 AT1-AT10 ARE the contract; substrate lands post-first-light.
+- **LSP adapter + VS Code extension.** Post-first-light.
 - **Web playground / α-β-γ-ε options** from the 2026-04-22 brainstorm.
-- **String interpolation `${}` sweep (FV.6).** BLOCKED on a lexer
-  substrate extension — `scan_string` does not yet parse `${}`.
+- **FV.6 string interpolation.** BLOCKED on lexer substrate.
 
-### Dispatch posture (locked 2026-04-22)
-
-| Work shape | Tier | Reason |
-|---|---|---|
-| Plan per `inka-plan` contract | Opus inline (chat) | Planner voice lives in the skill |
-| Mechanical `.ka` edit (bounded surface, typed tokens given) | Sonnet `inka-implementer` | Cheapest correct path |
-| Cross-cutting judgment (`!E` sweep, verb exemplar, Diagnostic ADT shape) | Opus via `Agent({subagent_type:"inka-implementer", model:"opus"})` | Judgment under substrate discipline |
-| Substrate design (new walkthrough, new kernel primitive) | Opus inline | Warm context, no subagent overhead |
-
-Never dispatch `.ka` edits to bare `general-purpose` / `Explore` agents.
-The discipline lives in `inka-implementer`'s system prompt.
-
-### FV queue order (runnable in parallel with hand-WAT Tier 1)
-
-| # | Sub-handle | Tier | Status |
-|---|---|---|---|
-| 1 | FV.3.1 `TagId` → ConstructorScheme + LMakeVariant + LPCon | Sonnet | pending (dispatched 2026-04-22) |
-| 2 | FV.3.2 `ValidOffset` → lexer + parser byte positions | Sonnet | pending |
-| 3 | FV.3.3 `NonEmptyList` → sites where `len > 0` is asserted in prose | Sonnet | pending |
-| 4 | FV.3.4 `ValidSpan` → every Span construction site | Sonnet | pending |
-| 5 | FV.1 `!E` negation sweep (`!IO` / `!Alloc` / `!Diagnostic`) | Opus | pending — biggest exemplar jump left |
-| 6 | FV.4 ownership markers (`own` / `ref` / `!Mutate`) | Opus | pending |
-| 7 | FV.5 five-verb exemplar (`<\|`, `><`, `<~` at one site each) | Opus | pending |
-| 8 | FV.8 parameterized Diagnostic / 11.B.M | Opus | pending |
-| 9 | FV.9 docstring harmonization | Sonnet | blocked on NS-naming template |
-| — | FV.6 string interpolation | — | BLOCKED on lexer substrate |
-| — | FV.7 `~>` chain sweep | Sonnet | likely no-op per pre-audit |
-
-### Per-file drift-audit gate
-Before any feature edit to a `.ka` file, the file's drift-audit must
-be clean. If not, the first commit on that file is the per-file drift
-sweep; feature work follows in a separate commit.
-
-```
-bash ~/Projects/inka/tools/drift-audit.sh <file>    # exit 0 = proceed
-```
-
-### HC rosetta — 2026-04-21 crystallization
-`HC-handler-composition.md` names four ripple points currently live:
-
+### HC rosetta — 2026-04-21 crystallization (unchanged)
+`HC-handler-composition.md` names four live ripple points:
 - **11.C.2** frame-record restructure (parallel lists → OrderedMap).
 - **11.B.M** parameterized Diagnostic (absorbs FV.8).
 - **Hα** operator-semantics-as-handler (each of the five verbs).
 - **MV.2** tentacles transform-yield; LSP surfaces materialize.
 
-### Highest-leverage first cut in a fresh session
-Opus-judgment tier best spent on **FV.1** (`!E` negation sweep) — biggest
-exemplar jump left; reads what the graph already proved. Run the
-`inka-plan` skill; dispatch `inka-implementer` with `model: "opus"`.
+### Runtime tooling (Antigravity terminal-accessible)
+- `bash tools/drift-audit.sh <files>` — exit 0 required before commit.
+- `.githooks/pre-commit` — enforces drift-audit on staged `.ka`
+  files. Ensure `git config core.hooksPath .githooks` is active
+  (check with `git config --get core.hooksPath`; if not, run the
+  command before the first commit).
+- `git log --oneline -10` — current landing state.
+- `wabt` installed: `wasm-decompile` / `wasm-objdump` available.
 
-Sonnet-tier cheapest cut: **FV.3.1** (dispatched 2026-04-22 from the
-closing Claude Code session; check `git log` for landing state).
+### If stuck — honest options
+- **Pause.** Do not decorate, do not add flags, do not "get it
+  working for now." Commit what's clean; stop.
+- **Return to Claude Code when weekly resets** (check usage via the
+  CLI). Some work (FV.1, FV.8, new walkthroughs) benefits from the
+  `inka-implementer` / `inka-planner` subagent system prompts this
+  inline section approximates but does not fully replicate.
+- **Read, don't code.** If the medium is unclear, re-read the
+  walkthrough. If the walkthrough is unclear, re-read DESIGN.md
+  §0.5. **Reading is work. Drift is a regression.**
+
+### Recommended first cut in Antigravity
+**FV.3.2** (`ValidOffset` applied to lexer + parser byte positions).
+Lowest-risk mechanical cut; exercises the full inline discipline
+(plan → 8 interrogations → literal tokens → drift-audit → commit)
+without cross-cutting judgment.
+
+Inventory to seed the plan (grep before committing):
+```
+grep -n "pos: Int" std/compiler/lexer.ka
+grep -n "pos: Int\|pos += \|self\.pos" std/compiler/parser.ka
+```
+(Expect ~15 applied sites between the two files. Actual count
+depends on current shape; verify before planning.)
+
+If FV.3.2 clears clean, proceed to FV.3.4 (`ValidSpan`) using the
+same pattern. **Do NOT attempt FV.1 in Antigravity** — save it for
+a fresh Claude Code session where `inka-implementer` under Opus-
+dispatch can carry the judgment.
+
+### Handoff endpoint
+When weekly resets: `git log --oneline -20` to confirm Antigravity's
+landings. Resume this handoff section from "FV queue order" — the
+cursor will have advanced but the discipline framing is stable.
