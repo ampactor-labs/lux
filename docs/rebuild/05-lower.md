@@ -139,8 +139,9 @@ Graph check at each perform site:
 
 In a self-hosted Inka compilation, >95% of call sites prove
 monomorphic. The remaining 5% take the evidence-passing path through
-a runtime-known vtable pointer. There is no runtime type-test
-dispatcher; `val_concat` is unreachable in emitted code.
+a function-pointer FIELD on the closure record (H1's `LMakeClosure`;
+CLAUDE.md's drift-mode-1 guard — no vtable). There is no runtime
+type-test dispatcher; `val_concat` is unreachable in emitted code.
 
 **HandlerTier derives from TCont.discipline.** `HandlerTier`
 (TailResumptive / Linear / MultiShot) is lowering's

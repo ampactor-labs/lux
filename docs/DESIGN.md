@@ -1081,29 +1081,40 @@ is external.
 
 ### Reification — the third truth
 
-*Abstract algebra must materialize into physical pointers.*
+*Abstract algebra must materialize into one concrete shape.*
 
 `infer.ka` does not just type-check. Its ultimate duty is to
-**physically synthesize Evidence Dictionaries** — vtables — for
-polymorphic effects. At each function definition whose effect row is
-polymorphic (some effect is implemented by the caller), the inference
-pass rewrites the function's AST to accept an opaque Evidence Vector
-(`*const ()`). At each `handle` block, it synthesizes the concrete
-dictionary that is passed at runtime.
+physically synthesize evidence: the concrete closure records that
+carry captures, handler state, and resume discipline **together, in
+one record shape**. **There is no vtable. There is no separate
+dictionary. There is no `*const ()` parameter smuggled alongside the
+closure.** The heap has one story (γ crystallization #8 —
+INSIGHTS.md): closure records, ADT variants, nominal records, and
+closures-with-evidence all allocate through the SAME `emit_alloc`
+swap surface.
 
-The result: polymorphic effect calls become WASM `call_indirect`
-through a runtime-known vtable. **Monomorphization-speed without
-code bloat.** One compiled function body per polymorphic function,
-one pointer per effect row at the call site.
+Three resume disciplines map to three emit paths on one substrate:
 
-This is Koka's generalized evidence passing (JFP 2022), applied
-systematically. The graph knows when a call site's handler stack is
-ground (>95% of call sites in practice, for real Inka programs); for
-those, the compiler emits a direct `call $h_op`. The remaining
-polymorphic minority goes through `call_indirect`. **The `val_concat`
-class of runtime type-test dispatch is unreachable in emitted code**
-— because the graph either proves monomorphism or emits explicit
-evidence, with no fallback.
+- **OneShot.** The graph proves the handler chain ground; emit direct
+  `return_call $op_<name>`. >95% of call sites per H1 evidence
+  reification. Zero indirection.
+- **MultiShot.** Heap-captured closure struct — captures, evidence
+  fields, and a return slot in one record shape (H1's
+  `LMakeClosure`). Mentl's oracle substrate; multi-shot resumes
+  explore alternate realities through trail-based rollback on this
+  primitive.
+- **Polymorphic minority.** `call_indirect` reads a function-pointer
+  FIELD on the same closure record — one `i32` at the offset the
+  inference pass placed. **Evidence passing per Koka JFP 2022 —
+  not vtable indirection.** No table exists as a separate structure
+  at any layer.
+
+Monomorphization speed, zero code bloat, one allocator swap (bump /
+arena / GC) for every memory strategy past, present, and future.
+
+The `val_concat` class of runtime type-test dispatch is unreachable
+in emitted code — the graph either proves monomorphism or writes
+the evidence into the closure record, with no fallback.
 
 ### Productive inference under error — the Hazel pattern
 
@@ -2828,7 +2839,8 @@ historical audio, record gradients, and allocate an autodiff tape.
   The language IS the framework.
 - **Training vs inference is a handler swap.** Not a translation step.
   Not a porting project. Not a model-conversion tool. Same AST node;
-  different Evidence Dictionary passed at runtime.
+  different evidence written into the closure record at handler
+  install. (No vtable — see §Reification.)
 
 ### 10.3 The C-Straightjacket — concurrency × FFI × capability severance
 
@@ -2841,10 +2853,12 @@ function (compiled to WASM) that declares `FFI, Network, Filesystem`.
 1. **Row-polymorphic evidence.** `parallel_map<A, B, E>(f: fn(A) -> B
    with E, xs: List<A>) -> List<B> with E + Parallel`. When called
    with a function whose row is `FFI`, inference binds the effect
-   variable. **The function is higher-order**, so inference
-   synthesizes an opaque Evidence Vector (`*const ()`) and rewrites
-   the signature to pass the vector at runtime. Monomorphization
-   speed, zero code bloat.
+   variable. **The function is higher-order**, so inference writes
+   the evidence into a function-pointer FIELD on `f`'s closure
+   record at handler install; `call_indirect` through that field
+   reaches the polymorphic target. No `*const ()` sidecar. No
+   vtable. (See §Reification.) Monomorphization speed, zero code
+   bloat.
 
 2. **Per-thread regions.** `parallel_map` performs `Alloc`. Inference
    mints a hidden Region variable `ρ1` for each spawned thread. The
@@ -2874,7 +2888,8 @@ function (compiled to WASM) that declares `FFI, Network, Filesystem`.
 
 - **Generics without bloat.** Rust monomorphizes and bloats. Inka
   compiles `parallel_map` once; the polymorphic effect becomes a
-  hidden vtable pointer at runtime.
+  function-pointer FIELD on the closure record — one indirect call
+  per polymorphic dispatch site, no vtable (see §Reification).
 - **Thread-safety is handler topology, not type traits.** No `Send`.
   No `Sync`. Per-thread handlers prove isolation.
 - **Straightjacket on unsafe C.** FFI's declared effects are ambient;

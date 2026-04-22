@@ -76,10 +76,37 @@ We do not use Garbage Collectors, nor do we use immutable "Snoc Trees" to fake i
 
 ## The Third Truth: The Duty of Inference is Reification
 
-*Abstract algebra must materialize into physical pointers.*
+*Abstract algebra must materialize into one concrete shape.*
 
-`infer.ka` does not just "type-check" code. Its ultimate duty is to physically synthesize hidden Evidence Dictionaries (vtables) for unhandled effects. It intercepts function definitions with unhandled effects and rewrites their ASTs to accept an opaque Evidence Vector (`*const ()`). At `handle` blocks, it synthesizes the concrete dictionary. 
-Polymorphic effects are turned into static, zero-cost WASM `call_indirect` dependency injection. We get the performance of monomorphization without the C++ code bloat.
+`infer.ka` does not just "type-check" code. Its ultimate duty is to
+physically synthesize evidence — the concrete closure records that
+carry captures, handler state, and resume discipline **together, in
+one record shape**. **There is no vtable. There is no separate
+dictionary. There is no `*const ()` parameter smuggled alongside the
+closure.** The heap has one story (γ crystallization #8): closure
+records, ADT variants, nominal records, and closures-with-evidence
+all allocate through the SAME `emit_alloc` swap surface — bump today,
+arena tomorrow, GC eventually. Change the allocator; every dispatch
+claim holds.
+
+Three resume disciplines map to three emit paths on one substrate:
+
+- **OneShot.** Direct `return_call $op_<name>`. The graph proves the
+  handler chain ground at inference time. >95% of dispatch sites per
+  H1 evidence reification. Zero indirection.
+- **MultiShot.** Heap-captured closure struct (captures + evidence
+  fields + return slot), allocated through `emit_alloc`. **This IS
+  Mentl's oracle substrate**; multi-shot resumes explore hundreds of
+  alternate realities per second through trail-based rollback on
+  this primitive.
+- **Polymorphic minority.** `call_indirect` reads a function-pointer
+  FIELD on the closure record — one `i32` at the offset the inference
+  pass placed. Evidence passing per Koka JFP 2022; **not vtable
+  indirection.** No table exists as a separate structure at any
+  layer — source, LIR, LowIR, WAT, or emitted binary.
+
+Monomorphization speed, zero code bloat, one allocator swap for every
+memory strategy past, present, and future.
 
 ---
 
