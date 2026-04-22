@@ -46,6 +46,7 @@ type Ty
   | TRecordOpen(List, Int)        // fields + row-variable handle
   | TRefined(Ty, Predicate)       // refinement type (Verify discharges)
   | TCont(Ty, ResumeDiscipline)   // handler continuation type
+  | TAlias(String, Ty)            // RN.1 — authored alias name (e.g. "Port") wrapping resolved type
 
 // ─── Ownership (spec 02 · spec 07) ─────────────────────────────────
 // Every function parameter wraps Ty with an Ownership marker.
@@ -768,7 +769,9 @@ fn show_type(ty) with GraphRead =
         |> str_concat(show_type(ret))
         |> str_concat(", ")
         |> str_concat(show_discipline(disc))
-        |> str_concat(")")
+        |> str_concat(")"),
+    // RN.1 — show the alias name (intent), not the resolved type
+    TAlias(name, _) => name
   }
 
 // show_handle — the live-chase projection. Resolved handles show the

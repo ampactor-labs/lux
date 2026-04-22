@@ -185,7 +185,9 @@ fn infer_stmt(node) =
     NStmt(ImportStmt(_)) => (),
 
     NStmt(RefineStmt(name, base_ty, pred)) => {
-      perform env_extend(name, Forall([], TRefined(base_ty, pred)), Declared(name), FnScheme)
+      // RN.1 — wrap in TAlias so the authored name travels with the type
+      let aliased = TAlias(name, TRefined(base_ty, pred))
+      perform env_extend(name, Forall([], aliased), Declared(name), FnScheme)
       perform verify(span, pred, Refinement(pred, PTrue))
     },
 
@@ -1084,6 +1086,9 @@ fn unify_types(a, b, span, reason) =
         _             => type_mismatch(a, b, span, reason)
       },
 
+    // RN.1 — strip alias for semantic unification; intent preserved on handle
+    TAlias(_, inner_a) => unify_types(inner_a, b, span, reason),
+
     _ =>
       match b {
         TVar(_) => unify_types(b, a, span, reason),
@@ -1117,7 +1122,8 @@ fn same_ground(a, b) with Pure = match a {
   TRecord(_)         => false,
   TRecordOpen(_, _)  => false,
   TRefined(_, _)     => false,
-  TCont(_, _)        => false
+  TCont(_, _)        => false,
+  TAlias(_, inner)   => is_concrete(inner)
 }
 
 fn unify_type_lists(as_list, bs_list, span, reason) =
@@ -1786,7 +1792,8 @@ fn chase_deep(ty) = match ty {
   TRecord(fields) => TRecord(chase_fields(fields)),
   TRecordOpen(fields, v) => mk_record_open(chase_fields(fields), v),
   TRefined(base, pred) => TRefined(chase_deep(base), pred),
-  TCont(ret, disc) => TCont(chase_deep(ret), disc)
+  TCont(ret, disc)     => TCont(chase_deep(ret), disc),
+  TAlias(name, inner)  => TAlias(name, chase_deep(inner))
 }
 
 fn map_chase_ty(tys) =
@@ -1824,7 +1831,8 @@ fn free_in_ty(ty) = match ty {
   TRecord(fields)        => free_in_fields(fields),
   TRecordOpen(fields, v) => [v] ++ free_in_fields(fields),
   TRefined(base, _)      => free_in_ty(base),
-  TCont(ret, _)          => free_in_ty(ret)
+  TCont(ret, _)          => free_in_ty(ret),
+  TAlias(_, inner)       => free_in_ty(inner)
 }
 
 fn free_in_list(tys) =
@@ -1890,7 +1898,8 @@ fn subst_ty(ty, mapping) = match ty {
   TRecord(fields) => TRecord(subst_fields(fields, mapping)),
   TRecordOpen(fields, v) => mk_record_open(subst_fields(fields, mapping), v),
   TRefined(base, pred) => TRefined(subst_ty(base, mapping), pred),
-  TCont(ret, disc) => TCont(subst_ty(ret, mapping), disc)
+  TCont(ret, disc)      => TCont(subst_ty(ret, mapping), disc),
+  TAlias(name, inner)   => TAlias(name, subst_ty(inner, mapping))
 }
 
 fn subst_list(tys, mapping) =

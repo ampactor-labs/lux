@@ -149,6 +149,7 @@ fn chase_type_deep(ty) = match ty {
   TRecordOpen(fields, v) => mk_record_open(chase_fields_deep(fields), v),
   TRefined(base, pred)   => TRefined(chase_type_deep(base), pred),
   TCont(ret, disc)       => TCont(chase_type_deep(ret), disc),
+  TAlias(name, inner)    => TAlias(name, chase_type_deep(inner)),
   _                      => ty
 }
 
@@ -205,6 +206,7 @@ fn has_free_tvar(ty) = match ty {
   TRecordOpen(fields, _) => has_free_tvar_fields(fields),
   TRefined(base, _)      => has_free_tvar(base),
   TCont(ret, _)          => has_free_tvar(ret),
+  TAlias(_, inner)       => has_free_tvar(inner),
   _                      => false
 }
 
