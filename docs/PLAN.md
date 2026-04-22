@@ -1960,11 +1960,11 @@ Pre-restructure: `docs/specs/` = `docs/rebuild/`, `.nx` = `.ka`,
 | **docs/specs/simulations/EN-effect-negation.md** | Effect-negation substrate walkthrough (primitive #4 intent round-trip — FV.1 reframed as α+γ+δ+β peers; seeded 2026-04-22). |
 | **docs/specs/simulations/RN-refinement-alias.md** | Refinement-alias intent preservation (primitive #6 round-trip; seeded 2026-04-22). |
 | **docs/specs/simulations/OW-ownership-intent.md** | Ownership-intent preservation (primitive #5 round-trip; seeded 2026-04-22). |
-| **docs/specs/simulations/VK-verb-kind.md** | Verb-kind intent preservation (primitive #3 round-trip; seeded 2026-04-22). |
+| **docs/specs/simulations/VK-verb-kind.md** | Verb-kind intent preservation (primitive #3 round-trip; seeded 2026-04-22). RX's `InferredPipeResult` carries verb identity in Why chains. VK.1 query op awaits AST span index. |
 | **docs/specs/simulations/GR-gradient-delta.md** | Gradient-delta intent preservation (primitive #7 round-trip; seeded 2026-04-22). |
-| **docs/specs/simulations/RX-reason-intent.md** | Reason-intent audit (primitive #8 round-trip; seeded 2026-04-22). |
-| **docs/specs/simulations/HI-handler-identity.md** | Handler-identity intent preservation (primitive #2 round-trip; seeded 2026-04-22). |
-| **docs/specs/simulations/DS-docstring-edge.md** | Docstring-as-intent-edge (cross-cutting round-trip; seeded 2026-04-22). |
+| **docs/specs/simulations/RX-reason-intent.md** | Reason-intent audit — **LANDED** `a783477`. 3 new Reason variants (InferredCallReturn, InferredPipeResult, FreshInContext), ~20 sites enriched Grade B→A, Grade C→structured. |
+| **docs/specs/simulations/HI-handler-identity.md** | Handler-identity — **HI.1 LANDED** `0f0f26b`. ~> tee sites carry authored handler names (callee_name). HI.2 query op + HI.3 hover pending. |
+| **docs/specs/simulations/DS-docstring-edge.md** | Docstring-as-intent-edge — **LANDED** `d8dd725`. Documented(String, Node) stmt wrapper + DocstringReason + parser attachment + infer threading + lower pass-through. |
 | **docs/specs/simulations/NS-naming.md** | Naming-audit walkthrough (TBD, item 4 of Pending Work). |
 | **docs/specs/simulations/NS-structure.md** | Structural-reshape walkthrough (TBD, item 5). |
 | **docs/specs/simulations/EH-entry-handlers.md** | Entry-handler substrate walkthrough (TBD, item 6). |
