@@ -261,6 +261,23 @@ fn span_join(a, b) with Pure =
 
 fn span_zero() with Pure = Span(0, 0, 0, 0)
 
+// ═══ Refinement-typed aliases (primitive #6 exemplars) ═════════════
+// Inference + Verify ledger discharges obligations at construction
+// sites. Runtime-erased. Failed discharge surfaces as V_Pending or
+// V_Failed diagnostic with the predicate and the failing expression
+// span.
+
+type Handle = Int where 0 <= self
+type TagId = Int where 0 <= self && self <= 255
+type ValidOffset = Int where 0 <= self
+type NonEmptyList<A> = List<A> where len(self) > 0
+
+fn span_valid(s) with Pure =
+  let Span(sl, sc, el, ec) = s
+  sl >= 0 && sc >= 0 && el >= sl && (el > sl || ec >= sc)
+
+type ValidSpan = Span where span_valid(self)
+
 fn span_contains(outer, inner) with Pure =
   let Span(osl, osc, oel, oec) = outer
   let Span(isl, isc, iel, iec) = inner
@@ -580,7 +597,7 @@ effect GraphRead {
 }
 
 effect GraphWrite {
-  graph_fresh_ty(Reason) -> Int                    @resume=OneShot
+  graph_fresh_ty(Reason) -> Handle                 @resume=OneShot
   graph_fresh_row(Reason) -> Int                   @resume=OneShot
   graph_bind(Int, Ty, Reason) -> ()                @resume=OneShot
   graph_bind_row(Int, EffRow, Reason) -> ()        @resume=OneShot
