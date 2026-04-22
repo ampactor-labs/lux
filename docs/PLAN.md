@@ -333,11 +333,12 @@ itself. 32+ are post-first-light surfaces.
    - Gate for: item 25 feature-usage audit may surface that VFINAL doesn't use `<~` internally, in which case hand-WAT can skip it — but the substrate must still land for user programs.
 
 2. **⚙️📋 Mentl-voice substrate.**
-   - Status: `[IN-FLIGHT]` — walkthrough `docs/specs/simulations/MV-mentl-voice.md` exists with scaffold, has open §2 Q1–Q6 design questions and §9 first-hour scenario unresolved.
-   - Deliverable: closed walkthrough → `Interact` effect declaration + `mentl_voice` 8-tentacle handler + silence predicate + LSP adapter handler + VS Code extension package. Absorbs former `teach_synthesize` conductor gap + former `HandlerCatalog` gap.
-   - Depends on: nothing substrate-wise; character/register work is its own closure.
+   - Status: `[IN-FLIGHT]` — walkthrough **§2 CLOSED 2026-04-21** (Situation record, VoiceLine shape, 8-tentacle × 8-FormKind mapping, 16-phrase modifier bank, silence predicate formal, turn anatomy via LSP methods, 10 acceptance tests AT1–AT10 locked as `mentl_voice_default` contract). Implementation (MV.2) pending.
+   - Deliverable: closed walkthrough → `Interact` effect declaration + `mentl_voice_default` 8-tentacle handler + silence predicate + LSP adapter handler + VS Code extension package. Absorbs former `teach_synthesize` conductor gap + former `HandlerCatalog` gap.
+   - Depends on: nothing substrate-wise; §2 closure unblocks MV.2 implementation.
    - Gate for: VS Code plugin v1 shipping. NOT gating for bootstrap — Mentl-voice code can land post-first-light if needed.
-   - Scope: ~600–1000 lines `.nx` + ~200 lines TypeScript extension glue.
+   - Scope: ~600–1000 lines `.nx` (mentl_voice.ka + lsp_adapter.ka) + ~300 lines TypeScript extension glue.
+   - Acceptance: `mentl_voice_default` correct iff AT1–AT10 (§2.8 of walkthrough) render as specified.
 
 3. **⚙️ Three-gap residue swept.**
    - Status: `[DEFERRED INTO ITEMS 1+2]`. The three former Priority 1 gaps (LFeedback, teach_synthesize conductor, HandlerCatalog) are now: #1 is item 1; #2 and #3 are both inside item 2.

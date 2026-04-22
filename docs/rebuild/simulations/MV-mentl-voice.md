@@ -10,12 +10,12 @@ realities. **Mentl is an octopus because the kernel has eight
 primitives — each of Her tentacles is one primitive's voice
 surface.**
 
-*Status: **DESIGN SESSION IN FLIGHT.** This walkthrough is a
-scaffold for ongoing work with Morgan. It is not yet the contract
-that freezes code. Sections below are skeletons with resolutions
-to be filled during the design session; mark each resolved section
-with a dated decision block so later code-freeze work inherits a
-canonical answer, not a moving target.*
+*Status: **§2 CLOSED 2026-04-21; MV.2 (v1 implementation) PENDING.**
+§2.7 (voice substrate) + §2.8 (10 acceptance tests AT1–AT10) are the
+canonical contract for `mentl_voice_default` v1 implementation. §3's
+12 templates superseded by §2.7.3's 8-form Tentacle→FormKind mapping
+(retained as historical reasoning). §8 agenda items 1–5 resolved;
+6–10 folded into MV.2–MV.8 sub-handles.*
 
 *Supersedes: parts of `simulations/TS-teach-synthesize.md`
 (retained as historical reasoning). Absorbs: PLAN.md "teach_synthesize
@@ -401,7 +401,400 @@ intent classifier (graph-informed, not LLM). Design question.*
 
 ---
 
+## 2.7. §2 CLOSURE — Voice Substrate (LOCKED 2026-04-21)
+
+*Decision block closing Q1–Q6. The substrate below is canonical;
+`mentl_voice_default` implementation reads from this. §3's 12
+proof-shape templates are superseded by §2.7.3's 8-form mapping
+(retained below as historical reasoning, not as spec).*
+
+### 2.7.1 The Situation record (Q1 + Q5 resolution — what Mentl reads per turn)
+
+Every `speak` op receives a Situation. All 13 fields are load-bearing.
+No external state is consulted. Stateless-per-turn except
+`prior_turn_topic` (silence input) and `register` (rendering input).
+
+```
+type Situation
+  = Situation({
+      tentacle:           Tentacle,
+      topic:              Topic,
+      handle:             Option<Int>,
+      env_snapshot:       List<EnvEntry>,
+      reason_at_topic:    Option<Reason>,
+      row_at_topic:       Option<EffRow>,
+      row_declared:       Option<EffRow>,        // differs from row_at_topic → subsumption diag
+      ownership_at_topic: Option<Ownership>,
+      refinements:        List<Predicate>,
+      gradient_next:      Option<GradientStep>,  // one proven-next annotation
+      handlers_installed: List<HandlerEntry>,
+      prior_turn_topic:   Option<Topic>,         // silence predicate input
+      register:           Register
+    })
+
+type Topic
+  = TopicIdent(String)                // hover on identifier
+  | TopicHandle(Int)                  // direct graph node
+  | TopicSpan(Span)                   // cursor position
+  | TopicError(ErrorCode, Span)       // specific diagnostic
+  | TopicAsk(Question)                // user asked explicitly
+
+type Tentacle
+  = TentQuery | TentPropose | TentTopology | TentUnlock
+  | TentTrace | TentVerify | TentTeach  | TentWhy
+
+type Register = RTerse | RPlayful | RExplain   // RPlayful is V1 default
+
+type GradientStep
+  = GradStep({
+      annotation: Annotation,
+      unlocks:    Capability,
+      site:       Span,
+      proof:      Reason
+    })
+```
+
+### 2.7.2 VoiceLine shape (Q2 resolution)
+
+Tone is NOT a separate enum. It is expressed via `Tentacle + FormKind + Modifier` composition — the shape itself carries the register.
+
+```
+type VoiceLine
+  = Silence                                         // default when silence predicate blocks
+  | VoiceLine(Tentacle, FormKind, List<Slot>, Modifier)
+
+type FormKind
+  = FFactual          // "`x` is Pure."
+  | FOffering         // "Adding `with Pure` unlocks memoization."
+  | FRefutation       // "`own x` consumed twice at L40."
+  | FNavigation       // "`env_lookup` — returns `Option<Entry>`."
+  | FCapability       // "`!Alloc` — real-time-safe."
+  | FRefinement       // "`99999` violates `self <= 65535`."
+  | FGradient         // "Next: `with Pure` on line 12."
+  | FTrace            // "Bound L18; `+` at L42 said `Int`."
+
+type Slot
+  = SIdent(String)        // backtick-wrapped at render
+  | SType(Ty)             // via canonical show_type
+  | SRow(EffRow)          // via canonical show_row
+  | SSpan(Span)           // rendered "(L{line})" or "(L{line}:{col})"
+  | SReason(Reason)       // via show_reason (compressed)
+  | SCap(String)          // capability name, plain (e.g., "CRealTime")
+  | SAnnot(String)        // annotation, backtick-wrapped
+  | SLit(String)          // literal text (for offering closers)
+
+type Modifier
+  = NoMod
+  | TailConsequence(String)   // " — memoization's on the table."
+  | ParenQualifier(String)    // " (L40)"
+  | EmphasisClose(String)     // " — can't have it both ways."
+```
+
+Prior scaffold's 5 tones map to this shape:
+- *Proven* → FFactual / FCapability with NoMod or TailConsequence
+- *Pending* → FGradient / FRefinement with ParenQualifier
+- *Observation* → FFactual / FNavigation with NoMod
+- *Refusal* → FRefutation with EmphasisClose (" — can't have it both ways.")
+- *Silence* → its own variant
+
+### 2.7.3 Tentacle → default Form + stance (Q3 resolution; supersedes §3's 12 templates)
+
+| Tentacle     | Default Form  | Stance                         | Playful example |
+|--------------|---------------|--------------------------------|-----------------|
+| TentQuery    | FFactual      | terse + factual                | `` `process` runs `List<A> -> Int`. Pure. `` |
+| TentPropose  | FOffering     | offering-toned                 | `` `scan_ident` fits here. `` |
+| TentTopology | FOffering     | shape-calling                  | ``Three stages — `|>` draws it better.`` |
+| TentUnlock   | FCapability   | excited but sparse             | ``Add `!Alloc` — real-time unlocks.`` |
+| TentTrace    | FRefutation   | firm                           | `` `own x` — consumed twice (L40). Can't have it both ways. `` |
+| TentVerify   | FRefinement   | the-math-says-no               | `` `99999` is too big for `Port` (max 65535). `` |
+| TentTeach    | FGradient     | patient but pointed            | ``Gradient next: `with Pure` on L12 — memoizable.`` |
+| TentWhy      | FTrace        | reflective walk                | ``Why `Int`? Bound at L18; `+` at L42 said so.`` |
+
+§3's 12 templates remap cleanly:
+- 3.1 Capability-unlock      → TentUnlock / FCapability
+- 3.2 Violation-trade-off    → TentTrace / FRefutation + TentPropose codeAction
+- 3.3 Proof-chain-on-request → TentWhy / FTrace (multi-sentence in RExplain)
+- 3.4 Attention-drift        → TentTrace / FRefutation
+- 3.5 Proactive-unlock       → TentUnlock / FCapability
+- 3.6 Proven-patch-offer     → TentPropose / FOffering
+- 3.7 Multi-shot-summary     → TentPropose / FOffering + ParenQualifier
+- 3.8 Refusal                → TentTrace / FRefutation + EmphasisClose
+- 3.9 Pending-obligation     → TentVerify / FRefinement
+- 3.10 Silence               → Silence variant
+- 3.11 Intent-capture        → TentQuery / FFactual (echoes declared intent)
+- 3.12 Cursor-move-ack       → TentQuery / FFactual
+
+12→8 consolidation is structural: FormKind carries what the templates
+differentiated; tentacle identity carries the rest.
+
+### 2.7.4 Modifier bank (V1 — 16 curated phrases)
+
+RPlayful picks AT MOST ONE modifier per VoiceLine. RTerse → NoMod always.
+RExplain allows modifiers but max one per sentence in multi-sentence output.
+
+**TailConsequence bank (6):**
+1. ` — on the table.`
+2. ` — the graph says so.`
+3. ` — memoizable.`
+4. ` — real-time-safe.`
+5. ` — cheaper direct.`
+6. ` — no allocation.`
+
+**EmphasisClose bank (6):**
+7. ` fits here.`
+8. ` draws it better.`
+9. ` — try it?`
+10. ` — can't have it both ways.`
+11. `` — `ref` if you're reading only.``
+12. ` good?`
+
+**ParenQualifier bank (4):**
+13. ` (L{N})`              — standard span
+14. ` (graph-direct)`      — implementation-note
+15. ` (proven)`            — certainty-mark
+16. ` (pending verify)`    — honesty-mark
+
+**Deterministic selection:** `hash(tentacle, topic_name, situation_sig, form) mod len(applicable_subset)`. Reproducible — same graph state → same modifier.
+
+**Applicable subsets per tentacle:**
+- TentQuery:    {13, 14}
+- TentPropose:  {7, 9}
+- TentTopology: {8, 9}
+- TentUnlock:   {1, 3, 4, 6}
+- TentTrace:    {10, 11, 13}
+- TentVerify:   {13, 15, 16}
+- TentTeach:    {1, 3, 4, 5}
+- TentWhy:      {2, 13}
+
+**Rules (V1):**
+1. One flavor per line (RPlayful). Zero (RTerse). One per sentence max (RExplain).
+2. No first-person "I" except TentTrace refusals (EmphasisClose 10) and TentPropose multi-shot summaries.
+3. No emoji (CLAUDE.md global).
+4. No octopus self-reference (reserve for V2 rare-emergence delight-punctuation).
+5. Bank expands only when repetition becomes noticeable — not before.
+
+### 2.7.5 Silence predicate (Q4 resolution — formal)
+
+```
+fn silence_predicate(situation) =
+  proof_derivable(situation) && observation_new_since_last_turn(situation)
+
+fn proof_derivable(situation) = match situation.tentacle {
+  TentQuery    => situation.reason_at_topic != None,
+  TentPropose  => match situation.topic {
+                    TopicHandle(h) => handle_is_hole(h) || error_at(h) != None,
+                    TopicAsk(_)    => true,
+                    _              => false
+                  },
+  TentTopology => nested_calls_at_span(situation.topic) >= 3,
+  TentUnlock   => situation.gradient_next != None
+                  && unlocks_capability(situation.gradient_next),
+  TentTrace    => ownership_violation_at(situation.topic) != None
+                  || row_subsumption_fails_at(situation.topic),
+  TentVerify   => refinement_obligation_at(situation.topic) != None,
+  TentTeach    => situation.gradient_next != None,
+  TentWhy      => match situation.topic { TopicAsk(QWhy(_)) => true, _ => false }
+}
+
+fn observation_new_since_last_turn(situation) = match situation.prior_turn_topic {
+  None        => true,
+  Some(prior) => !topic_equal(situation.topic, prior)
+                 || tentacle_different(situation.tentacle, last_tentacle_for(prior))
+}
+```
+
+**Silence is the default.** Either predicate false → return Silence.
+Standard LSP behavior: hover with Silence returns null content; inlayHint
+with Silence is not emitted; status bar empty. Mentl does NOT fill space
+to fill space.
+
+### 2.7.6 Turn anatomy (Q6 resolution — simplified)
+
+No REPL command parser needed in V1. **LSP methods ARE the parsed intents**
+— each LSP request is its own turn:
+
+1. Editor fires LSP request (hover / completion / codeAction / didChange / etc.).
+2. `lsp_adapter` translates to one or more `Interact` ops.
+3. Each op composes a Situation from current graph + env + cursor.
+4. Relevant tentacle's speak arm fires; silence predicate gates.
+5. VoiceLine (or Silence) renders to LSP response shape.
+6. `prior_turn_topic` updates for next call.
+
+Free-form natural language ("add a handler here") is V2+; for V1, Mentl
+responds to LSP's typed vocabulary only. No intent classifier needed.
+
+---
+
+## 2.8. Acceptance tests — ten worked examples
+
+*These ten graph states MUST produce the exact VoiceLines below (modulo
+deterministic modifier selection from the applicable subset).
+`mentl_voice_default`'s implementation is correct iff it renders these.*
+
+### AT1 — Hover over inferred function
+
+**Setup:** `let process = fn xs => xs |> filter(positive) |> map(double) |> sum`; hover on `process`.
+
+**Situation:**
+- tentacle: TentQuery (primary); TentTeach fires in parallel on inlayHint
+- topic: TopicIdent("process")
+- reason_at_topic: `LetBinding("process", Inferred("from lambda body"))`
+- row_at_topic: EfPure
+- gradient_next: Some({annotation: WithPure, unlocks: Memoization, site: L1:5, proof: "all body fns are Pure"})
+
+**Expected:**
+- Query (hover): `` `process` runs `List<A> -> Int`. Pure. ``
+- Teach (inlayHint): ``Next: `with Pure` on L1 — memoizable.``
+- Why (deep-hover expand, RExplain): ``Why `List<A> -> Int`? Body fns (`filter`, `map`, `sum`) preserve structure; `sum` returns `Int`.``
+
+### AT2 — Declared-Pure body performs Console
+
+**Setup:**
+```
+fn log_save(x) with Pure =
+    println(x.name)      // L2
+    save(x)
+```
+**Situation:**
+- tentacle: TentVerify (primary); TentPropose fires on codeAction
+- topic: TopicError(E_PurityViolated, L1:1)
+- row_declared: EfPure; row_at_topic: EfClosed([Console])
+- reason_at_topic: UnifyFailed(EfPure, EfClosed([Console]))
+
+**Expected:**
+- Verify (diag ERROR): `` `log_save` declares `Pure` but calls `println` — `Console` leaks (L2). ``
+- Propose (codeAction Quick Fix): `` Drop `with Pure` — or handle `Console` here. ``
+
+### AT3 — `own` consumed twice
+
+**Setup:**
+```
+fn bad(own x) =
+    write_to_disk(x)       // L2
+    write_to_network(x)    // L3
+```
+**Situation:**
+- tentacle: TentTrace
+- topic: TopicError(E_OwnershipViolation, L3:24)
+- ownership_at_topic: OwnAt(L2) + ViolatedAt(L3)
+
+**Expected:**
+- Trace (diag ERROR): `` `own x` used at L2, then L3 — can't have it both ways. ``
+- Propose (codeAction): `` Make it `ref x` if you're reading only. ``
+
+### AT4 — Nested calls without pipe
+
+**Setup:** `sum(map(double, filter(positive, xs)))`
+
+**Situation:**
+- tentacle: TentTopology
+- topic: TopicSpan(L1:1-40)
+- nested_calls_at_span: 3
+
+**Expected:**
+- Topology (codeAction): ``Three stages — `|>` draws it better.``
+- Patch preview: `xs |> filter(positive) |> map(double) |> sum`
+
+### AT5 — `!Alloc` proof reachable
+
+**Setup:**
+```
+fn dot(xs: List<Float>, ys: List<Float>) -> Float =
+    zip(xs, ys) |> map(mul) |> sum
+```
+**Situation:**
+- tentacle: TentTeach (primary); TentPropose on codeAction
+- row_at_topic: EfClosed([Alloc])
+- gradient_next: Some({annotation: WithNotAlloc, unlocks: CRealTime, site: L1:40, proof: "index-fold rewrite verified"})
+
+**Expected:**
+- Teach (inlayHint): `Index-fold — unlocks real-time.`
+- Propose (codeAction): `Rewrite to index-fold?` + patch preview
+
+### AT6 — `inka why result`
+
+**Setup:** `let result = compute(data)`; user asks `inka why result`.
+
+**Situation:**
+- tentacle: TentWhy
+- topic: TopicAsk(QWhy("result"))
+- register: RExplain (user explicitly asked for depth)
+
+**Expected (multi-sentence, RExplain):**
+```
+`result` is `TensorShape([3,4])` because:
+  `compute` (L18) returns what `reshape` builds.
+  `reshape(X, [3,4])` (L24) proves `3*4 == 12`.
+  `X` (L24 arg) is `List<Float>[12]`.
+```
+
+### AT7 — Empty file
+
+**Setup:** fresh `.nx` opened; env is prelude only.
+
+**Situation:**
+- proof_derivable: false (no user bindings)
+
+**Expected:** `Silence`. Hover returns null. No inlayHints emitted. Status
+bar empty. Mentl does not greet.
+
+### AT8 — Hole present
+
+**Setup:** `fn bind_port(p: Int) -> Port = ?`
+
+**Situation:**
+- tentacle: TentPropose
+- topic: TopicHandle(hole_handle)
+- expected_type: Port
+- refinements: [`1 <= self && self <= 65535`]
+- multi-shot candidates: [`p` (pending verify), `8080`, `1024`]
+
+**Expected:**
+- Propose (completion list): `[p (pending verify), 8080, 1024]`
+- Propose (hover at hole): ``Hole expects `Port` (1 ≤ self ≤ 65535). 3 candidates — one pending verify.``
+
+### AT9 — User drops `!Alloc`
+
+**Setup:** User removes `with !Alloc` from `fn process`.
+
+**Situation:**
+- tentacle: TentTrace (diag INFO severity — user's choice, not ERROR)
+- row_declared: was EfClosed([!Alloc]); now inferred
+- gradient_next: Some({re-add !Alloc, unlocks: CRealTime, site: L1:X})
+
+**Expected:**
+- Trace (diag INFO): `` `!Alloc` dropped — real-time guarantee goes with it. ``
+- Teach (inlayHint): ``Re-add `with !Alloc` to restore?``
+
+### AT10 — Import misspelled
+
+**Setup:** `import compiler/old_paser` (typo: paser → parser).
+
+**Situation:**
+- tentacle: TentTrace (primary); TentPropose on codeAction
+- topic: TopicError(E_MissingModule, L1:8)
+- levenshtein_nearest: Some("compiler/parser", dist=2)
+
+**Expected:**
+- Trace (diag ERROR): `` `compiler/old_paser` not found. Did you mean `compiler/parser`? ``
+- Propose (codeAction Quick Fix): `` Change to `compiler/parser`? ``
+
+### Implementation acceptance criteria
+
+A `mentl_voice_default` implementation is **correct** iff:
+
+1. Given AT1–AT10's exact Situations, it produces the VoiceLines above (modulo modifier selection — any Playful modifier from the applicable subset is valid).
+2. Silence predicate returns Silence for AT7 regardless of which tentacle fires.
+3. All backtick-wrapped identifiers, types, effects, capabilities render via canonical renderers (no ad-hoc formatting).
+4. Every non-Silence VoiceLine has a Reason edge in the graph supporting its assertion (verifiable via TentWhy follow-up).
+5. Multi-tentacle concurrent firing (AT1, AT2, AT3, AT5, AT9, AT10) works — each tentacle owns its LSP surface (hover / inlayHint / diagnostic / codeAction); surfaces don't collide.
+6. Modifier selection is deterministic: same Situation hash → same modifier. Reproducible across runs.
+
+---
+
 ## 3. Proof-shape grammar — the dozen(ish) templates
+
+> **SUPERSEDED 2026-04-21.** §2.7.3's 8-form Tentacle→FormKind mapping replaces §3's 12 templates. The 12→8 remap table lives in §2.7.3. This section is retained as historical reasoning — the original candidate taxonomy from which the consolidated form emerged. Implementation reads from §2.7; this section is not spec.
 
 ### 3.0 ONE-at-a-time discipline (load-bearing, from INSIGHTS.md)
 
@@ -726,7 +1119,7 @@ the editor they already use.
 
 ## 8. Next design-session agenda (for Morgan + Mentl)
 
-1. **§1 constraints acknowledged.** Done — text files are
+1. **§1 constraints acknowledged.** DONE — text files are
    substrate; developers live in VS Code today; graph is live
    via IC.
 2. **§1.5 Op set completeness against LSP method coverage.** Walk
@@ -734,33 +1127,42 @@ the editor they already use.
    inlayHint, completion, codeAction, diagnostics, definition,
    references, rename, didChange, didSave, didOpen, didClose)
    maps cleanly.
-3. **§2 Q1-Q6 resolutions.** Walk each, decide, commit.
-4. **§3 grammar refinement.** Are the 12 templates right? Which
-   ones are structurally the same shape and should factor?
-   **Which surface does each one render through — VoiceLine
-   (high-signal, one-at-a-time) or inlay/status (ambient)?**
-5. **§4 register sharpening.** Voice test: write 20 example
-   VoiceLines; score each for register violations.
-6. **§5 multi-shot specifics.** Exact verification predicate;
-   exact cap semantics; tie-break rules; surfacing discipline.
-7. **§7 sub-handle scoping.** MV.2 (LSP + VS Code) is v1. MV.3
-   (terminal IDE) and MV.4 (web playground) get walkthroughs
-   later.
-8. **Naming.** Mentl locked (She/Her). The `Interact` effect
-   final name (candidates: `Interact`, `Session`, `Converse`).
-   The VS Code extension's marketplace listing (candidates:
-   `Inka`, `Inka + Mentl`, `Mentl for Inka`).
-9. **First-program scenario.** A walkthrough of a new developer's
-   first hour: they install the VS Code extension, open a new
-   `.ka` file, start typing. What does Mentl say first? How does
-   She introduce Herself? How does the one-at-a-time gradient
-   feel in practice? This scenario stress-tests every other
-   decision.
+3. **§2 Q1-Q6 resolutions.** DONE 2026-04-21 — see §2.7 closure.
+   Situation record, VoiceLine shape, Tentacle→Form mapping,
+   modifier bank, silence predicate, and turn anatomy all locked.
+   Session state reduced to `prior_turn_topic + register + voice_ring`
+   (no REPL parser needed — LSP methods ARE parsed intents).
+4. **§3 grammar refinement.** DONE 2026-04-21 — 12 templates
+   consolidated to 8 FormKind × 8 Tentacle via §2.7.3 mapping.
+   §3 retained as historical reasoning; §2.7.3 is spec.
+5. **§4 register sharpening.** DONE 2026-04-21 via §2.8 acceptance
+   tests (AT1–AT10). Every AT is a register-test; if `mentl_voice_default`
+   renders AT1–AT10 correctly, register is correct.
+6. **§5 multi-shot specifics.** Partially DONE — §5.Cap+pre-filter
+   section already locked (N=8, row-minimality, reason-chain tiebreak).
+   Remaining: exact verification predicate formalization, runner-up
+   retention schema in session state. Splits off as MV.7 when
+   multi-shot × arena question surfaces.
+7. **§7 sub-handle scoping.** Locked. MV.2 (LSP + VS Code) is v1
+   implementation scope. MV.3 (terminal IDE), MV.4 (web playground),
+   MV.5 (text↔graph sync), MV.6 (voice test), MV.7 (multi-shot ×
+   arena) get walkthroughs when their substrate is approached.
+8. **Naming.** Mentl locked (She/Her). `Interact` effect name
+   locked (not `Session` or `Converse` — see §1.5 decision). VS
+   Code extension marketplace listing TBD by Morgan pre-publish.
+9. **First-program scenario.** Open — a walkthrough of a new
+   developer's first hour. Now constrained by §2.7.5 silence
+   predicate: empty file = AT7 = Silence. First VoiceLine fires
+   at first proof-derivable observation (typically: user types
+   `fn main() = ` and Query speaks about `main`'s inferred type).
+   Splits off as MV.8 if it warrants a full scenario walkthrough;
+   otherwise folds into MV.2.
 10. **rust-analyzer architecture study.** Read rust-analyzer's
     `ide` crate + main event loop + LSP adapter as a concrete
     model. Identify what maps, what diverges (evidence-passing
     polymorphism; effect algebra; Mentl's voice surface). Use
     their solutions where possible; deviate only with reason.
+    Informs MV.2 implementation.
 
 ---
 
