@@ -136,9 +136,15 @@ Pivot to disposable translator IF AND ONLY IF one of these fires:
    indicating the thesis-scale regressions (e.g., refinement
    SMT not wiring across modules) need substrate decisions
    Hβ-bootstrap.md underspecified.
+4. **(Added 2026-04-23, from MSR §4)** H7 MS runtime walkthrough
+   (MSR Edit 1) surfaces hand-WAT scope > 8k additional lines OR
+   > 5 sessions. L2/L3 of the first-light Triangle require H7; if
+   hand-WATing H7 is prohibitively large, pivot to disposable
+   translator for post-L1 work while preserving hand-WAT as the
+   L1 reference artifact (per Hβ §12.2).
 
-If none fire in 3 sessions, sequential close-out is working.
-Continue.
+If none fire in 3 sessions AND H7 walkthrough closes within
+scope, sequential close-out is working. Continue.
 
 ---
 

@@ -193,6 +193,21 @@ supersedes earlier framings. Append-only; do not rewrite history
   estimate 13-20 sessions to MS2's core reality, plus open-ended γ
   for domain breadth. MSR names Priority-1 item 1.5 (H7 substrate)
   slotted after current item 1 LFeedback.
+- **2026-04-23** — **Bootstrap decomposition after MSR: L1 on
+  hand-WAT, L2/L3 gated by H7 scope.** MSR surfaced that self-
+  compile exercises `@resume=OneShot` only; `first-light-L1`
+  (byte-identical diff) closes on CURRENT hand-WAT substrate
+  without H7. But L2/L3 of Hβ §12's Triangle require MS runtime
+  (H7), which MSR estimates adds 8-15k hand-WAT lines — pushing
+  total from 50-150k to 60-165k. Updated BT §4 pivot criterion 4:
+  if H7 walkthrough implies > 8k hand-WAT lines or > 5 sessions,
+  pivot to disposable translator (Python, ~3-5k lines) at the
+  L1→L2 boundary. Hand-WAT preserved as L1 reference artifact
+  ("kept forever" intent intact). Hβ §12.1-12.3 formalize this
+  decomposition. Original 2026-04-20 "hand-written WAT, not
+  translator" decision revisited NOT reversed — applies to L1;
+  L2/L3 bootstrap path is evidence-driven at the H7 walkthrough
+  gate.
 - **2026-04-23** — **The Convergence: six threads keyed to the
   critical path.** Landed together as design contract before
   touching bootstrap substrate. Each thread reinforces the others:

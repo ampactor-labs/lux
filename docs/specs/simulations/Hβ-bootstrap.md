@@ -623,3 +623,88 @@ waits for the triangle.
 
 Legs 2 and 3 can progress in parallel with Leg 1 — don't serialize
 the triangle.
+
+### 12.1 The H7 implication — MS runtime expands bootstrap scope *(added 2026-04-23)*
+
+MSR surfaced that Leg 3 (cross-domain crucible pass) requires
+`crucible_oracle.nx` to actually RUN the oracle loop at runtime,
+which requires MS runtime emit (H7 — MS2 §1.2 gap). This has a
+sharp consequence for hand-WAT scope:
+
+**Leg 1 is achievable on current hand-WAT.** The self-compile path
+exercises `@resume=OneShot` ops only (lex → parse → infer → lower
+→ emit has no MultiShot perform sites in its execution trace, even
+though `src/mentl.nx` DECLARES MS ops that aren't invoked during
+self-compile). Current bootstrap (4,733 lines of WAT + BT linker
+pass) closes `first-light-L1` without any MS runtime substrate.
+
+**Legs 2 and 3 require MS runtime, which multiplies hand-WAT scope.**
+H7 substrate emits:
+- `LMakeContinuation(captures, ev_list, ret_slot)` LowExpr variant.
+- Per-MS-arm state machine desugaring (perform sites become
+  numbered states; continuation = `{state_index, saved_locals}`;
+  resume = jump + restore — per DESIGN Ch 9.8 tier-3 shape).
+- Trail-aware closure capture (the D.1 three handlers from Edit 4
+  each desugar differently on resume).
+
+Estimated additional hand-WAT: **+8-15k lines** on top of current
+~10-30k Tier 1 estimate. That shifts Hβ §2's total from 50-150k
+to 60-165k lines — pushing the upper edge of what human
+auditability supports comfortably.
+
+### 12.2 The disposable-translator pivot, re-evaluated
+
+This is the moment Hβ §0's framing deserves reconsideration. The
+PLAN.md 2026-04-20 decision "hand-written WAT, not Rust/C translator"
+was made before MSR surfaced H7's scope. Two paths forward:
+
+**Path A — All-in on hand-WAT.** Land BT linker + close L1 on
+current hand-WAT (no H7 needed). Then write H7 substrate in Inka;
+hand-WAT the MS emit path; close L2 + L3 via hand-WAT all the way
+through. Total hand-WAT: 60-165k lines. Sessions estimate: L1 in
+3, L2+L3 in additional 15-25.
+
+**Path B — Split L1 (hand-WAT) / L2-L3 (disposable translator).**
+Close L1 via hand-WAT (current trajectory). At L1, write a
+disposable translator (Python, ~3-5k lines per PLAN 2026-04-20's
+original scope for a full translator) that ALSO compiles the
+H7-extended substrate. Use the disposable for L2+L3 wall-clock;
+revisit hand-WAT extension post-L3 as optional reference-artifact
+work. Total disposable: 3-5k lines Python. Sessions estimate: L1
+in 3, disposable translator in 2-4, L2+L3 via disposable in 5-10.
+
+**Path B is substantially faster** and preserves hand-WAT as the
+L1 reference artifact (which was the original "kept forever"
+intent — byte-identical self-compile is what L1 proves, and that's
+in hand-WAT). H7's emit path lives in the disposable + later in
+Inka's own self-compile output (which, once L3 closes, IS the
+reference).
+
+**Decision trigger (added to BT §4 pivot criteria):** if MSR's
+Phase β.1 (H7 substrate) walkthrough surfaces hand-WAT scope >
+8k additional lines OR > 5 sessions, pivot to Path B. The decision
+is made at H7 walkthrough close, not at L1 close — so L1 can
+proceed on current hand-WAT regardless.
+
+### 12.3 Updated landing sequence
+
+**Leg 1 path:** current hand-WAT + BT linker → `first-light-L1`.
+No H7 dependency. **3-5 sessions.**
+
+**Decision gate at L1:** audit H7 walkthrough scope. If > 8k hand-WAT
+lines OR > 5 sessions implied, write disposable translator. Else,
+continue hand-WAT for H7.
+
+**Leg 2 path:** verify_smt handler + refinement witness in
+src/graph.nx → compile through chosen bootstrap path (hand-WAT or
+disposable) → `first-light-L2`. **2-3 sessions after L1.**
+
+**Leg 3 path:** crucible seeds (CRU) + each crucible's substrate
+piece (H7 + Choice + race + arena MS + etc.) → compile + run →
+`first-light` FINAL tag. **8-15 sessions after L2, mostly bounded
+by crucible-substrate landings, not bootstrap.**
+
+The rewrite: **Leg 1 is a hand-WAT milestone. Legs 2-3 are
+substrate milestones that USE a bootstrap (hand-WAT or
+disposable). The bootstrap isn't the critical path past L1 — the
+substrate landings are.**

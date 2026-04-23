@@ -456,20 +456,41 @@ Plus **Blockers (Category A resolution):** BT linker work (separate from this wa
 
 **α.1:** BT linker pass — cross-module reference resolution. Per
 BT walkthrough §5 (sequential close-out, 3-session timebox).
-Unblocks ALL Category A claims simultaneously.
+Unblocks most Category A claims simultaneously.
 
 **α.2:** Hβ §12 Leg 1 — byte-identical self-compilation. Tag
 `first-light-L1`.
 
-At end of α, the ~25 Category A claims are EXECUTING. The oracle
-loop runs. `inka teach crucibles/crucible_oracle.nx` (when
-crucible seed lands) produces the gradient hint.
+**Critical refinement (2026-04-23):** self-compilation EXERCISES
+`@resume=OneShot` ops ONLY. The code path lex → parse → infer →
+lower → emit has zero MultiShot perform sites in its trace, even
+though `src/mentl.nx` DECLARES MS ops that aren't invoked during
+self-compile (they fire under `inka teach`, not `inka compile`).
+
+**Consequence:** `first-light-L1` can close on the CURRENT hand-WAT
+substrate, without H7 (Edit 1 / MS runtime emit). The ~18 of ~25
+Category A claims that compose into the self-compile path are
+activated at L1; the ~7 that require MS runtime wait for β.1.
+
+At end of α, the OneShot Category A claims EXECUTE (trail rollback
+usable at compile time by inference; graph substrate live; etc.).
+MS-dependent Category A claims (the oracle loop actually
+TRANSFERRING CONTROL to multi-shot arms) wait for β.1.
 
 ### Phase β — Complete the kernel surface (Category B)
 
 **β.1:** Edit 1 — MS runtime emit (H7 walkthrough + substrate).
 MOST IMPORTANT single β piece. Unblocks every MS-op runtime.
 Likely 3-5 sessions.
+
+**β.1 GATE — the hand-WAT vs disposable-translator decision** (added
+from Hβ §12.2): H7 walkthrough close is the pivot trigger. If
+walkthrough surfaces hand-WAT scope > 8k additional lines OR > 5
+sessions, pivot to disposable translator (Python, ~3-5k lines per
+original PLAN 2026-04-20 scope) for L2/L3 work. Hand-WAT preserved
+as L1 reference artifact ("kept forever" intent satisfied by L1).
+Disposable translator takes β.1 onward; faster to L2/L3; Inka's
+own self-compile output eventually subsumes the disposable.
 
 **β.2:** Edit 2 — `Choice` effect (CE walkthrough). Small — 1
 session after H7 lands.
