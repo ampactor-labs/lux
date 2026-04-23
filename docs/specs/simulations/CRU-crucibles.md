@@ -134,18 +134,50 @@ close the trail atomically, or if `Synth` handler composition
 doesn't bound the candidate set, or if `verify_obligations` can't
 discharge a trivial pure row.
 
+### 1f. `crucibles/crucible_parallel.nx` — multi-core proves `><` × handler dispatch *(added 2026-04-23)*
+
+**Claim:** a compute-bound `><` pipeline parallelizes across N
+cores when `~> parallel_compose` is installed (per TH-threading.md);
+remains single-threaded when it isn't. Same source, different
+handler, different wall-clock. Proves primitive #3 (`><`) + the
+"handler IS the backend" thesis across the multi-core domain.
+
+**Fitness (TH §10 + Hβ §12 Leg 3):**
+- File compiles (both `render_parallel` and `render_sequential`).
+- Under `parallel_compose` handler: wall-clock scales sub-linearly
+  with `num_cores()` — target ≥ 2× speedup on 4-core laptop for
+  embarrassingly-parallel workloads.
+- Without `parallel_compose`: wall-clock is single-threaded
+  baseline.
+- **Semantic equivalence preserved**: both runs produce
+  bit-identical outputs regardless of thread-completion order
+  (determinism by branch-order preservation).
+
+**Fails if:** `Thread` / `SharedMemory` effects aren't declared
+in `lib/runtime/threading.nx`, or `parallel_compose` handler
+isn't implemented, or per-thread bump_allocator doesn't isolate
+heap state, or wasi-threads runtime dispatch isn't wired, or
+non-determinism surfaces from thread scheduling (which would
+indicate a compose-semantics bug — tracks must be order-
+preserving regardless of completion timing).
+
+**The embarrassing universe avoided:** Inka only uses one core.
+The real universe: adding one `~>` line lights up the rest of
+the CPU.
+
 ---
 
 ## 2. The directory — `crucibles/`
 
 ```
 crucibles/
-├── README.md           — one-line status per crucible (PASS/FAIL/PENDING)
+├── README.md              — one-line status per crucible (PASS/FAIL/PENDING)
 ├── crucible_dsp.nx
 ├── crucible_ml.nx
 ├── crucible_realtime.nx
 ├── crucible_web.nx
-└── crucible_oracle.nx
+├── crucible_oracle.nx
+└── crucible_parallel.nx   — added 2026-04-23 (TH-threading.md)
 ```
 
 `crucibles/` is NOT `examples/` (dissolved per PLAN 2026-04-21) and

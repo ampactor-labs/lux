@@ -193,6 +193,43 @@ supersedes earlier framings. Append-only; do not rewrite history
   (H7 substrate) slotted after current item 1 LFeedback. Each
   phase closes when its walkthrough-paragraph → substrate mapping
   is clean; no temporal budget.
+- **2026-04-23** — **TH walkthrough: threading substrate named.**
+  Morgan's prompt: "imagine how embarrassing it would be if Inka
+  only used one core." Right. The substrate was sketched in
+  DESIGN Ch 6 (Send/Sync via row) + Ch 7 (thread-local Alloc) +
+  Ch 2 (`><` parallel compose) but no walkthrough specified it,
+  no effect was declared, no crucible tested scaling. TH fills
+  the gap:
+  - **`Thread` effect** — spawn / await / current_id / num_cores.
+  - **`SharedMemory` effect** — atomics (load/store/rmw) +
+    wait/notify + fence for synchronization primitives.
+  - **`parallel_compose` handler** — intercepts `><` branches,
+    dispatches to OS threads via wasi-threads, installs
+    per-thread bump_allocator. Multi-core is a handler
+    installation; same source, add `~> parallel_compose`, the
+    rest of the CPU lights up.
+  - **Thread-local Alloc** per DESIGN Ch 7 — lock-free.
+  - **Cross-thread data via Pack/Unpack bytes** — thread-safe
+    by construction (no pointer crossing).
+  - **Send/Sync via row subsumption** — no `T: Send` bounds;
+    the compiler proves data-race freedom by walking effect
+    rows, same mechanism as `!Alloc` transitivity.
+  - **Graceful degradation** on WASI preview 1 / browsers
+    without SharedArrayBuffer: sequential fallback; semantics
+    preserved; row claims still satisfied.
+  - **Sixth crucible** — `crucibles/crucible_parallel.nx` added
+    to CRU §1f. Mandelbrot tile render; parallel vs sequential
+    side-by-side; fitness: ≥ 2× speedup on 4-core + bit-identical
+    outputs regardless of completion order.
+  - **Not a keyword; not a type-class.** `Thread` is an effect;
+    `parallel_compose` is a handler. The primitive is `><`;
+    threading is its multi-core interpretation.
+  - **Bootstrap impact:** hand-WAT needs Thread/SharedMemory
+    emit path (atomics opcodes + wasi-threads imports) for L3;
+    L1 unaffected (self-compile is single-threaded by intent).
+  - PLAN Pending Work: TH as new Priority-2 item (alongside
+    current 2 = Mentl voice); landing order is peer to β.2/β.3
+    in MSR sequence.
 - **2026-04-23** — **Bootstrap decomposition after MSR: L1 on
   hand-WAT, L2/L3 via Tier 3 self-hosting growth.** MSR surfaced
   that self-compile exercises `@resume=OneShot` only;
