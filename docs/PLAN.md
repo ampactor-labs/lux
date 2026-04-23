@@ -164,6 +164,35 @@ supersedes earlier framings. Append-only; do not rewrite history
   collapse into `main`. Linear ancestry — all branches shared
   `33e6a52` as merge base; fast-forward only, no force-push.
   Going forward: single trunk.
+- **2026-04-23** — **MSR walkthrough: multi-shot reality audit.**
+  MS2's territory map audited against `src/*.nx` reality.
+  Surprising finding: the oracle loop substrate is ALREADY
+  implemented (`src/mentl.nx:155-175` — gradient_next +
+  try_each_annotation_loop + apply_annotation_tentatively +
+  verify_after_apply + trail-based rollback). ~25 of ~60 MS2
+  claims are Category A (exists, bootstrap-gated). The gap is
+  narrower than MS2's tone suggested: six bounded edits +
+  first-light. MSR designs each:
+  - **Edit 1** — MS runtime emit path (heap-captured continuation)
+    → new walkthrough **H7-multishot-runtime.md** + substrate
+    touching `src/lower.nx`, `src/backends/wasm.nx`,
+    `bootstrap/src/emit_*.wat`.
+  - **Edit 2** — `Choice` effect + `choose` MS op → new
+    walkthrough **CE-choice-effect.md** + `lib/runtime/search.nx`.
+  - **Edit 3** — `verify_smt` handler (Arc F.1) + theory-classifier
+    → extend `src/verify.nx` + `lib/runtime/smt/` stub solvers,
+    formalized under existing RT/VK walkthrough territory.
+  - **Edit 4** — Arena-aware MS handlers (replay_safe /
+    fork_deny / fork_copy) per DESIGN Ch 6.D.1 → new walkthrough
+    **AM-arena-multishot.md** + `lib/runtime/arena_ms.nx`.
+  - **Edit 5** — `race` handler combinator → `lib/runtime/combinators.nx`.
+  - **Edit 6** — `lib/tutorial/02b-multishot.nx` — N-queens canonical.
+  Sequencing: Phase α (BT linker + first-light-L1) → Phase β
+  (six edits, ~8-12 sessions) → Phase γ (CRU crucibles run) →
+  Phase δ (MV voice + tutorial + first-light-L2/L3). Critical-path
+  estimate 13-20 sessions to MS2's core reality, plus open-ended γ
+  for domain breadth. MSR names Priority-1 item 1.5 (H7 substrate)
+  slotted after current item 1 LFeedback.
 - **2026-04-23** — **The Convergence: six threads keyed to the
   critical path.** Landed together as design contract before
   touching bootstrap substrate. Each thread reinforces the others:
