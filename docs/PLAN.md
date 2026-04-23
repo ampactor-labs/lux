@@ -188,26 +188,37 @@ supersedes earlier framings. Append-only; do not rewrite history
   - **Edit 5** — `race` handler combinator → `lib/runtime/combinators.nx`.
   - **Edit 6** — `lib/tutorial/02b-multishot.nx` — N-queens canonical.
   Sequencing: Phase α (BT linker + first-light-L1) → Phase β
-  (six edits, ~8-12 sessions) → Phase γ (CRU crucibles run) →
-  Phase δ (MV voice + tutorial + first-light-L2/L3). Critical-path
-  estimate 13-20 sessions to MS2's core reality, plus open-ended γ
-  for domain breadth. MSR names Priority-1 item 1.5 (H7 substrate)
-  slotted after current item 1 LFeedback.
+  (six edits) → Phase γ (CRU crucibles run) → Phase δ (MV voice +
+  tutorial + first-light-L2/L3). MSR names Priority-1 item 1.5
+  (H7 substrate) slotted after current item 1 LFeedback. Each
+  phase closes when its walkthrough-paragraph → substrate mapping
+  is clean; no temporal budget.
 - **2026-04-23** — **Bootstrap decomposition after MSR: L1 on
-  hand-WAT, L2/L3 gated by H7 scope.** MSR surfaced that self-
-  compile exercises `@resume=OneShot` only; `first-light-L1`
-  (byte-identical diff) closes on CURRENT hand-WAT substrate
-  without H7. But L2/L3 of Hβ §12's Triangle require MS runtime
-  (H7), which MSR estimates adds 8-15k hand-WAT lines — pushing
-  total from 50-150k to 60-165k. Updated BT §4 pivot criterion 4:
-  if H7 walkthrough implies > 8k hand-WAT lines or > 5 sessions,
-  pivot to disposable translator (Python, ~3-5k lines) at the
-  L1→L2 boundary. Hand-WAT preserved as L1 reference artifact
-  ("kept forever" intent intact). Hβ §12.1-12.3 formalize this
-  decomposition. Original 2026-04-20 "hand-written WAT, not
-  translator" decision revisited NOT reversed — applies to L1;
-  L2/L3 bootstrap path is evidence-driven at the H7 walkthrough
-  gate.
+  hand-WAT, L2/L3 via Tier 3 self-hosting growth.** MSR surfaced
+  that self-compile exercises `@resume=OneShot` only;
+  `first-light-L1` (byte-identical diff) closes on CURRENT
+  hand-WAT substrate without H7. L2/L3 of Hβ §12's Triangle
+  require MS runtime (H7), adding substrate. **Original
+  2026-04-20 "hand-written WAT, not Rust/C translator" decision
+  stands unchanged.** Growth past L1 is via Hβ §2 Tier 3
+  incremental self-hosting: VFINAL-on-partial-WAT compiles
+  H7-extended `src/lower.nx` + `src/backends/wasm.nx`; diff into
+  hand-WAT; integrate; audit per walkthrough paragraph. Inka
+  bootstraps through Inka. Hβ §12.1-12.4 formalize this path.
+  No foreign-language translator is introduced — the 2026-04-20
+  rationale ("a Rust translator is ~4k lines of drift mode 1 /
+  drift mode 5 risk") applies equally to Python (list-comp +
+  dict drift) or any other host. Growth is via the substrate
+  primitive (self-compile diff) that Hβ §2 Tier 3 named
+  originally. BT §4 rewritten from timeboxed pivot criteria to
+  structural continuation signals (walkthrough-paragraph
+  traceability, module-by-module progress, reference-soundness
+  audit). **Excises fluency drift: "N sessions" and "pivot to
+  disposable translator" were project-management-shaped
+  imports** (agile/scrum vocabulary + the "ship a throwaway
+  translator in $OTHER_LANGUAGE" idiom). Inka measures in
+  substrate clarity per walkthrough paragraph, not in temporal
+  units.
 - **2026-04-23** — **The Convergence: six threads keyed to the
   critical path.** Landed together as design contract before
   touching bootstrap substrate. Each thread reinforces the others:

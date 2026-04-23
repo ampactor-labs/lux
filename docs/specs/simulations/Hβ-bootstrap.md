@@ -629,7 +629,7 @@ the triangle.
 MSR surfaced that Leg 3 (cross-domain crucible pass) requires
 `crucible_oracle.nx` to actually RUN the oracle loop at runtime,
 which requires MS runtime emit (H7 — MS2 §1.2 gap). This has a
-sharp consequence for hand-WAT scope:
+sharp consequence for hand-WAT shape:
 
 **Leg 1 is achievable on current hand-WAT.** The self-compile path
 exercises `@resume=OneShot` ops only (lex → parse → infer → lower
@@ -638,73 +638,113 @@ though `src/mentl.nx` DECLARES MS ops that aren't invoked during
 self-compile). Current bootstrap (4,733 lines of WAT + BT linker
 pass) closes `first-light-L1` without any MS runtime substrate.
 
-**Legs 2 and 3 require MS runtime, which multiplies hand-WAT scope.**
-H7 substrate emits:
+**Legs 2 and 3 require MS runtime emit.** H7 substrate adds:
 - `LMakeContinuation(captures, ev_list, ret_slot)` LowExpr variant.
 - Per-MS-arm state machine desugaring (perform sites become
   numbered states; continuation = `{state_index, saved_locals}`;
   resume = jump + restore — per DESIGN Ch 9.8 tier-3 shape).
-- Trail-aware closure capture (the D.1 three handlers from Edit 4
-  each desugar differently on resume).
+- Trail-aware closure capture (the D.1 three handlers from MSR
+  Edit 4 each desugar differently on resume).
 
-Estimated additional hand-WAT: **+8-15k lines** on top of current
-~10-30k Tier 1 estimate. That shifts Hβ §2's total from 50-150k
-to 60-165k lines — pushing the upper edge of what human
-auditability supports comfortably.
+### 12.2 How hand-WAT grows past L1 — Tier 3 incremental self-hosting
 
-### 12.2 The disposable-translator pivot, re-evaluated
+**Morgan's 2026-04-20 decision holds.** Hand-WAT is the reference
+soundness artifact, kept forever. Growth past L1 is NOT via a
+disposable translator in a foreign language — Rust, C, Python, or
+otherwise. The 2026-04-20 rationale applies to every host language
+equally: a translator imports its author's fluency into the seed
+compiler's emit shape. Python doesn't carry vtable-drift but
+carries list-comprehension-and-dict drift (drift 21-family). Every
+host language has its own version of the trap. None is a real
+escape from the trap.
 
-This is the moment Hβ §0's framing deserves reconsideration. The
-PLAN.md 2026-04-20 decision "hand-written WAT, not Rust/C translator"
-was made before MSR surfaced H7's scope. Two paths forward:
+**The Inka-native growth path is Hβ §2 Tier 3 — incremental
+self-hosting.** Once L1 closes, the primitive exists to grow
+hand-WAT from Inka itself:
 
-**Path A — All-in on hand-WAT.** Land BT linker + close L1 on
-current hand-WAT (no H7 needed). Then write H7 substrate in Inka;
-hand-WAT the MS emit path; close L2 + L3 via hand-WAT all the way
-through. Total hand-WAT: 60-165k lines. Sessions estimate: L1 in
-3, L2+L3 in additional 15-25.
+1. H7 walkthrough closes; its substrate lands in `src/lower.nx` +
+   `src/backends/wasm.nx` as Inka code.
+2. The L1-level hand-WAT compiles the H7-extended `src/`: each
+   module via VFINAL-on-partial-WAT, one module at a time per the
+   dependency order already specified in Hβ §2 Tier 3.
+3. The output WAT is diffed against the current hand-WAT. New
+   regions (MS-emit patterns for `LMakeContinuation`) are
+   integrated into hand-WAT. Each addition traces to a Hβ §1
+   convention entry (add entries before transcription).
+4. Audit: Morgan + Opus trace each added pattern to its
+   walkthrough paragraph. When the paragraph → lines mapping is
+   clear, the addition is committed. When it isn't, the
+   walkthrough is extended first.
 
-**Path B — Split L1 (hand-WAT) / L2-L3 (disposable translator).**
-Close L1 via hand-WAT (current trajectory). At L1, write a
-disposable translator (Python, ~3-5k lines per PLAN 2026-04-20's
-original scope for a full translator) that ALSO compiles the
-H7-extended substrate. Use the disposable for L2+L3 wall-clock;
-revisit hand-WAT extension post-L3 as optional reference-artifact
-work. Total disposable: 3-5k lines Python. Sessions estimate: L1
-in 3, disposable translator in 2-4, L2+L3 via disposable in 5-10.
+**Inka bootstraps through Inka.** The primitive is already in Hβ
+§2 Tier 3; MSR makes it the explicit post-L1 path.
 
-**Path B is substantially faster** and preserves hand-WAT as the
-L1 reference artifact (which was the original "kept forever"
-intent — byte-identical self-compile is what L1 proves, and that's
-in hand-WAT). H7's emit path lives in the disposable + later in
-Inka's own self-compile output (which, once L3 closes, IS the
-reference).
+### 12.3 Structural continuation signals — what tells us hand-WAT is still the medium
 
-**Decision trigger (added to BT §4 pivot criteria):** if MSR's
-Phase β.1 (H7 substrate) walkthrough surfaces hand-WAT scope >
-8k additional lines OR > 5 sessions, pivot to Path B. The decision
-is made at H7 walkthrough close, not at L1 close — so L1 can
-proceed on current hand-WAT regardless.
+No temporal criteria. No session count. No line budget. The
+substrate is done when the substrate is done; medium integrity is
+the measure.
 
-### 12.3 Updated landing sequence
+**Continue hand-WAT (via Tier 3 growth) when:**
 
-**Leg 1 path:** current hand-WAT + BT linker → `first-light-L1`.
-No H7 dependency. **3-5 sessions.**
+1. **Each new line traces to a walkthrough paragraph.** If a Hβ
+   §1 convention entry OR an H7/AM/CE walkthrough paragraph forces
+   the WAT shape, audit is intact.
 
-**Decision gate at L1:** audit H7 walkthrough scope. If > 8k hand-WAT
-lines OR > 5 sessions implied, write disposable translator. Else,
-continue hand-WAT for H7.
+2. **Every pattern in the hand-WAT appears in Hβ §1's conventions
+   list.** New shapes are added to §1 FIRST, then transcribed.
 
-**Leg 2 path:** verify_smt handler + refinement witness in
-src/graph.nx → compile through chosen bootstrap path (hand-WAT or
-disposable) → `first-light-L2`. **2-3 sessions after L1.**
+3. **VFINAL-on-partial-WAT compiles at least one additional
+   module each growth cycle.** Tier 3 is closing monotonically.
 
-**Leg 3 path:** crucible seeds (CRU) + each crucible's substrate
-piece (H7 + Choice + race + arena MS + etc.) → compile + run →
-`first-light` FINAL tag. **8-15 sessions after L2, mostly bounded
-by crucible-substrate landings, not bootstrap.**
+4. **Morgan + Opus can audit the growth patch paragraph-by-
+   paragraph in one sitting.** The artifact retains its reference-
+   soundness role.
 
-The rewrite: **Leg 1 is a hand-WAT milestone. Legs 2-3 are
-substrate milestones that USE a bootstrap (hand-WAT or
-disposable). The bootstrap isn't the critical path past L1 — the
-substrate landings are.**
+**Stop and reshape (not pivot to a foreign tool) when:**
+
+1. **Hand-WAT duplicates Inka substrate logic.** If a primitive's
+   emit requires hand-unrolling what Inka's own row algebra or
+   handler mechanism expresses compactly, the shape is wrong. The
+   walkthrough is underspecified. Stop; extend the walkthrough;
+   re-derive the shape.
+
+2. **Walkthrough paragraph → hand-WAT line mapping is no longer
+   traceable at audit time.** The artifact has drifted off its
+   source-of-truth. Stop; re-audit against the walkthrough;
+   restructure.
+
+3. **The required extension has no walkthrough paragraph.** The
+   design question isn't resolved yet. Stop; write the walkthrough
+   first; resume emission only when the contract is on the page.
+
+**None of the three signals is "too many lines" or "too many
+sessions."** Scope is a consequence of substrate necessity, not
+an input to the pivot decision.
+
+### 12.4 Landing sequence — structural, not temporal
+
+**Leg 1 path.** BT linker pass lands; current hand-WAT + BT
+output closes `first-light-L1`. No H7 dependency. Size is whatever
+BT's work needs; depth is whatever the walkthrough-paragraph audit
+demands.
+
+**Past L1:** every substrate landing (H7, Choice, verify_smt,
+arena-MS, race, crucibles) follows the Tier 3 growth pattern.
+Write the walkthrough; write the substrate in Inka; compile via
+VFINAL-on-partial-WAT; diff into hand-WAT; audit. The critical
+path isn't "bootstrap" anymore — it's substrate, with bootstrap
+growing alongside as a Tier 3 mirror.
+
+**Leg 2.** `verify_smt` handler + one refinement witness in
+`src/graph.nx`. Growth via Tier 3. Tag `first-light-L2` when
+witness discharges under the handler swap.
+
+**Leg 3.** Crucible seeds land; each crucible's named substrate
+piece lands (H7 unblocks `crucible_oracle.nx`; Choice unblocks
+others); each via Tier 3 growth. Tag `first-light` when all five
+crucibles pass.
+
+**The bootstrap isn't the critical path past L1.** The substrate
+landings are. Hand-WAT grows as their mirror, audited per
+walkthrough paragraph, never via a foreign-tool shortcut.

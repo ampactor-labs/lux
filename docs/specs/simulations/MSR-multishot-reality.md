@@ -455,8 +455,9 @@ Plus **Blockers (Category A resolution):** BT linker work (separate from this wa
 ### Phase α — Unblock execution (Category A activation)
 
 **α.1:** BT linker pass — cross-module reference resolution. Per
-BT walkthrough §5 (sequential close-out, 3-session timebox).
-Unblocks most Category A claims simultaneously.
+BT walkthrough §5 (sequential close-out; structural continuation
+signals per BT §4, not temporal). Unblocks most Category A claims
+simultaneously.
 
 **α.2:** Hβ §12 Leg 1 — byte-identical self-compilation. Tag
 `first-light-L1`.
@@ -481,29 +482,28 @@ TRANSFERRING CONTROL to multi-shot arms) wait for β.1.
 
 **β.1:** Edit 1 — MS runtime emit (H7 walkthrough + substrate).
 MOST IMPORTANT single β piece. Unblocks every MS-op runtime.
-Likely 3-5 sessions.
+Walkthrough-first per Anchor 7; lands when its walkthrough
+paragraphs resolve every design question. Hand-WAT grows via
+Tier 3 (Hβ §2 + §12.2) — VFINAL-on-partial-WAT compiles
+H7-extended `src/lower.nx` + `src/backends/wasm.nx`; diff into
+hand-WAT; audit per walkthrough paragraph. No foreign-language
+shortcut; no session budget.
 
-**β.1 GATE — the hand-WAT vs disposable-translator decision** (added
-from Hβ §12.2): H7 walkthrough close is the pivot trigger. If
-walkthrough surfaces hand-WAT scope > 8k additional lines OR > 5
-sessions, pivot to disposable translator (Python, ~3-5k lines per
-original PLAN 2026-04-20 scope) for L2/L3 work. Hand-WAT preserved
-as L1 reference artifact ("kept forever" intent satisfied by L1).
-Disposable translator takes β.1 onward; faster to L2/L3; Inka's
-own self-compile output eventually subsumes the disposable.
+**β.2:** Edit 2 — `Choice` effect (CE walkthrough). Small
+substrate addition.
 
-**β.2:** Edit 2 — `Choice` effect (CE walkthrough). Small — 1
-session after H7 lands.
-
-**β.3:** Edit 5 — `race` combinator. 1 session.
+**β.3:** Edit 5 — `race` combinator. Library-level.
 
 **β.4:** Edit 4 — Arena-aware MS handlers (AM walkthrough).
-2-3 sessions.
+Ownership substrate.
 
-**β.5:** Edit 3 — `verify_smt` + theory stubs. 2-3 sessions for
-substrate + one real solver bridge.
+**β.5:** Edit 3 — `verify_smt` + theory stubs. Handler-swap
+substrate + at least one real solver bridge.
 
-Total β: ~8-12 sessions after α closes.
+Ordering within β is partially independent: β.2 (Choice) and
+β.3 (race) can land before β.1 (they're declarations + library
+code, no emit-path change); β.4 and β.5 have real dependencies
+on β.1 since they exercise MS at runtime.
 
 ### Phase γ — Crucibles run (Category C — MS2 §2 + §4)
 
@@ -548,36 +548,33 @@ for MS-specific drift modes (§5 of MS2).
                                             │
 α.2 (first-light-L1) ──┬──────────────┐     │
                        │              │     │
+β.2 (Choice)* ─────────┤              │     │
+β.3 (race)* ───────────┤              │     │
+                       │              │     │
 β.1 (H7 MS runtime) ───┤              │     │
                        │              │     │
-β.2 (Choice) ──────────┼──────┐       │     │
-                       │      │       │     │
-β.3 (race) ────────────┤      │       │     │
-                       │      │       │     │
-β.4 (arena MS) ────────┤      │       │     │
-                       │      │       │     │
-β.5 (verify_smt) ──────┘      │       │     │
-                              │       │     │
-γ.1 (CRU seeds land) ─────────┤       │     │
-                              │       │     │
+β.4 (arena MS) ────────┤              │     │
+β.5 (verify_smt) ──────┘              │     │
+                                      │     │
+γ.1 (CRU seeds land) ─────────┐       │     │
 γ.2 (oracle crucible pass) ───┤       │     │
-                              │       │     │
 γ.3-4 (domain crucibles) ─────┤       │     │
                               │       │     │
 δ.1 (MV.2 voice) ─────────────┤       │     │
-                              │       │     │
 δ.2 (tutorial 02b) ───────────┤       │     │
-                              │       │     │
 δ.3 (first-light-L2) ─────────┘       │     │
                                       │     │
-δ.4 (first-light FINAL) ──────────────┤─────┘
-                                      │
-δ.5 (drift guardrails) ───────────────┘
+δ.4 (first-light FINAL) ──────────────┘─────┘
 ```
 
-**Critical path:** α.1 → α.2 → β.1 → (β.2 || β.3 || β.4 || β.5 in parallel) → γ.1 → γ.2 → δ.3 → δ.4.
+*β.2 (Choice) and β.3 (race) can land before β.1 — they're
+declarations + library code, no emit-path changes. β.4 and β.5
+require β.1 because they exercise MS at runtime.
 
-Estimated sessions: α (2-3) + β (8-12) + γ.1-2 (2-3) + δ.3-4 (1-2) = **13-20 sessions** for MS2's core reality (excluding domain breadth in γ.3-4 which is open-ended).
+**Critical path** (structural, not temporal): α.1 → α.2 → β.1 →
+γ.2 → δ.3 → δ.4. Each node closes when its walkthrough-paragraph
+→ substrate mapping is clean and audit returns 0. No budget;
+scope emerges from substrate necessity.
 
 ---
 
@@ -585,7 +582,7 @@ Estimated sessions: α (2-3) + β (8-12) + γ.1-2 (2-3) + δ.3-4 (1-2) = **13-20
 
 | Risk | Probability | Mitigation |
 |------|-------------|------------|
-| H7 MS runtime emit is harder than scoped (unexpected nesting cases) | Medium | Walkthrough first, per Anchor 7; if walkthrough reveals scope > 5 sessions, split into H7.1 + H7.2 |
+| H7 MS runtime emit is harder than scoped (unexpected nesting cases) | Medium | Walkthrough first, per Anchor 7; if walkthrough reveals additional substrate questions (e.g., continuation lifetime across module boundaries), split into named peer walkthroughs H7.1 + H7.2 rather than one over-scoped walkthrough |
 | Cross-module MS composition (MS2 §9.3 open question) surfaces during β.1 | Medium | Addressed alongside BT linker (α.1) — linker preserves resume discipline metadata |
 | `verify_smt` bindings heavier than expected (z3 FFI via WASI preview 1) | Medium | Stub theory solvers with pure-Inka linear arith first; real solver FFI is Arc F.1 follow-on |
 | Oracle loop latency exceeds 50ms budget on real codebases | Medium | Per MO §3 mitigations: hoist checkpoint, race, incremental re-infer, SMT cache; measure continuously |
@@ -598,7 +595,7 @@ Estimated sessions: α (2-3) + β (8-12) + γ.1-2 (2-3) + δ.3-4 (1-2) = **13-20
 
 - NOT a complete H7 walkthrough (H7 is its own deliverable).
 - NOT a complete CE / VK / AM walkthrough (each is its own deliverable).
-- NOT a claim that MS2's entire §2-§4 aspiration is reachable in N sessions — those are open-ended per CRU's "crucibles lead the language" protocol.
+- NOT a schedule. Inka doesn't measure in sessions; it measures in substrate clarity per walkthrough paragraph. The territory in MS2 §2-§4 is open-ended per CRU's "crucibles lead the language" protocol — each domain crucible lands when its substrate is ready.
 - NOT a commitment to land ALL six edits sequentially — some (Edit 2, 5, 6) can parallelize with Edit 1 if cheap subagent dispatch is exercised.
 
 ---
@@ -649,5 +646,7 @@ real.**
 
 *The medium is mostly there. Close first-light, land six edits,
 run five crucibles. What looks like a research program is actually
-a 13-20 session engineering path to the oracle that proves its
-own claims.*
+a walkthrough-sequenced substrate build — each piece lands when
+its contract is on the page and its audit returns clean. No
+schedule, no budget, no pivot to a foreign tool. The oracle proves
+its own claims through the medium expressing itself.*

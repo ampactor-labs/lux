@@ -121,30 +121,64 @@ dissolves into an Inka `link_handler` on the graph.
 
 ---
 
-## 4. The timebox decision — criteria
+## 4. Structural continuation signals — what tells us sequential close-out is working
 
-Pivot to disposable translator IF AND ONLY IF one of these fires:
+*Revised 2026-04-23. Prior version included session-count and
+line-budget pivot criteria, and named a disposable-translator
+pivot option. Both were fluency-drift imports (agile/scrum
+vocabulary + the "write a translator in $OTHER_LANGUAGE" idiom).
+Morgan's 2026-04-20 decision stands: hand-WAT is the reference
+soundness artifact; growth past L1 is via Hβ §2 Tier 3 incremental
+self-hosting, never via a foreign-language translator.*
 
-1. **Sequential close-out exceeds 3 sessions without a single
-   module beyond `verify.nx` validating end-to-end.** Three
-   sessions = ~$3000-8000 of Morgan-hours at current velocity.
-2. **The linker turns out to require substrate work** (e.g.,
-   evidence-passing depends on cross-module handler closures the
-   seed compiler doesn't yet synthesize). This is a drift-mode-9
-   sign — feature gap disguised as "just linker work."
-3. **A crucible file fails to compile even with the linker,**
-   indicating the thesis-scale regressions (e.g., refinement
-   SMT not wiring across modules) need substrate decisions
-   Hβ-bootstrap.md underspecified.
-4. **(Added 2026-04-23, from MSR §4)** H7 MS runtime walkthrough
-   (MSR Edit 1) surfaces hand-WAT scope > 8k additional lines OR
-   > 5 sessions. L2/L3 of the first-light Triangle require H7; if
-   hand-WATing H7 is prohibitively large, pivot to disposable
-   translator for post-L1 work while preserving hand-WAT as the
-   L1 reference artifact (per Hβ §12.2).
+**Continue sequential close-out when:**
 
-If none fire in 3 sessions AND H7 walkthrough closes within
-scope, sequential close-out is working. Continue.
+1. **Each linker addition traces to a substrate walkthrough
+   paragraph.** If the pass resolves cross-module symbols per a
+   shape the existing walkthroughs already name (import graph,
+   scheme serialization, handler chain composition), the work is
+   transcription, not re-design.
+
+2. **The first module past `verify.nx` validates without
+   surfacing a substrate gap.** If the second module requires only
+   the linker pass (no new effect declarations, no new primitive
+   semantics), the pattern generalizes to the other twelve.
+
+3. **Morgan + Opus can audit each linker extension against its
+   walkthrough in one sitting.** Reference-soundness is intact.
+
+**Stop and reshape (not pivot to a foreign tool) when:**
+
+1. **The linker requires substrate the existing walkthroughs
+   haven't named.** Example: if cross-module handler-chain
+   composition needs a mechanism Hβ / H1 / HC haven't specified,
+   the design question isn't resolved yet. Stop; write the
+   walkthrough (or extend an existing one); resume linker work
+   only after the contract is on the page.
+
+2. **A module reveals thesis-scale regression** — refinement
+   obligations don't serialize across modules, or evidence
+   passing breaks at module boundaries. Stop; name the gap as a
+   new substrate walkthrough; land it; resume.
+
+3. **The linker itself starts duplicating Inka substrate logic.**
+   If the linker pass is reimplementing env_extend or
+   handler_chain in Python/shell, it has become a second
+   compiler. Stop; move the logic to `src/` where it belongs;
+   call it from the linker as the substrate.
+
+**No temporal criteria.** "Three sessions" was project-management
+vocabulary that Inka doesn't speak. The linker lands when its
+walkthrough paragraphs have been transcribed to WAT and the
+audit is clean. Scope is a consequence of substrate necessity.
+
+**No disposable translator.** If a Python/Rust/C translator would
+"speed things up," it would do so by importing that language's
+fluency into the seed compiler's emit shape — the exact drift
+Morgan's 2026-04-20 decision excludes. Growth past L1 is via
+Tier 3 (Hβ §2): VFINAL-on-partial-WAT compiles extended `src/*.nx`;
+diff against hand-WAT; integrate; audit per walkthrough
+paragraph. Inka bootstraps through Inka.
 
 ---
 
