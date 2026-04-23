@@ -17,7 +17,7 @@ echo "=== Tier 2: Compiler Expansion ==="
 cat src/*.nx lib/**/*.nx | wasmtime run bootstrap/expander.wasm > bootstrap/compiler_expanded.wat
 
 # Verify that the generated file is non-empty and contains our template marker.
-if grep -q "EXPANDED TEMPLATE START" bootstrap/compiler_expanded.wat; then
+if grep -q "The Inka ADT Match Dispatch Template" bootstrap/compiler_expanded.wat; then
     echo "✅ Expander successfully processed the source tree and emitted WAT."
     echo "FIRST LIGHT ACHIEVED."
     exit 0

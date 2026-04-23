@@ -1,4 +1,19 @@
+import os
 
+# Read templates
+def read_template(name):
+    with open(f"bootstrap/templates/{name}.wat", "r") as f:
+        return f.read()
+
+match_tmpl = read_template("match_dispatch")
+handler_tmpl = read_template("handler_dispatch")
+pipes_tmpl = read_template("topology_pipes")
+alloc_tmpl = read_template("heap_alloc")
+
+# We will embed these templates into the data section of expander.wat.
+# We also write a basic expander.wat structure that reads stdin, does 4 replacements, and writes stdout.
+
+wat_source = """
 (module
   (import "wasi_snapshot_preview1" "fd_read" (func $wasi_fd_read (param i32 i32 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "fd_write" (func $wasi_fd_write (param i32 i32 i32 i32) (result i32)))
@@ -13,21 +28,28 @@
   ;; 2000: handler_dispatch
   ;; 3000: topology_pipes
   ;; 4000: heap_alloc
-  (data (i32.const 1000) ";; bootstrap/templates/match_dispatch.wat\n;; \n;; The Inka ADT Match Dispatch Template\n;; Resolves the tag of any scrutinee by checking it against HEAP_BASE.\n;; If < HEAP_BASE, it is a nullary sentinel (the value IS the tag).\n;; If >= HEAP_BASE, it is a pointer (the tag is loaded from offset 0).\n\n(local $scrutinee i32)\n(local $tag i32)\n\n;; Expects scrutinee on the stack.\n(local.set $scrutinee)\n\n(if (i32.lt_u (local.get $scrutinee) (global.get $heap_base))\n  (then \n    ;; Nullary variant: the value itself is the tag ID.\n    (local.set $tag (local.get $scrutinee))\n  )\n  (else \n    ;; Fielded variant: the value is a pointer. Tag is at offset 0.\n    (local.set $tag (i32.load (local.get $scrutinee)))\n  )\n)\n\n;; The macro expander injects the nested blocks and br_table here\n;; based on the number of arms.\n;;\n;; Example expansion:\n;; (block $match_end\n;;   (block $arm1\n;;     (block $arm0\n;;       (br_table $arm0 $arm1 (local.get $tag))\n;;     )\n;;     ;; ... arm 0 logic ...\n;;     (br $match_end)\n;;   )\n;;   ;; ... arm 1 logic ...\n;; )\n")
-  (data (i32.const 3000) ";; bootstrap/templates/handler_dispatch.wat\n;; \n;; The Inka Handler Dispatch Template (No VTables)\n;; Performs polymorphic dispatch via Koka-style evidence passing.\n;; The closure record contains the function index at offset 4.\n\n;; Example usage:\n;; (local.set $closure)\n;; ;; ... push args ...\n;; ;; push closure as the last argument (the __state param)\n;; (local.get $closure)\n;; ;; load the function index\n;; (i32.load offset=4 (local.get $closure))\n;; (call_indirect (type $expected_sig))\n\n;; The expander injects this pattern for every polymorphic `perform` or closure invocation.\n;;\n;; MACRO_TEMPLATE_START\n(local.get $closure_ptr)\n(i32.load offset=4 (local.get $closure_ptr))\n(call_indirect (type $##SIG_INDEX##))\n;; MACRO_TEMPLATE_END\n")
-  (data (i32.const 5000) ";; bootstrap/templates/topology_pipes.wat\n;; \n;; The Inka Topology Pipes Template\n;; Defines the WAT structure for the 5 verbs: |> <| >< ~> <~\n;;\n;; Since verbs define topology, they compile down to block structures\n;; and call chains.\n\n;; MACRO_TEMPLATE_START(PIPE_FORWARD)\n;; `a |> b` becomes a direct argument pass.\n;; ... push a ...\n(call $##B_FUNC##)\n;; MACRO_TEMPLATE_END\n\n;; MACRO_TEMPLATE_START(PIPE_FEEDBACK)\n;; `a <~ b` becomes a looping state handler.\n(block $feedback_exit\n  (loop $feedback_loop\n    ;; The ambient handler provides the back-edge value on the stack.\n    ;; If the ambient handler halts, we break.\n    ;; (br $feedback_exit)\n    ;; Otherwise, we loop.\n    ;; (br $feedback_loop)\n  )\n)\n;; MACRO_TEMPLATE_END\n")
-  (data (i32.const 7000) ";; bootstrap/templates/heap_alloc.wat\n;; \n;; The Inka Heap Allocation Template\n;; \"The Heap Has One Story\"\n;; Used for all ADT variants, closures, records, and evidence records.\n\n;; MACRO_TEMPLATE_START(HEAP_ALLOC)\n;; Evaluates to a pointer to a newly allocated block of memory.\n;; Expects no arguments.\n;; Emits:\n;; (local $ptr)\n(local.set $ptr (call $alloc (i32.const ##SIZE##)))\n;;\n;; Then, the compiler will emit successive stores:\n;; (i32.store (local.get $ptr) (local.get $field_0))\n;; (i32.store offset=4 (local.get $ptr) (local.get $field_1))\n;; ...\n;; (local.get $ptr)\n;; MACRO_TEMPLATE_END\n")
+"""
 
+def add_data(offset, content):
+    escaped = content.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+    return f'  (data (i32.const {offset}) "{escaped}")\n'
+
+wat_source += add_data(1000, match_tmpl)
+wat_source += add_data(3000, handler_tmpl)
+wat_source += add_data(5000, pipes_tmpl)
+wat_source += add_data(7000, alloc_tmpl)
+
+wat_source += f"""
   (global $match_ptr i32 (i32.const 996))
   (global $handler_ptr i32 (i32.const 2996))
   (global $pipes_ptr i32 (i32.const 4996))
   (global $alloc_ptr i32 (i32.const 6996))
 
   (func $init_data
-    (i32.store (i32.const 996) (i32.const 1044))
-    (i32.store (i32.const 2996) (i32.const 743))
-    (i32.store (i32.const 4996) (i32.const 734))
-    (i32.store (i32.const 6996) (i32.const 600))
+    (i32.store (i32.const 996) (i32.const {len(match_tmpl)}))
+    (i32.store (i32.const 2996) (i32.const {len(handler_tmpl)}))
+    (i32.store (i32.const 4996) (i32.const {len(pipes_tmpl)}))
+    (i32.store (i32.const 6996) (i32.const {len(alloc_tmpl)}))
   )
 
   (func $alloc (param $size i32) (result i32)
@@ -105,3 +127,9 @@
     (call $wasi_proc_exit (i32.const 0))
   )
 )
+"""
+
+with open("bootstrap/expander.wat", "w") as f:
+    f.write(wat_source)
+
+print("expander.wat generated.")
