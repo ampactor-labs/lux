@@ -200,3 +200,192 @@ type TurnRecord
       line:      VoiceLine,
       span_at:   Span
     })
+
+// ═══ Path / FileHandle — project tree addressing ════════════════════
+/// Path wraps a String. Nominal — distinguishes file-system paths from
+/// arbitrary strings at the type layer. Construction is explicit:
+/// `Path(s)`. Refinement (self has no `..` / resolved / within project
+/// root) arrives as a `where` clause when the project-sandbox handler
+/// lands (post-first-light territory).
+/// Primitive: #6 (Path is a refinement-ready alias — today without
+/// predicate; tomorrow with).
+
+type Path
+  = Path(String)
+
+/// FileHandle wraps an integer index into the session's open-file
+/// table. Opaque at the user surface — the handler that holds the
+/// table projects handles back to Path / text on demand via file_text
+/// + save_file. The distinction from Path is lifecycle: Path is the
+/// addressing scheme; FileHandle is the live resource Mentl holds
+/// while editing.
+
+type FileHandle
+  = FileHandle(Int)
+
+// ═══ TreeEntry — one node in a project-tree walk ════════════════════
+/// tree_list projects the on-disk tree. Each entry is file or
+/// directory; lazy (directories expand on demand).
+
+type TreeEntry
+  = TreeFile(Path)
+  | TreeDir(Path)                   // expand via another tree_list call
+
+// ═══ Cursor / CursorTarget — attention substrate ════════════════════
+/// Cursor is the human's attention at a moment. Handle + Reason —
+/// which graph node, and why Mentl thinks so (last focus op / last
+/// edit's mutation site / last ask's target — the Reason traces
+/// back).
+/// Primitives: #1 (Handle) + #8 (Reason).
+
+type Cursor
+  = Cursor(Int, Reason)             // handle, reason
+
+/// CursorTarget is the input to `focus` — the various ways a surface
+/// can name what to attend to. Maps to a Cursor by resolving through
+/// the graph (span → handle lookup via span_index).
+
+type CursorTarget
+  = TargetHandle(Int)
+  | TargetSpan(Span)
+  | TargetIdent(String)
+
+// ═══ Answer — result of ask / run_query ═════════════════════════════
+/// Question (declared in query.nx) is structured: QTypeAt, QWhy,
+/// QRefsOf, etc. Answer is the response — always carries the Reason
+/// supporting it (acceptance criterion: no Answer without Reason).
+/// Silence is a valid Answer when the question is ill-posed or
+/// unprovable.
+
+type Answer
+  = AnsType(Ty, Reason)
+  | AnsRow(EffRow, Reason)
+  | AnsReason(Reason)               // full Reason chain for QWhy
+  | AnsRefs(List, Reason)           // List<Span> of references
+  | AnsSilence
+
+// ═══ EditOutcome — what edit() returns ══════════════════════════════
+/// Edit is a Patch applied to a FileHandle. Outcome is either
+/// accepted (graph re-projected, new handle set) or rejected (the
+/// resulting text failed to parse / lower / type-check).
+/// Rejection carries the diagnostic so the surface can render it.
+
+type EditOutcome
+  = EditAccepted(FileHandle)        // graph re-projected; new live handle
+  | EditRejected(String, Span)      // code, span — diagnostic for surface to render
+
+// ═══ CompileOutcome / CheckOutcome / AuditReport ════════════════════
+/// run_compile returns a binary's Path (or diagnostic).
+/// run_check returns the diagnostic list from inference + verify.
+/// run_audit is the drift-audit + plan-audit + effect-registry-audit
+/// projection — the substrate that F.1/F.2/F.3 dissolve docs/ into.
+
+type CompileOutcome
+  = CompileOk(Path)                 // emitted binary
+  | CompileFailed(List)             // List<Diagnostic>
+
+type CheckOutcome
+  = CheckOutcome(List, List)        // diagnostics, pending obligations
+
+type AuditReport
+  = AuditReport(List)               // List<AuditFinding> — drift + plan + effect-registry surfaces
+
+// ═══ Intent / IntentId — user's declared intent ═════════════════════
+/// `declare_intent` lets the human say "I'm targeting embedded; keep
+/// me honest" — a constraint the silence predicate and Trace
+/// tentacle weigh against subsequent edits. IntentId is opaque; the
+/// handler that holds the intent table projects it.
+/// Primitive: #7 (gradient — intents are user-side gradient
+/// declarations).
+
+type Intent
+  = IntEmbedded                     // !Alloc + !IO sought on real-time paths
+  | IntRealTime                     // !Alloc + deadline-sensitive
+  | IntSandbox                      // !Network + !Filesystem sought on plugin paths
+  | IntNoPanic                      // avoid Abort effect where possible
+  | IntUserDefined({
+      name:       String,
+      absent:     EffRow,           // effects the user wants negated (!E style)
+      present:    EffRow,           // effects the user confirms are OK
+      reason:     Reason
+    })
+
+type IntentId
+  = IntentId(Int)
+
+// ═══ Interact effect — the stable API boundary ══════════════════════
+/// Every surface that Mentl speaks through — LSP adapter, batch CLI,
+/// terminal IDE, web playground, desktop client — is a peer handler
+/// on Interact. The Interact effect is what the surfaces speak; the
+/// surfaces decide transport. LSP is ONE transport, not the paradigm.
+///
+/// Handlers on Interact compose the Situation from graph reads,
+/// apply silence_predicate, render VoiceLine per §2.7.3's
+/// Tentacle→FormKind mapping. mentl_voice_default is the canonical
+/// implementation (MV.2.e peer sub-handle).
+///
+/// All ops are OneShot: each Interact op is one human gesture → one
+/// handler response. Multi-shot lives deeper, inside Synth and the
+/// speculative oracle, not at this surface.
+///
+/// Primitives: #2 (this effect), #1 (ops read the graph),
+/// #4 (handler rows compose with Interact via `~>`),
+/// #7 (gradient surfaces through propose + speak).
+
+effect Interact {
+  // ─── Project / file ops (8) ─────────────────────────────────────
+  // Text-files-first is a hard constraint. These ops are first-class.
+
+  project_root()                 -> Path                       @resume=OneShot
+  tree_list(Path)                -> List                       @resume=OneShot   // List<TreeEntry>
+  open_file(Path)                -> FileHandle                 @resume=OneShot
+  save_file(FileHandle)          -> ()                         @resume=OneShot
+  create_file(Path, String)      -> FileHandle                 @resume=OneShot
+  rename_path(Path, Path)        -> ()                         @resume=OneShot
+  delete_path(Path)              -> ()                         @resume=OneShot
+  file_text(FileHandle)          -> String                     @resume=OneShot
+
+  // ─── Edit op (1) ────────────────────────────────────────────────
+  // An edit is a Patch against a FileHandle. The handler re-projects
+  // the edited text through the full pipeline and reports outcome.
+  // Graph is live; the edit either succeeds (graph updates) or is
+  // rejected with a diagnostic.
+
+  edit(FileHandle, Patch)        -> EditOutcome                @resume=OneShot
+
+  // ─── Attention ops (2) ──────────────────────────────────────────
+  // Cursor-of-attention is (Handle, Reason). focus sets it; cursor
+  // reads it.
+
+  focus(CursorTarget)            -> ()                         @resume=OneShot
+  cursor()                       -> Cursor                     @resume=OneShot
+
+  // ─── Mentl voice ops (3) ────────────────────────────────────────
+  // ask is user-initiated (Question); propose is Mentl-initiated
+  // at a target (returns the survivor candidate as VoiceLine);
+  // speak surfaces a VoiceLine the surface should render.
+
+  ask(Question)                  -> Answer                     @resume=OneShot
+  propose(CursorTarget)          -> VoiceLine                  @resume=OneShot
+  speak(VoiceLine)               -> ()                         @resume=OneShot
+
+  // ─── Run ops (4) ────────────────────────────────────────────────
+  // Batch-shape operations. Terminal IDE exposes as commands; CLI
+  // invokes directly. `run_audit` projects docs/ / PLAN / drift into
+  // one report — F.1/F.2/F.3 substrate dissolution lives here.
+
+  run_compile(FileHandle)        -> CompileOutcome             @resume=OneShot
+  run_check(FileHandle)          -> CheckOutcome               @resume=OneShot
+  run_audit(FileHandle)          -> AuditReport                @resume=OneShot
+  run_query(Question)            -> Answer                     @resume=OneShot
+
+  // ─── Session ops (4) ────────────────────────────────────────────
+  // Intent shapes the silence predicate and Trace tentacle's weights.
+  // History feeds observation_new_since_last_turn. cancel_pending
+  // rolls back a tentative application.
+
+  declare_intent(Intent)         -> ()                         @resume=OneShot
+  retract_intent(IntentId)       -> ()                         @resume=OneShot
+  history(Int)                   -> List                       @resume=OneShot   // List<TurnRecord>
+  cancel_pending()               -> ()                         @resume=OneShot
+}
