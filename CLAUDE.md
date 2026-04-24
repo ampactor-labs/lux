@@ -676,6 +676,38 @@ during the γ cascade — that bind all implementation:
     abstraction earns its weight when a fifth instance arrives;
     until then, the parallel forms are honest about what's not
     yet generic.
+11. **The Continuous Oracle IS Incremental Compilation Plus One
+    Cached Value.** Mentl IS speculative inference — she uses
+    inference's primitives (graph_bind via trail-rollback per
+    src/mentl.nx:155-175) to explore alternate realities at every
+    position with active dependents. Her exploration is Pure over
+    (env + handler_chain + intent), matching IC's existing Pure
+    over (ast + imports + handler_chain + intent). IC's Cache
+    handler stores `(env, oracle_queue)` per module instead of just
+    env — same invalidation discipline; same Pure-enables-memoization
+    principle; the continuous-subscription substrate falls out of IC
+    for free. Project queue = sorted merge of per-module cached
+    queues (itself memoizable). Surfaces query via `OracleQuery`
+    effect (`!Mutate` proves no surface can corrupt oracle state).
+    `graph_mutated(epoch, mutation)` fires at OUTERMOST commit
+    boundary only — speculative writes between checkpoint/rollback
+    never reach subscribers (otherwise infinite recursion).
+    **Silence ONLY when the project queue is empty** — the
+    gradient's top, the proven-complete state. Until then Mentl
+    always surfaces the highest-priority next step (per the "ONE
+    step per turn" discipline from INSIGHTS L731-734). The build
+    IS a `<~` feedback loop: source change → IC invalidates →
+    re-infer + re-explore → project queue refreshes → next-step
+    surfaces → user acts → loop. **No separate continuous oracle
+    process; no daemon; no concurrent-runtime layer; IC is the
+    scheduler.** Substrate at `src/mentl_oracle.nx` (commit
+    `f87abf3`); Mutate effect's `graph_mutated` op at
+    `src/types.nx:641`. Read-mode (cursor at finished code,
+    Mentl's Synth proposes alternatives) and write-mode (cursor
+    at `??`, Mentl's Synth proposes from constraint space alone)
+    are the same gradient interaction (per INSIGHTS §"The Hole Is
+    the Gradient's Absence Marker" commit `7505ade`); `??` is the
+    syntactic "no current selection" marker, NOT a separate mode.
 
 ---
 

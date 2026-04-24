@@ -506,6 +506,146 @@ proves purity. Caching falls out for free.
 
 ---
 
+## The Continuous Oracle IS Incremental Compilation Plus One Cached Value
+
+*2026-04-24. Crystallized from Morgan's prompting that exposed an entire
+session's worth of tactical drift around silence-gating, hole syntax,
+and per-Topic novelty checks. The realization: I had been designing a
+separate continuous oracle process, when the substrate truth is that
+**IC + one extra cached value IS the continuous oracle**.*
+
+**Mentl IS speculative inference.** Per `src/mentl.nx:155-175`, her
+exploration uses inference's primitives: `graph_push_checkpoint` →
+`graph_bind` (via narrow_row) → `verify` → `graph_rollback`. She is
+not a peer to inference — she is **inference run forward with
+hypothetical bindings rolled back, the survivors recorded as
+candidates**. The same machinery in two commitment modes: inference
+commits; Mentl rolls back. `@resume=MultiShot` IS what makes this
+substrate-mechanically real (post-B.2 it parallelizes; pre-B.2 it
+runs sequential per-candidate via OneShot, same correctness).
+
+**The oracle's exploration is Pure over (env + handler_chain + intent).**
+Same Pure-enables-memoization principle that makes `cached_check`
+work. Per the IC + oracle composition: IC's Cache handler stores
+`(env, oracle_queue)` per module instead of just env. Same hash key
+(ast + imports + handler_chain + intent); same invalidation
+discipline; **one extra cached value, the rest falls out**.
+
+```nx
+cached_check_with_oracle handler {
+  infer(ast) => {
+    let key = oracle_cache_key(ast)
+    match cache_lookup(key) {
+      Some(CachedEntry(env, queue))   => resume((env, queue)),
+      None                            => {
+        let env   = run_check(ast)
+        let queue = run_oracle(env)        // explore against cached env
+        cache_store(key, CachedEntry(env, queue))
+        resume((env, queue))
+      }
+    }
+  },
+  graph_mutated(epoch, mutation) => {
+    let affected = invalidation_walk(cache, mutation)
+    cache_invalidate_set(affected)
+    resume()
+  }
+}
+```
+
+**Project queue = sorted merge of per-module cached queues.** Itself
+memoizable: if no module's cache hash changed, the merged queue is
+unchanged. **The oracle's effort is proportional to IC's invalidation
+graph.** Fresh compile → all modules explore → many universes per
+second (the kernel claim "hundreds of alternate realities per
+second" lands here). User edits one module → that module + dependents
+re-explore → bounded re-work. Steady state → cache hits everywhere →
+oracle silent → CPU available for other things. **No separate
+oracle scheduling; IC is the schedule.**
+
+**The build IS a `<~` feedback loop** (per §"Feedback Is Inka's
+Genuine Novelty" L1761-1796):
+
+```
+source
+    |> lex |> parse |> infer
+    ~> cached_check_with_oracle      // produces (env, oracle_queue) per module
+    ~> project_queue_merger          // merges per-module queues
+    ~> mentl_voice_default           // surfaces highest-priority from queue
+    <~ user_action                   // user edit / accept / cursor-move loops back
+```
+
+This isn't a hidden runtime daemon. It's a **visible feedback topology
+where each loop iteration is bounded by IC's invalidation work**.
+`<~` makes the back-edge syntactically present per Inka's discipline.
+
+**`graph_mutated(epoch, mutation)` fires at the OUTERMOST commit
+boundary only.** Speculative writes between `graph_push_checkpoint`
+and `graph_rollback` never reach subscribers — otherwise Mentl would
+subscribe to her own speculations and recursively explore forever.
+The substrate distinguishes real graph state changes from
+speculation by the trail discipline that's already in place.
+
+**Silence semantics: ONLY when the project queue is empty.** The
+gradient's top — nothing more to add; everything proven. Until then
+Mentl always surfaces the highest-priority next step per the "ONE
+step per turn" discipline (this section + §"Inference Is an Effect"
+L731-734). Earlier per-Topic + per-tentacle novelty gates (D.1.c
+silence_predicate) were too coarse — they silenced Mentl when she
+had more to say project-wide. The new gate: **silence iff
+`query_project_queue() == []`**. Strong silence — your project is
+proven-complete.
+
+**Surfaces query the queue with cursor-relevance projection.** LSP
+hover surfaces the cursor-region item; `inka doc` projects the
+per-decl item; web playground pushes via WebSocket on queue change;
+`inka teach` surfaces the project-wide highest-priority. Same
+oracle, eight tentacle projections (per §The Meta-Thesis L645+),
+one queue, many surfaces. **Subscribers don't need their own
+subscription mechanism — they read from the cached queue.**
+
+**Read-mode and write-mode are the same coin** (per §"The Hole Is
+the Gradient's Absence Marker" — the prior crystallization). At a
+finished position, Mentl's Synth proposes alternatives to the
+current candidate. At a `??`, Mentl's Synth proposes from the
+constraint space alone. Same gradient interaction; same Synth
+tentacle; different surface presentation depending on whether a
+candidate currently occupies the slot. The continuous oracle treats
+both uniformly — both are positions in the project queue.
+
+**Substrate consequence (one substrate file + one effect-op
+extension):**
+- `src/mentl_oracle.nx` — QueueItem + OraclePriority + PriorityTier +
+  OracleQueue + OracleQuery effect + cached_check_with_oracle handler
+  + project_queue_merger handler + run_oracle + priority_lt + the
+  silence_predicate revision (commit `f87abf3`)
+- `src/types.nx:641` Mutate effect — gains `graph_mutated(Int,
+  Mutation)` op (was empty marker effect; this is its first op)
+- IC's `Cache` handler shape extends from `env` to `(env,
+  oracle_queue)` — one tuple element added (substrate landing for
+  this in `src/cache.nx` as next-commit)
+
+**What this DISSOLVES:**
+
+- Separate "Mentl as continuous process" framing — there is no
+  process; there is IC plus one cached value plus one event boundary
+- Separate "oracle subscription" substrate — IC's existing
+  invalidation graph IS the subscription
+- Per-Topic silence-gating (D.1.c silence_predicate semantics) —
+  superseded by project-queue-empty gate
+- Per-tentacle render-or-not in mentl_voice_default — moves to
+  surface-side cursor-relevance projection on the queue
+- The dichotomy between "Mentl runs on demand" and "Mentl runs
+  continuously" — she runs as fast as IC re-invalidates, which is
+  exactly as much as the substrate needs
+
+**Architectural tagline:** Mentl is what falls out of IC plus
+Pure-over-broader-input applied to the existing speculative-
+inference loop. The kernel does the work; the substrate is the
+residue of composing what was already there.
+
+---
+
 ## The Meta-Unification: The Toolchain IS the Language
 
 If `|>` unifies DSP, ML, and compilers in *user code*, then the same
