@@ -54,3 +54,17 @@
 36	ΣU drift (redundant fn on lambda)	\bfn\s+\(	ka	Amendment R. `fn (x) =>` drift. Canonical: (x) => — `fn` keyword reserved for named declarations only.
 36	ΣU drift (resume(()) residue)	\bresume\s*\(\s*\(\s*\)\s*\)	ka	Amendment I. Canonical: resume() — Parameters-ARE-Tuples + No-Redundant-Form.
 36	ΣU regression (pub/priv visibility drift)	^\s*(pub|priv)\s+(fn|type|effect|handler|let)\b	ka	Amendment Q. Visibility via capability effects, not modifier keywords.
+#
+# --- Σ-/// drift (doc-comment doctrine; SYNTAX.md §Comments §Doc comments) ---
+37	Σ-/// drift (JSDoc/JavaDoc tag inside ///)	^///.*@(param|returns?|throws?|since|deprecated|author|see|link|inheritdoc)\b	ka	Σ-///. JSDoc/JavaDoc tags forbidden inside ///. Effect row + refinement substrate already carries that information.
+37	Σ-/// drift (Sphinx directive inside ///)	^///.*:(func|type|class|param|returns|raises):	ka	Σ-///. Sphinx directives forbidden inside ///. Inka has no Sphinx; substrate carries the structure.
+37	Σ-/// drift (=== header inside ///)	^///.*={3,}	ka	Σ-///. No internal headers inside ///. Declaration name IS the heading.
+37	Σ-/// drift (lifecycle vocabulary)	^///.*\b(deprecated|legacy|previously|no longer|migration|backward[- ]compat|removed in)\b	ka	Σ-///. Positive-form discipline (CLAUDE.md global). Doc shows what IS, not what was.
+37	Σ-/// drift (subjective-gating prose)	^///.*\b(non-trivial|nontrivial|non-obvious|nonobvious|noteworthy|interesting|advanced|important|may want to|might consider)\b	ka	Σ-///. Subjective-gating language shouldn't appear in substrate-derived voice. Either the tentacle's silence_predicate fires or it doesn't.
+37	Σ-/// drift (// ═══ decoration on file)	^//\s*═	ka	Σ-///. // ═══ decorations are flat-file scaffolding. Pattern A: delete. Pattern B: consolidate to /// lede. Pattern C: strip ═══, keep plain // text.
+#
+# --- Disintermediation drift (mascot-as-command-prefix; F.1) ---
+38	Mascot-as-command (mentl <verb> CLI)	\bmentl\s+(audit|compile|check|run|teach|query|build|new|test|doc|crucibles)\b	all	F.1 + EH walkthrough. Every command is `inka <verb>`. Mentl is the voice; not the command prefix. (Scope: all files including markdown.)
+#
+# --- Ship-gate drift (agile/scrum vocabulary; project-management drift) ---
+39	Ship-gate vocab (N sessions / timebox / pivot)	\b(\d+\s*sessions?|N\s*sessions?|timebox|pivot criterion|ship[- ]gate|sprint goal)\b	all	No temporal budgets. Progress measured in walkthrough-paragraph → substrate mapping clarity. Scope emerges from substrate necessity. (Scope: all files.)
