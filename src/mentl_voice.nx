@@ -14,7 +14,6 @@ import mentl
 import graph
 import own
 
-// ═══ Topic — what the voice is about ════════════════════════════════
 /// Topic is the focus of one voice turn. Cursor-of-attention projects
 /// onto a Topic; Mentl reads the graph at that topic. Five variants
 /// cover the four load-bearing attention surfaces (identifier / graph
@@ -28,7 +27,6 @@ type Topic
   | TopicError(String, Span)             // specific diagnostic (code, span)
   | TopicAsk(Question)                   // user asked explicitly (via query.nx's Question)
 
-// ═══ Tentacle — which projection is speaking ════════════════════════
 /// One tentacle per kernel primitive. Eight primitives · eight
 /// tentacles · eight interrogations — the octopus IS the kernel made
 /// voice. Never a ninth; never a seventh.
@@ -43,7 +41,6 @@ type Tentacle
   | TentTeach       // #7 — gradient's one next step
   | TentWhy         // #8 — Reason chain walks
 
-// ═══ Register — rendering density ═══════════════════════════════════
 /// Three registers. V1 default is RPlayful — warm but sparse.
 /// RTerse is the keyboard-shortcut register. RExplain opens the
 /// Reason chain (multi-sentence, used when user asked QWhy).
@@ -55,7 +52,6 @@ type Register
   | RPlayful
   | RExplain
 
-// ═══ GradientStep — one proven annotation the user could add ════════
 /// Every GradientStep is a theorem: Mentl has proved (via the
 /// speculative oracle at src/mentl.nx:134) that annotating `site`
 /// with `annotation` unlocks `capability`. `proof` is the Reason
@@ -70,7 +66,6 @@ type GradientStep
       proof:      Reason
     })
 
-// ═══ EnvEntry — one binding in the env snapshot ═════════════════════
 /// Env-entries reach Mentl as snapshots so a turn is stateless w.r.t.
 /// env updates. Name + Scheme + Reason + SchemeKind mirrors Env's
 /// existing shape (per types.nx SchemeKind).
@@ -78,7 +73,6 @@ type GradientStep
 type EnvEntry
   = EnvEntry(String, Scheme, Reason, SchemeKind)
 
-// ═══ HandlerEntry — one installed handler in the current chain ══════
 /// The ~> chain is a capability stack (INSIGHTS.md "The Handler Chain
 /// Is a Capability Stack"). HandlerEntry captures one position in it:
 /// handler name, the effects it absorbs, and the Reason that placed
@@ -94,7 +88,6 @@ type HandlerEntry
       install_span:      Span
     })
 
-// ═══ Situation — the complete input Mentl reads per turn ════════════
 /// Every speak op receives a Situation. All 13 fields are load-bearing.
 /// No external state consulted — stateless-per-turn except
 /// prior_turn_topic (silence predicate input) and register (rendering).
@@ -124,7 +117,6 @@ type Situation
       register:              Register
     })
 
-// ═══ TopicFacts — pre-computed predicates over topic ════════════════
 /// §2.7.5's silence predicate references helpers (handle_is_hole,
 /// error_at, nested_calls_at_span, unlocks_capability,
 /// ownership_violation_at, row_subsumption_fails_at,
@@ -148,7 +140,6 @@ type TopicFacts
       nested_call_depth:      Int                   // TentTopology → nested_calls_at_span(topic)
     })
 
-// ═══ FormKind — the grammar shape a VoiceLine takes ═════════════════
 /// Eight shapes, one per default-tentacle. Tone is NOT a separate
 /// enum: tentacle + FormKind + Modifier compose the register-shape
 /// of each VoiceLine. Tentacle→FormKind is the §2.7.3 mapping;
@@ -164,7 +155,6 @@ type FormKind
   | FGradient         // "Next: `with Pure` on line 12." (Teach)
   | FTrace            // "Bound L18; `+` at L42 said `Int`." (Why)
 
-// ═══ Slot — typed content slots in a VoiceLine ══════════════════════
 /// Each slot renders through a canonical renderer (show_type,
 /// show_row, show_reason). No ad-hoc formatting at the voice layer —
 /// the graph's own self-projection is the source of strings.
@@ -181,7 +171,6 @@ type Slot
   | SAnnot(String)         // annotation, backtick-wrapped
   | SLit(String)           // literal text (for offering closers)
 
-// ═══ Modifier — one optional tail flourish ══════════════════════════
 /// RPlayful picks AT MOST ONE modifier per VoiceLine. RTerse → NoMod.
 /// RExplain allows one per sentence max. Modifier selection is
 /// deterministic — same Situation hash → same modifier — so
@@ -194,7 +183,6 @@ type Modifier
   | ParenQualifier(String)    // " (L40)"
   | EmphasisClose(String)     // " — can't have it both ways."
 
-// ═══ VoiceLine — the residue of one speak op ════════════════════════
 /// Silence is the default. When a turn produces nothing proven-worth-
 /// surfacing (silence_predicate returns false), the surface handler
 /// renders null — hover returns empty, inlayHint is not emitted,
@@ -212,7 +200,6 @@ type VoiceLine
   = Silence
   | VoiceLine(Tentacle, FormKind, List, Modifier)   // slots: List<Slot>
 
-// ═══ TurnRecord — one entry in the session's voice history ══════════
 /// History feeds the silence predicate's
 /// observation_new_since_last_turn check. Bounded ring — the session
 /// keeps the last N turns, older entries drop. Ring size is a
@@ -227,7 +214,6 @@ type TurnRecord
       span_at:   Span
     })
 
-// ═══ Path / FileHandle — project tree addressing ════════════════════
 /// Path wraps a String. Nominal — distinguishes file-system paths from
 /// arbitrary strings at the type layer. Construction is explicit:
 /// `Path(s)`. Refinement (self has no `..` / resolved / within project
@@ -249,7 +235,6 @@ type Path
 type FileHandle
   = FileHandle(Int)
 
-// ═══ TreeEntry — one node in a project-tree walk ════════════════════
 /// tree_list projects the on-disk tree. Each entry is file or
 /// directory; lazy (directories expand on demand).
 
@@ -257,7 +242,6 @@ type TreeEntry
   = TreeFile(Path)
   | TreeDir(Path)                   // expand via another tree_list call
 
-// ═══ Cursor / CursorTarget — attention substrate ════════════════════
 /// Cursor is the human's attention at a moment. Handle + Reason —
 /// which graph node, and why Mentl thinks so (last focus op / last
 /// edit's mutation site / last ask's target — the Reason traces
@@ -276,7 +260,6 @@ type CursorTarget
   | TargetSpan(Span)
   | TargetIdent(String)
 
-// ═══ Answer — result of ask / run_query ═════════════════════════════
 /// Question (declared in query.nx) is structured: QTypeAt, QWhy,
 /// QRefsOf, etc. Answer is the response — always carries the Reason
 /// supporting it (acceptance criterion: no Answer without Reason).
@@ -290,7 +273,6 @@ type Answer
   | AnsRefs(List, Reason)           // List<Span> of references
   | AnsSilence
 
-// ═══ EditOutcome — what edit() returns ══════════════════════════════
 /// Edit is a Patch applied to a FileHandle. Outcome is either
 /// accepted (graph re-projected, new handle set) or rejected (the
 /// resulting text failed to parse / lower / type-check).
@@ -300,7 +282,6 @@ type EditOutcome
   = EditAccepted(FileHandle)        // graph re-projected; new live handle
   | EditRejected(String, Span)      // code, span — diagnostic for surface to render
 
-// ═══ CompileOutcome / CheckOutcome / AuditReport ════════════════════
 /// run_compile returns a binary's Path (or diagnostic).
 /// run_check returns the diagnostic list from inference + verify.
 /// run_audit is the drift-audit + plan-audit + effect-registry-audit
@@ -316,7 +297,6 @@ type CheckOutcome
 type AuditReport
   = AuditReport(List)               // List<AuditFinding> — drift + plan + effect-registry surfaces
 
-// ═══ Intent / IntentId — user's declared intent ═════════════════════
 /// `declare_intent` lets the human say "I'm targeting embedded; keep
 /// me honest" — a constraint the silence predicate and Trace
 /// tentacle weigh against subsequent edits. IntentId is opaque; the
@@ -339,7 +319,6 @@ type Intent
 type IntentId
   = IntentId(Int)
 
-// ═══ Interact effect — the stable API boundary ══════════════════════
 /// Every surface that Mentl speaks through — LSP adapter, batch CLI,
 /// terminal IDE, web playground, desktop client — is a peer handler
 /// on Interact. The Interact effect is what the surfaces speak; the
@@ -416,7 +395,6 @@ effect Interact {
   cancel_pending()               -> ()                         @resume=OneShot
 }
 
-// ═══ Silence predicate — default is silence ═════════════════════════
 /// Mentl does NOT fill space to fill space. A VoiceLine surfaces only
 /// when the predicate holds: proof_derivable AND observation-new. Both
 /// false → Silence. Silence is the default state; speaking is the
@@ -430,7 +408,6 @@ effect Interact {
 fn silence_predicate(situation) with Pure =
   proof_derivable(situation) && observation_new_since_last_turn(situation)
 
-// ═══ proof_derivable — tentacle-specific check ══════════════════════
 /// Each tentacle asks: "does the graph hold a proven thing I can say
 /// about this topic right now?" If yes, proof_derivable true; else
 /// false. Exhaustive over the 8 tentacles — no wildcard arm (H6
@@ -472,7 +449,6 @@ fn proof_derivable(situation) with Pure =
       }
   }
 
-// ═══ observation_new_since_last_turn — novelty check ════════════════
 /// Mentl does not repeat herself. If the prior turn was at the same
 /// topic with the same tentacle, this turn is silent — unless the
 /// underlying proof changed materially (which shows up via
@@ -491,7 +467,6 @@ fn observation_new_since_last_turn(situation) with Pure =
            }
   }
 
-// ═══ topic_equal — structural equality on Topic ═════════════════════
 /// Two Topics match when same variant + same carried values. Span
 /// equality is structural; String equality is via str_eq. Match is
 /// exhaustive over the 5 variants — no wildcard.
@@ -540,7 +515,6 @@ fn topic_equal(a, b) with Pure =
       }
   }
 
-// ═══ tentacle_equal — structural equality on Tentacle ═══════════════
 /// Eight nullary variants. Pair-match exhaustive. No wildcard (H6).
 
 fn tentacle_equal(a, b) with Pure =
@@ -553,4 +527,141 @@ fn tentacle_equal(a, b) with Pure =
     TentVerify    => match b { TentVerify    => true, TentQuery   => false, TentPropose  => false, TentTopology => false, TentUnlock => false, TentTrace => false, TentTeach => false, TentWhy => false },
     TentTeach     => match b { TentTeach     => true, TentQuery   => false, TentPropose  => false, TentTopology => false, TentUnlock => false, TentTrace => false, TentVerify => false, TentWhy => false },
     TentWhy       => match b { TentWhy       => true, TentQuery   => false, TentPropose  => false, TentTopology => false, TentUnlock => false, TentTrace => false, TentVerify => false, TentTeach => false }
+  }
+
+/// tentacle_to_form_kind — per MV §2.7.3, eight-variant exhaustive
+/// mapping from Tentacle to its default FormKind. The §2.7.3 table
+/// is the authority: Query→FFactual, Propose→FOffering,
+/// Topology→FOffering, Unlock→FCapability, Trace→FRefutation,
+/// Verify→FRefinement, Teach→FGradient, Why→FTrace. H6 discipline:
+/// no wildcard arm; every Tentacle variant's mapping is named.
+
+fn tentacle_to_form_kind(tentacle) with Pure =
+  match tentacle {
+    TentQuery     => FFactual,
+    TentPropose   => FOffering,
+    TentTopology  => FOffering,
+    TentUnlock    => FCapability,
+    TentTrace     => FRefutation,
+    TentVerify    => FRefinement,
+    TentTeach     => FGradient,
+    TentWhy       => FTrace
+  }
+
+/// applicable_modifiers_for_tentacle — per MV §2.7.4, the per-tentacle
+/// subset of Modifier instances RPlayful selects from. Returns
+/// List<Modifier> of concrete TailConsequence / EmphasisClose /
+/// ParenQualifier instances with their canonical phrase strings.
+/// Keyed on Tentacle (not FormKind — three tentacles share FOffering
+/// but have distinct subsets per §2.7.4 lines 559-567). H6 discipline.
+
+fn applicable_modifiers_for_tentacle(tentacle) with Pure =
+  match tentacle {
+    TentQuery     => [
+      ParenQualifier(" (L{N})"),
+      ParenQualifier(" (graph-direct)")
+    ],
+    TentPropose   => [
+      EmphasisClose(" fits here."),
+      EmphasisClose(" — try it?")
+    ],
+    TentTopology  => [
+      EmphasisClose(" draws it better."),
+      EmphasisClose(" — try it?")
+    ],
+    TentUnlock    => [
+      TailConsequence(" — on the table."),
+      TailConsequence(" — memoizable."),
+      TailConsequence(" — real-time-safe."),
+      TailConsequence(" — no allocation.")
+    ],
+    TentTrace     => [
+      EmphasisClose(" — can't have it both ways."),
+      EmphasisClose(" — `ref` if you're reading only."),
+      ParenQualifier(" (L{N})")
+    ],
+    TentVerify    => [
+      ParenQualifier(" (L{N})"),
+      ParenQualifier(" (proven)"),
+      ParenQualifier(" (pending verify)")
+    ],
+    TentTeach     => [
+      TailConsequence(" — on the table."),
+      TailConsequence(" — memoizable."),
+      TailConsequence(" — real-time-safe."),
+      TailConsequence(" — cheaper direct.")
+    ],
+    TentWhy       => [
+      TailConsequence(" — the graph says so."),
+      ParenQualifier(" (L{N})")
+    ]
+  }
+
+/// tentacle_tag — pure projection from Tentacle to a small Int. Used
+/// by situation_hash; not exposed as dispatch. The integer space is
+/// internal to hashing; downstream consumers always use the Tentacle
+/// ADT directly. (Structural projection, not drift mode 8 int-coded
+/// dispatch.) H6 discipline.
+
+fn tentacle_tag(tentacle) with Pure =
+  match tentacle {
+    TentQuery     => 0,
+    TentPropose   => 1,
+    TentTopology  => 2,
+    TentUnlock    => 3,
+    TentTrace     => 4,
+    TentVerify    => 5,
+    TentTeach     => 6,
+    TentWhy       => 7
+  }
+
+/// topic_discriminant — pure projection from Topic to a small Int.
+/// Payload values are intentionally NOT folded in; per-tentacle
+/// rotation supplies the dominant variation source for modifier
+/// selection. H6 discipline.
+
+fn topic_discriminant(topic) with Pure =
+  match topic {
+    TopicIdent(_)        => 0,
+    TopicHandle(_)       => 1,
+    TopicSpan(_)         => 2,
+    TopicError(_, _)     => 3,
+    TopicAsk(_)          => 4
+  }
+
+/// situation_hash — pure deterministic Int hash over Situation's
+/// load-bearing fields. Same Situation → same hash, reproducible
+/// across runs (per MV §2.8 acceptance criterion 6). Pure integer
+/// arithmetic over ADT tag projections — no Memory effect, no FNV
+/// primitive needed at this scale (modulo'd by applicable-subset
+/// length, which is at most 6 per §2.7.4). Prime multipliers
+/// minimize collision over the small index space we modulo into.
+
+fn situation_hash(situation) with Pure =
+  let Situation(s) = situation
+  tentacle_tag(s.tentacle) * 31 + topic_discriminant(s.topic) * 17
+
+/// pick_from_pool — index into the tentacle's applicable-modifier list
+/// via hash mod pool length. Empty pool returns NoMod (defensive — no
+/// pool is empty per §2.7.4, but the substrate refuses to fabricate
+/// when the invariant ever shifts).
+
+fn pick_from_pool(tentacle, hash) with Pure =
+  let pool = applicable_modifiers_for_tentacle(tentacle)
+  let n    = len(pool)
+  if n == 0 { NoMod }
+  else      { list_index(pool, hash % n) }
+
+/// select_modifier — composes hash + applicable-subset to pick one
+/// Modifier deterministically. RTerse always returns NoMod (per MV
+/// §2.7.4 line 532). RPlayful and RExplain pick from the per-tentacle
+/// applicable subset via hash-mod-len. Same Situation + same Register
+/// → same Modifier, every call. H6 discipline on Register match.
+
+fn select_modifier(situation, register) with Pure =
+  let Situation(s) = situation
+  match register {
+    RTerse    => NoMod,
+    RPlayful  => pick_from_pool(s.tentacle, situation_hash(situation)),
+    RExplain  => pick_from_pool(s.tentacle, situation_hash(situation))
   }
