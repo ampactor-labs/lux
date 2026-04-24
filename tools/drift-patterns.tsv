@@ -46,3 +46,12 @@
 30	Imperative-loop-where-verb-exists (for/while)	^\s*(for|while)\s	ka	Loops are rarely the Inka shape. Use |> transforms or <~ feedback. If truly needed, justify in a comment and suppress.
 31	Tuple-return-where-record-fits (multi-arg with _h suffix)	->\s*\([^)]*_h[^)]*,	ka	Anchor 6 + H1.3: if components carry _h suffix, reach for a record.
 32	Handler-as-function-argument (plain env param)	\(\s*env\s*:\s*\w+|\bctx\.env\.	ka	Env is effect-mediated. `perform env_lookup(name)` — not a function parameter.
+#
+# --- ΣU regression patterns (amendments A-R; landed 2026-04-23; SYNTAX.md) ---
+36	ΣU regression (lambda fence)	\|[a-z_][a-z_0-9]*\s*\|	ka	Amendment A. Canonical: (params) => body. `|x|` pipe-fence superseded.
+36	ΣU regression (lambda fence multi-param)	\|[a-z_][a-z_0-9]*\s*,	ka	Amendment A. `|a, b|` form is drift. Use (a, b) => body.
+36	ΣU regression (dollar-sigil interpolation)	\$\{[a-zA-Z_]	ka	Amendment C. Canonical: "hello, {name}" (brace form). Dollar-sigil superseded.
+36	ΣU regression (imperative control keyword)	^[^/]*\b(for|while|loop|break|continue|return)\b	ka	Amendment J. Iteration: |> / <~ / Iterate. Early-exit: Abort effect. (Fires on code lines; comment-only lines excluded by ^[^/]* prefix.)
+36	ΣU regression (redundant fn on lambda)	\bfn\s+\(	ka	Amendment R. `fn (x) =>` drift. Canonical: (x) => — `fn` keyword reserved for named declarations only.
+36	ΣU regression (resume(()) residue)	\bresume\s*\(\s*\(\s*\)\s*\)	ka	Amendment I. Canonical: resume() — Parameters-ARE-Tuples + No-Redundant-Form.
+36	ΣU regression (pub/priv visibility drift)	^\s*(pub|priv)\s+(fn|type|effect|handler|let)\b	ka	Amendment Q. Visibility via capability effects, not modifier keywords.

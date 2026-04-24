@@ -70,7 +70,7 @@ fn get_authored_ownership(ref name) with !Mutate =
     |> lookup_env
     |> unwrap_env
     |> extract_param_owner
-    |> fn ((owner_name, idx)) => {
+    |> ((owner_name, idx)) => {
          let params = owner_name
            |> lookup_env
            |> unwrap_env
@@ -281,7 +281,7 @@ handler region_tracker with region_stack = [], next_region = 0, tagged_values = 
           resume()
         } else {
           perform report("region", "E_RegionEscape", "OwnershipViolation",
-            "value allocated in a scope that ended before this return — region "
+            "value allocated in a scope that ended before this return — region " // drift-audit: ignore
               |> str_concat(int_to_str(tag.region_id))
               |> str_concat(" no longer live"),
             escape_span, "MaybeIncorrect")
