@@ -87,6 +87,7 @@ fn two_char_kind(a, b) with Pure =
   else if a == 38 && b == 38 { Some(TAndAnd) }     // &&
   else if a == 124 && b == 124 { Some(TOrOr) }     // ||
   else if a == 58 && b == 58 { Some(TColonColon) } // ::
+  else if a == 63 && b == 63 { Some(THole) }       // ?? — the gradient's absence marker
   else                       { None }
 
 /// Returns `Some(TokenKind)` if `b` is a recognized punctuation byte,
@@ -114,7 +115,6 @@ fn single_char_kind(b) with Pure =
   else if b == 124 { Some(TPipe) }
   else if b == 126 { Some(TTilde) }
   else if b == 64  { Some(TAt) }
-  else if b == 63  { Some(TQuestion) }
   else             { None }
 
 /// Entry point — tokenize `source` into a `List<Token>`.

@@ -1308,7 +1308,7 @@ type TokenKind
   | TComma | TDot | TColon | TSemicolon
   | TPlus | TMinus | TStar | TSlash | TPercent
   | TEq | TLt | TGt | TBang
-  | TPipe | TTilde | TAt | TQuestion
+  | TPipe | TTilde | TAt | THole
 
   // ─── Layout / structural ──────────────────────────────────────────
   | TNewline                        // semantic per DESIGN Ch 2 / `~>` form
@@ -1385,7 +1385,7 @@ type TokenKind
 | `TPipe`         | `\|`             | —         | type variant separator; lambda param fence (`\|x\| expr`) |
 | `TTilde`        | `~`              | —         | reserved                                       |
 | `TAt`           | `@`              | —         | annotation marker (`@resume=OneShot`)          |
-| `TQuestion`     | `?`              | —         | hole / placeholder                             |
+| `THole`         | `??`             | —         | hole — the gradient's syntactic absence marker; Mentl's Synth proposes candidates filling the position. The Inka Mono ligature renders `??` as the octagonal-socket glyph (8 sides ↔ 8 kernel primitives). Single `?` is no longer a token. |
 | **Layout / structural (2)** |     |           |                                                |
 | `TNewline`      | `\n`             | —         | semantic per DESIGN Ch 2 (block-form `~>`)     |
 | `TEof`          | (end of input)   | —         | always last token; parser uses to terminate    |

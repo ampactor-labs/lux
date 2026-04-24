@@ -22,7 +22,6 @@
 // Graph chase (perform graph_chase) replaces any subst-apply pattern.
 // The graph IS the subst.
 
-// ═══ Core type ADT (spec 02) ═══════════════════════════════════════
 
 // HEAP_BASE = 4096 — substrate invariant (HB / nullary-sentinel).
 // The bump allocator's $heap_ptr starts at 1048576 (1 MiB).
@@ -102,7 +101,6 @@ type SchemeKind
   | EffectOpScheme(String)
   | RecordSchemeKind(List)               // [(field_name: String, ty: Ty)] declared
 
-// ═══ Effect row algebra (spec 01) ══════════════════════════════════
 // The Boolean algebra lives as functions in effects.nx; the ADT
 // lives here so every module that speaks types can speak rows.
 // After normalization every row is one of EfPure / EfClosed / EfOpen.
@@ -136,7 +134,6 @@ type EffArg
   | EAFloat(Float)
   | EAString(String)
 
-// ═══ Graph vocabulary (spec 00) ═══════════════════════════════
 // Substrate owned by graph.nx. The ADTs live here because every
 // consumer of the graph names them — Read/Write/Speculate effects,
 // chase return type, trail mutations, overlay tags.
@@ -168,7 +165,6 @@ type Mutation
   | MSetRow(Int, GNode)     // handle, old_node (row variant)
   | MFreshNode(Int)         // handle allocated (undo = shrink)
 
-// ═══ BinOp (spec 03) — binary operator vocabulary ══════════════════
 // 14 variants, one per operator form in SYNTAX.md's operator
 // precedence table. Exhaustive set; add a variant here AND update
 // every downstream match (parser op_to_binop, infer_binop,
@@ -229,7 +225,6 @@ fn binop_to_str(op) with Pure = match op {
   BConcat => "++"
 }
 
-// ═══ Reason (spec 00) — the Why Engine's DAG ═══════════════════════
 // Every graph node and every unification records a Reason. Mentl's
 // teach_why (spec 09) walks this DAG. Full provenance falls out.
 
@@ -259,7 +254,6 @@ type Reason
   | FreshInContext(Int, String)          // handle, context_name — "fresh in 'process'" not "fresh 42"
   | DocstringReason(String, Span)        // DS.1 — authored /// docstring as intent edge
 
-// ═══ Span (spec 03) — non-negotiable full 4-tuple ══════════════════
 
 type Span
   = Span(Int, Int, Int, Int)    // start_line, start_col, end_line, end_col
@@ -271,7 +265,6 @@ fn span_join(a, b) with Pure =
 
 fn span_zero() with Pure = Span(0, 0, 0, 0)
 
-// ═══ Refinement-typed aliases (primitive #6 exemplars) ═════════════
 // Inference + Verify ledger discharges obligations at construction
 // sites. Runtime-erased. Failed discharge surfaces as V_Pending or
 // V_Failed diagnostic with the predicate and the failing expression
@@ -294,7 +287,6 @@ fn span_contains(outer, inner) with Pure =
   (osl < isl || (osl == isl && osc <= isc))
     && (oel > iel || (oel == iel && oec >= iec))
 
-// ═══ Tokens (spec 03 + SYNTAX.md) ══════════════════════════════════
 // Tokens are the lexer's output; the parser's input. The wrapper
 // pattern mirrors AST nodes: structured value + positional metadata.
 // `N(NodeBody, Span, Int)` for nodes; `Tok(TokenKind, Span)` for
@@ -346,7 +338,7 @@ type TokenKind
   | TComma | TDot | TColon | TSemicolon
   | TPlus | TMinus | TStar | TSlash | TPercent
   | TEq | TLt | TGt | TBang
-  | TPipe | TTilde | TAt | TQuestion
+  | TPipe | TTilde | TAt | THole
 
   // ─── Layout / structural (2) ─────────────────────────────────────
   | TNewline                        // semantic per DESIGN Ch 2 / `~>` form
@@ -357,7 +349,6 @@ type TokenKind
 fn token_kind(t) with Pure = let Tok(k, _) = t; k
 fn token_span(t) with Pure = let Tok(_, s) = t; s
 
-// ═══ Typed AST (spec 03) ═══════════════════════════════════════════
 // Every expression site is an N(body, span, handle). The handle is
 // allocated at parse time via graph_fresh_ty(Placeholder(span)) and
 // populated during inference. No null handle. No sentinel zero.
@@ -553,7 +544,6 @@ type LitValue
   | LVString(String)
   | LVBool(Bool)
 
-// ═══ Predicate (spec 02) — structural refinement body ══════════════
 // Decidable shape. Verify discharges: ledger (Phase 1) accumulates;
 // verify_smt (Arc F.1) routes by theory — Z3 / cvc5 / Bitwuzla.
 
@@ -575,13 +565,11 @@ type PExpr
   | PVar(String)
   | PApp(String, List)
 
-// ═══ Option ════════════════════════════════════════════════════════
 
 type Option
   = None
   | Some(a)
 
-// ═══ Env (spec 04) — effect-mediated, peer of Graph ═══════════
 // Scoped bindings via push/pop mark. Env is never passed as argument.
 // Every read performs env_lookup; every write performs env_extend.
 // Entries are 4-tuples (name, Scheme, Reason, SchemeKind) — SchemeKind
@@ -601,7 +589,6 @@ effect EnvWrite {
   env_scope_exit() -> ()                                @resume=OneShot
 }
 
-// ═══ Graph effects (spec 00) ══════════════════════════════════
 // The Read/Write split IS the "one writer" invariant. Inference
 // declares both; lowering, query, display declare Read only.
 // A perform graph_bind in a read-only handler is a type error at
@@ -629,7 +616,6 @@ effect GraphWrite {
   graph_index_span(ValidSpan, Int) -> ()           @resume=OneShot
 }
 
-// ═══ Diagnostic (spec 06) — 6-arg stable-code report ═══════════════
 // Every perform report names a code whose docs/errors/<CODE>.md entry
 // exists. applicability ∈ { MachineApplicable, MaybeIncorrect }.
 // The !Diagnostic gate lives on the handler, not the effect.
@@ -657,7 +643,6 @@ effect Mutate {
   // GraphWrite + EnvWrite + ... (region-freeze work).
 }
 
-// ═══ LookupTy (spec 05) — live chase, never cache ══════════════════
 // The ONLY route from a TypeHandle to a resolved Ty. Delegates to
 // graph_chase. No cache. No staleness. Every observer reads live.
 
@@ -665,7 +650,6 @@ effect LookupTy {
   lookup_ty(Int) -> Ty                             @resume=OneShot
 }
 
-// ═══ FreshHandle (spec 04 · 06) — parameterize `instantiate` ═══════
 // Inference mints via graph_fresh_ty; query mints display ids. One
 // function, two handlers, different semantics for the same op.
 
@@ -673,7 +657,6 @@ effect FreshHandle {
   mint(Reason) -> Int                              @resume=OneShot
 }
 
-// ═══ LowerScope (spec 05 · W7) — lexical frames at lower time ══════
 // Tracks the stack of (locals, captures) frames so VarRef can resolve
 // to LLocal / LUpval / LGlobal at lower time. LambdaExpr computes its
 // captures via collect_free_vars + ls_resolve in the OUTER frame,
@@ -701,7 +684,6 @@ effect LowerScope {
   ls_register_globals(List) -> ()               @resume=OneShot
 }
 
-// ═══ Verify (spec 02 · 06) — ledger in Phase 1, SMT in Arc F.1 ═════
 // Every refinement unification performs verify(span, pred, reason).
 // verify_ledger accumulates (V_Pending); verify_smt discharges (E_RefinementRejected on
 // reject). Handler swap; source code unchanged.
@@ -711,7 +693,6 @@ effect Verify {
   verify_debt() -> List                            @resume=OneShot
 }
 
-// ═══ Consume (spec 07) — ownership as effect ═══════════════════════
 // Every use of an own-parameter performs consume(name, span).
 // affine_ledger enforces linearity; declares with !Consume so its
 // own arms cannot recurse through consume. Structural gate.
@@ -730,7 +711,6 @@ effect Consume {
   branch_exit(Span) -> ()                          @resume=OneShot
 }
 
-// ═══ Filesystem (FS) — per-file byte I/O via WASI preview1 ═════════
 // Four ops cover the incremental-compilation cache layer (.kai
 // read/write, mkdir, exists). Operates relative to a preopen fd
 // (wasmtime's --dir=. grants preopen fd 3 by convention).
@@ -754,7 +734,6 @@ effect Filesystem {
   fs_mkdir(String) -> ()                             @resume=OneShot
 }
 
-// ═══ Display — one projection, effect-mediated, live-chasing ═══════
 // Every show_* that renders a Ty chases TVars through graph_chase.
 // A raw handle only appears when chase terminates on NFree/NRowFree —
 // the query layer reads that as "unresolved at epoch e." No cached
@@ -1093,7 +1072,6 @@ fn show_pipe_kind(pk) with Pure =
     PFeedback   => "<~"
   }
 
-// ═══ Utilities — the smallest primitives that keep this file pure ══
 
 fn show_list(ref items, ref render, ref sep) with !Mutate =
   if len(items) == 0 { "" }

@@ -109,7 +109,7 @@ fn kind_eq(a, b) with Pure = match a {
   TPipe      => match b { TPipe      => true, _ => false },
   TTilde     => match b { TTilde     => true, _ => false },
   TAt        => match b { TAt        => true, _ => false },
-  TQuestion  => match b { TQuestion  => true, _ => false },
+  THole      => match b { THole      => true, _ => false },
   TNewline   => match b { TNewline   => true, _ => false },
   TEof       => match b { TEof       => true, _ => false }
 }
@@ -155,7 +155,7 @@ fn show_token_kind(k) with Pure = match k {
   TComma => ",", TDot => ".", TColon => ":", TSemicolon => ";",
   TPlus => "+", TMinus => "-", TStar => "*", TSlash => "/", TPercent => "%",
   TEq => "=", TLt => "<", TGt => ">", TBang => "!",
-  TPipe => "|", TTilde => "~", TAt => "@", TQuestion => "?",
+  TPipe => "|", TTilde => "~", TAt => "@", THole => "??",
   TNewline => "<newline>", TEof => "<eof>"
 }
 
@@ -820,7 +820,7 @@ fn parse_primary(ref tokens, pos) = {
     TTrue        => (nexpr(LitBool(true), span), pos + 1),
     TFalse       => (nexpr(LitBool(false), span), pos + 1),
     TIdent(name) => (nexpr(VarRef(name), span), pos + 1),
-    TQuestion    => {
+    THole        => {
       let id = fresh_ph(span)
       (nhole(id, span), pos + 1)
     },
