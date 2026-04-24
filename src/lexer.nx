@@ -302,15 +302,6 @@ fn scan_string(ref source, n: ValidOffset, pos: ValidOffset, line, col, own buf,
         else { str_slice(source, pos + 1, pos + 2) }
       scan_string(source, n, pos + 2, line, col + 2, buf, count,
         acc |> str_concat(escaped))
-    } else if b == 36 && pos + 1 < n && byte_at(source, pos + 1) == 123 {
-      // ${ — deprecated dollar-sigil interpolation (amendment C).
-      let here = mk_tok(TStringSplice, line, col, line, col + 2)
-      perform report("lexer", "P_DeprecatedDollarInterp", "LexError",
-        "`${name}` is deprecated; use `{name}` (amendment C)", // drift-audit: ignore
-        Span(line, col, line, col + 2), "MachineApplicable")
-      // Best-effort recovery: treat $ as literal content, let { start splice.
-      scan_string(source, n, pos + 1, line, col + 1, buf, count,
-        acc |> str_concat("$"))
     } else {
       // non-escape byte — append its 1-byte slice view
       scan_string(source, n, pos + 1, line, col + 1, buf, count,
