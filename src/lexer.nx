@@ -33,6 +33,16 @@ fn is_alnum(b) with Pure = is_alpha(b) || is_digit(b)
 
 fn is_whitespace(b) with Pure = b == 32 || b == 9 || b == 13
 
+fn is_hex_digit(b) with Pure =
+  is_digit(b) || (b >= 65 && b <= 70) || (b >= 97 && b <= 102)
+// 0-9, A-F, a-f
+
+fn is_bin_digit(b) with Pure = b == 48 || b == 49
+// 0 or 1
+
+fn is_oct_digit(b) with Pure = b >= 48 && b <= 55
+// 0-7
+
 // ═══ Keyword classification ════════════════════════════════════════
 // Returns Some(TokenKind) if `word` is a reserved keyword; None
 // otherwise (caller emits TIdent(word)).
@@ -176,9 +186,11 @@ fn lex_from(ref source, n: ValidOffset, pos: ValidOffset, line, col, own buf, co
       let (b1, c1) = push_tok(buf, count, mk_tok(TString(str_val), line, col, line, new_col))
       lex_from(source, n, new_pos, line, new_col, b1, c1)
     } else if is_digit(b) {
-      let (new_pos, new_col, is_float) = scan_number(source, n, pos, col, false)
+      let (new_pos, new_col, base, is_float) = scan_number(source, n, pos, col, false)
       let num_val = str_slice(source, pos, new_pos)
-      let kind = if is_float { TFloat(parse_float(num_val)) } else { TInt(parse_int(num_val)) }
+      let kind =
+        if is_float { TFloat(parse_float(strip_underscores(num_val))) }
+        else        { TInt(parse_int_base(strip_underscores(num_val), base)) }
       let (b1, c1) = push_tok(buf, count, mk_tok(kind, line, col, line, new_col))
       lex_from(source, n, new_pos, line, new_col, b1, c1)
     } else if is_alpha(b) {
@@ -249,20 +261,60 @@ fn scan_string(ref source, n: ValidOffset, pos: ValidOffset, col, own acc) =
     }
   }
 
-// scan_number: advance position over the digits (and optionally one
-// decimal point followed by more digits). Returns (pos, col, is_float).
-// The caller slices the source to obtain the numeric literal text.
+// scan_number: advance position over digits with optional base-prefix
+// (0x hex, 0b binary, 0o octal) and optional underscore separators.
+// Returns (new_pos, new_col, base, is_float). base in {2, 8, 10, 16}.
+// Underscore is visual separator — skipped during accumulation, never
+// counted as a digit. Amendments P + Q.
 fn scan_number(ref source, n: ValidOffset, pos: ValidOffset, col, is_float) =
-  if pos >= n { (pos, col, is_float) }
+  if pos + 1 < n && byte_at(source, pos) == 48 {
+    let prefix = byte_at(source, pos + 1)
+    if prefix == 120 {
+      // 0x — hex
+      let (p2, c2) = scan_digits_pred(source, n, pos + 2, col + 2, is_hex_digit)
+      (p2, c2, 16, false)
+    } else if prefix == 98 {
+      // 0b — binary
+      let (p2, c2) = scan_digits_pred(source, n, pos + 2, col + 2, is_bin_digit)
+      (p2, c2, 2, false)
+    } else if prefix == 111 {
+      // 0o — octal
+      let (p2, c2) = scan_digits_pred(source, n, pos + 2, col + 2, is_oct_digit)
+      (p2, c2, 8, false)
+    } else {
+      scan_decimal(source, n, pos, col, is_float)
+    }
+  } else {
+    scan_decimal(source, n, pos, col, is_float)
+  }
+
+// Decimal path — handles underscore separators and optional decimal
+// point. Float detection as before (one . followed by >= 1 digit).
+fn scan_decimal(ref source, n: ValidOffset, pos: ValidOffset, col, is_float) =
+  if pos >= n { (pos, col, 10, is_float) }
   else {
     let b = byte_at(source, pos)
-    if is_digit(b) {
-      scan_number(source, n, pos + 1, col + 1, is_float)
+    if is_digit(b) || b == 95 {
+      // digit OR underscore separator
+      scan_decimal(source, n, pos + 1, col + 1, is_float)
     } else if b == 46 && !is_float && pos + 1 < n && is_digit(byte_at(source, pos + 1)) {
-      // . (decimal point) followed by another digit
-      scan_number(source, n, pos + 1, col + 1, true)
+      scan_decimal(source, n, pos + 1, col + 1, true)
     } else {
-      (pos, col, is_float)
+      (pos, col, 10, is_float)
+    }
+  }
+
+// scan_digits_pred: general hex/bin/oct accumulation. Accepts any
+// byte passing pred(b), plus underscore separators. Terminates at
+// the first byte that is neither pred-digit nor underscore.
+fn scan_digits_pred(ref source, n: ValidOffset, pos: ValidOffset, col, pred) =
+  if pos >= n { (pos, col) }
+  else {
+    let b = byte_at(source, pos)
+    if pred(b) || b == 95 {
+      scan_digits_pred(source, n, pos + 1, col + 1, pred)
+    } else {
+      (pos, col)
     }
   }
 

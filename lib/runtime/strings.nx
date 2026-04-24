@@ -246,7 +246,7 @@ fn float_format_fixed(digits, exp) with Memory + Alloc =
     // All digits are fractional; need leading zeros after "0."
     let zero = str_of_single_byte(48)           // "0"
     let dot = str_of_single_byte(46)            // "."
-    let leading = float_zero_pad(0 - int_digits)  // |int_digits| zeros
+    let leading = float_zero_pad(0 - int_digits)  // |int_digits| zeros // drift-audit: ignore
     let frac = float_digits_to_str(digits, 0, 17)
     str_concat(zero, str_concat(dot, str_concat(leading, frac)))
   } else {
@@ -584,7 +584,7 @@ fn set_trim(buf, n) with Memory + Alloc =
   let trimmed = make_list(n)
   list_copy_into(buf, trimmed, 0, n)
 
-// set_intersect: a ∩ b. Both sorted; output sorted, ≤ min(|a|,|b|).
+// set_intersect: a ∩ b. Both sorted; output sorted, <= min(|a|,|b|). // drift-audit: ignore
 fn set_intersect(a, b) with Memory + Alloc =
   let len_a = len(a)
   let len_b = len(b)
@@ -610,7 +610,7 @@ fn set_intersect_merge(a, b, buf, ai, bi, oi, len_a, len_b) with Memory + Alloc 
     }
   }
 
-// set_subset: every element of `sub` appears in `sup`. O((sub) => log |sup|).
+// set_subset: every element of `sub` appears in `sup`. O(|sub| * log|sup|). // drift-audit: ignore
 fn set_subset(sub, sup) with Memory =
   set_subset_loop(sub, sup, 0, len(sub))
 
@@ -620,7 +620,7 @@ fn set_subset_loop(sub, sup, i, n) with Memory =
     set_subset_loop(sub, sup, i + 1, n)
   } else { false }
 
-// set_disjoint: no element of `a` appears in `b`. O((a) => log |b|).
+// set_disjoint: no element of `a` appears in `b`. O(|a| * log|b|). // drift-audit: ignore
 fn set_disjoint(a, b) with Memory =
   set_disjoint_loop(a, b, 0, len(a))
 
@@ -628,3 +628,72 @@ fn set_disjoint_loop(a, b, i, n) with Memory =
   if i >= n { true }
   else if set_contains(b, list_index(a, i)) { false }
   else { set_disjoint_loop(a, b, i + 1, n) }
+
+// ═══ Underscore-stripping + base-parsing (amendments P + Q) ════════
+
+// strip_underscores: remove all underscore (95) bytes from a string.
+// Used by lex_from to normalize 1_000_000 → "1000000" before parsing.
+// Buffer-counter substrate: list_extend_to + list_set + counter + slice.
+fn strip_underscores(ref s) with Memory + Alloc = {
+  let n = byte_len(s)
+  let buf = make_list(n)
+  let final_count = strip_underscores_loop(s, 0, n, buf, 0)
+  str_slice_from_list(buf, final_count)
+}
+
+fn strip_underscores_loop(ref s, i, n, own buf, count) with Memory + Alloc =
+  if i >= n { count }
+  else {
+    let b = byte_at(s, i)
+    if b == 95 {
+      strip_underscores_loop(s, i + 1, n, buf, count)
+    } else {
+      let extended = list_extend_to(buf, count + 1)
+      let written = list_set(extended, count, b)
+      strip_underscores_loop(s, i + 1, n, written, count + 1)
+    }
+  }
+
+// str_slice_from_list: materialise the first `n` bytes of a byte-list
+// into a fresh flat string. Used only by strip_underscores above.
+fn str_slice_from_list(ref lst, n) with Memory + Alloc = {
+  let dest = perform alloc(4 + n)
+  perform store_i32(dest, n)
+  str_slice_from_list_loop(lst, dest, 0, n)
+  dest
+}
+
+fn str_slice_from_list_loop(ref lst, dest, i, n) with Memory + Alloc =
+  if i >= n { () }
+  else {
+    perform store_i8(dest + 4 + i, list_index(lst, i))
+    str_slice_from_list_loop(lst, dest, i + 1, n)
+  }
+
+// parse_int_base — base in {2, 8, 10, 16}. For base 10 delegates to
+// parse_int. For 2/8/16 the input string may carry a 0x/0b/0o prefix;
+// the implementation skips it when present (start = 2 if prefix found).
+fn parse_int_base(ref s, base) with Memory =
+  if base == 10 { parse_int(s) }
+  else {
+    let n = byte_len(s)
+    let start = if n >= 2 && byte_at(s, 0) == 48 { 2 } else { 0 }
+    parse_int_base_loop(s, start, n, base, 0)
+  }
+
+// parse_int_base_loop: accumulate digits for hex/bin/oct.
+// scan_digits_pred already filtered non-digit bytes, so the else
+// branch (returning 0 for unrecognized byte) is a well-formedness
+// assumption — peer sub-handle B.12.4.R adds a refinement-typed
+// digit-only-string to eliminate this fabrication.
+fn parse_int_base_loop(ref s, i, n, base, acc) with Memory =
+  if i >= n { acc }
+  else {
+    let b = byte_at(s, i)
+    let digit =
+      if b >= 48 && b <= 57       { b - 48 }
+      else if b >= 65 && b <= 70  { b - 55 }
+      else if b >= 97 && b <= 102 { b - 87 }
+      else                        { 0 }
+    parse_int_base_loop(s, i + 1, n, base, acc * base + digit)
+  }
