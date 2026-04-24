@@ -17,18 +17,15 @@ import runtime/strings
 import runtime/binary
 import runtime/io
 
-// ═══ KaiFile — per-module cache record ═════════════════════════════
-// Field-sorted alphabetically per parser invariant (post-H2). Adding
-// fields is additive — old caches with missing fields are detected
-// via compiler_version mismatch and re-built.
-//
-//   compiler_version  — bumps when the cache format changes
-//   exported_entries  — List<(String, Scheme, Reason, SchemeKind)>
-//   imports           — List<String>
-//   imports_hashes    — List<Int>
-//   module_name       — qualified module path
-//   source_hash       — FNV-1a 32-bit hash of the source bytes
-
+/// Per-module cache record. Fields sorted alphabetically (post-H2
+/// parser invariant). Adding fields is additive — version mismatch
+/// causes the cache entry to be treated as a miss and rebuilt.
+///
+/// - `compiler_version` — bumps when the binary format changes.
+/// - `exported_entries` — `List<(String, Scheme, Reason, SchemeKind)>`.
+/// - `imports` / `imports_hashes` — transitive dep paths + their hashes.
+/// - `module_name` — qualified module path.
+/// - `source_hash` — FNV-1a 32-bit hash of the source bytes.
 type KaiFile = {
   compiler_version: Int,
   exported_entries: List,
@@ -45,10 +42,8 @@ type KaiFile = {
 //   v3 — IC.2 binary Pack/Unpack (this version)
 fn cache_compiler_version() with Pure = 3
 
-// ═══ FNV-1a hash ═══════════════════════════════════════════════════
-// 32-bit FNV-1a over the source bytes. Not cryptographic — but
-// collision resistance for cache invalidation is adequate.
-
+/// 32-bit FNV-1a hash of the source bytes. Non-cryptographic;
+/// collision resistance is sufficient for cache invalidation.
 fn hash_source(s) with Memory = {
   let n = byte_len(s)
   cache_hash_loop(s, 0, n, 2166136261)
@@ -75,10 +70,8 @@ fn cache_hash_loop(s, i, n, h) with Memory =
 fn i32_xor(a, b) with Memory =
   perform i32_xor(a, b)
 
-// ═══ Cache path conventions ════════════════════════════════════════
-// All cache files live under <project>/.inka/cache/. Each module's
-// dotted path becomes a slash-flattened filename:
-//   compiler/infer.nx  → .inka/cache/compiler__infer.nx.kai
+// Cache path conventions — all files under `.inka/cache/`.
+// Slash-flattened: `compiler/infer.nx` → `.inka/cache/compiler__infer.nx.kai`.
 
 fn cache_dir() with Pure = ".inka/cache"
 
@@ -101,9 +94,8 @@ fn cache_flatten_loop(s, i, n, acc) with Memory + Alloc =
     cache_flatten_loop(s, i + 1, n, str_concat(acc, segment))
   }
 
-// ═══ Binary serialization — Pack direction ═════════════════════════
-// Each function performs Pack effects; the handler accumulates bytes.
-// Tag bytes per variant — one truth table, exhaustive match, no text.
+// Binary serialization — Pack direction. Tag bytes per variant,
+// exhaustive match, no text assembly.
 
 // Magic bytes: "IKAI" (0x49, 0x4B, 0x41, 0x49) — Inka KAI binary.
 fn cache_pack_magic() with Pack + !Unpack = {
@@ -348,8 +340,8 @@ fn cache_pack_effarg(arg) with Pack + !Unpack = match arg {
   }
 }
 
-// ═══ Binary deserialization — Unpack direction ═════════════════════
-// Mirror of pack: reads tag bytes, dispatches, reconstructs.
+// Binary deserialization — Unpack direction. Mirrors pack: reads tag
+// bytes, dispatches on tag, reconstructs values.
 
 fn cache_unpack_magic() with Unpack + !Pack = {
   let b0 = perform unpack_byte()
@@ -600,7 +592,7 @@ fn cache_unpack_effarg() with Unpack + !Pack = {
   }
 }
 
-// ═══ Public API — read/write through Filesystem + Pack/Unpack ══════
+// Public API — serialize/deserialize and read/write via Filesystem + Pack/Unpack.
 
 fn cache_serialize(kai) with Memory + Alloc = {
   cache_pack(kai)
