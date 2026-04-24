@@ -11,12 +11,11 @@
 
 import types
 
-// ═══ verify_ledger — accumulation handler ═══════════════════════════
-// Records every obligation. No solving. The simplest possible
-// demonstration that the handler-swap thesis works on the compiler's
-// own core: the gap between "no solver" and "full solver" is hosted
-// by the handler mechanism itself.
-
+/// Records every Verify obligation without solving. The simplest
+/// demonstration that the handler-swap thesis works on the compiler's
+/// own core: the gap between "no solver" and "full solver" is hosted
+/// by the handler mechanism itself. Swap for `verify_smt` (Arc F.1)
+/// with zero source changes.
 handler verify_ledger with debt = [] {
 
   verify(span, predicate, reason) =>
@@ -27,9 +26,8 @@ handler verify_ledger with debt = [] {
     resume(debt)
 }
 
-// ═══ Report debt summary ═══════════════════════════════════════════
-// Emitted at compile end by the driver (main.nx / pipeline.nx).
-
+/// Emit a single diagnostic summarising pending verification debt.
+/// Called at compile end by the driver. Zero debt → no diagnostic.
 fn report_verify_debt(debt) =
   if len(debt) == 0 { () }
   else {
@@ -39,10 +37,9 @@ fn report_verify_debt(debt) =
       span_zero(), "MaybeIncorrect")
   }
 
-// ═══ Debt classification — consumed by query ═══════════════════════
-// `inka query verification` projects debt by predicate shape so the
-// developer can see at a glance what classes of proof are pending.
-
+/// Classify verification debt by predicate shape. Consumed by
+/// `inka query verification` so the developer sees at a glance
+/// which proof classes are pending.
 fn debt_by_kind(debt) =
   if len(debt) == 0 { [] }
   else {
