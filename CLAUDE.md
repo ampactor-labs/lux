@@ -708,6 +708,41 @@ during the γ cascade — that bind all implementation:
     are the same gradient interaction (per INSIGHTS §"The Hole Is
     the Gradient's Absence Marker" commit `7505ade`); `??` is the
     syntactic "no current selection" marker, NOT a separate mode.
+12. **CLAUDE.md Is a `<~` Loop on Itself — The Realization Loop.**
+    The eight interrogations catch per-line drift; drift-audit
+    catches textual drift; PostToolUse hooks catch per-edit drift;
+    the cascade discipline catches per-handle drift. **None of
+    these catch substrate-architecture drift** — drift at the
+    altitude where many small drift-clean commits accumulate
+    without touching the load-bearing center. The session that
+    produced insight #11 above was hours of tactical work
+    (drift-clean ΔN sweeps, hole syntax, modifier bank, partial
+    silence_predicate substrate) before Morgan's accumulated
+    prompts surfaced the drift; the realization dissolved hours
+    of tactical surfaces into one substrate truth (`oracle IS IC
+    + one cached value`). **The discipline gap is altitude-
+    awareness: apply the eight interrogations at the SUBSTRATE
+    DESIGN altitude, not just per-line.** The five-step recipe:
+    (1) recognize the tactical-drift signature (many drift-clean
+    small commits + "small things first" defensiveness when
+    challenged); (2) re-altitude via brainstorming or "what's the
+    substrate truth this dissolves into?"; (3) apply eight
+    interrogations to the QUESTION, not per-line; (4) write dream
+    code IMMEDIATELY (Anchor 0 — lock substrate before realization
+    fades); (5) crystallize into CLAUDE.md insight + INSIGHTS
+    section + memory protocol as a separate "discipline lock-in"
+    commit citing the substrate commit SHA. **Each crystallization
+    permanently raises the altitude future sessions start at.**
+    Compound interest of self-reference (per INSIGHTS L1011-1084)
+    applied to the discipline layer itself: realization →
+    crystallization → next-session-inherits → faster-next-realization
+    → next-crystallization. The build IS `<~`; the discipline
+    surrounding the build IS `<~` on itself. Substrate authority:
+    INSIGHTS §"CLAUDE.md Is a `<~` Loop on Itself — The Realization
+    Loop" (commit lands alongside this crystallization). Memory
+    protocol: `protocol_realization_loop.md` (cross-session). **The
+    medium reads itself through itself, even at the discipline
+    layer.**
 
 ---
 

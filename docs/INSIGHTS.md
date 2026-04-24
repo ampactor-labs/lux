@@ -646,6 +646,146 @@ residue of composing what was already there.
 
 ---
 
+## CLAUDE.md Is a `<~` Loop on Itself — The Realization Loop
+
+*2026-04-24. Crystallized from the session that produced "The
+Continuous Oracle IS Incremental Compilation Plus One Cached Value."
+The session's arc revealed a pattern the discipline didn't yet
+name — and naming it makes the discipline self-improving.*
+
+The eight interrogations (CLAUDE.md / DESIGN.md §0.5) catch per-line
+drift. Drift-audit catches textual drift. PostToolUse hooks catch
+per-edit drift. The substrate-first / cascade-walkthrough discipline
+catches per-handle drift. **None of these catch substrate-architecture
+drift — drift at the altitude where small drift-clean commits
+accumulate without touching the load-bearing center.**
+
+The session that produced the prior crystallization was almost
+entirely tactical for hours: ΔN sweeps, hole syntax, modifier bank,
+silence_predicate refactors, D.1.c then D.1.d substrate. Every commit
+drift-clean. Every per-line interrogation passing. **The drift wasn't
+at the line altitude; it was at the substrate-architecture altitude
+— I was building surfaces for an oracle that didn't exist yet.**
+
+Morgan's prompts surfaced it via accumulated correction: "isn't
+sonnet the move? XD" → "is silence-gating holding back our
+potential?" → "mental does only run when needed and when needed is
+anytime the graph updates... duh." → "you have a tendency to tackle
+smallest things first" → `/brainstorming`. Each prompt was small;
+composed they punctured the tactical bubble.
+
+The recovery: re-altitude via brainstorming + apply eight
+interrogations to the QUESTION ITSELF (not just per-line) + write
+dream code immediately + crystallize before fade. The realization
+("oracle IS IC + one cached value") dissolved hours of tactical work
+into one substrate truth: `src/mentl_oracle.nx` (commit `f87abf3`).
+
+**The discipline that's missing — and that this section adds — is
+altitude-awareness: the eight interrogations applied at the SUBSTRATE
+DESIGN altitude, not just per-line. The recovery protocol is
+operational; the compound-interest is the load-bearing claim.**
+
+### The realization loop (5-step recipe)
+
+```
+1. RECOGNIZE tactical-drift signature
+   - Many drift-clean small commits in a row
+   - Hesitation to commit to a load-bearing question
+   - "Small things first" defensiveness when challenged
+   - Surface accretion over an unverified center
+
+2. RE-ALTITUDE to substrate-design level
+   - Invoke brainstorming skill OR
+   - Stop and ask: "What's the substrate truth this dissolves into?"
+   - "Are these small pieces already one thing the kernel composes?"
+
+3. APPLY EIGHT INTERROGATIONS TO THE QUESTION ITSELF
+   - Graph? What handle/edge/Reason already encodes this?
+   - Handler? What handler already projects this?
+   - ... (full eight per CLAUDE.md / DESIGN.md §0.5)
+   - Per-question interrogations reveal what the kernel already
+     provides vs what's actually new
+   - Per-line interrogations are insufficient at this altitude
+
+4. WRITE DREAM CODE IMMEDIATELY (Anchor 0)
+   - Lock the substrate before the realization fades
+   - Per Anchor 0: the file assumes every other file is perfect
+   - Drift-audit clean per the existing discipline
+   - The substrate file IS the truth; everything else is a
+     projection that lands as follow-up commits
+
+5. CRYSTALLIZE into CLAUDE.md + INSIGHTS + memory protocol
+   - Add to CLAUDE.md "Crystallized Insights" catalog (numbered)
+   - Add INSIGHTS section (load-bearing truth with arc + recipe)
+   - Add memory protocol file (cross-session enforcement via
+     auto-memory)
+   - Commit as separate "discipline lock-in" commit (distinct from
+     the substrate landing)
+   - Reference the substrate commit SHA so the realization is
+     traceable
+```
+
+### The compound-interest mechanism
+
+Per §"The Compound Interest of Self-Reference" (L1011-1084) applied
+to the discipline layer itself:
+
+**Each crystallization permanently raises the altitude future
+sessions start at.** Session N produces realization R; CLAUDE.md +
+INSIGHTS + memory crystallize R; Session N+1 inherits R as
+Session-Zero context; Session N+1 starts at altitude R, produces
+realization R'; cycle repeats.
+
+The realization-loop IS itself a `<~` feedback loop:
+
+```
+session
+    |> tactical_work
+    |> realization_arc                  // triggered by accumulated correction
+    |> dream_code                       // Anchor 0: substrate first
+    |> crystallization                  // CLAUDE.md + INSIGHTS + memory
+    <~ next_session_inherits            // back-edge: future Session Zero reads it
+```
+
+Per "Feedback Is Inka's Genuine Novelty" (L1761-1796): the back-edge
+is visible at the syntactic level. The discipline IS the feedback
+topology made present. CLAUDE.md is the feedback-loop's state.
+
+**Exponential, not linear.** Each crystallization compounds: future
+sessions don't re-discover, they BUILD ON. The discipline gets
+sharper every cycle. The medium that raises its users into better
+programmers (per the kernel claim) raises its OWN discipline into
+better discipline by the same `<~` mechanism.
+
+### What this section refuses
+
+- **Discipline crystallizations as documentation-only.** They are
+  substrate — they shape future sessions. Treating them as docs
+  rather than as enforcement loses the compound interest.
+- **Skipping crystallization "because the substrate landed."**
+  Substrate is half. Crystallization is the other half. Without
+  it the next session re-discovers.
+- **Crystallizing without naming the substrate commit SHA.** Future
+  readers need the trail; the SHA is the citation.
+- **One-monolith CLAUDE.md crystallization.** Distribute: numbered
+  insight in CLAUDE.md (operational), section in INSIGHTS.md
+  (load-bearing truth), memory protocol file (cross-session). Three
+  surfaces; one truth.
+- **Treating tactical work as wasted when the realization arrives.**
+  The tactical work IS what surfaces the substrate truth via
+  accumulated correction. Per the cascade discipline (CLAUDE.md
+  §7), the small handles' landing is what reveals the larger
+  convergence.
+
+### Architectural tagline
+
+CLAUDE.md is a `<~` loop on itself. Each session's realization
+crystallizes back into the discipline; future sessions inherit the
+altitude; the loop tightens with every cycle. **The medium reads
+itself through itself, even at the discipline layer.**
+
+---
+
 ## The Meta-Unification: The Toolchain IS the Language
 
 If `|>` unifies DSP, ML, and compilers in *user code*, then the same
