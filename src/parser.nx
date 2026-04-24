@@ -14,7 +14,7 @@ import types
 import graph
 import lexer
 
-// ═══ Handle minting and node wrapping ══════════════════════════════
+// Handle minting and node wrapping
 
 fn fresh_ph(span: ValidSpan) = {
   let h = perform graph_fresh_ty(Placeholder(span))
@@ -27,7 +27,7 @@ fn nstmt(s, span: ValidSpan) = N(NStmt(s), span, fresh_ph(span))
 fn npat(p, span: ValidSpan)  = N(NPat(p), span, fresh_ph(span))
 fn nhole(id, span: ValidSpan) = N(NHole(id), span, fresh_ph(span))
 
-// ═══ Token navigation ══════════════════════════════════════════════
+// Token navigation
 // Tokens are typed: `Tok(TokenKind, Span)`. Helpers extract payload
 // or compare kinds. Per SYNTAX.md, dispatch uses exhaustive match
 // on TokenKind variants — no string equality at parse time.
@@ -202,8 +202,7 @@ fn string_at(ref tokens, pos) =
     _          => ""
   }
 
-// ═══ Operator precedence table ═════════════════════════════════════
-// Per SYNTAX.md's canonical table. Higher number = tighter binding.
+// Operator precedence table — per SYNTAX.md. Higher number = tighter binding.
 
 fn op_prec(k) with Pure = match k {
   TOrOr      => 1,
@@ -228,13 +227,11 @@ fn op_prec(k) with Pure = match k {
   _          => 0
 }
 
-// Layout-sensitive pipe-kind mapping (I11). Per DESIGN Ch 2, `~>`
-// splits by whether a newline directly precedes it:
-//   newline-before-~>  → PTeeBlock  — wraps the whole prior chain
-//   no-newline         → PTeeInline — wraps the preceding stage
-// The block form carries the LOWEST pipe precedence so it binds
-// outside of everything on its left; the inline form keeps the
-// high precedence (10) so it tightens around the preceding stage.
+/// Layout-sensitive `~>` pipe-kind mapping (I11). Per DESIGN Ch 2:
+/// - newline before `~>` → `PTeeBlock` — wraps the whole prior chain
+/// - no newline          → `PTeeInline` — wraps the preceding stage
+/// Block form carries the LOWEST pipe precedence so it binds outside
+/// everything on its left; inline form keeps high precedence (10).
 fn op_to_pipe_kind_layout(k, saw_newline) with Pure = match k {
   TTildeGt => if saw_newline { Some(PTeeBlock) } else { Some(PTeeInline) },
   TPipeGt  => Some(PForward),
@@ -244,10 +241,10 @@ fn op_to_pipe_kind_layout(k, saw_newline) with Pure = match k {
   _        => None
 }
 
-// Effective precedence: block-form ~> lowers to 1 so it binds
-// looser than every other pipe verb and every binary operator,
-// capturing the whole preceding chain as its body. Inline form
-// keeps the base precedence.
+/// Effective precedence: block-form `~>` lowers to 1 so it binds
+/// looser than every other pipe verb and every binary operator,
+/// capturing the whole preceding chain as its body. Inline form
+/// keeps the base precedence.
 fn effective_prec(k, saw_newline) with Pure = match k {
   TTildeGt => if saw_newline { 1 } else { op_prec(k) },
   _        => op_prec(k)
@@ -262,18 +259,16 @@ fn skip_ws_tracked_loop(ref tokens, pos, saw) =
     _        => (saw, pos)
   }
 
-// op_to_binop: map a binop TokenKind to Some(BinOp), or None if
-// k is not a binop-producing token. Caller at parser.nx matches
-// Some/None explicitly; None at that site is genuinely unreachable
-// because the caller has already filtered via op_prec(k) > 0 +
-// op_to_pipe_kind_layout == None, but the unreachability is
-// expressed at the call site — not fabricated here via a wildcard
-// arm.
-//
-// Future form (named peer 11.B.1.R): refinement-typed parameter
-//   fn op_to_binop(k) -> BinOp where is_binop_token(k)
-// exercises primitive #6 and eliminates the Option entirely.
-// Lands post-simplification-audit.
+/// Map a binop `TokenKind` to `Some(BinOp)`, or `None` if `k` is not
+/// a binop-producing token. Caller matches `Some`/`None` explicitly;
+/// `None` at that site is unreachable (caller has already filtered via
+/// `op_prec(k) > 0` + `op_to_pipe_kind_layout == None`), but the
+/// unreachability is expressed at the call site — not fabricated here
+/// via a wildcard arm.
+///
+/// Future form (named peer 11.B.1.R): refinement-typed parameter
+///   `fn op_to_binop(k) -> BinOp where is_binop_token(k)`
+/// exercises primitive #6 and eliminates the `Option` entirely.
 fn op_to_binop(k) with Pure = match k {
   TPlus      => Some(BAdd),
   TMinus     => Some(BSub),
@@ -292,12 +287,12 @@ fn op_to_binop(k) with Pure = match k {
   _          => None
 }
 
-// ═══ Program — top-level loop ══════════════════════════════════════
+// Program — top-level loop
 
-// Buffer-pattern helper for recursive parse loops. Each parse loop
-// allocates an initial buffer, threads (buf, count) through tail-
-// recursion, and slices at the end. O(N) total allocation per loop
-// regardless of element count.
+/// Buffer-pattern helper for recursive parse loops. Each parse loop
+/// allocates an initial buffer, threads `(buf, count)` through tail-
+/// recursion, and slices at the end. O(N) total allocation per loop
+/// regardless of element count.
 fn push_node(own buf, count, node) = {
   let extended = list_extend_to(buf, count + 1)
   let written  = list_set(extended, count, node)
@@ -320,7 +315,7 @@ fn parse_stmt_list(ref tokens, pos, own buf, count) = {
   }
 }
 
-// ═══ Statements ════════════════════════════════════════════════════
+// Statements
 
 fn parse_stmt(ref tokens, pos) = match kind_at(tokens, pos) {
   TFn       => parse_fn(tokens, pos + 1),
@@ -347,7 +342,7 @@ fn parse_stmt(ref tokens, pos) = match kind_at(tokens, pos) {
   }
 }
 
-// DS.2 — concatenate consecutive /// lines into one docstring.
+/// DS.2 — concatenate consecutive `///` lines into one docstring.
 fn collect_docstring(ref tokens, pos, own acc) = {
   let p = skip_sep(tokens, pos)
   match kind_at(tokens, p) {
@@ -358,8 +353,7 @@ fn collect_docstring(ref tokens, pos, own acc) = {
   }
 }
 
-// ─── fn name(params) [-> retty] [with effects] = body ──────────────
-
+/// Parse `fn name(params) [-> retty] [with effects] = body`.
 fn parse_fn(ref tokens, pos) = {
   let start = span_at(tokens, pos)
   let name = ident_at(tokens, pos)
@@ -436,9 +430,9 @@ fn parse_one_param(ref tokens, pos) = {
   }
 }
 
-// Effect lists use `+` per SYNTAX.md (`with E1 + E2 + !E3`). Each
-// entry parses through parse_one_effect; the row is built from this
-// list at infer time (build_declared_row).
+/// Effect lists use `+` per SYNTAX.md (`with E1 + E2 + !E3`). Each
+/// entry parses through `parse_one_effect`; the row is built from this
+/// list at infer time (`build_declared_row`).
 fn parse_effect_list(ref tokens, pos) = {
   let (name, negated, p) = parse_one_effect(tokens, pos)
   let entry = (name, negated)
@@ -451,10 +445,10 @@ fn parse_effect_list(ref tokens, pos) = {
   }
 }
 
-// Parse a single effect entry — bare `IO`, negated `!IO`,
-// parameterized `Sample(44100)`, or negated parameterized
-// `!Sample(44100)`. Args are scalar literals (int/float/string);
-// identifier / expression args land in a v2 walkthrough.
+/// Parse a single effect entry — bare `IO`, negated `!IO`,
+/// parameterized `Sample(44100)`, or negated parameterized
+/// `!Sample(44100)`. Args are scalar literals (int/float/string);
+/// identifier / expression args land in a v2 walkthrough.
 fn parse_one_effect(ref tokens, pos) = {
   let (negated, p) =
     if at(tokens, pos, TBang) { (true, pos + 1) }
@@ -501,8 +495,7 @@ fn parse_one_eff_arg(ref tokens, pos) = match kind_at(tokens, pos) {
   _          => (EAInt(0), pos + 1)    // diagnostic deferred — see error catalog
 }
 
-// ─── let ───────────────────────────────────────────────────────────
-
+/// Parse `let pat [: ty] = expr`.
 fn parse_let(ref tokens, pos) = {
   let start = span_at(tokens, pos)
   let (pat, p) = parse_pat(tokens, pos)
@@ -516,8 +509,7 @@ fn parse_let(ref tokens, pos) = {
   (nstmt(LetStmt(pat, val), start), p5)
 }
 
-// ─── type X = V1 | V2(fields) | ... / type X = T where P ───────────
-
+/// Parse `type X = V1 | V2(fields) | ...` or `type X = T where P`.
 fn parse_type_decl(ref tokens, pos) = {
   let start = span_at(tokens, pos)
   let name = ident_at(tokens, pos)
@@ -581,8 +573,7 @@ fn parse_variant_fields(ref tokens, pos) = {
   }
 }
 
-// ─── effect X { op(args) -> ret @resume=Disc } ────────────────────
-
+/// Parse `effect X { op(args) -> ret @resume=Disc }`.
 fn parse_effect_decl(ref tokens, pos) = {
   let start = span_at(tokens, pos)
   let name = ident_at(tokens, pos)
@@ -626,8 +617,7 @@ fn parse_op_params(ref tokens, pos) = {
   }
 }
 
-// ─── handler X { arms } ───────────────────────────────────────────
-
+/// Parse `handler X { arms }`.
 fn parse_handler_decl(ref tokens, pos) = {
   let start = span_at(tokens, pos)
   let name = ident_at(tokens, pos)
@@ -655,8 +645,7 @@ fn parse_handler_arms(ref tokens, pos) = {
   }
 }
 
-// ─── capability X = effs ──────────────────────────────────────────
-
+/// Parse `capability X = effs`.
 fn parse_capability_decl(ref tokens, pos) = {
   let start = span_at(tokens, pos)
   let name = ident_at(tokens, pos)
@@ -680,8 +669,7 @@ fn parse_arg_names(ref tokens, pos) = {
   }
 }
 
-// ─── import ───────────────────────────────────────────────────────
-
+/// Parse `import path/to/module`.
 fn parse_import(ref tokens, pos) = {
   let start = span_at(tokens, pos)
   let (path, p) = parse_import_path(tokens, pos, "")
@@ -700,7 +688,7 @@ fn parse_import_path(ref tokens, pos, own acc) = {
   }
 }
 
-// ═══ Expressions — precedence-climbing ═════════════════════════════
+// Expressions — precedence-climbing
 
 fn parse_expr(ref tokens, pos) =
   parse_binop(tokens, pos, 1)
@@ -742,7 +730,7 @@ fn binop_loop(ref tokens, left, pos, min_prec) = {
   }
 }
 
-// Postfix: call, field access, indexing
+/// Postfix: call, field access, indexing.
 fn parse_postfix(ref tokens, pos) = {
   let (e, p) = parse_primary(tokens, pos)
   postfix_loop(tokens, e, p)
@@ -795,10 +783,10 @@ fn postfix_loop(ref tokens, e, pos) = match kind_at(tokens, pos) {
   _ => (e, pos)
 }
 
-// Parse the body of a nominal record literal — same shape as
-// parse_record_fields but invoked from a different surface
-// (postfix-suffix vs primary). Sorts fields by name at parse time
-// to maintain the substrate-wide invariant.
+/// Parse the body of a nominal record literal — same shape as
+/// `parse_record_fields` but invoked from a different surface
+/// (postfix-suffix vs primary). Sorts fields by name at parse time
+/// to maintain the substrate-wide invariant.
 fn parse_named_record_body(ref tokens, pos) = {
   let buf = make_list(4)
   let (final_buf, final_count, p) = parse_record_fields(tokens, pos, buf, 0)
@@ -821,7 +809,7 @@ fn parse_call_args(ref tokens, pos) = {
   }
 }
 
-// ═══ Primary expressions ═══════════════════════════════════════════
+// Primary expressions
 
 fn parse_primary(ref tokens, pos) = {
   let span = span_at(tokens, pos)
@@ -928,11 +916,11 @@ fn parse_list_elems(ref tokens, pos, own buf, count) = {
   }
 }
 
-// Disambiguate `{`: record literal vs block. Per SYNTAX.md, after the
-// opening brace + whitespace, an Identifier followed by Colon (typed
-// field) or Comma|RBrace (puned field) signals a record literal.
-// Anything else is a block. Lookahead is bounded to two tokens past
-// the brace — no backtracking, no ambiguity that escapes the parser.
+/// Disambiguate `{`: record literal vs block. Per SYNTAX.md, after the
+/// opening brace + whitespace, an `Identifier` followed by `:` (typed
+/// field) or `,`/`}` (puned field) signals a record literal.
+/// Anything else is a block. Lookahead is bounded to two tokens past
+/// the brace — no backtracking, no ambiguity that escapes the parser.
 fn parse_brace_expr(ref tokens, pos, start_span) = {
   let p = skip_ws(tokens, pos)
   match kind_at(tokens, p) {
@@ -949,9 +937,9 @@ fn parse_brace_expr(ref tokens, pos, start_span) = {
   }
 }
 
-// Record literal: `{name: expr, age: expr, ...}` or with field
-// puning `{name, age}` ≡ `{name: name, age: age}`. Fields sort by
-// name at parse time so downstream sees one canonical layout.
+/// Record literal: `{name: expr, age: expr, ...}` or with field
+/// puning `{name, age}` ≡ `{name: name, age: age}`. Fields sort by
+/// name at parse time so downstream sees one canonical layout.
 fn parse_record_literal(ref tokens, pos, start_span) = {
   let buf = make_list(4)
   let (final_buf, final_count, p) = parse_record_fields(tokens, pos, buf, 0)
@@ -984,8 +972,8 @@ fn parse_record_fields(ref tokens, pos, own buf, count) = {
   }
 }
 
-// Insertion sort by field name. N≤~16 in practice; insertion is the
-// natural shape and keeps the parser dependency-free.
+/// Insertion sort by field name. N≤~16 in practice; insertion is the
+/// natural shape and keeps the parser dependency-free.
 fn sort_record_fields(fields) =
   sort_record_fields_loop(fields, 0, len(fields), [])
 
@@ -1189,7 +1177,7 @@ fn parse_body(ref tokens, pos) = {
   }
 }
 
-// ═══ Patterns ══════════════════════════════════════════════════════
+// Patterns
 
 fn parse_pat(ref tokens, pos) =
   match kind_at(tokens, pos) {
@@ -1231,8 +1219,8 @@ fn parse_pat(ref tokens, pos) =
     _ => (PWild, pos + 1)
   }
 
-// Parse `{name, age}` or `{name: sub_pat, age: sub_pat}`. Field
-// puning is the default — `{name}` ≡ `{name: PVar("name")}`.
+/// Parse `{name, age}` or `{name: sub_pat, age: sub_pat}`. Field
+/// puning is the default — `{name}` ≡ `{name: PVar("name")}`.
 fn parse_pat_record_fields(ref tokens, pos) = {
   let p = skip_ws(tokens, pos)
   if at(tokens, p, TRBrace) { ([], p + 1) }
@@ -1293,7 +1281,7 @@ fn first_char_code(s) =
   if len(s) == 0 { 0 }
   else { char_code(chars(s)[0]) }
 
-// ═══ Type expressions ══════════════════════════════════════════════
+// Type expressions
 
 fn parse_type_ty(ref tokens, pos) = match kind_at(tokens, pos) {
   TIdent(v) => {
@@ -1380,7 +1368,7 @@ fn parse_type_expr(ref tokens, pos) = {
   (nexpr(LitUnit, span), p)
 }
 
-// ═══ Predicates — minimal (expressions after `where`) ══════════════
+// Predicates — minimal (expressions after `where`)
 
 fn parse_predicate(ref tokens, pos) = {
   // Phase 1: collect tokens up to semicolon or newline as PTrue.
