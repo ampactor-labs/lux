@@ -35,11 +35,11 @@
 import types
 import runtime/strings
 
-// ═══ Stdout ════════════════════════════════════════════════════════
+// Stdout
 
-// print_string: write a flat Inka string to stdout (fd=1).
-// Layout: the string pointer carries [len:i32][bytes...].
-// We fill the iov record in scratch memory then call fd_write.
+/// print_string — write a flat Inka string to stdout (fd=1).
+/// Layout: the string pointer carries [len:i32][bytes...].
+/// We fill the iov record in scratch memory then call fd_write.
 fn print_string(s) with Memory + WASI =
   let slen = perform load_i32(s)
   perform store_i32(80, s + 4)
@@ -47,13 +47,13 @@ fn print_string(s) with Memory + WASI =
   perform fd_write(1, 80, 1, 88)
   ()
 
-// print_int: convert n to a decimal string and write to stdout.
+/// print_int — convert n to a decimal string and write to stdout.
 fn print_int(n) with Memory + Alloc + WASI =
   let s = int_to_str(n)
   print_string(s)
 
-// print_newline: write a single newline character (0x0A) to stdout.
-// Uses a one-byte iov at scratch address 96.
+/// print_newline — write a single newline character (0x0A) to stdout.
+/// Uses a one-byte iov at scratch address 96.
 fn print_newline() with Memory + WASI =
   perform store_i8(96, 10)
   perform store_i32(80, 96)
@@ -61,9 +61,9 @@ fn print_newline() with Memory + WASI =
   perform fd_write(1, 80, 1, 88)
   ()
 
-// ═══ Stderr ════════════════════════════════════════════════════════
+// Stderr
 
-// eprint_string: write a flat Inka string to stderr (fd=2).
+/// eprint_string — write a flat Inka string to stderr (fd=2).
 fn eprint_string(s) with Memory + WASI =
   let slen = perform load_i32(s)
   perform store_i32(80, s + 4)
@@ -71,11 +71,11 @@ fn eprint_string(s) with Memory + WASI =
   perform fd_write(2, 80, 1, 88)
   ()
 
-// ═══ Stdin ════════════════════════════════════════════════════════
+// Stdin
 
-// read_stdin: slurp all of stdin into a heap-allocated flat string.
-// Reads in 4 KB chunks using a temporary 64 KB buffer (one alloc).
-// Returns a flat Inka string [len:i32][bytes...].
+/// read_stdin — slurp all of stdin into a heap-allocated flat string.
+/// Reads in 4 KB chunks using a temporary 64 KB buffer (one alloc).
+/// Returns a flat Inka string [len:i32][bytes...].
 fn read_stdin() with Memory + Alloc + WASI =
   let initial_cap = 65536
   let buf = perform alloc(initial_cap)
@@ -97,47 +97,46 @@ fn read_stdin_loop(buf, offset, capacity) with Memory + Alloc + WASI =
   if nread == 0 { (cur_buf, offset) }
   else { read_stdin_loop(cur_buf, offset + nread, cur_cap) }
 
-// read_chunk: fill iov at scratch and call fd_read(0 = stdin).
-// Returns the number of bytes actually read (0 = EOF).
+/// read_chunk — fill iov at scratch and call fd_read(0 = stdin).
+/// Returns the number of bytes actually read (0 = EOF).
 fn read_chunk(buf, size) with Memory + WASI =
   perform store_i32(80, buf)
   perform store_i32(84, size)
   perform fd_read(0, 80, 1, 88)
   perform load_i32(88)
 
-// ═══ Filesystem (FS) ══════════════════════════════════════════════
-// Four impl functions bridging the Filesystem effect ops to WASI
-// path_* syscalls. Each takes a String path (flat [len][bytes...]
+// Filesystem (FS) — four impl functions bridging the Filesystem effect
+// ops to WASI path_* syscalls. Each takes a String path (flat [len][bytes...]
 // shape) and delegates through the iov scratch pattern established
 // by print_string / read_chunk. Preopen fd 3 is the base for all
 // path-relative operations (wasmtime's --dir=. convention).
 
-// Copy a flat Inka string's byte payload into the fs path scratch
-// region at offset 256. Returns the byte length. Used by every fs
-// op before invoking the path_* syscall.
+/// Copy a flat Inka string's byte payload into the fs path scratch
+/// region at offset 256. Returns the byte length. Used by every fs
+/// op before invoking the path_* syscall.
 fn fs_write_path(s) with Memory =
   let slen = perform load_i32(s)
   perform mem_copy(256, s + 4, slen)
   slen
 
-// fs_exists — path_filestat_get returns 0 on success, errno otherwise.
-// The filestat record is written to scratch 512 (64 bytes for
-// filestat_t) but we discard the contents; existence is the boolean.
+/// fs_exists — path_filestat_get returns 0 on success, errno otherwise.
+/// The filestat record is written to scratch 512 (64 bytes for
+/// filestat_t) but we discard the contents; existence is the boolean.
 fn fs_exists_impl(path_str) with Memory + WASI =
   let path_len = fs_write_path(path_str)
   let errno = perform path_filestat_get(3, 0, 256, path_len, 512)
   errno == 0
 
-// fs_mkdir — path_create_directory relative to preopen fd 3.
-// Idempotent at the handler level (errno-17 EEXIST ignored).
+/// fs_mkdir — path_create_directory relative to preopen fd 3.
+/// Idempotent at the handler level (errno-17 EEXIST ignored).
 fn fs_mkdir_impl(path_str) with Memory + WASI =
   let path_len = fs_write_path(path_str)
   perform path_create_directory(3, 256, path_len)
   ()
 
-// fs_read_file — path_open (read flag) + fd_read loop + fd_close.
-// Returns the file bytes as a flat Inka String. On open failure
-// returns an empty string; caller should distinguish via fs_exists.
+/// fs_read_file — path_open (read flag) + fd_read loop + fd_close.
+/// Returns the file bytes as a flat Inka String. On open failure
+/// returns an empty string; caller should distinguish via fs_exists.
 fn fs_read_file_impl(path_str) with Memory + Alloc + WASI =
   let path_len = fs_write_path(path_str)
   // path_open(base_fd=3, dirflags=0, path_ptr, path_len, oflags=0,
@@ -175,8 +174,8 @@ fn fs_read_loop(fd, buf, offset, capacity) with Memory + Alloc + WASI =
   if nread == 0 { (cur_buf, offset) }
   else { fs_read_loop(fd, cur_buf, offset + nread, cur_cap) }
 
-// fs_write_file — path_open (write+create+trunc) + fd_write + fd_close.
-// Overwrites any existing file at path.
+/// fs_write_file — path_open (write+create+trunc) + fd_write + fd_close.
+/// Overwrites any existing file at path.
 fn fs_write_file_impl(path_str, bytes_str) with Memory + WASI =
   let path_len = fs_write_path(path_str)
   // path_open with FS_OFLAGS_CREAT|FS_OFLAGS_TRUNC = 0x9, FS_RIGHTS_WRITE = 0x40
