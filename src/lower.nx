@@ -27,11 +27,9 @@ import graph
 import types
 import effects
 
-// ═══ LowIR ═════════════════════════════════════════════════════════
-// Every variant carries a source TypeHandle (Int), never a cached Ty.
-// Type reads go through perform lookup_ty(h). Emit consumes this IR;
-// the handle is the live bridge back to the graph.
-
+/// Every variant carries a source TypeHandle (Int), never a cached Ty.
+/// Type reads go through `perform lookup_ty(h)`. Emit consumes this IR;
+/// the handle is the live bridge back to the graph.
 type LowExpr
   = LConst(Int, LowValue)
   | LLocal(Int, String)                        // handle, local name (matches LLet storage)
@@ -96,8 +94,8 @@ type LowPat
   | LPList(List)                     // list pattern — runtime-tag dispatch (runtime/lists.nx)
   | LPRecord(List)                   // [(field_name: String, offset_bytes: Int, sub_pat: LowPat)]
 
-// ═══ Handle projection — one arm per variant, no fallback ══════════
-
+/// Extract the source TypeHandle from any `LowExpr` variant.
+/// One arm per variant, no fallback — new variants surface at compile time.
 fn lexpr_handle(e) with Pure = match e {
   LConst(h, _)            => h,
   LLocal(h, _)            => h,
@@ -138,21 +136,19 @@ fn lexpr_handle(e) with Pure = match e {
 fn lexpr_ty(e) with LookupTy =
   perform lookup_ty(lexpr_handle(e))
 
-// ═══ Monomorphism — a graph read, not a sidecar ════════════════════
-// When the callee's effect row is ground (no unresolved row var),
-// emit LCall (direct). When open, emit LSuspend (evidence-passing
-// through a runtime vtable).
-
+/// When the callee's effect row is ground (no unresolved row var),
+/// emit `LCall` (direct). When open, emit `LSuspend` (evidence-passing
+/// through a runtime call-indirect on the closure's fn-pointer field).
 fn monomorphic_at(h) with LookupTy =
   match perform lookup_ty(h) {
     TFun(_, _, row) => row_is_ground(row),
     _               => true
   }
 
-// SchemeKind peek — read the construction-origin metadata an env
-// entry carries. None when the name isn't bound (a missing-var diag
-// has already fired at infer time; lower's path falls through to the
-// default LGlobal/LCall shape).
+/// Read the construction-origin metadata an env entry carries.
+/// `None` when the name isn't bound (a missing-var diagnostic has
+/// already fired at infer time; lower's path falls through to the
+/// default `LGlobal`/`LCall` shape).
 fn env_kind_of(name) =
   match perform env_lookup(name) {
     None        => None,
@@ -162,13 +158,12 @@ fn env_kind_of(name) =
     }
   }
 
-// Default call lowering — the CallExpr dispatch falls back to this
-// when the callee isn't a SchemeKind-recognized constructor or op.
-// Monomorphic case: direct LCall (callee's row is ground; no
-// evidence needed). Polymorphic case: LSuspend with ev_slots
-// derived from the callee's row — each unground op resolves to
-// the global handler arm's fn_idx via the `op_<name>` naming
-// convention H1.4 established.
+/// The `CallExpr` dispatch falls back to this when the callee isn't a
+/// `SchemeKind`-recognized constructor or effect op. Monomorphic case:
+/// direct `LCall` (callee's row is ground; no evidence needed).
+/// Polymorphic case: `LSuspend` with `ev_slots` derived from the callee's
+/// row — each unground op resolves to the global handler arm's `fn_idx`
+/// via the `op_<name>` naming convention H1.4 established.
 fn lower_call_default(handle, f, fh, lo_args) =
   let lo_f = lower_expr(f)
   if monomorphic_at(handle) {
@@ -178,13 +173,13 @@ fn lower_call_default(handle, f, fh, lo_args) =
     LSuspend(handle, fh, lo_f, lo_args, ev_slots)
   }
 
-// H1.6 — derive ev_slots from the callee's row at lower time. Each
-// op_name in the callee's row that needs evidence resolves to a
-// LowExpr loading `(global.get $op_<name>_idx)` — the static fn_idx
-// of the global handler arm. With single-handler-per-op naming
-// (H1.4), this resolution is unambiguous; multi-handler dispatch
-// would need handler_stack tracking, but the compiler-on-itself's
-// monomorphic handlers don't exercise it.
+/// H1.6 — derive `ev_slots` from the callee's row at lower time. Each
+/// `op_name` in the callee's row that needs evidence resolves to a
+/// `LowExpr` loading `(global.get $op_<name>_idx)` — the static `fn_idx`
+/// of the global handler arm. With single-handler-per-op naming (H1.4),
+/// this resolution is unambiguous; multi-handler dispatch would need
+/// `handler_stack` tracking, but the compiler-on-itself's monomorphic
+/// handlers don't exercise it.
 fn derive_ev_slots(callee_handle) =
   match perform lookup_ty(callee_handle) {
     TFun(_, _, row) => derive_ev_slots_from_row(row),
@@ -221,7 +216,7 @@ fn derive_ev_slots_loop(names, i, n, buf, count) =
     derive_ev_slots_loop(names, i + 1, n, written, count + 1)
   }
 
-// ═══ Lower walk — exhaustive, live ═════════════════════════════════
+// Lower walk — exhaustive, live
 
 fn lower_expr(node) =
   let N(body, span, handle) = node
@@ -446,13 +441,12 @@ fn apply_each_branch(lo_input, branches) =
       ++ apply_each_branch(lo_input, list_tail(branches))
   }
 
-// W6: resolve a field's byte offset from the record's live type.
-// Fields are sorted (via field_canonicalize invariants in effects.nx),
-// so the field's index in TRecord(fields) / TRecordOpen(fields, _)
-// maps directly to `4 * idx`. If lookup_ty returns a non-record
-// type (inference unresolved or an error-hole), fall back to 0 —
-// the loader will hit whatever offset 0 holds, which for open
-// records is the first field (best-effort graceful degrade).
+/// W6 — resolve a field's byte offset from the record's live type.
+/// Fields are sorted (field-canonicalize invariants in `effects.nx`),
+/// so the field's index in `TRecord(fields)` / `TRecordOpen(fields, _)`
+/// maps directly to `4 * idx`. If `lookup_ty` returns a non-record
+/// type (inference unresolved or error-hole), fall back to 0 —
+/// the loader hits whatever offset 0 holds (best-effort graceful degrade).
 fn resolve_field_offset(rec_handle, field_name) =
   match perform lookup_ty(rec_handle) {
     TRecord(fields)        => field_byte_offset(fields, field_name, 0, len(fields)),
@@ -482,7 +476,7 @@ fn field_byte_offset(fields, target, i, n) =
     else { field_byte_offset(fields, target, i + 1, n) }
   }
 
-// ═══ Statement lowering ═══════════════════════════════════════════
+// Statement lowering
 
 fn lower_stmt_list(stmts) =
   if len(stmts) == 0 { [] }
@@ -566,7 +560,7 @@ fn lower_stmt_body(s, handle, span) = match s {
 fn lower_stmt_as_expr(s, handle, span) =
   lower_stmt_body(s, handle, span)
 
-// ═══ Pattern lowering ══════════════════════════════════════════════
+// Pattern lowering
 
 fn lower_match_arms(arms) =
   if len(arms) == 0 { [] }
@@ -580,12 +574,11 @@ fn lower_match_arms(arms) =
       ++ lower_match_arms(list_tail(arms))
   }
 
-// Bind every PVar in the pattern as a local in the current frame so
-// arm-body VarRef resolution sees pattern-introduced names. Pattern
-// vars don't carry their own type handle at lower time (the value
-// type is the scrutinee's; sub-pattern types are scrutinee-derived
-// via inference); 0 stands as a sentinel that consumers should chase
-// the scrutinee's type if they need a handle.
+/// Bind every `PVar` in the pattern as a local in the current frame so
+/// arm-body `VarRef` resolution sees pattern-introduced names. Pattern
+/// vars don't carry their own type handle at lower time (value type is
+/// the scrutinee's; sub-pattern types are scrutinee-derived via inference);
+/// `0` stands as a sentinel — consumers chase the scrutinee's type if needed.
 // H6: exhaustive Pat enumeration. PVar binds the local; compound
 // patterns recurse. PWild and PLit bind nothing. New Pat variants
 // must decide their binding.
@@ -637,9 +630,9 @@ fn lower_pat(pat) = match pat {
   PRecord(flds)    => LPRecord(lower_pat_record_fields(flds, 0))
 }
 
-// Pattern fields are sorted-by-name (parser invariant); position
-// IS the byte offset (4 * index) per LMakeRecord's untagged layout.
-// No tag prefix to skip — offset 0 is the first field.
+/// Pattern fields are sorted-by-name (parser invariant); position
+/// IS the byte offset (`4 * index`) per `LMakeRecord`'s untagged layout.
+/// No tag prefix to skip — offset 0 is the first field.
 fn lower_pat_record_fields(flds, i) =
   if len(flds) == 0 { [] }
   else {
@@ -659,10 +652,8 @@ fn lower_pats(pats) =
   if len(pats) == 0 { [] }
   else { [lower_pat(list_head(pats))] ++ lower_pats(list_tail(pats)) }
 
-// ═══ Handler arm lowering ══════════════════════════════════════════
-// Each arm = (op_name, arg_names, body). Lowered as a pair for emit
-// to dispatch through the handler's state machine.
-
+/// Each arm = `(op_name, arg_names, body)`. Lowered as a pair for emit
+/// to dispatch through the handler's state machine.
 fn lower_handler_arms(arms) =
   if len(arms) == 0 { [] }
   else {
@@ -677,12 +668,11 @@ fn lower_handler_arms(arms) =
     [lo_arm] ++ lower_handler_arms(list_tail(arms))
   }
 
-// H1.4: lower handler arms to LDeclareFn entries — pure module-
-// level fn declarations, no runtime allocation. Each arm body
-// becomes a wasm function `op_<op_name>` taking the arm's args
-// (plus the implicit __state per the calling convention).
-// Stateful handlers (with state slots) are deferred — the handler
-// closure value model lands with H1.6's evidence wiring.
+/// H1.4 — lower handler arms to `LDeclareFn` entries: pure module-level
+/// fn declarations, no runtime allocation. Each arm body becomes a wasm
+/// function `op_<op_name>` taking the arm's args (plus the implicit
+/// `__state` per the calling convention). Stateful handlers (with state
+/// slots) land with H1.6's evidence wiring.
 fn lower_handler_arms_as_decls(arms) =
   if len(arms) == 0 { [] }
   else {
@@ -707,7 +697,7 @@ fn bind_names_as_locals(names) =
     bind_names_as_locals(list_tail(names))
   }
 
-// ═══ Parameter name lowering (for LFn metadata) ════════════════════
+// Parameter name lowering (for LFn metadata)
 
 fn lower_param_names(params) =
   if len(params) == 0 { [] }
@@ -742,24 +732,15 @@ fn lower_param_handles(params) =
     [h] ++ lower_param_handles(list_tail(params))
   }
 
-// ═══ Free-variable analysis — W7 phase 1 ═══════════════════════════
-// Walks a lambda body collecting every VarRef whose name is not in
-// the lambda's local scope. Nested lambdas augment `bound` with their
-// own params during the walk, so references resolved inside the
-// nested frame are excluded from the OUTER lambda's free set.
-//
-// Returns `List[String]` — just names, deduplicated. At emit time,
-// the closure record's slot N stores the value of captures[N] from
-// the enclosing scope; the lambda body reads them as LUpval(h, N).
-// VarRef in lower.nx resolves through the LowerScope effect (landed
-// Phase A1) which returns the local's actual type handle for
-// LUpval correctness.
-//
-// Name-set operations use `++` on small string lists. Ω.5's frame-
-// consolidation pass will upgrade these to sorted-set substrate
-// (set_contains O(log N), set_insert) once H2's records enable
-// the consolidated frame shape.
-
+/// W7 phase 1 — walks a lambda body collecting every `VarRef` whose
+/// name is not in the lambda's local scope. Nested lambdas augment
+/// `bound` with their own params during the walk, so references
+/// resolved inside the nested frame are excluded from the OUTER
+/// lambda's free set.
+///
+/// Returns `List[String]` — names only, deduplicated. At emit time,
+/// closure record slot N stores the value of `captures[N]` from the
+/// enclosing scope; the lambda body reads them as `LUpval(h, N)`.
 // H6: exhaustive NodeBody enumeration. Patterns and holes
 // contribute no free variable references (they're terminal AST
 // forms). Named explicitly so new NodeBody variants decide
@@ -868,9 +849,9 @@ fn cfv_list(nodes, bound) =
     )
   }
 
-// Free variables in a record-literal expression: union of frees in
-// each field's value. Field names are not value-position references
-// (the parser already desugared puning to VarRef nodes).
+/// Free variables in a record-literal expression: union of frees in
+/// each field's value. Field names are not value-position references
+/// (the parser already desugared pun-syntax to `VarRef` nodes).
 fn cfv_record_fields(flds, bound) =
   if len(flds) == 0 { [] }
   else {
@@ -881,9 +862,9 @@ fn cfv_record_fields(flds, bound) =
     )
   }
 
-// cfv_stmts walks a statement list, threading `bound` through LetStmts
-// so subsequent statements see the new bindings. Returns
-// (accumulated_frees, final_bound).
+/// Walk a statement list, threading `bound` through `LetStmt`s so
+/// subsequent statements see the new bindings. Returns
+/// `(accumulated_frees, final_bound)`.
 fn cfv_stmts(stmts, bound, acc_frees) =
   if len(stmts) == 0 { (acc_frees, bound) }
   else {
@@ -928,8 +909,8 @@ fn cfv_match_arms(arms, bound) =
     )
   }
 
-// Handler arm shape: (op_name, arg_names, body). The arg_names bind
-// inside body; op_name is the effect op being handled (global scope).
+/// Handler arm shape: `(op_name, arg_names, body)`. The `arg_names` bind
+/// inside `body`; `op_name` is the effect op being handled (global scope).
 fn cfv_handler_arms(arms, bound) =
   if len(arms) == 0 { [] }
   else {
@@ -962,8 +943,8 @@ fn cfv_pat_binds(pat) = match pat {
   PLit(_)            => []
 }
 
-// Extract binder names from record-pattern fields [(name, Pat)].
-// Each field contributes its sub-pat's binders.
+/// Extract binder names from record-pattern fields `[(name, Pat)]`.
+/// Each field contributes its sub-pat's binders.
 fn cfv_pat_binds_fields(flds) =
   if len(flds) == 0 { [] }
   else {
@@ -994,16 +975,16 @@ fn cfv_contains_loop(lst, s, i, n) =
   else if str_eq(list_index(lst, i), s) { true }
   else { cfv_contains_loop(lst, s, i + 1, n) }
 
-// ═══ Expression list ═══════════════════════════════════════════════
+// Expression list
 
 fn lower_expr_list(nodes) =
   if len(nodes) == 0 { [] }
   else { [lower_expr(list_head(nodes))] ++ lower_expr_list(list_tail(nodes)) }
 
-// Lower each value in a record-literal field list. Fields arrive
-// sorted-by-name (parser invariant); position IS layout. The lowered
-// list is in field-name sort order — emit reads it as the byte
-// layout directly, no per-field lookup.
+/// Lower each value in a record-literal field list. Fields arrive
+/// sorted-by-name (parser invariant); position IS layout. The lowered
+/// list is in field-name sort order — emit reads it as the byte
+/// layout directly, no per-field lookup.
 fn lower_record_field_values(flds) =
   if len(flds) == 0 { [] }
   else {
@@ -1011,21 +992,16 @@ fn lower_record_field_values(flds) =
     [lower_expr(value)] ++ lower_record_field_values(list_tail(flds))
   }
 
-// ═══ Capture resolution — W7.1 ═════════════════════════════════════
-// Called at LambdaExpr / FnStmt lower-time, BEFORE entering the new
-// frame. Each free name is resolved against the CURRENT (enclosing)
-// scope via ls_resolve:
-//   RLocal(slot) — name is a local of the enclosing frame; capture
-//                  loads its local slot value.
-//   RUpval(slot) — name was itself captured by the enclosing frame;
-//                  capture loads through __state offset.
-//   RGlobal      — name is a top-level symbol; NOT captured (always
-//                  reachable). Dropped from the captures list.
-//
-// Returns (captures_names, captures_exprs) — parallel lists with
-// identical length. captures_names feeds ls_enter_frame; captures_exprs
-// feeds LMakeClosure's heap-record materialization at emit time.
-
+/// W7.1 — called at `LambdaExpr` / `FnStmt` lower-time, BEFORE entering
+/// the new frame. Each free name is resolved against the CURRENT (enclosing)
+/// scope via `ls_resolve`:
+///   `RLocal`      — name is a local of the enclosing frame; capture loads its slot value.
+///   `RUpval(slot)` — name was itself captured; capture loads through `__state` offset.
+///   `RGlobal`     — name is a top-level symbol; NOT captured. Dropped from the list.
+///
+/// Returns `(captures_names, captures_exprs, captures_handles)` — parallel
+/// triples. `captures_names` feeds `ls_enter_frame`; `captures_exprs` feeds
+/// `LMakeClosure`'s heap-record materialization at emit time.
 fn resolve_captures_outer(names, owner_h) =
   if len(names) == 0 { ([], [], []) }
   else {
@@ -1048,25 +1024,22 @@ fn resolve_captures_outer(names, owner_h) =
     }
   }
 
-// ═══ Program lowering ══════════════════════════════════════════════
-// Pre-pass: collect every top-level name (FnStmt, LetStmt) and
-// register as globals via ls_register_globals. Then walk stmts; each
-// FnStmt / LambdaExpr pushes its own frame. VarRef resolution in
-// lambda bodies correctly distinguishes local/upval/global.
-
+/// Pre-pass: collect every top-level name (`FnStmt`, `LetStmt`) and
+/// register as globals via `ls_register_globals`. Then walk stmts; each
+/// `FnStmt` / `LambdaExpr` pushes its own frame. `VarRef` resolution in
+/// lambda bodies correctly distinguishes local/upval/global.
 fn lower_program(stmts) = {
   let globals = collect_top_level_names(stmts)
   perform ls_register_globals(globals)
   lower_stmt_list(stmts)
 }
 
-// Ω.3: top-level name collection uses the buffer substrate. The
-// number of top-level statements is bounded by N (file size), so
-// O(N) total allocation via list_extend_to + list_set + counter
-// + slice — avoiding the O(N squared) recursive accumulator pattern.
-// The buffer threads through tail-recursion as `(buf, count)`
-// because list_extend_to may return a fresh allocation if the
-// current capacity is exceeded.
+/// Ω.3 — top-level name collection uses the buffer substrate. The number
+/// of top-level statements is bounded by N (file size), so O(N) total
+/// allocation via `list_extend_to` + `list_set` + counter + `slice` —
+/// avoiding the O(N²) recursive accumulator pattern. The buffer threads
+/// through tail-recursion as `(buf, count)` because `list_extend_to`
+/// may return a fresh allocation if the current capacity is exceeded.
 fn collect_top_level_names(stmts) = {
   let n = len(stmts)
   let initial_capacity = if n < 4 { 4 } else { n }
@@ -1096,22 +1069,16 @@ fn push_name(buf, count, name) = {
   (written, count + 1)
 }
 
-// ═══ lower_scope handler — W7.1 lexical frame stack ════════════════
-// State:
-//   frames  — List of (locals, captures) tuples. Each frame is one
-//             lambda / fn body. The head is the current frame.
-//   globals — List of top-level name strings registered by
-//             lower_program at entry.
-//
-// ls_resolve(name): search current frame's locals (innermost-first
-// priority because push_scope shadowing is captured by slice
-// truncation via push/pop). If not found, current frame's captures.
-// Otherwise RGlobal. Frames below the head are NEVER searched —
-// they belong to the enclosing lambda, which is opaque at this
-// lexical level. Names referenced across frame boundaries MUST be
-// captured (added to the current frame's captures list at enter
-// time).
-
+/// W7.1 lexical frame stack. State:
+///   `frames`  — list of frame records (head = current). Each frame is one
+///               lambda / fn body with locals + captures.
+///   `globals` — top-level name strings registered by `lower_program` at entry.
+///
+/// `ls_resolve(name)`: search current frame's locals (innermost-first via
+/// push/pop checkpoint truncation). If not found, current frame's captures.
+/// Otherwise `RGlobal`. Frames below the head are NEVER searched — they
+/// belong to the enclosing lambda, which is opaque at this lexical level.
+/// Names referenced across frame boundaries MUST be captured.
 // Frame shape (Ω.5): one record per frame, six fields. Sorted-set
 // for O(log N) membership; parallel insertion-ordered list for slot
 // positioning (LLocal / LUpval need positional indices). Same data
@@ -1217,13 +1184,12 @@ handler lower_scope with frames = [], globals = [] {
   }
 }
 
-// Slot-index lookup once membership is confirmed. The set vouches
-// the name is present; this loop locates its insertion position
-// (slot index for LLocal / LUpval). Linear because order is
-// insertion-keyed, not sort-keyed; bounded by frame size in
-// practice. Renamed from ls_find_str to mark its post-Ω.5 role:
-// only fires after a positive set_contains, so worst case is O(N)
-// but expected case hits early since recently-bound names dominate.
+/// Slot-index lookup once `set_contains` has confirmed membership.
+/// The set vouches the name is present; this loop locates its insertion
+/// position (slot index for `LLocal` / `LUpval`). Linear because order
+/// is insertion-keyed, not sort-keyed; bounded by frame size in practice.
+/// Only fires after a positive `set_contains`, so worst case is O(N)
+/// but expected case hits early since recently-bound names dominate.
 fn ls_find_in_order(lst, target, i) =
   ls_find_in_order_loop(lst, target, i, len(lst))
 
