@@ -29,10 +29,10 @@ effect Compute {
 // Returns list of (dw, db) gradient pairs for weight layers.
 
 fn relu_grad(input, upstream) =
-  zip_with(|x, g| if x > 0.0 { g } else { 0.0 }, input, upstream)
+  zip_with((x, g) => if x > 0.0 { g } else { 0.0 }, input, upstream)
 
 fn sigmoid_grad(out, upstream) =
-  zip_with(|o, g| g * o * (1.0 - o), out, upstream)
+  zip_with((o, g) => g * o * (1.0 - o), out, upstream)
 
 fn backward_step(upstream, grad_pairs, entry) =
   match entry {

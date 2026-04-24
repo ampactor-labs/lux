@@ -62,23 +62,23 @@ handler infer_ctx with stack = [], declared = [], handler_stack = [] {
 
   inf_enter_fn(h, fn_span) => {
     let frame = {accumulated_row: EfPure, fn_span: fn_span, row_handle: h}
-    resume(())
+    resume()
       with stack = [frame] ++ stack
   },
 
   inf_exit_fn() => {
-    if len(stack) == 0 { resume(()) }
+    if len(stack) == 0 { resume() }
     else {
       let frame = list_head(stack)
       perform graph_bind_row(frame.row_handle, frame.accumulated_row,
         Located(frame.fn_span, Inferred("fn effect row")))
-      resume(())
+      resume()
         with stack = list_tail(stack)
     }
   },
 
   inf_add_effect(name) => {
-    if len(stack) == 0 { resume(()) }
+    if len(stack) == 0 { resume() }
     else {
       let frame = list_head(stack)
       // `name` is a String (legacy callers); wrap as bare ENamed.
@@ -89,13 +89,13 @@ handler infer_ctx with stack = [], declared = [], handler_stack = [] {
         fn_span: frame.fn_span,
         row_handle: frame.row_handle
       }
-      resume(())
+      resume()
         with stack = [updated] ++ list_tail(stack)
     }
   },
 
   inf_add_row(row) => {
-    if len(stack) == 0 { resume(()) }
+    if len(stack) == 0 { resume() }
     else {
       let frame = list_head(stack)
       let extended = union_row(frame.accumulated_row, row)
@@ -104,7 +104,7 @@ handler infer_ctx with stack = [], declared = [], handler_stack = [] {
         fn_span: frame.fn_span,
         row_handle: frame.row_handle
       }
-      resume(())
+      resume()
         with stack = [updated] ++ list_tail(stack)
     }
   },
@@ -118,7 +118,7 @@ handler infer_ctx with stack = [], declared = [], handler_stack = [] {
   },
 
   inf_set_declared(effs) => {
-    resume(()) with declared = effs
+    resume() with declared = effs
   },
 
   inf_declared_effs() => {
@@ -126,12 +126,12 @@ handler infer_ctx with stack = [], declared = [], handler_stack = [] {
   },
 
   inf_push_handler(name) => {
-    resume(()) with handler_stack = [name] ++ handler_stack
+    resume() with handler_stack = [name] ++ handler_stack
   },
 
   inf_pop_handler() => {
-    if len(handler_stack) == 0 { resume(()) }
-    else { resume(()) with handler_stack = list_tail(handler_stack) }
+    if len(handler_stack) == 0 { resume() }
+    else { resume() with handler_stack = list_tail(handler_stack) }
   },
 
   inf_handler_stack() => {

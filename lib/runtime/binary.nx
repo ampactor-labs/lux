@@ -44,7 +44,7 @@ handler buffer_packer with buf = 0, offset = 0, capacity = 0 {
   pack_byte(b) => {
     let (nb, nc) = ensure_capacity(buf, offset, capacity, 1)
     perform store_i8(nb + 4 + offset, b)
-    resume(()) with buf = nb, offset = offset + 1, capacity = nc
+    resume() with buf = nb, offset = offset + 1, capacity = nc
   },
 
   pack_i32(n) => {
@@ -57,7 +57,7 @@ handler buffer_packer with buf = 0, offset = 0, capacity = 0 {
     perform store_i8(nb + 4 + offset + 1, perform load_i8(scratch + 1))
     perform store_i8(nb + 4 + offset + 2, perform load_i8(scratch + 2))
     perform store_i8(nb + 4 + offset + 3, perform load_i8(scratch + 3))
-    resume(()) with buf = nb, offset = offset + 4, capacity = nc
+    resume() with buf = nb, offset = offset + 4, capacity = nc
   },
 
   pack_str(s) => {
@@ -71,7 +71,7 @@ handler buffer_packer with buf = 0, offset = 0, capacity = 0 {
     perform store_i8(nb + 4 + offset + 2, perform load_i8(scratch + 2))
     perform store_i8(nb + 4 + offset + 3, perform load_i8(scratch + 3))
     perform mem_copy(nb + 4 + offset + 4, s + 4, slen)
-    resume(()) with buf = nb, offset = offset + 4 + slen, capacity = nc
+    resume() with buf = nb, offset = offset + 4 + slen, capacity = nc
   },
 
   pack_finalize() => {

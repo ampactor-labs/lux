@@ -4,44 +4,44 @@
 
 // ── Vector constructors ─────────────────────────────────────
 
-fn zeros(n) = map(|_| 0.0, range(0, n))
-fn ones(n) = map(|_| 1.0, range(0, n))
+fn zeros(n) = map((_) => 0.0, range(0, n))
+fn ones(n) = map((_) => 1.0, range(0, n))
 
 // ── Vector arithmetic ───────────────────────────────────────
 
-fn vec_add(a, b) = zip_with(|x, y| x + y, a, b)
-fn vec_sub(a, b) = zip_with(|x, y| x - y, a, b)
-fn vec_mul(a, b) = zip_with(|x, y| x * y, a, b)
-fn scalar_mul(s, xs) = map(|x| s * x, xs)
-fn sumf(xs) = fold(xs, 0.0, |acc, x| acc + x)
-fn dot(a, b) = sumf(zip_with(|x, y| x * y, a, b))
+fn vec_add(a, b) = zip_with((x, y) => x + y, a, b)
+fn vec_sub(a, b) = zip_with((x, y) => x - y, a, b)
+fn vec_mul(a, b) = zip_with((x, y) => x * y, a, b)
+fn scalar_mul(s, xs) = map((x) => s * x, xs)
+fn sumf(xs) = fold(xs, 0.0, (acc, x) => acc + x)
+fn dot(a, b) = sumf(zip_with((x, y) => x * y, a, b))
 
 // ── Matrix operations ───────────────────────────────────────
 
-fn mat_vec_mul(w, x) = map(|row| dot(row, x), w)
+fn mat_vec_mul(w, x) = map((row) => dot(row, x), w)
 
-fn outer_product(a, b) = map(|ai| scalar_mul(ai, b), a)
+fn outer_product(a, b) = map((ai) => scalar_mul(ai, b), a)
 
 fn transpose(m) =
   if len(m) == 0 { [] }
   else {
     let cols = len(m[0])
-    map(|j| map(|row| row[j], m), range(0, cols))
+    map((j) => map((row) => row[j], m), range(0, cols))
   }
 
-fn mat_sub(a, b) = zip_with(|ra, rb| vec_sub(ra, rb), a, b)
+fn mat_sub(a, b) = zip_with((ra, rb) => vec_sub(ra, rb), a, b)
 
-fn scalar_mat_mul(s, m) = map(|row| scalar_mul(s, row), m)
+fn scalar_mat_mul(s, m) = map((row) => scalar_mul(s, row), m)
 
-fn mat_add(a, b) = zip_with(|ra, rb| vec_add(ra, rb), a, b)
+fn mat_add(a, b) = zip_with((ra, rb) => vec_add(ra, rb), a, b)
 
 // ── Activations (pure, element-wise) ────────────────────────
 
-fn relu_vec(xs) = map(|x| if x > 0.0 { x } else { 0.0 }, xs)
+fn relu_vec(xs) = map((x) => if x > 0.0 { x } else { 0.0 }, xs)
 
 fn sigmoid_scalar(x) = 1.0 / (1.0 + exp(-x))
 
-fn sigmoid_vec(xs) = map(|x| sigmoid_scalar(x), xs)
+fn sigmoid_vec(xs) = map((x) => sigmoid_scalar(x), xs)
 
 // ── Loss ────────────────────────────────────────────────────
 

@@ -31,7 +31,7 @@ effect WasmOut {
 handler wat_stdout {
   wat_emit(s) => {
     print(s)
-    resume(())
+    resume()
   }
 }
 
@@ -84,7 +84,7 @@ handler emit_memory_bump {
     perform wat_emit(int_to_str(size))
     perform wat_emit(") (i32.add)\n")
     perform wat_emit("    (global.set $heap_ptr)\n")
-    resume(())
+    resume()
   }
 }
 
@@ -110,7 +110,7 @@ handler emit_memory_arena {
     perform wat_emit(int_to_str(size))
     perform wat_emit(") (i32.add)\n")
     perform wat_emit("    (global.set $arena_ptr)\n")
-    resume(())
+    resume()
   }
 }
 
@@ -121,7 +121,7 @@ handler emit_memory_arena {
 // string region — an empty string whose emit is idempotent).
 handler string_table with entries = [] {
   string_offset(s) => resume(string_offset_lookup(entries, s, 0, len(entries))),
-  set_string_entries(es) => resume(()) with entries = es
+  set_string_entries(es) => resume() with entries = es
 }
 
 fn string_offset_lookup(entries, target, i, n) =

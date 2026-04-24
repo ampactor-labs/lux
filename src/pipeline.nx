@@ -184,18 +184,18 @@ handler env_handler with entries = [], scopes = [] {
     resume(Env(entries)),
 
   env_extend(name, scheme, reason, kind) =>
-    resume(())
+    resume()
       with entries = [(name, scheme, reason, kind)] ++ entries,
 
   env_scope_enter() =>
-    resume(())
+    resume()
       with scopes = [len(entries)] ++ scopes,
 
   env_scope_exit() =>
-    if len(scopes) == 0 { resume(()) }
+    if len(scopes) == 0 { resume() }
     else {
       let mark = list_head(scopes)
-      resume(())
+      resume()
         with entries = take_last(entries, mark),
              scopes = list_tail(scopes)
     }
@@ -221,9 +221,9 @@ fn take_last(lst, n) =
 
 handler body_context with captures = 0, evidence = [] {
   current_body_captures()    => resume(captures),
-  set_body_captures(n)       => resume(()) with captures = n,
+  set_body_captures(n)       => resume() with captures = n,
   current_body_evidence()    => resume(evidence),
-  set_body_evidence(ev)      => resume(()) with evidence = ev
+  set_body_evidence(ev)      => resume() with evidence = ev
 }
 
 // ═══ wasi_filesystem — FS substrate (IC prerequisite) ══════════════
@@ -243,11 +243,11 @@ handler wasi_filesystem {
   fs_read_file(path)             => resume(fs_read_file_impl(path)),
   fs_write_file(path, bytes)     => {
     fs_write_file_impl(path, bytes)
-    resume(())
+    resume()
   },
   fs_mkdir(path)                 => {
     fs_mkdir_impl(path)
-    resume(())
+    resume()
   }
 }
 
@@ -299,7 +299,7 @@ handler diagnostics_handler {
         |> str_concat(show_span(span))
         |> str_concat("\n")
     )
-    resume(())
+    resume()
   }
 }
 

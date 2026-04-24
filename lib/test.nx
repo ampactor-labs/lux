@@ -33,7 +33,7 @@ fn expect_false(value) =
 // ─── run_tests: compact output ───────────────────────────────
 
 fn run_tests(tests) = {
-  let totals = fold(tests, (0, 0), |acc, test| {
+  let totals = fold(tests, (0, 0), (acc, test) => {
     let (name, test_fn) = test
     let (p, f) = handle {
       test_fn()
@@ -42,10 +42,10 @@ fn run_tests(tests) = {
       check(cond, msg) => {
         let (passed, failed) = counts
         if cond {
-          resume(()) with counts = (passed + 1, failed)
+          resume() with counts = (passed + 1, failed)
         } else {
           println("  FAIL [" ++ name ++ "]: " ++ msg)
-          resume(()) with counts = (passed, failed + 1)
+          resume() with counts = (passed, failed + 1)
         }
       },
       get_results() => resume(counts),
@@ -66,7 +66,7 @@ fn run_tests(tests) = {
 // ─── run_suite: verbose ✓/✗ per assertion ────────────────────
 
 fn run_suite(tests) = {
-  let totals = fold(tests, (0, 0), |acc, test| {
+  let totals = fold(tests, (0, 0), (acc, test) => {
     let (name, test_fn) = test
     println("── " ++ name ++ " ──")
     let (p, f) = handle {
@@ -77,10 +77,10 @@ fn run_suite(tests) = {
         let (passed, failed) = counts
         if cond {
           println("  ✓ " ++ msg)
-          resume(()) with counts = (passed + 1, failed)
+          resume() with counts = (passed + 1, failed)
         } else {
           println("  ✗ " ++ msg)
-          resume(()) with counts = (passed, failed + 1)
+          resume() with counts = (passed, failed + 1)
         }
       },
       get_results() => resume(counts),

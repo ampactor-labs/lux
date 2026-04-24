@@ -92,12 +92,12 @@ effect HostClock {
 
 handler clock_real {
   clock_now() => resume(Instant(perform host_clock_ns())),
-  clock_sleep(_d) => resume(())   // no-op in batch compilation
+  clock_sleep(_d) => resume()   // no-op in batch compilation
 }
 
 handler tick_real with counter = 0 {
   tick() =>
-    resume(())
+    resume()
       with counter = counter + 1,
   current_tick() => resume(counter)
 }
@@ -105,7 +105,7 @@ handler tick_real with counter = 0 {
 handler sample_real with rate = 44100, count = 0 {
   sample_rate() => resume(rate),
   advance_sample() =>
-    resume(())
+    resume()
       with count = count + 1,
   current_sample() => resume(count)
 }
@@ -123,14 +123,14 @@ handler clock_test with clock_state = 1000 {
       with clock_state = clock_state + 1,
   clock_sleep(d) => {
     let Duration(ns) = d
-    resume(())
+    resume()
       with clock_state = clock_state + ns
   }
 }
 
 handler tick_test with counter = 0 {
   tick() =>
-    resume(())
+    resume()
       with counter = counter + 1,
   current_tick() => resume(counter)
 }
@@ -138,7 +138,7 @@ handler tick_test with counter = 0 {
 handler sample_test with rate = 48000, count = 0 {
   sample_rate() => resume(rate),
   advance_sample() =>
-    resume(())
+    resume()
       with count = count + 1,
   current_sample() => resume(count)
 }
@@ -168,7 +168,7 @@ handler clock_record with trace = [], trace_len = 0 {
     resume(Instant(now))
       with trace = new_trace, trace_len = trace_len + 1
   },
-  clock_sleep(_d) => resume(())
+  clock_sleep(_d) => resume()
 }
 
 handler tick_record with counter = 0, trace = [], trace_len = 0 {
@@ -176,7 +176,7 @@ handler tick_record with counter = 0, trace = [], trace_len = 0 {
     let new_trace = trace
       |> list_extend_to(trace_len + 1)
       |> list_set(trace_len, counter)
-    resume(())
+    resume()
       with counter = counter + 1,
            trace = new_trace,
            trace_len = trace_len + 1
@@ -201,14 +201,14 @@ handler clock_replay with trace = [], read_idx = 0 {
       resume(Instant(val))
         with read_idx = read_idx + 1
     },
-  clock_sleep(_d) => resume(())
+  clock_sleep(_d) => resume()
 }
 
 handler tick_replay with trace = [], read_idx = 0 {
   tick() =>
-    if read_idx >= len(trace) { resume(()) }
+    if read_idx >= len(trace) { resume() }
     else {
-      resume(())
+      resume()
         with read_idx = read_idx + 1
     },
   current_tick() =>

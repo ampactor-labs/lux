@@ -101,13 +101,13 @@ handler affine_ledger with used = [], used_sites = [], branches = [] {
           |> str_concat(")")
           |> str_concat(auth_hint),
         span, "MachineApplicable")
-      resume(())
+      resume()
     } else {
       // `used` maintains sort invariant via set_insert — every read
       // (set_contains above) is O(log N) without boundary normalization.
       // `used_sites` keeps insertion order so find_first_span returns
       // the actual first-use span (sorting it would lose temporal order).
-      resume(())
+      resume()
         with used = set_insert(used, name),
              used_sites = [(name, span)] ++ used_sites
     }
@@ -116,7 +116,7 @@ handler affine_ledger with used = [], used_sites = [], branches = [] {
   // branch_enter — snapshot the current `used` as the frame's base;
   // deltas list starts empty. Nested branches push onto the stack.
   branch_enter() => {
-    resume(())
+    resume()
       with branches = [(used, [])] ++ branches
   },
 
@@ -126,11 +126,11 @@ handler affine_ledger with used = [], used_sites = [], branches = [] {
   // to the frame's deltas list, then resets `used` to base so the
   // next branch sees the original scope.
   branch_divider(_span) => {
-    if len(branches) == 0 { resume(()) }
+    if len(branches) == 0 { resume() }
     else {
       let (base, deltas) = list_head(branches)
       let delta = set_diff(used, base)
-      resume(())
+      resume()
         with used = base,
              branches = [(base, [delta] ++ deltas)] ++ list_tail(branches)
     }
@@ -141,13 +141,13 @@ handler affine_ledger with used = [], used_sites = [], branches = [] {
   // E_OwnershipViolation at the branch site), merges all deltas into
   // `used` as base ∪ union(deltas), pops the frame.
   branch_exit(span) => {
-    if len(branches) == 0 { resume(()) }
+    if len(branches) == 0 { resume() }
     else {
       let (base, prior_deltas) = list_head(branches)
       let last_delta = set_diff(used, base)
       let all_deltas = [last_delta] ++ prior_deltas
       report_branch_collisions(all_deltas, span)
-      resume(())
+      resume()
         with used = set_union(base, union_all_deltas(all_deltas)),
              branches = list_tail(branches)
     }
@@ -222,8 +222,8 @@ handler region_tracker with region_stack = [], next_region = 0, tagged_values = 
   },
 
   region_exit(_rid) => {
-    if len(region_stack) == 0 { resume(()) }
-    else { resume(()) with region_stack = list_tail(region_stack) }
+    if len(region_stack) == 0 { resume() }
+    else { resume() with region_stack = list_tail(region_stack) }
   },
 
   current_region() => {
@@ -245,7 +245,7 @@ handler region_tracker with region_stack = [], next_region = 0, tagged_values = 
     let install_span = if len(region_stack) == 0 { span_zero() }
                        else { let Region(_, s) = list_head(region_stack); s }
     let tag = {handle: value_handle, install_span: install_span, region_id: rid}
-    resume(())
+    resume()
       with tagged_values = [tag] ++ tagged_values
   },
 
@@ -263,7 +263,7 @@ handler region_tracker with region_stack = [], next_region = 0, tagged_values = 
                        else { let Region(_, s) = list_head(region_stack); s }
     let joined = join_field_regions(tagged_values, field_handles, cur_rid)
     let tag = {handle: value_handle, install_span: install_span, region_id: joined}
-    resume(())
+    resume()
       with tagged_values = [tag] ++ tagged_values
   },
 
@@ -275,10 +275,10 @@ handler region_tracker with region_stack = [], next_region = 0, tagged_values = 
     // site and the escape site.
     let entry = lookup_tag(tagged_values, value_handle)
     match entry {
-      None => resume(()),
+      None => resume(),
       Some(tag) => {
         if tag.region_id == 0 || region_on_stack(region_stack, tag.region_id) {
-          resume(())
+          resume()
         } else {
           perform report("region", "E_RegionEscape", "OwnershipViolation",
             "value allocated in a scope that ended before this return — region "
@@ -287,7 +287,7 @@ handler region_tracker with region_stack = [], next_region = 0, tagged_values = 
             escape_span, "MaybeIncorrect")
           // tag.install_span retained for future multi-span
           // diagnostic (Located secondary at the alloc site).
-          resume(())
+          resume()
         }
       }
     }

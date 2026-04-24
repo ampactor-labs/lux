@@ -64,17 +64,17 @@ fn dispatch_mode(argv) =
   else {
     let mode = argv[1]
     if str_eq(mode, "compile") && len(argv) >= 3 {
-      Some(|| compile(path_to_module(argv[2])))
+      Some(() => compile(path_to_module(argv[2])))
     } else if str_eq(mode, "check") && len(argv) >= 3 {
-      Some(|| check(path_to_module(argv[2])))
+      Some(() => check(path_to_module(argv[2])))
     } else if str_eq(mode, "query") && len(argv) >= 4 {
-      Some(|| query(path_to_module(argv[2]), argv[3]))
+      Some(() => query(path_to_module(argv[2]), argv[3]))
     } else if str_eq(mode, "teach") && len(argv) >= 3 {
-      Some(|| teach(path_to_module(argv[2])))
+      Some(() => teach(path_to_module(argv[2])))
     } else if str_eq(mode, "audit") && len(argv) >= 3 {
-      Some(|| audit(path_to_module(argv[2])))
+      Some(() => audit(path_to_module(argv[2])))
     } else if str_eq(mode, "compile-source") && len(argv) >= 3 {
-      Some(|| compile_source(read_stdin()))
+      Some(() => compile_source(read_stdin()))
     } else {
       None
     }

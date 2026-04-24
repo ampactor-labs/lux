@@ -610,7 +610,7 @@ fn set_intersect_merge(a, b, buf, ai, bi, oi, len_a, len_b) with Memory + Alloc 
     }
   }
 
-// set_subset: every element of `sub` appears in `sup`. O(|sub| log |sup|).
+// set_subset: every element of `sub` appears in `sup`. O((sub) => log |sup|).
 fn set_subset(sub, sup) with Memory =
   set_subset_loop(sub, sup, 0, len(sub))
 
@@ -620,7 +620,7 @@ fn set_subset_loop(sub, sup, i, n) with Memory =
     set_subset_loop(sub, sup, i + 1, n)
   } else { false }
 
-// set_disjoint: no element of `a` appears in `b`. O(|a| log |b|).
+// set_disjoint: no element of `a` appears in `b`. O((a) => log |b|).
 fn set_disjoint(a, b) with Memory =
   set_disjoint_loop(a, b, 0, len(a))
 

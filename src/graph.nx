@@ -141,12 +141,12 @@ handler graph_handler
           |> str_concat(show_type(ty)),
         span_zero(), "MachineApplicable"
       )
-      resume(())
+      resume()
     } else {
       let old_node = graph_node_at(nodes, handle)
       let new_nodes = graph_set_node(nodes, handle, GNode(NBound(ty), reason))
       let new_trail = trail_append(trail, trail_len, MSetNode(handle, old_node))
-      resume(())
+      resume()
         with nodes = new_nodes,
              epoch = epoch + 1,
              trail = new_trail,
@@ -158,7 +158,7 @@ handler graph_handler
     let old_node = graph_node_at(nodes, handle)
     let new_nodes = graph_set_node(nodes, handle, GNode(NRowBound(row), reason))
     let new_trail = trail_append(trail, trail_len, MSetRow(handle, old_node))
-    resume(())
+    resume()
       with nodes = new_nodes,
            epoch = epoch + 1,
            trail = new_trail,
@@ -173,7 +173,7 @@ handler graph_handler
     // allocations register into the current overlay in O(1).
     let existing_idx = overlay_find(overlay_names, overlay_count, module_name)
     if existing_idx < overlay_count {
-      resume(())
+      resume()
         with current_overlay_idx = existing_idx,
              current_overlay = module_name
     } else {
@@ -186,7 +186,7 @@ handler graph_handler
       let new_lens = overlay_lens
         |> list_extend_to(overlay_count + 1)
         |> list_set(overlay_count, 0)
-      resume(())
+      resume()
         with overlay_names = new_names,
              overlay_bufs = new_bufs,
              overlay_lens = new_lens,
@@ -208,17 +208,17 @@ handler graph_handler
   // (handle, epoch) correctly see invalidation without reordering.
 
   graph_index_span(span, handle) => {
-    resume(()) with span_index = push(span_index, (span, handle))
+    resume() with span_index = push(span_index, (span, handle))
   },
 
   graph_index_intent(handle, effs) => {
-    resume(()) with intent_index = push(intent_index, (handle, effs))
+    resume() with intent_index = push(intent_index, (handle, effs))
   },
 
   graph_rollback(target_idx) => {
     let (new_nodes, new_next) =
       revert_trail(nodes, trail, trail_len, target_idx, next)
-    resume(())
+    resume()
       with nodes = new_nodes,
            next = new_next,
            trail_len = target_idx

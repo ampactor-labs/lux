@@ -198,7 +198,7 @@ fn union_row(ref a, ref b) with !Mutate =
         EfOpen(nb, v) =>
           na ++ nb
             |> sort_unique
-            |> |merged| EfOpen(merged, v),
+            |> (merged) => EfOpen(merged, v),
         _ =>
           b
             |> normalize_row
@@ -210,11 +210,11 @@ fn union_row(ref a, ref b) with !Mutate =
         EfClosed(nb) =>
           na ++ nb
             |> sort_unique
-            |> |merged| EfOpen(merged, va),
+            |> (merged) => EfOpen(merged, va),
         EfOpen(nb, _) =>
           na ++ nb
             |> sort_unique
-            |> |merged| EfOpen(merged, va),
+            |> (merged) => EfOpen(merged, va),
         _ =>
           b
             |> normalize_row
@@ -223,7 +223,7 @@ fn union_row(ref a, ref b) with !Mutate =
     _ =>
       a
         |> normalize_row
-        |> |na| union_row(na, b)
+        |> (na) => union_row(na, b)
   }
 
 // ═══ Difference — the `-` operator ═════════════════════════════════

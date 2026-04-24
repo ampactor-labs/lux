@@ -102,7 +102,7 @@ effect Synth {
 handler mentl_default with annotations = [] {
 
   teach_here(name, span, ty) =>
-    resume(())
+    resume()
       with annotations = [(name, span, ty)] ++ annotations,
 
   teach_gradient(handle) =>

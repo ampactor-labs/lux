@@ -1136,13 +1136,13 @@ handler lower_scope with frames = [], globals = [] {
       local_order: locals_in,
       locals: set_canonicalize(locals_in)
     }
-    resume(()) with frames = [frame] ++ frames
+    resume() with frames = [frame] ++ frames
   },
 
   ls_exit_frame() => {
-    if len(frames) == 0 { resume(()) }
+    if len(frames) == 0 { resume() }
     else {
-      resume(())
+      resume()
         with frames = list_tail(frames)
     }
   },
@@ -1156,7 +1156,7 @@ handler lower_scope with frames = [], globals = [] {
   },
 
   ls_pop_scope(checkpoint) => {
-    if len(frames) == 0 { resume(()) }
+    if len(frames) == 0 { resume() }
     else {
       let frame = list_head(frames)
       let truncated_order = list_take_n(frame.local_order, checkpoint)
@@ -1169,7 +1169,7 @@ handler lower_scope with frames = [], globals = [] {
         local_order: truncated_order,
         locals: set_canonicalize(truncated_order)
       }
-      resume(())
+      resume()
         with frames = [updated] ++ list_tail(frames)
     }
   },
@@ -1213,7 +1213,7 @@ handler lower_scope with frames = [], globals = [] {
   },
 
   ls_register_globals(names) => {
-    resume(()) with globals = names
+    resume() with globals = names
   }
 }
 

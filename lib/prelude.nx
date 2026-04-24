@@ -42,32 +42,32 @@ fn iterate(xs) with Iterate = {
 // Transform handlers — re-yield instead of accumulating.
 
 handler map_h(f) {
-  yield(elem) => { perform yield(f(elem)); resume(()) }
+  yield(elem) => { perform yield(f(elem)); resume() }
 }
 
 handler filter_h(pred) {
   yield(elem) =>
-    if pred(elem) { perform yield(elem); resume(()) }
-    else          { resume(()) }
+    if pred(elem) { perform yield(elem); resume() }
+    else          { resume() }
 }
 
 handler take_h(n) with remaining = n {
   yield(elem) =>
     if remaining > 0 {
       perform yield(elem)
-      resume(()) with remaining = remaining - 1
+      resume() with remaining = remaining - 1
     } else {
-      resume(())
+      resume()
     }
 }
 
 handler drop_h(n) with skipped = 0 {
   yield(elem) =>
     if skipped < n {
-      resume(()) with skipped = skipped + 1
+      resume() with skipped = skipped + 1
     } else {
       perform yield(elem)
-      resume(())
+      resume()
     }
 }
 
@@ -78,7 +78,7 @@ handler collector with buf = make_list(16), count = 0 {
   yield(elem) => {
     let extended = list_extend_to(buf, count + 1)
     let written  = list_set(extended, count, elem)
-    resume(()) with buf = written, count = count + 1
+    resume() with buf = written, count = count + 1
   },
   result() => resume(slice(buf, 0, count))
 }
@@ -95,36 +95,36 @@ fn drop(n, xs)    = { iterate(xs); result() } ~> drop_h(n)    ~> collector
 
 fn fold(xs, init, f) =
   handle { iterate(xs); result() } with acc = init {
-    yield(elem) => resume(()) with acc = f(acc, elem),
+    yield(elem) => resume() with acc = f(acc, elem),
     result() => resume(acc)
   }
 
 fn for_each(f, xs) =
   handle { iterate(xs) } {
-    yield(elem) => { f(elem); resume(()) }
+    yield(elem) => { f(elem); resume() }
   }
 
 fn any(pred, xs) =
   handle { iterate(xs); result() } with found = false {
-    yield(elem) => if pred(elem) { resume(()) with found = true } else { resume(()) },
+    yield(elem) => if pred(elem) { resume() with found = true } else { resume() },
     result() => resume(found)
   }
 
 fn all(pred, xs) =
   handle { iterate(xs); result() } with ok = true {
-    yield(elem) => if pred(elem) { resume(()) } else { resume(()) with ok = false },
+    yield(elem) => if pred(elem) { resume() } else { resume() with ok = false },
     result() => resume(ok)
   }
 
 fn find(pred, xs) =
   handle { iterate(xs); result() } with acc = [] {
-    yield(elem) => if pred(elem) { resume(()) with acc = [elem] } else { resume(()) },
+    yield(elem) => if pred(elem) { resume() with acc = [elem] } else { resume() },
     result() => resume(acc)
   }
 
 fn count(pred, xs) =
   handle { iterate(xs); result() } with n = 0 {
-    yield(elem) => if pred(elem) { resume(()) with n = n + 1 } else { resume(()) },
+    yield(elem) => if pred(elem) { resume() with n = n + 1 } else { resume() },
     result() => resume(n)
   }
 
@@ -141,22 +141,22 @@ fn reverse_list_pop(list, acc) = {
     reverse_list_pop(rest, push(acc, val))
   }
 }
-fn reverse(xs) = fold(xs, [], |acc, x| [x] ++ acc)
-fn flatten(xss) = fold(xss, [], |acc, xs| acc ++ xs)
+fn reverse(xs) = fold(xs, [], (acc, x) => [x] ++ acc)
+fn flatten(xss) = fold(xss, [], (acc, xs) => acc ++ xs)
 fn flat_map(f, xs) = flatten(map(f, xs))
-fn sum(xs) = fold(xs, 0, |acc, x| acc + x)
-fn product(xs) = fold(xs, 1, |acc, x| acc * x)
+fn sum(xs) = fold(xs, 0, (acc, x) => acc + x)
+fn product(xs) = fold(xs, 1, (acc, x) => acc * x)
 fn concat(xss) = flatten(xss)
 fn reduce(xs, f) = fold(tail(xs), head(xs), f)
 
 fn zip_with(f, xs, ys) = if len(xs) == 0 || len(ys) == 0 { [] }
   else { [f(xs[0], ys[0])] ++ zip_with(f, tail(xs), tail(ys)) }
-fn zip(xs, ys) = zip_with(|a, b| (a, b), xs, ys)
+fn zip(xs, ys) = zip_with((a, b) => (a, b), xs, ys)
 
 fn enumerate(xs) = zip(range(0, len(xs)), xs)
-fn unique(xs) = fold(xs, [], |acc, x| if any(|a| a == x, acc) { acc } else { push(acc, x) })
+fn unique(xs) = fold(xs, [], (acc, x) => if any((a) => a == x, acc) { acc } else { push(acc, x) })
 
-fn partition(pred, xs) = (filter(pred, xs), filter(|x| !pred(x), xs))
+fn partition(pred, xs) = (filter(pred, xs), filter((x) => !pred(x), xs))
 fn range_inclusive(start, end) = range(start, end + 1)
 fn intersperse(sep, xs) = if len(xs) <= 1 { xs } else { [xs[0], sep] ++ intersperse(sep, tail(xs)) }
 fn scanl(xs, init, f) = if len(xs) == 0 { [init] } else { let next = f(init, xs[0]); [init] ++ scanl(tail(xs), next, f) }
@@ -165,9 +165,9 @@ fn chunk(n, xs) = if len(xs) == 0 { [] } else { [take(n, xs)] ++ chunk(n, drop(n
 
 // ─── Aggregation with projection ────────────────────────────
 
-fn sum_by(f, xs) = fold(xs, 0, |acc, x| acc + f(x))
-fn max_by(f, xs) = reduce(xs, |a, b| if f(a) >= f(b) { a } else { b })
-fn min_by(f, xs) = reduce(xs, |a, b| if f(a) <= f(b) { a } else { b })
+fn sum_by(f, xs) = fold(xs, 0, (acc, x) => acc + f(x))
+fn max_by(f, xs) = reduce(xs, (a, b) => if f(a) >= f(b) { a } else { b })
+fn min_by(f, xs) = reduce(xs, (a, b) => if f(a) <= f(b) { a } else { b })
 
 // ─── Composition ────────────────────────────────────────────
 // compose IS <> for when you need a function instead of syntax.
@@ -176,13 +176,13 @@ fn min_by(f, xs) = reduce(xs, |a, b| if f(a) <= f(b) { a } else { b })
 
 // compose matches <> — f first, then g. Left to right.
 // x |> (f <> g) = x |> f |> g
-fn compose(f, g) = |x| g(f(x))
+fn compose(f, g) = (x) => g(f(x))
 fn id(x) with Pure = x
 fn not(x) with Pure = if x { false } else { true }
 
 // Build a pipeline from a list of functions. Fold with compose.
 // build_pipeline([f, g, h]) = f <> g <> h
-fn build_pipeline(steps) = fold(steps, id, |acc, step| |x| step(acc(x)))
+fn build_pipeline(steps) = fold(steps, id, (acc, step) => (x) => step(acc(x)))
 
 // ─── Safe access ────────────────────────────────────────────
 

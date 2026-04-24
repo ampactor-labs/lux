@@ -20,7 +20,7 @@ import types
 handler verify_ledger with debt = [] {
 
   verify(span, predicate, reason) =>
-    resume(())
+    resume()
       with debt = [(span, predicate, reason)] ++ debt,
 
   verify_debt() =>
