@@ -201,25 +201,25 @@ region_enter(span) => {
 region_exit(rid) => {
   // pop the TOP region; validate it matches rid (sanity check)
   if len(region_stack) == 0 {
-    resume(())   // stack underflow — should not happen
+    resume()   // stack underflow — should not happen
   } else {
     let (top_rid, _) = list_head(region_stack)
     if top_rid == rid {
-      resume(()) with region_stack = list_tail(region_stack)
+      resume() with region_stack = list_tail(region_stack)
     } else {
       // mismatched exit — region sequencing bug; report
       perform report("", "E_RegionSequencingBug", ...)
-      resume(())
+      resume()
     }
   }
 },
 
 tag_alloc(handle) => {
   if len(region_stack) == 0 {
-    resume(())   // no active region — value is program-lifetime
+    resume()   // no active region — value is program-lifetime
   } else {
     let (rid, _) = list_head(region_stack)
-    resume(())
+    resume()
       with tagged_values = [(handle, rid)] ++ tagged_values
   }
 },
@@ -227,10 +227,10 @@ tag_alloc(handle) => {
 check_escape(handle, span) => {
   let tagged = find_tagged(tagged_values, handle)
   match tagged {
-    None => resume(())    // untagged = program-lifetime, SAFE
+    None => resume()    // untagged = program-lifetime, SAFE
     Some(rid) => {
       if region_still_alive(region_stack, rid) {
-        resume(())   // SAFE
+        resume()   // SAFE
       } else {
         let install_span = find_region_install(region_stack, rid)
         // find_region_install: since region is popped, we need
@@ -240,7 +240,7 @@ check_escape(handle, span) => {
           "value escapes region installed at "
             |> str_concat(show_span(install_span)),
           span, "MachineApplicable")
-        resume(())
+        resume()
       }
     }
   }

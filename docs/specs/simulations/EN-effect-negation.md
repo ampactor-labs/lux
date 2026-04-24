@@ -201,7 +201,7 @@ build_from_partition(pos, neg) =
   else if len(pos) == 0             { neg_row(Closed(neg)) }      // universe-minus-negs
   else {
     let base = Closed(pos)
-    fold(neg, base, |acc, n| inter_row(acc, neg_row(Closed([n]))))
+    fold(neg, base, (acc, n) => inter_row(acc, neg_row(Closed([n]))))
   }
 ```
 (Pseudocode; real implementation uses Inka verbs.)

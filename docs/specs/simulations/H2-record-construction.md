@@ -435,7 +435,7 @@ handler lower_scope with frames = [], globals = [] {
       local_handles: frame.local_handles ++ [h],
       local_order: frame.local_order ++ [name]
     }
-    resume(()) with frames = [updated] ++ list_tail(frames)
+    resume() with frames = [updated] ++ list_tail(frames)
 }
 ```
 
@@ -480,9 +480,9 @@ handler counter with state = {count: 0, max: 100} {
   tick() =>
     let s = state
     if s.count < s.max {
-      resume(())
+      resume()
         with state = state with {count: s.count + 1}
-    } else { resume(()) }
+    } else { resume() }
 }
 ```
 

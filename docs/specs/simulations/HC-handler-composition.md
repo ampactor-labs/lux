@@ -57,27 +57,27 @@ fn iterate(xs) with Iterate = {
 }
 
 handler map_h(f) with acc = [] {
-  yield(elem) => resume(()) with acc = acc ++ [f(elem)],  // drift-11
-  result()    => resume(()) with acc = acc
+  yield(elem) => resume() with acc = acc ++ [f(elem)],  // drift-11
+  result()    => resume() with acc = acc
 }
 
 handler filter_h(pred) with acc = [] {
-  yield(elem) => if pred(elem) { resume(()) with acc = acc ++ [elem] }  // drift-11
-                 else { resume(()) },
-  result()    => resume(()) with acc = acc
+  yield(elem) => if pred(elem) { resume() with acc = acc ++ [elem] }  // drift-11
+                 else { resume() },
+  result()    => resume() with acc = acc
 }
 
 handler take_h(n) with acc = [], remaining = n {
   yield(elem) =>
-    if remaining > 0 { resume(()) with acc = acc ++ [elem],           // drift-11
+    if remaining > 0 { resume() with acc = acc ++ [elem],           // drift-11
                                       remaining = remaining - 1 }
-    else { resume(()) }
+    else { resume() }
 }
 
 handler skip_h(n) with acc = [], skipped = 0 {
   yield(elem) =>
-    if skipped < n { resume(()) with skipped = skipped + 1 }
-    else { resume(()) with acc = acc ++ [elem] }                       // drift-11
+    if skipped < n { resume() with skipped = skipped + 1 }
+    else { resume() with acc = acc ++ [elem] }                       // drift-11
 }
 ```
 
@@ -92,30 +92,30 @@ in each of four arms.
 
 ```
 handler map_h(f) {
-  yield(elem) => { perform yield(f(elem)); resume(()) }
+  yield(elem) => { perform yield(f(elem)); resume() }
 }
 
 handler filter_h(pred) {
-  yield(elem) => { if pred(elem) { perform yield(elem) }; resume(()) }
+  yield(elem) => { if pred(elem) { perform yield(elem) }; resume() }
 }
 
 handler take_h(n) with remaining = n {
   yield(elem) =>
     if remaining > 0 {
       perform yield(elem)
-      resume(()) with remaining = remaining - 1
+      resume() with remaining = remaining - 1
     } else {
-      resume(())
+      resume()
     }
 }
 
 handler skip_h(n) with skipped = 0 {
   yield(elem) =>
     if skipped < n {
-      resume(()) with skipped = skipped + 1
+      resume() with skipped = skipped + 1
     } else {
       perform yield(elem)
-      resume(())
+      resume()
     }
 }
 ```
@@ -132,7 +132,7 @@ handler collector with buf = make_list(16), count = 0 {
   yield(elem) => {
     let extended = list_extend_to(buf, count + 1)
     let written  = list_set(extended, count, elem)
-    resume(()) with buf = written, count = count + 1
+    resume() with buf = written, count = count + 1
   }
   // No `result()` arm needed — the handle block's return value IS
   // slice(buf, 0, count) via INSIGHTS.md "Handler State
@@ -210,11 +210,11 @@ materialize-handler with different state:
 
 ```
 handler sum_h with total = 0 {
-  yield(elem) => resume(()) with total = total + elem
+  yield(elem) => resume() with total = total + elem
 }
 
 handler count_h with n = 0 {
-  yield(elem) => resume(()) with n = n + 1
+  yield(elem) => resume() with n = n + 1
 }
 ```
 
@@ -226,7 +226,7 @@ sum_h into an Int; count_h into an Int; max_h into an Option; etc.
 ### Q6 — Does this break stream fusion?
 
 No — improves it. Post-refactor, map_h's `yield(elem) => perform
-yield(f(elem)); resume(())` is a tail-resumptive handler (85% case
+yield(f(elem)); resume()` is a tail-resumptive handler (85% case
 per INSIGHTS.md "Three Tiers"). Compiles to zero-overhead direct
 call. `filter_h` is linear (single-shot resume). collector is
 linear. Chain compiles to a tight loop with no intermediate list

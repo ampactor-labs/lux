@@ -223,23 +223,23 @@ effect Test {
 handler assert_reporter with pass_count = 0, fail_count = 0, fails = [] {
   assert(cond, msg) =>
     if cond {
-      resume(()) with pass_count = pass_count + 1
+      resume() with pass_count = pass_count + 1
     } else {
-      resume(()) with fail_count = fail_count + 1,
+      resume() with fail_count = fail_count + 1,
                       fails = push(fails, msg)
     },
   assert_eq(a, b, msg) =>
     if structural_eq(a, b) {
-      resume(()) with pass_count = pass_count + 1
+      resume() with pass_count = pass_count + 1
     } else {
-      resume(()) with fail_count = fail_count + 1,
+      resume() with fail_count = fail_count + 1,
                       fails = push(fails, msg ++ " (got=" ++ show(a) ++ ", expected=" ++ show(b) ++ ")")
     },
   assert_near(a, b, eps, msg) =>
     if abs_float(a - b) <= eps {
-      resume(()) with pass_count = pass_count + 1
+      resume() with pass_count = pass_count + 1
     } else {
-      resume(()) with fail_count = fail_count + 1,
+      resume() with fail_count = fail_count + 1,
                       fails = push(fails, msg ++ " (|got-expected|=" ++ show(abs_float(a - b)) ++ ")")
     }
 }
@@ -261,10 +261,10 @@ handler verify_assert {
   assert(cond, msg) =>
     if is_statically_decidable(cond) {
       if evaluate_statically(cond) {
-        resume(())    // proven; zero runtime cost
+        resume()    // proven; zero runtime cost
       } else {
         perform report("E_AssertFailedAtCompileTime", current_span(), msg)
-        resume(())
+        resume()
       }
     } else {
       perform assert(cond, msg)    // re-perform; next handler in chain handles
@@ -581,10 +581,10 @@ fn assert_summary(state) = {
 handler verify_assert {
   assert(cond, msg) =>
     if is_statically_decidable(cond) {
-      if evaluate_statically(cond) { resume(()) }
+      if evaluate_statically(cond) { resume() }
       else {
         perform report("E_AssertFailedAtCompileTime", current_span(), msg)
-        resume(())
+        resume()
       }
     } else {
       perform assert(cond, msg)    // fall through

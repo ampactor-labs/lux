@@ -224,7 +224,7 @@ Raw pointers don't cross thread boundaries safely. Inka's answer:
 ```
 // Producer thread
 let msg = pack_my_data(data)           // Bytes
-let handle = perform spawn(|| consumer(msg))
+let handle = perform spawn(() => consumer(msg))
 
 // Consumer thread
 fn consumer(bytes: Bytes) = {
@@ -449,7 +449,7 @@ fn mandel_pixel(ref x: Float, ref y: Float) -> Int with !Alloc + !SharedMemory =
 
 fn mandel_tile(ref x0: Float, ref y0: Float, ref w: Int, ref h: Int) -> Bytes
     with Thread + !SharedMemory =
-  pack_mandel_tile(map_tile_pixels(x0, y0, w, h, |x, y| mandel_pixel(x, y)))
+  pack_mandel_tile(map_tile_pixels(x0, y0, w, h, (x, y) => mandel_pixel(x, y)))
 
 fn render_parallel(ref w: Int, ref h: Int) -> Bytes with Thread =
   (mandel_tile(-2.0,  0.0, w, h / 2))

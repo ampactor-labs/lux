@@ -319,20 +319,20 @@ chain-step, each pure:**
 // span + lex. Deterministic; first-light-preserving.
 
 fn tiebreak_row_minimality(survivors) =
-  min_by(|s| effect_count(handler_row(s)), survivors)
+  min_by((s) => effect_count(handler_row(s)), survivors)
 
 fn tiebreak_reason_depth(survivors) =
-  min_by(|s| reason_chain_length(handler_reason(s)), survivors)
+  min_by((s) => reason_chain_length(handler_reason(s)), survivors)
 
 fn tiebreak_declared_intent(survivors, cursor) =
-  let aligned = filter(|s| intent_matches(s, cursor), survivors)
+  let aligned = filter((s) => intent_matches(s, cursor), survivors)
   if len(aligned) > 0 { aligned } else { survivors }
 
 fn tiebreak_source_span(survivors) =
-  min_by(|s| span_start(handler_span(s)), survivors)
+  min_by((s) => span_start(handler_span(s)), survivors)
 
 fn tiebreak_lex(survivors) =
-  min_by(|s| handler_name(s), survivors)
+  min_by((s) => handler_name(s), survivors)
 
 // first_verified_wins — applies the five steps in order; each
 // step narrows the survivor set. Last step (lex) guarantees
@@ -342,7 +342,7 @@ fn first_verified_wins(survivors, cursor)
   survivors
     |> tiebreak_row_minimality
     |> tiebreak_reason_depth
-    |> (|ss| tiebreak_declared_intent(ss, cursor))
+    |> ((ss) => tiebreak_declared_intent(ss, cursor))
     |> tiebreak_source_span
     |> tiebreak_lex
     |> head
@@ -373,8 +373,8 @@ fn collect_verified_survivors(handlers, checkpoint)
     with GraphRead + GraphWrite =
   handlers
     |> take(8)
-    |> map(|h| try_handler_with_rollback(h, checkpoint))
-    |> filter(|outcome| outcome_verified(outcome))
+    |> map((h) => try_handler_with_rollback(h, checkpoint))
+    |> filter((outcome) => outcome_verified(outcome))
 ```
 
 ### 6.2 Touch sites in other files — NONE
