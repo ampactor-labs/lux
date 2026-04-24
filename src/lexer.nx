@@ -17,7 +17,7 @@
 import types
 import runtime/strings
 
-// ═══ Character classification ═════════════════════════════════════
+// Character classification
 //
 // Byte-code classification. Lexer operates on raw bytes from the
 // source string via `byte_at(source, pos)`. No 1-char-string
@@ -43,7 +43,7 @@ fn is_bin_digit(b) with Pure = b == 48 || b == 49
 fn is_oct_digit(b) with Pure = b >= 48 && b <= 55
 // 0-7
 
-// ═══ Keyword classification ════════════════════════════════════════
+// Keyword classification
 // Returns Some(TokenKind) if `word` is a reserved keyword; None
 // otherwise (caller emits TIdent(word)).
 
@@ -70,13 +70,9 @@ fn keyword_kind(ref word) with !Mutate =
   else if str_eq(word, "false")     { Some(TFalse) }
   else                                    { None }
 
-// ═══ Two-char operators ════════════════════════════════════════════
-// Returns Some(TokenKind) if (a, b) form a recognized two-char
-// operator; None otherwise (caller falls through to single-char).
-
-// two_char_kind: match on a pair of byte codes (a, b). Returns
-// Some(TokenKind) if (a, b) form a recognized two-char operator.
-// Byte-code dispatch; no string comparison.
+/// Returns `Some(TokenKind)` if `(a, b)` form a recognized two-char operator,
+/// `None` otherwise (caller falls through to single-char). Byte-code dispatch;
+/// no string comparison.
 fn two_char_kind(a, b) with Pure =
   if      a == 61 && b == 61 { Some(TEqEq) }       // ==
   else if a == 33 && b == 61 { Some(TBangEq) }     // !=
@@ -95,10 +91,8 @@ fn two_char_kind(a, b) with Pure =
   else if a == 58 && b == 58 { Some(TColonColon) } // ::
   else                       { None }
 
-// ═══ Single-char operators / punctuation ═══════════════════════════
-// Returns Some(TokenKind) if `ch` is a recognized punctuation
-// character; None otherwise (caller skips the character).
-
+/// Returns `Some(TokenKind)` if `b` is a recognized punctuation byte,
+/// `None` otherwise (caller skips the character).
 fn single_char_kind(b) with Pure =
   if      b == 40  { Some(TLParen) }
   else if b == 41  { Some(TRParen) }
@@ -125,7 +119,7 @@ fn single_char_kind(b) with Pure =
   else if b == 63  { Some(TQuestion) }
   else             { None }
 
-// ═══ Entry point ═══════════════════════════════════════════════════
+// Entry point
 // Tokens accumulate into a flat buffer threaded through tail-recursion
 // as (buf, count). push_tok extends the buffer if needed and writes
 // at the counter — O(1) amortized per emit; flat-buffer-plus-counter
@@ -245,11 +239,11 @@ fn lex_from(ref source, n: ValidOffset, pos: ValidOffset, line, col, own buf, co
     }
   }
 
-// ═══ Lexer helpers ═════════════════════════════════════════════════
+// Lexer helpers
 
-// scan_to_eol: advance pos until end-of-line (byte 10) or end-of-
-// input. Returns the position AT the newline (not past it). Used by
-// both doc-comment payload slicing and line-comment skipping.
+/// Advance `pos` until end-of-line (byte 10) or end-of-input.
+/// Returns the position AT the newline (not past it). Used by
+/// both doc-comment payload slicing and line-comment skipping.
 fn scan_to_eol(ref source, n: ValidOffset, pos: ValidOffset) =
   if pos >= n { pos }
   else if byte_at(source, pos) == 10 { pos }
