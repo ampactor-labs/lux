@@ -33,10 +33,10 @@ fn mk_ef_closed(ref names) with !Mutate = EfClosed(name_set_canonicalize(names))
 
 fn mk_ef_open(ref names, v) with !Mutate = EfOpen(name_set_canonicalize(names), v)
 
-// Record-field smart constructor: sort (field_name, ty) pairs by
-// field name, dedup by name (last write wins). Empty list → empty
-// (caller chooses TRecord vs TRecordOpen). Maintains the analog of
-// the EffRow invariant for record types.
+/// Record-field smart constructor: sort (field_name, ty) pairs by
+/// field name, dedup by name (last write wins). Empty list → empty
+/// (caller chooses TRecord vs TRecordOpen). Maintains the analog of
+/// the EffRow invariant for record types.
 fn mk_record_open(ref fields, v) with !Mutate =
   TRecordOpen(field_canonicalize(fields), v)
 
@@ -51,8 +51,8 @@ fn field_canonicalize_loop(ref fields, i, n, own acc) with !Mutate =
     field_canonicalize_loop(fields, i + 1, n, field_insert(acc, name, ty))
   }
 
-// field_insert: insert (name, ty) into sorted-by-name list; if name
-// already present, replace (last write wins).
+/// Insert (name, ty) into sorted-by-name list; if name already present,
+/// replace (last write wins).
 fn field_insert(ref sorted, ref name, ref ty) with !Mutate =
   let n = len(sorted)
   let pos = field_find_pos(sorted, name, 0, n)
@@ -493,9 +493,9 @@ fn eff_arg_eq(ref a, ref b) with !Mutate = match a {
   }
 }
 
-// Total order: ENamed < EParameterized when names differ; same name
-// orders by arg list. Bare ENamed("Sample") < EParameterized("Sample",
-// _) so a bare/parameterized mix has a stable canonical order.
+/// Total order: ENamed < EParameterized when names differ; same name
+/// orders by arg list. Bare ENamed("Sample") < EParameterized("Sample",
+/// _) so a bare/parameterized mix has a stable canonical order.
 fn eff_name_lt(ref a, ref b) with !Mutate = match a {
   ENamed(an) => match b {
     ENamed(bn)               => str_lt(an, bn),
