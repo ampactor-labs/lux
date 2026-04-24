@@ -21,42 +21,42 @@
 
 import types
 
-// ═══ Construction ══════════════════════════════════════════════════
+// Construction
 
-// make_list: allocate a flat tag=0 list of `count` slots (uninitialized).
-// Callers must fill slots with list_set before the list escapes.
+/// make_list — allocate a flat tag=0 list of `count` slots (uninitialized).
+/// Callers must fill slots with list_set before the list escapes.
 fn make_list(count) with Memory + Alloc =
   let t = perform alloc(8 + count * 4)
   perform store_i32(t, count)
   perform store_i32(t + 4, 0)
   t
 
-// ═══ Mutation and access (tag-dispatched) ══════════════════════════
+// Mutation and access (tag-dispatched)
 
-// list_set: write val into slot idx of a flat tag=0 list. Returns the
-// list pointer so callers can chain: make_list(3) |> list_set(0, a) ...
-// Caller asserts tag=0 — calling list_set on a snoc/concat/slice is
-// a structural contract violation (the list should be list_to_flat'd first).
+/// list_set — write val into slot idx of a flat tag=0 list. Returns the
+/// list pointer so callers can chain: make_list(3) |> list_set(0, a) ...
+/// Caller asserts tag=0 — calling list_set on a snoc/concat/slice is
+/// a structural contract violation (the list should be list_to_flat'd first).
 fn list_set(l, idx, val) with Memory =
   perform store_i32(l + 8 + idx * 4, val)
   l
 
-// list_extend_to: ensure `list` has capacity ≥ min_size. If already
-// large enough, returns `list` unchanged. Otherwise allocates a new
-// flat tag=0 list of size max(min_size, 2 * len(list)), copies
-// existing elements, and returns the new pointer. Amortized O(1)
-// per append when callers maintain a separate logical-length
-// counter.
-//
-// This is the substrate primitive for graph.nx's (nodes, next),
-// (trail, trail_len), per-overlay (handles_buf, handles_len), and
-// future flat-buffer-plus-counter state in infer.nx (evidence
-// vectors) and query.nx (capability sets). Every flat-substrate
-// grow in the compiler routes through here.
-//
-// CONTRACT: slots in [len(list), new_cap) are zero-initialized by
-// the allocator but carry no semantic meaning. Callers must track
-// logical length separately and never read uninitialized slots.
+/// list_extend_to — ensure `list` has capacity ≥ min_size. If already
+/// large enough, returns `list` unchanged. Otherwise allocates a new
+/// flat tag=0 list of size max(min_size, 2 * len(list)), copies
+/// existing elements, and returns the new pointer. Amortized O(1)
+/// per append when callers maintain a separate logical-length
+/// counter.
+///
+/// Substrate primitive for graph.nx's (nodes, next),
+/// (trail, trail_len), per-overlay (handles_buf, handles_len), and
+/// flat-buffer-plus-counter state in infer.nx (evidence vectors)
+/// and query.nx (capability sets). Every flat-substrate grow in the
+/// compiler routes through here.
+///
+/// CONTRACT: slots in [len(list), new_cap) are zero-initialized by
+/// the allocator but carry no semantic meaning. Callers must track
+/// logical length separately and never read uninitialized slots.
 fn list_extend_to(list, min_size) with Memory + Alloc =
   let cur_len = len(list)
   if cur_len >= min_size { list }
@@ -66,18 +66,18 @@ fn list_extend_to(list, min_size) with Memory + Alloc =
     list_copy_into(list, fresh, 0, cur_len)
   }
 
-// list_copy_into: copy src[0..count) into dst[0..count). Dispatches
-// through list_index so src may be any tag; dst must be tag=0.
-// Callers should keep src tag=0 for O(count) cost; non-flat sources
-// pay list_index dispatch per element.
+/// list_copy_into — copy src[0..count) into dst[0..count). Dispatches
+/// through list_index so src may be any tag; dst must be tag=0.
+/// Callers should keep src tag=0 for O(count) cost; non-flat sources
+/// pay list_index dispatch per element.
 fn list_copy_into(src, dst, i, count) with Memory + Alloc =
   if i >= count { dst }
   else {
     list_copy_into(src, list_set(dst, i, list_index(src, i)), i + 1, count)
   }
 
-// list_index: O(1) for tag=0, O(log N) for snoc chains, O(depth) for
-// concat/slice. Exhaustive on all four tags — no fallback sentinel.
+/// list_index — O(1) for tag=0, O(log N) for snoc chains, O(depth) for
+/// concat/slice. Exhaustive on all four tags — no fallback sentinel.
 fn list_index(list, i) with Memory =
   let tag = perform load_i32(list + 4)
   match tag {
@@ -101,12 +101,12 @@ fn list_index(list, i) with Memory =
     }
   }
 
-// ═══ Push — O(1) snoc ══════════════════════════════════════════════
+// Push — O(1) snoc
 
-// push: append val to list, returning a new snoc node (tag=1).
-// Ownership-aware path: if the list is tag=0 AND owned AND has capacity,
-// list_set is preferred by the caller (no node allocation). Otherwise
-// push allocates a 16-byte snoc node.
+/// push — append val to list, returning a new snoc node (tag=1).
+/// Ownership-aware path: if the list is tag=0 AND owned AND has capacity,
+/// list_set is preferred by the caller (no node allocation). Otherwise
+/// push allocates a 16-byte snoc node.
 fn push(list, val) with Memory + Alloc =
   let old_len = perform load_i32(list)
   let snoc = perform alloc(16)
@@ -116,10 +116,10 @@ fn push(list, val) with Memory + Alloc =
   perform store_i32(snoc + 12, val)
   snoc
 
-// ═══ Concatenation — O(1) concat node ═════════════════════════════
+// Concatenation — O(1) concat node
 
-// list_concat: join two lists. Returns either input directly if the other
-// is empty (no allocation), otherwise allocates a 16-byte concat node (tag=3).
+/// list_concat — join two lists. Returns either input directly if the other
+/// is empty (no allocation), otherwise allocates a 16-byte concat node (tag=3).
 fn list_concat(a, b) with Memory + Alloc =
   let len_a = perform load_i32(a)
   let len_b = perform load_i32(b)
@@ -135,11 +135,11 @@ fn list_concat(a, b) with Memory + Alloc =
     node
   }
 
-// ═══ Slice — O(1) view ═════════════════════════════════════════════
+// Slice — O(1) view
 
-// slice: return a view into list[start..end) (exclusive end).
-// Clamps to valid range. Returns make_list(0) for empty range.
-// Allocates a 16-byte slice node (tag=4) — no copying.
+/// slice — return a view into list[start..end) (exclusive end).
+/// Clamps to valid range. Returns make_list(0) for empty range.
+/// Allocates a 16-byte slice node (tag=4) — no copying.
 fn slice(list, start, end) with Memory + Alloc =
   let total = perform load_i32(list)
   let cstart = if start < 0 { 0 } else if start > total { total } else { start }
@@ -155,14 +155,14 @@ fn slice(list, start, end) with Memory + Alloc =
     node
   }
 
-// ═══ Head and tail ═════════════════════════════════════════════════
+// Head and tail
 //
 // Inka lists are SNOC-ordered in the compiler's usage: the "head" is
 // the LAST element (most recently pushed) and "tail" is the prefix.
 // This matches env_lookup traversal: the innermost binding is at the
 // head of the snoc stack.
-//
-// list_head: return the last element. O(1) for snoc nodes.
+
+/// list_head — return the last element. O(1) for snoc nodes.
 fn list_head(list) with Memory =
   let list_len = perform load_i32(list)
   let tag      = perform load_i32(list + 4)
@@ -173,9 +173,9 @@ fn list_head(list) with Memory =
     4 => list_index(list, list_len - 1)
   }
 
-// list_tail: return the list without its last element.
-// O(1) for snoc nodes (reads the left pointer). Creates a slice for
-// other tag variants — still O(1) allocation, O(1) by-reference.
+/// list_tail — return the list without its last element.
+/// O(1) for snoc nodes (reads the left pointer). Creates a slice for
+/// other tag variants — still O(1) allocation, O(1) by-reference.
 fn list_tail(list) with Memory + Alloc =
   let list_len = perform load_i32(list)
   let tag      = perform load_i32(list + 4)
@@ -186,11 +186,11 @@ fn list_tail(list) with Memory + Alloc =
     4 => slice(list, 0, list_len - 1)
   }
 
-// ═══ Materialization ═══════════════════════════════════════════════
+// Materialization
 
-// list_to_flat: convert any list tree to a contiguous tag=0 array.
-// O(N) time, O(N) space. Returns the input unchanged if already flat.
-// Call this at hot-path entrances when O(1) random access is required.
+/// list_to_flat — convert any list tree to a contiguous tag=0 array.
+/// O(N) time, O(N) space. Returns the input unchanged if already flat.
+/// Call this at hot-path entrances when O(1) random access is required.
 fn list_to_flat(list) with Memory + Alloc =
   let n = perform load_i32(list)
   if n == 0 { list }
@@ -204,9 +204,9 @@ fn list_to_flat(list) with Memory + Alloc =
     }
   }
 
-// flat_fill: walk the tree in forward order, storing each element into
-// the flat array. Dispatches on tag to exploit snoc structure where
-// possible, falls back to list_index for concat/slice nodes.
+/// flat_fill — walk the tree in forward order, storing each element into
+/// the flat array. Dispatches on tag to exploit snoc structure where
+/// possible, falls back to list_index for concat/slice nodes.
 fn flat_fill(flat, tree, i, n) with Memory + Alloc =
   if i >= n { () }
   else {
