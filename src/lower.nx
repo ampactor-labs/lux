@@ -27,6 +27,70 @@ import graph
 import types
 import effects
 
+/// LowerState — per-function MS state-machine bookkeeping (H7 §4.1
+/// Change 4). At emit of a capturing function, allocate the state
+/// table; per MS perform site, allocate the next state ordinal +
+/// reserved ret-slot; at function-emit close, query the complete
+/// state table to synthesize the resume_fn.
+///
+/// State 0 is the entry; allocations return 1, 2, 3, ... per perform
+/// site within the same function. Each state has its own ret-slot
+/// (via lower.nx's existing local-allocation substrate).
+///
+/// Per MV §2.7.5 + Ω.5 record-shape discipline: handler state record
+/// holds the per-fn table mapping perform_site → state_idx, plus the
+/// next-free-ret-slot counter. The implementation lives in
+/// `lower_state_default` below.
+
+effect LowerState {
+  ms_alloc_state(Int, Int) -> Int                  @resume=OneShot
+  ms_alloc_ret_slot(Int, Int) -> Int               @resume=OneShot
+  ms_function_states(Int) -> List                  @resume=OneShot
+  ms_reset_function() -> ()                        @resume=OneShot
+}
+
+/// lower_state_default — the LowerState handler. State record:
+/// per-function CacheMap (per lib/runtime/cache_map.nx) keyed by
+/// (fn_handle * 65537 + perform_site_handle) → state_idx; plus a
+/// next-free-state counter and next-free-ret-slot counter. Reset on
+/// ms_reset_function — installed at function-emit entry.
+///
+/// Per H7 §4.1 Change 4 + Ω.5 record discipline. Stub bodies for V1;
+/// full implementation lands when lower_perform actually invokes
+/// these ops at MS perform sites (Tier 3 +1 sub-handle).
+
+handler lower_state_default
+  with state_table = empty_cache(),
+       next_state  = 1,
+       next_ret    = 0 {
+
+  ms_alloc_state(fn_handle, perform_site) => {
+    let key = fn_handle * 65537 + perform_site
+    let new_state = next_state
+    let new_table = cache_store(state_table, key, new_state)
+    resume(new_state)
+      with state_table = new_table,
+           next_state  = next_state + 1
+  },
+
+  ms_alloc_ret_slot(_fn_handle, _state_idx) => {
+    let slot = next_ret
+    resume(slot)
+      with next_ret = next_ret + 1
+  },
+
+  ms_function_states(_fn_handle) => {
+    resume(cache_keys(state_table))
+  },
+
+  ms_reset_function() => {
+    resume()
+      with state_table = empty_cache(),
+           next_state  = 1,
+           next_ret    = 0
+  }
+}
+
 /// Every variant carries a source TypeHandle (Int), never a cached Ty.
 /// Type reads go through `perform lookup_ty(h)`. Emit consumes this IR;
 /// the handle is the live bridge back to the graph.
@@ -43,6 +107,16 @@ type LowExpr
   | LTailCall(Int, LowExpr, List)
   | LReturn(Int, LowExpr)
   | LMakeClosure(Int, LowFn, List, List)         // handle, fn, captures, ev_slots
+  | LMakeContinuation(Int, LowFn, List, List, Int, Int)
+  // H7 — multi-shot continuation record per the H7 walkthrough §1.2.
+  // handle, resume_fn, captures_exprs, ev_slots, state_index, ret_slot.
+  // Heap-allocated through emit_alloc (one allocator per kernel
+  // crystallization #8 — the heap has one story); fn_index field
+  // points to the synthesized __resume function registered in the
+  // WASM funcref table; state_index discriminates which perform site
+  // resumed; ret_slot reserves the local slot for the resumed value.
+  // Composes with LMakeClosure's capture/ev-store loops; emit shares
+  // the per-field store helpers (per H7 §4.2).
   | LDeclareFn(LowFn)                            // module-level fn declaration (handler arm) — no runtime slot
   | LIf(Int, LowExpr, List, List)
   | LBlock(Int, List)
@@ -109,6 +183,7 @@ fn lexpr_handle(e) with Pure = match e {
   LTailCall(h, _, _)      => h,
   LReturn(h, _)           => h,
   LMakeClosure(h, _, _, _) => h,
+  LMakeContinuation(h, _, _, _, _, _) => h,
   LDeclareFn(_)            => 0,
   LIf(h, _, _, _)         => h,
   LBlock(h, _)            => h,

@@ -39,8 +39,9 @@ type KaiFile = {
 // with mismatching version are treated as misses.
 //   v1 — IC.1a header-only (text)
 //   v2 — IC.1b full env serialization (text)
-//   v3 — IC.2 binary Pack/Unpack (this version)
-fn cache_compiler_version() with Pure = 3
+//   v3 — IC.2 binary Pack/Unpack
+//   v4 — H7 LMakeContinuation variant added to LowExpr (this version)
+fn cache_compiler_version() with Pure = 4
 
 /// 32-bit FNV-1a hash of the source bytes. Non-cryptographic;
 /// collision resistance is sufficient for cache invalidation.
