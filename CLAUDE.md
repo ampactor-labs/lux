@@ -743,6 +743,24 @@ during the γ cascade — that bind all implementation:
     protocol: `protocol_realization_loop.md` (cross-session). **The
     medium reads itself through itself, even at the discipline
     layer.**
+13. **Kernel Closure: All Eight Primitives Structurally Live.**
+    With B.9 LFeedback emit landing (commit `7f8ff5f`, 2026-04-24),
+    Primitive #3 (Five verbs) joins the rest — every kernel
+    primitive now has substrate-live LIR support, emit support, ≥1
+    handler implementation, and composes with the others. The
+    eight interrogations gain weight: pre-closure, "what handler
+    already projects this?" sometimes had no answer; post-closure,
+    every interrogation has a concrete substrate site to point to.
+    **The next phase is composition, not invention.** B.10/B.11
+    Ultimate domain rewrites, MV.2.e Interact handler arms,
+    items 11.A/11.D simplification audit, then bootstrap items
+    26-31 — each composes on the closed kernel; none extends it.
+    First composition demonstration: `lib/dsp/feedback.nx` (commit
+    `bba8d4d`) draws IIR filters via `<~ delay(1)` exercising five
+    primitives in one row. **The medium is whole; what follows is
+    the medium being put to work.** Substrate authority: INSIGHTS
+    §"Kernel Closure: All Eight Primitives Structurally Live"
+    (commit `9a726f2`).
 
 ---
 

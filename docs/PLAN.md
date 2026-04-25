@@ -521,6 +521,36 @@ composition. Nothing remains as a separate substrate question.*
 
 ---
 
+## Status — 2026-04-24 (kernel structurally closed — all 8 primitives substrate-live; first composition demo lands; next phase is composition + bootstrap, not invention)
+
+**Kernel-closure milestone (insight #13, commit `9a726f2`):** with B.9
+LFeedback emit landing (commit `7f8ff5f`), Primitive #3 (Five verbs)
+joins the others — every kernel primitive now has substrate-live LIR
+support, emit support, ≥1 handler implementation, and composes with
+the rest. First composition demo: `lib/dsp/feedback.nx` (commit
+`bba8d4d`) draws IIR filters via `<~ delay(1)` exercising five
+primitives in one row.
+
+**The next phase is composition, not invention.** B.10/B.11 Ultimate
+domain rewrites, MV.2.e Interact handler arms, items 11.A/11.D
+simplification audit, then bootstrap items 26-31 — each composes on
+the closed kernel, none extends it.
+
+**This-run substrate landed (12 commits):** H7 multi-shot keystone +
+emit walker arms + capture-store helpers (4236b96 + ad78384 +
+bafd63a); B.3 Choice (55553ad); B.4 race + first_verified_wins
+(3da8d79); B.5 arena_ms replay_safe / fork_deny / fork_copy
+(78075ee); C.1 six crucible seeds (ca12cf8); MV silence_predicate
+queue-projection refactor (7fb8871); B.7 Thread + SharedMemory +
+parallel_compose (8508417); B.9 LFeedback emit completion +
+state-globals prologue (7f8ff5f); insight #13 kernel-closure
+crystallization (9a726f2); B.10 first composition demo
+`lib/dsp/feedback.nx` (bba8d4d); plus prior-run setup (b35c239
+cache_map; a2edd50 graph_mutated at commit boundary; 4830a25
+Realization Loop insight #12).
+
+---
+
 ## Status — 2026-04-21 (γ cascade closed; all seven pre-migration walkthroughs LANDED; migrations + audits + bootstrap sequenced)
 
 - **Specs.** Twelve specs in `docs/specs` plus `docs/SYNTAX.md`
@@ -666,22 +696,28 @@ itself. 32+ are post-first-light surfaces.
 
 ### Priority 1 substrate gaps (in-flight; close these before bootstrap prep begins)
 
-1. **⚙️📋 `LFeedback` state-machine lowering.**
-   - Status: `[PENDING]`. Walkthrough `docs/specs/simulations/LF-feedback-lowering.md` not yet drafted.
-   - Deliverable: walkthrough + ~100 lines emit-side in `src/backends/wasm.nx`. Closes the final `<~` verb's runtime realization.
-   - Depends on: nothing; independent.
-   - Gate for: item 25 feature-usage audit may surface that VFINAL doesn't use `<~` internally, in which case hand-WAT can skip it — but the substrate must still land for user programs.
+1. **⚙️📋 `LFeedback` state-machine lowering.** **`[LANDED 2026-04-24]`** — commits `7f8ff5f` (B.9 emit) + `bba8d4d` (B.10 first composition demo).
+   - Walkthrough `docs/specs/simulations/LF-feedback-lowering.md` (item 9) closed first.
+   - Substrate: `src/backends/wasm.nx` collect_state_slots walker + emit_state_globals prologue + LFeedback emit completion (load-prior → emit body → tee-current → store-current → reload). `src/cache.nx` cache_compiler_version 4→5.
+   - Closes Primitive #3 (Five verbs) — the kernel is structurally complete (insight #13, commit `9a726f2`).
+   - First composition demonstration: `lib/dsp/feedback.nx` (commit `bba8d4d`) exercises `<~ delay(1)` end-to-end with refinement-typed Hz/Sample/Gain.
+   - **Peer sub-handles named (each lands in its own commit):**
+     - **LF.B** — Body-binding for prior. Parser + lower so `(prev) => f(input, prev)` resolves `prev` to `$__fb_prev_<h>`. Pre-LF.B body LIR sees current input only; structural shape emits but numerics await this handle.
+     - **LF.M** — Handler-state-offset migration. Replaces module `$s<h>` globals with per-handler-state slots; required for threading × MS soundness.
+     - **LF.1 / LF.2 / LF.3** — FbDelay(N>1) ring-buffer / FbState(init) typed carrier / FbFilter(N, coeffs) N-tap spec. Per LF walkthrough §10.
+     - **LF.S** — verify_smt discharge of refinement obligations on Sample/Hz/Gain bounds (folds into Arc F.1).
 
 2. **⚙️📋 Mentl-voice substrate.**
-   - Status: `[IN-FLIGHT]` — walkthrough **§2 CLOSED 2026-04-21** (Situation record, VoiceLine shape, 8-tentacle × 8-FormKind mapping, 16-phrase modifier bank, silence predicate formal, turn anatomy via LSP methods, 10 acceptance tests AT1–AT10 locked as `mentl_voice_default` contract). Implementation (MV.2) pending.
-   - Deliverable: closed walkthrough → `Interact` effect declaration + `mentl_voice_default` 8-tentacle handler + silence predicate + LSP adapter handler + VS Code extension package. Absorbs former `teach_synthesize` conductor gap + former `HandlerCatalog` gap.
-   - Depends on: nothing substrate-wise; §2 closure unblocks MV.2 implementation.
+   - Status: `[IN-FLIGHT]` — walkthrough **§2 CLOSED 2026-04-21** (Situation record, VoiceLine shape, 8-tentacle × 8-FormKind mapping, 16-phrase modifier bank, silence predicate formal, turn anatomy via LSP methods, 10 acceptance tests AT1–AT10 locked as `mentl_voice_default` contract). Substrate **partial-LANDED** — silence_predicate + queue-projection refactor (commit `7fb8871`); oracle keystone (commit `f87abf3`); Tier 2 silence-as-queue-empty + tier_to_tentacle (commits Tier 2 of insight #11).
+   - Remaining (MV.2.e): Interact handler arms (22 ops × handler bodies) + LSP adapter handler.
+   - Deliverable: `Interact` effect declaration ✓ + `mentl_voice_default` 8-tentacle queue-projection ✓ + silence predicate ✓ + LSP adapter handler PENDING + VS Code extension package PENDING.
+   - Depends on: nothing substrate-wise; §2 closure unblocks remaining MV.2.e implementation.
    - Gate for: VS Code plugin v1 shipping. NOT gating for bootstrap — Mentl-voice code can land post-first-light if needed.
-   - Scope: ~600–1000 lines `.nx` (mentl_voice.nx + lsp_adapter.nx) + ~300 lines TypeScript extension glue.
+   - Scope remaining: ~400–600 lines `.nx` (Interact handler arms + lsp_adapter.nx) + ~300 lines TypeScript extension glue.
    - Acceptance: `mentl_voice_default` correct iff AT1–AT10 (§2.8 of walkthrough) render as specified.
 
 3. **⚙️ Three-gap residue swept.**
-   - Status: `[DEFERRED INTO ITEMS 1+2]`. The three former Priority 1 gaps (LFeedback, teach_synthesize conductor, HandlerCatalog) are now: #1 is item 1; #2 and #3 are both inside item 2.
+   - Status: `[DEFERRED INTO ITEMS 1+2]`. The three former Priority 1 gaps (LFeedback, teach_synthesize conductor, HandlerCatalog) are now: #1 LANDED; #2 and #3 were inside item 2 (both substrate-landed; only handler arms + LSP adapter remain).
 
 ---
 
