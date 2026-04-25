@@ -29,19 +29,37 @@
 import pipeline
 import backends/wasm
 import dsp/clock
+import mentl_voice
+import mentl_lsp
 
-/// Entry — dispatch on mode.
+/// Entry — dispatch on mode. The `lsp` mode is special-cased above
+/// dispatch_mode because it composes its own handler chain
+/// (mentl_voice_filesystem + mentl_voice_default sit between
+/// lsp_adapter and wasi_filesystem) instead of the wat-emitting chain
+/// the other modes share. Per Insight #1 (handler chain IS capability
+/// stack): lsp_adapter is OUTERMOST = least trusted = sandbox boundary.
 fn main(argv) =
-  match dispatch_mode(argv) {
-    None =>
-      print_help(),
-    Some(action) =>
-      action()
-        ~> wat_stdout
-        ~> wasi_filesystem
-        ~> no_iterative_ctx
-        ~> diagnostics_handler
-        ~> graph_handler
+  if len(argv) >= 2 && str_eq(argv[1], "lsp") {
+    inka_lsp_session()
+      ~> lsp_adapter
+      ~> mentl_voice_filesystem
+      ~> mentl_voice_default
+      ~> wasi_filesystem
+      ~> no_iterative_ctx
+      ~> diagnostics_handler
+      ~> graph_handler
+  } else {
+    match dispatch_mode(argv) {
+      None =>
+        print_help(),
+      Some(action) =>
+        action()
+          ~> wat_stdout
+          ~> wasi_filesystem
+          ~> no_iterative_ctx
+          ~> diagnostics_handler
+          ~> graph_handler
+    }
   }
 
 // path_to_module: accept either a module name ("main") or
@@ -88,6 +106,7 @@ fn print_help() = {
   eprint_string("  inka teach <module>            — gradient recommendation\n")
   eprint_string("  inka audit <module>            — capability set\n")
   eprint_string("  inka compile-source < src.nx   — legacy: stdin → WAT\n")
+  eprint_string("  inka lsp                       — LSP server on stdin/stdout (Mentl in editors)\n")
   eprint_string("\n")
   eprint_string("module names map to src/ or lib/ paths — paths accepted too.\n")
   eprint_string("incremental modes consult .inka/cache/*.kai for cache hits.\n")
