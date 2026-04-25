@@ -44,7 +44,7 @@ import dsp/clock
 import cache
 import driver
 
-// ═══ The spine — entry points as |> + ~> topology ══════════════════
+// The spine — entry points as |> + ~> topology
 // Read top-to-bottom: source flows DOWN through `|>`; handlers wrap
 // OUTWARD through `~>`. Outermost handler is the sandbox boundary.
 //
@@ -163,14 +163,14 @@ fn audit(source) =
     ~> graph_handler
     ~> diagnostics_handler
 
-// ═══ frontend — lex |> parse ═══════════════════════════════════════
+// frontend — lex |> parse
 
 fn frontend(source) =
   source
     |> lex
     |> parse_program
 
-// ═══ env_handler — scoped binding stack (spec 04) ══════════════════
+// env_handler — scoped binding stack (spec 04)
 // Peer of graph_handler. One writer (inference). Scoping via
 // mark-and-truncate: enter pushes len(entries); exit truncates to
 // that mark. Functional; no mutable pointers.
@@ -213,7 +213,7 @@ fn take_last(lst, n) =
   if len(lst) <= n { lst }
   else { take_last(list_tail(lst), n) }
 
-// ═══ body_context — H1 emit-time per-fn-body metadata ══════════════
+// body_context — H1 emit-time per-fn-body metadata
 // Set at emit_fn_body entry; read by LEvPerform's offset arithmetic
 // (offset = 8 + 4*captures + 4*slot_idx within __state) and by any
 // future evidence-aware emit site. Each fn-body emission resets the
@@ -226,7 +226,7 @@ handler body_context with captures = 0, evidence = [] {
   set_body_evidence(ev)      => resume() with evidence = ev
 }
 
-// ═══ wasi_filesystem — FS substrate (IC prerequisite) ══════════════
+// wasi_filesystem — FS substrate (IC prerequisite)
 // Four-arm stateless handler delegating to runtime/io.nx primitives.
 // Grants Filesystem capability to IC's cache layer. Installed in
 // `compile`'s ~> chain between wat_stdout and the compiler-internal
@@ -248,10 +248,18 @@ handler wasi_filesystem {
   fs_mkdir(path)                 => {
     fs_mkdir_impl(path)
     resume()
-  }
+  },
+  // FX.A.basics arms (per FX walkthrough §2.2)
+  fs_open(path)                  => resume(fs_open_impl(path)),
+  fs_close(fd)                   => {
+    fs_close_impl(fd)
+    resume()
+  },
+  fs_unlink(path)                => resume(fs_unlink_impl(path)),
+  fs_rename(old_p, new_p)        => resume(fs_rename_impl(old_p, new_p))
 }
 
-// ═══ lookup_ty_graph — GraphRead → LookupTy bridge (spec 05) ══
+// lookup_ty_graph — GraphRead → LookupTy bridge (spec 05)
 // The ONLY LookupTy handler in Phase 1. Declares GraphRead
 // (inherited from the outer graph_handler). Unresolved handles emit
 // E_UnresolvedType; error holes emit a sentinel that lowering/emit translates
@@ -279,7 +287,7 @@ handler lookup_ty_graph {
   }
 }
 
-// ═══ diagnostics_handler — stderr routing (spec 06) ════════════════
+// diagnostics_handler — stderr routing (spec 06)
 // The sandbox boundary. Outermost in every route. Declares
 // `with !Diagnostic` so its own arms cannot recursively perform
 // report — structural gate via spec 01's algebra.
@@ -303,7 +311,7 @@ handler diagnostics_handler {
   }
 }
 
-// ═══ FreshHandle — two handlers, same function ═════════════════════
+// FreshHandle — two handlers, same function
 // Inference mints via graph_fresh_ty (stored in graph); query mints
 // display ids (ephemeral, for rendering). Both satisfy FreshHandle.
 
@@ -320,7 +328,7 @@ handler fresh_for_query with next_display = 0 {
       with next_display = next_display + 1
 }
 
-// ═══ Collection helpers — consumed by teach / audit ════════════════
+// Collection helpers — consumed by teach / audit
 
 fn collect_gradients(ast) =
   if len(ast) == 0 { [] }
@@ -450,7 +458,7 @@ fn render_audit(entries) =
       |> str_concat(render_audit(list_tail(entries)))
   }
 
-// ═══ Query rendering — delegates to query.nx for Question parsing ══
+// Query rendering — delegates to query.nx for Question parsing
 
 fn render_query_result(result) = match result {
   QRType(ty, reason) =>

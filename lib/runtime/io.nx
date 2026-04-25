@@ -190,3 +190,42 @@ fn fs_write_file_impl(path_str, bytes_str) with Memory + WASI =
     perform fd_close(fd)
     ()
   }
+
+// FX.A.basics primitives — per FX walkthrough §2.1 (commit 61b2b60).
+// Each lifts one Filesystem op to a WASI syscall via the existing
+// fs_write_path scratch-packing pattern. Returns are domain-free
+// (Int fd / Bool errno); ADT projection lifted to mentl_voice_filesystem.
+
+/// fs_open_impl — path_open for read+write+create. Returns WASI fd
+/// integer or 0 on failure (caller checks via fs_exists for distinction).
+/// FS_OFLAGS_CREAT = 0x1; FS_RIGHTS_READ|WRITE = 0x42.
+fn fs_open_impl(path_str) with Memory + WASI =
+  let path_len = fs_write_path(path_str)
+  let open_errno = perform path_open(3, 0, 256, path_len, 1, 66, 66, 0, 576)
+  if open_errno != 0 { 0 }
+  else { perform load_i32(576) }
+
+/// fs_close_impl — fd_close; errno absorbed (idempotent at runtime
+/// per WASI errno-9 EBADF semantics).
+fn fs_close_impl(fd) with Memory + WASI =
+  perform fd_close(fd)
+  ()
+
+/// fs_unlink_impl — path_unlink_file relative to preopen fd 3.
+/// Errno surfaced as Bool (true on success). H6 binary outcome.
+fn fs_unlink_impl(path_str) with Memory + WASI =
+  let path_len = fs_write_path(path_str)
+  let errno = perform path_unlink_file(3, 256, path_len)
+  errno == 0
+
+/// fs_rename_impl — path_rename within preopen fd 3 to itself. Both
+/// paths packed into adjacent scratch regions: old at 256 (per
+/// fs_write_path), new at 256 + old_len + 1 (one byte gap). Errno
+/// surfaced as Bool.
+fn fs_rename_impl(old_str, new_str) with Memory + WASI =
+  let old_len = fs_write_path(old_str)
+  let new_offset = 256 + old_len + 1
+  let new_len = perform load_i32(new_str)
+  perform mem_copy(new_offset, new_str + 4, new_len)
+  let errno = perform path_rename(3, 256, old_len, 3, new_offset, new_len)
+  errno == 0

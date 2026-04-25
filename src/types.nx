@@ -741,10 +741,25 @@ effect Consume {
 // same shape as read_stdin for uniform downstream handling.
 
 effect Filesystem {
+  // ─── Original 4 ops (FS walkthrough; commit 1debfdc) ──────────
   fs_exists(String) -> Bool                          @resume=OneShot
   fs_read_file(String) -> String                     @resume=OneShot
   fs_write_file(String, String) -> ()                @resume=OneShot
   fs_mkdir(String) -> ()                             @resume=OneShot
+
+  // ─── FX.A.basics extension ops (FX walkthrough §1) ────────────
+  // Cover the FileHandle-shaped surface Mentl-voice's Interact ops
+  // need. Returns are domain-free (Int fd / Bool errno); ADT
+  // projection (FileHandle / TreeEntry) lifted to mentl_voice_filesystem
+  // handler per FX walkthrough §3.1.
+  //
+  // fs_list_dir lands separately as FX.A.dirent (dirent record parsing
+  // is its own focused sub-handle).
+
+  fs_open(String) -> Int                             @resume=OneShot
+  fs_close(Int) -> ()                                @resume=OneShot
+  fs_unlink(String) -> Bool                          @resume=OneShot
+  fs_rename(String, String) -> Bool                  @resume=OneShot
 }
 
 // Every show_* that renders a Ty chases TVars through graph_chase.
