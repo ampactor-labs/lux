@@ -274,3 +274,130 @@ pivot; explicit fitness criteria.**
 eventually builds. Inka's version is smaller because the modules
 are smaller and the kernel is tighter. Three sessions or one
 explicit pivot.*
+
+---
+
+## §11 Riffle-back addendum — per-file compile diagnosis (2026-04-25)
+
+**Per `LF-feedback-lowering.md` §11 precedent (commit `5681202`) +
+the realization-loop discipline (insight #12): every walkthrough
+that lands substrate (or whose framing gets exercised + corrected)
+gets a riffle-back addendum naming what landed exactly, what
+landed differently, and what didn't land.**
+
+### §11.1 The finding
+
+**Date:** 2026-04-25.
+**Test:** ran `cat src/graph.nx | wasmtime run bootstrap/inka.wasm`
+to verify BT §1's claim that "the other 14 [src/*.nx files] compile
+through the lex/parse/emit pipeline but fail to validate as
+standalone WAT because they reference identifiers defined in
+sibling modules that aren't in the same compilation unit."
+
+**Result:** the seed produces only 34 lines of degenerate WAT for
+src/graph.nx (484 lines of source). The generated `_start_fn`
+contains a single line: `(drop (i32.div_s (local.get $runtime)
+(local.get $strings)))` referencing nonexistent locals `$runtime`
+and `$strings` — leftover from parsing graph.nx's import statements
+(`import types`, `import effects`, `import runtime/strings`) as
+identifier-expressions rather than as module imports.
+
+**Diagnosis:** this is NOT BT §1's stated cross-module-ref failure
+(where seed-emitted `(call $list_index)` references a sibling
+module's function). It's earlier in the pipeline — the seed's
+parser handles `import` statements partially / incorrectly,
+emitting identifier-expressions that the emit phase produces as
+undefined locals.
+
+### §11.2 What this means for BT's framing
+
+BT §1's per-module inventory said:
+
+> | Module | Lines | Imports | Primary failure shape |
+> |--------|-------|---------|----------------------|
+> | `src/graph.nx` | 484 | 3 | Calls `str_concat`, `list_index`, `EfClosed` — all cross-module |
+
+The "Primary failure shape" column is **partially aspirational**:
+graph.nx doesn't compile through to the cross-module-ref stage; it
+fails earlier at the import-handling boundary. The same likely
+applies to the other 13/15 modules in BT §1 — their stated failure
+shape assumes compilation reaches the emit-cross-module-call stage,
+but reality may be earlier-stage parser/emit incompleteness.
+
+**Per-module inventory needs verification:** test each of the 13
+non-verify modules through the seed; categorize actual failure
+shape (parser? emit? cross-module-ref? something else?). The
+inventory then drives the actual substrate-extension work
+per-module.
+
+### §11.3 What this means for the linker work (BT §3)
+
+**The Python pre-link pass (`bootstrap/src/link.py`) works on the
+ASSUMPTION that per-file compilation produces link-needing WAT
+(valid syntactic WAT with cross-module symbol references).** Today
+that assumption holds for verify.nx alone; for graph.nx + others,
+the pre-link pass would link DEGENERATE WAT.
+
+**The linker is therefore not the next move.** The next move is
+**extending the seed's per-file compilation surface** (parser +
+emit per Hβ §1 conventions) to handle the full src/*.nx surface.
+THEN the linker becomes load-bearing as designed.
+
+### §11.4 Sub-handles surfaced
+
+**Per Anchor 7 cascade discipline + the substrate-honesty principle:**
+
+- **BT.A.0** — per-module-failure-shape verification sweep. Run
+  every src/*.nx + lib/**/*.nx file through the seed; categorize
+  actual failure shape per file; update §1 per-module inventory
+  with reality. Substrate gap: a test harness script (~50 lines
+  bash) that runs the seed against each module + reports failure
+  category. Lands as its own commit.
+- **BT.A.1** — per-failure-category-substrate-extension work. For
+  each failure category (parser-incomplete / emit-incomplete /
+  cross-module-ref / runtime-stub-missing), the corresponding
+  bootstrap chunk extension closes the gap. Per Hβ §1 conventions
+  + per-module sub-handles. Lands per Anchor 7.
+- **BT.A.2** — `bootstrap/src/link.py` per BT §3 + Hβ §2.3.
+  Lands AFTER BT.A.1 produces link-needing per-file outputs.
+- **BT.A.3** — bootstrap/first-light.sh per Hβ §2.4. Closes Leg 1
+  of the First-Light Triangle.
+
+### §11.5 The corrective sequencing
+
+Per Hβ §13 ultimate-form bootstrap rewrite path:
+
+1. ~~A.1 = Python pre-link pass (BT §5 Session 1)~~ — superseded;
+   the pass would link broken outputs.
+2. **A.1 (revised) = BT.A.0 + BT.A.1 + BT.A.2 + BT.A.3** —
+   per-module verification sweep, per-failure-category extension
+   work, then linker, then harness. Each substrate piece per Hβ
+   §1 conventions; per-module per BT §11.4 sub-handles.
+3. **A.2 = first-light-L1 tag** — when the harness exits 0.
+
+**Estimated scope:** dependent on what BT.A.0 surfaces. If most
+modules have similar parser-incompleteness shape, the extension
+work converges on a handful of parser chunks + emit chunks. If
+each module has a unique failure shape, scope grows. The substrate
+discipline is honest measurement, not pre-estimation.
+
+### §11.6 Why this discipline matters
+
+Per insight #12 (Realization Loop) + Anchor 7 cascade discipline:
+**walkthroughs are LIVE contracts; framing that gets corrected by
+substrate experience earns its riffle-back.** BT §1's framing was
+correct per its 2026-04-23 authoring; my 2026-04-25 finding shows
+the framing's per-module-failure-shape claims need verification
+before driving substantive substrate work.
+
+The walkthrough stays the contract; the addendum records the
+residue between intent and substrate. Per the LF.B precedent
+(LF walkthrough §11 + B.9 substrate landing): future-session work
+on BT.A.* reads §11 first; doesn't re-discover the finding from
+seed behavior.
+
+**Inka solves Inka.** The walkthrough's role is to specify what
+IS; my discovery's role is to align the specification with what
+seed-runtime experience proves.
+
+---
