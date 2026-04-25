@@ -1332,15 +1332,11 @@ handler mentl_voice_default
        intents             = [],
        next_intent_id      = 0 {
 
-  // ─── Project / file ops (8) — MV.2.e.Filesystem ─────────────────
-  project_root()        => resume(unimplemented_arm("project_root")),
-  tree_list(_path)      => resume(unimplemented_arm("tree_list")),
-  open_file(_path)      => resume(unimplemented_arm("open_file")),
-  save_file(_fh)        => resume(unimplemented_arm("save_file")),
-  create_file(_p, _t)   => resume(unimplemented_arm("create_file")),
-  rename_path(_a, _b)   => resume(unimplemented_arm("rename_path")),
-  delete_path(_p)       => resume(unimplemented_arm("delete_path")),
-  file_text(_fh)        => resume(unimplemented_arm("file_text")),
+  // ─── Project / file ops (8) — handled by mentl_voice_filesystem ─
+  // Per FX walkthrough §3: file ops migrate to peer handler at
+  // end-of-file; mentl_voice_default no longer declares them.
+  // Composition via ~> chain: surface ~> mentl_voice_filesystem ~>
+  // mentl_voice_default ~> wasi_filesystem.
 
   // ─── Edit op (1) — MV.2.e.P ──────────────────────────────────────
   edit(_fh, _patch)     => resume(unimplemented_arm("edit")),
@@ -1546,3 +1542,159 @@ handler mentl_voice_default
   /// when the user explicitly invalidates a Mentl-initiated proposal.
   cancel_pending() => resume() with prior_turn = None
 }
+
+// ─── MV.2.e.Filesystem — mentl_voice_filesystem handler (FX.B) ────────
+//
+// Peer handler to mentl_voice_default. Holds the FileHandle table as
+// state and projects 7 of 8 Interact file ops through the extended
+// Filesystem effect (FX.A.basics + future FX.A.dirent for tree_list).
+// Composition via ~> chain at the LSP adapter layer per FX walkthrough
+// §3.4 + Insight #1 (handler chain IS capability stack):
+//   surface ~> mentl_voice_filesystem ~> mentl_voice_default ~> wasi_filesystem
+//
+// The two Mentl handlers handle disjoint Interact op subsets; row
+// subsumption proves disjointness at install time.
+//
+// State (per FX walkthrough §3.1 + Insight #9 records-as-handler-state):
+//   handles_table     — List<(FileHandle, Path, String)> mapping each
+//                       open handle to its path + read-time text snapshot
+//   next_handle_id    — counter; 0 reserved as invalid-handle sentinel
+//   project_root_cache — resolved project root; v1 uses Path("./") since
+//                       WASI preopen fd 3 IS the workspace by convention
+//
+// tree_list arm stubs to unimplemented_arm pending FX.A.dirent (which
+// adds fs_list_dir + dirent parsing) + FX.1 (which adds
+// fs_filestat_is_dir for TreeFile vs TreeDir projection).
+
+/// handles_table_lookup — find the (FileHandle, Path, String) entry
+/// matching a target FileHandle. Returns Option<(FileHandle, Path,
+/// String)>. Single-pass cons recursion; small N typical (handles
+/// table holds open editor sessions, not arbitrary file enumerations).
+
+fn handles_table_lookup(table, target_handle) with Pure =
+  if len(table) == 0 { None }
+  else {
+    let head = list_head(table)
+    let rest = list_tail(table)
+    let (entry_handle, _, _) = head
+    if file_handle_eq(entry_handle, target_handle) {
+      Some(head)
+    } else {
+      handles_table_lookup(rest, target_handle)
+    }
+  }
+
+/// file_handle_eq — FileHandle equality. Single-variant ADT wrapping Int;
+/// destructure + integer compare. H6 implicit (single variant).
+
+fn file_handle_eq(a, b) with Pure =
+  let FileHandle(ai) = a
+  let FileHandle(bi) = b
+  ai == bi
+
+handler mentl_voice_filesystem
+  with handles_table       = [],
+       next_handle_id      = 1,
+       project_root_cache  = Path("./") {
+
+  /// project_root — resolved project root Path. v1 returns
+  /// project_root_cache (Path("./") at session start). Refined
+  /// resolution via Module-handle synthesis lands as FX.4 peer
+  /// sub-handle when surfaces need absolute paths.
+  project_root()        => resume(project_root_cache),
+
+  /// tree_list — directory listing as List<TreeEntry>. Stubbed
+  /// pending FX.A.dirent (fs_list_dir + dirent parsing) + FX.1
+  /// (fs_filestat_is_dir for TreeFile vs TreeDir projection). Per
+  /// drift mode 9: gap is named explicitly, not silently absorbed.
+  tree_list(_path)      => resume(unimplemented_arm("tree_list")),
+
+  /// open_file — fs_open the path; on success, snapshot text via
+  /// fs_read_file, mint fresh FileHandle, append to handles_table.
+  /// On open failure, return invalid-handle sentinel FileHandle(0)
+  /// (caller distinguishes via fs_exists if needed).
+  open_file(path)       => {
+    let Path(s) = path
+    let fd = perform fs_open(s)
+    if fd == 0 {
+      resume(FileHandle(0))
+    } else {
+      let text = perform fs_read_file(s)
+      let new_handle = FileHandle(next_handle_id)
+      let new_table = [(new_handle, path, text)] ++ handles_table
+      resume(new_handle)
+        with handles_table  = new_table,
+             next_handle_id = next_handle_id + 1
+    }
+  },
+
+  /// save_file — write the cached text back to the file at the
+  /// handle's recorded path. Invalid handle silently absorbs
+  /// (idempotent save on stale handle is honest semantics).
+  save_file(fh)         => {
+    let entry = handles_table_lookup(handles_table, fh)
+    match entry {
+      None              => resume(),
+      Some(triple)      => {
+        let (_, path, text) = triple
+        let Path(s) = path
+        perform fs_write_file(s, text)
+        resume()
+      }
+    }
+  },
+
+  /// create_file — write text to path, then open and register a
+  /// FileHandle. On open failure, return invalid sentinel.
+  create_file(p, text)  => {
+    let Path(s) = p
+    perform fs_write_file(s, text)
+    let fd = perform fs_open(s)
+    if fd == 0 {
+      resume(FileHandle(0))
+    } else {
+      let new_handle = FileHandle(next_handle_id)
+      let new_table = [(new_handle, p, text)] ++ handles_table
+      resume(new_handle)
+        with handles_table  = new_table,
+             next_handle_id = next_handle_id + 1
+    }
+  },
+
+  /// rename_path — fs_rename old → new. Returns () regardless of
+  /// errno (Bool result absorbed; surface checks fs_exists if
+  /// needed). The handles_table is NOT updated to reflect the rename
+  /// today — open handles continue to reference old paths via their
+  /// recorded Path. Path-update on rename is FX.6 peer sub-handle
+  /// when LSP didRename plumbing matters.
+  rename_path(old_p, new_p) => {
+    let Path(o) = old_p
+    let Path(n) = new_p
+    perform fs_rename(o, n)
+    resume()
+  },
+
+  /// delete_path — fs_unlink the path. Result Bool absorbed; surface
+  /// checks fs_exists if needed. handles_table not pruned of stale
+  /// entries (delete-while-open semantics owned by FX.5 close_file).
+  delete_path(p)        => {
+    let Path(s) = p
+    perform fs_unlink(s)
+    resume()
+  },
+
+  /// file_text — return the cached text snapshot for an open
+  /// FileHandle. Invalid handle returns empty string (honest
+  /// fallback; surface distinguishes via fs_exists if needed).
+  file_text(fh)         => {
+    let entry = handles_table_lookup(handles_table, fh)
+    match entry {
+      None              => resume(""),
+      Some(triple)      => {
+        let (_, _, text) = triple
+        resume(text)
+      }
+    }
+  }
+}
+
