@@ -1028,6 +1028,181 @@ fn tier_to_tentacle(tier) with Pure =
 fn unimplemented_arm(op_name) with Abort =
   perform abort()
 
+// ─── MV.2.e.Q — Query tentacle helpers ────────────────────────────────
+//
+// The 7 helpers below are the substrate the cursor / focus / ask arms
+// in mentl_voice_default compose through. Pure or near-Pure; the ask
+// arm's row is OracleQuery (silence_predicate) + Pure compose; the
+// focus arm's row is GraphRead (TargetSpan path uses graph_snapshot).
+//
+// Per the eight interrogations applied to MV.2.e.Q (CLAUDE.md anchor):
+//   Graph?   — cursor handle indexes graph; reads via graph_snapshot
+//   Handler? — Interact's @resume=OneShot satisfied; one resume per arm
+//   Verb?    — flat let/match; pipe doesn't draw better topology
+//   Row?     — composed at arm site (Pure / GraphRead / OracleQuery)
+//   Owner?   — Cursor + VoiceLine own-to-handler; no escape
+//   Refine?  — Cursor.handle refinement deferred to MV.2.e.Q.refine
+//   Gradient? each arm = one step toward LSP usability
+//   Reason?  — every cursor write threads a Reason per CursorTarget
+
+/// resolve_cursor_target — project a CursorTarget into a graph Handle.
+/// TargetHandle: identity. TargetSpan: span_index lookup via
+/// graph_snapshot (per query.nx find_tightest substrate). TargetIdent:
+/// env entries don't carry handles directly per current Env shape (the
+/// entry's Scheme's underlying TVar holds the handle, but extracting
+/// it isn't yet wired). Fallback for that variant: cursor unchanged.
+/// The MV.2.e.Q.ident peer sub-handle wires env→handle resolution.
+///
+/// H6 exhaustive over CursorTarget — no `_` wildcard.
+
+fn resolve_cursor_target(target, current_handle) with GraphRead =
+  match target {
+    TargetHandle(h)    => h,
+    TargetSpan(s)      => {
+      let g = perform graph_snapshot()
+      let Graph(_, _, _, _, span_index, _) = g
+      match find_tightest(span_index, s, None, 999999999) {
+        None       => current_handle,
+        Some(h)    => h
+      }
+    },
+    TargetIdent(_name) => current_handle
+  }
+
+/// focus_reason — synthesize the Cursor's Reason from the focus
+/// gesture. Per MV §2 Q5 + primitive #8: every cursor write threads a
+/// Reason so the Why tentacle can later answer "why this cursor?". H6
+/// exhaustive over CursorTarget.
+
+fn focus_reason(target) with Pure =
+  match target {
+    TargetHandle(_)    => Inferred("explicit handle focus"),
+    TargetSpan(s)      => Located(s, Inferred("span focus gesture")),
+    TargetIdent(name)  => Inferred("identifier focus: " |> str_concat(name))
+  }
+
+/// tentacle_for_question — Question variant decides the tentacle that
+/// renders the ask. Most Questions are Query-tentacle (read graph
+/// state); QWhy / QSubstChain are Why-tentacle (walk reason chain);
+/// QOwnership is Trace-tentacle (ownership trail); QVerifyDebt is
+/// Verify-tentacle (refinement obligations). H6 exhaustive over
+/// Question's 12 variants via pattern alternation per SYNTAX.md L956.
+
+fn tentacle_for_question(question) with Pure =
+  match question {
+    QTypeOf(_) | QTypeAt(_) | QIntentOf(_) | QUnresolved
+    | QEffects(_) | QRefsOf(_) | QHandlerProvider(_) | QUnknown(_)
+                          => TentQuery,
+    QOwnership(_)         => TentTrace,
+    QWhy(_) | QSubstChain(_)
+                          => TentWhy,
+    QVerifyDebt           => TentVerify
+  }
+
+/// question_span — extract Span from Question. Only QTypeAt carries a
+/// natural Span; other variants project to span_zero. The TurnRecord's
+/// span_at field captures this for next-turn observation deltas. H6
+/// exhaustive over Question via pattern alternation.
+
+fn question_span(question) with Pure =
+  match question {
+    QTypeAt(s)             => s,
+    QTypeOf(_) | QIntentOf(_) | QUnresolved | QSubstChain(_)
+    | QEffects(_) | QOwnership(_) | QWhy(_) | QRefsOf(_)
+    | QVerifyDebt | QHandlerProvider(_) | QUnknown(_)
+                           => span_zero()
+  }
+
+/// compose_minimal_ask_situation — the sparse Situation an ask
+/// composes when graph reads beyond cursor are not yet wired
+/// (MV.2.e.Q.compose-ops peer sub-handle adds reason_at_topic /
+/// row_at_topic / ownership_at_topic / refinements / gradient_next
+/// reads against graph). Render arms gracefully handle None / [] in
+/// these fields — sparse Situation produces sparse VoiceLine, which
+/// is the honest shape for "user asked but graph hasn't been read yet."
+///
+/// prior_turn_topic + prior_turn_tentacle project from the handler's
+/// prior_turn state — the silence_predicate's observation-delta input.
+/// register defaults to RPlayful per MV §2.7.4.
+
+fn compose_minimal_ask_situation(question, cursor_handle, prior_turn) with Pure =
+  let (prior_topic, prior_tent) = match prior_turn {
+    None        => (None, None),
+    Some(rec)   => {
+      let TurnRecord(r) = rec
+      (Some(r.topic), Some(r.tentacle))
+    }
+  }
+  Situation({
+    tentacle:              tentacle_for_question(question),
+    topic:                 TopicAsk(question),
+    handle:                Some(cursor_handle),
+    env_snapshot:          [],
+    reason_at_topic:       None,
+    row_at_topic:          None,
+    row_declared:          None,
+    ownership_at_topic:    None,
+    refinements:           [],
+    gradient_next:         None,
+    handlers_installed:    [],
+    prior_turn_topic:      prior_topic,
+    prior_turn_tentacle:   prior_tent,
+    facts:                 TopicFacts({
+      is_hole:           false,
+      error_code_at:     None,
+      nested_call_depth: 0
+    }),
+    register:              RPlayful
+  })
+
+/// answer_from_slots — first-projectable-slot wins. SType → AnsType;
+/// SRow → AnsRow; SReason → AnsReason. SIdent / SSpan / SCap / SAnnot
+/// / SLit are non-Answer-projecting slot kinds; recurse past them to
+/// find a projecting head. Empty list → AnsSilence. Tail-recursive
+/// scan; H6 exhaustive over Slot's 8 variants.
+///
+/// Per MV §2.8 acceptance criterion 4: every non-Silence Answer
+/// carries a Reason — threaded through `reason` parameter from
+/// voiceline_to_answer.
+
+fn answer_from_slots(slots, reason) with Pure =
+  if len(slots) == 0 { AnsSilence }
+  else {
+    let head = list_head(slots)
+    let rest = list_tail(slots)
+    match head {
+      SType(t)         => AnsType(t, reason),
+      SRow(r)          => AnsRow(r, reason),
+      SReason(r)       => AnsReason(r),
+      SIdent(_)        => answer_from_slots(rest, reason),
+      SSpan(_)         => answer_from_slots(rest, reason),
+      SCap(_)          => answer_from_slots(rest, reason),
+      SAnnot(_)        => answer_from_slots(rest, reason),
+      SLit(_)          => answer_from_slots(rest, reason)
+    }
+  }
+
+/// voiceline_to_answer — project a VoiceLine into the Answer ADT.
+/// Silence → AnsSilence. Non-silence: extract reason from
+/// situation.reason_at_topic (Inferred fallback when sparse), then
+/// scan slots for the first projectable kind via answer_from_slots.
+/// H6 exhaustive over VoiceLine.
+///
+/// AnsRefs (List<Span>) projection for QRefsOf is MV.2.e.Q.refs
+/// peer sub-handle territory; today returns AnsSilence when no
+/// projectable head is found rather than fabricating an empty AnsRefs.
+
+fn voiceline_to_answer(voiceline, situation) with Pure =
+  let Situation(s) = situation
+  let reason = match s.reason_at_topic {
+    None        => Inferred("ask answer with no graph reason"),
+    Some(r)     => r
+  }
+  match voiceline {
+    Silence                       => AnsSilence,
+    VoiceLine(_, _, slots, _)     => answer_from_slots(slots, reason)
+  }
+
 // ─── mentl_voice_default — Interact handler ───────────────────────────
 //
 // THE handler that every voice surface (LSP adapter, batch CLI,
@@ -1086,12 +1261,58 @@ handler mentl_voice_default
   // ─── Edit op (1) — MV.2.e.P ──────────────────────────────────────
   edit(_fh, _patch)     => resume(unimplemented_arm("edit")),
 
-  // ─── Attention ops (2) — MV.2.e.Q (next commit) ──────────────────
-  focus(_target)        => resume(unimplemented_arm("focus")),
-  cursor()              => resume(unimplemented_arm("cursor")),
+  // ─── Attention ops (2) — MV.2.e.Q ─────────────────────────────────
+
+  /// focus — set the cursor-of-attention from a CursorTarget. Per MV
+  /// §2 Q5: every focus resets the cursor. The Cursor's Reason traces
+  /// back to the focus gesture (per CursorTarget variant via
+  /// focus_reason). TargetSpan path performs graph_snapshot for span
+  /// resolution; TargetIdent falls back to current handle (MV.2.e.Q.ident
+  /// peer sub-handle wires env→handle resolution).
+  focus(target)         => {
+    let Cursor(current_handle, _) = cursor
+    let new_handle = resolve_cursor_target(target, current_handle)
+    let new_reason = focus_reason(target)
+    let new_cursor = Cursor(new_handle, new_reason)
+    resume()
+      with cursor = new_cursor
+  },
+
+  /// cursor — read the cursor-of-attention. Pure read of handler
+  /// state; per MV §2.7.1 cursor lives in handler state.
+  cursor()              => resume(cursor),
 
   // ─── Mentl voice ops (3) — ask in Q; propose + speak in MV.2.e.P ─
-  ask(_question)        => resume(unimplemented_arm("ask")),
+
+  /// ask — user-initiated graph query. Per MV §2.7.6: each ask is a
+  /// turn. Compose Situation → silence_predicate → render → project
+  /// VoiceLine → Answer. Update prior_turn for next-turn observation
+  /// delta (silence_predicate's input on the subsequent turn).
+  ///
+  /// Sparse Situation: reason_at_topic / row_at_topic / refinements /
+  /// gradient_next / handlers_installed land empty in this commit;
+  /// MV.2.e.Q.compose-ops peer sub-handle adds the graph reads. Render
+  /// arms gracefully handle the sparse fields — output reflects what
+  /// the substrate actually knows.
+  ask(question)         => {
+    let Cursor(cursor_handle, _) = cursor
+    let situation = compose_minimal_ask_situation(question, cursor_handle, prior_turn)
+    let voiceline = if silence_predicate(situation) {
+      Silence
+    } else {
+      render_for_tentacle(situation)
+    }
+    let answer = voiceline_to_answer(voiceline, situation)
+    let new_turn = TurnRecord({
+      tentacle: tentacle_for_question(question),
+      topic:    TopicAsk(question),
+      line:     voiceline,
+      span_at:  question_span(question)
+    })
+    resume(answer)
+      with prior_turn = Some(new_turn)
+  },
+
   propose(_target)      => resume(unimplemented_arm("propose")),
   speak(_voiceline)     => resume(unimplemented_arm("speak")),
 
