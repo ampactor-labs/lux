@@ -1,47 +1,87 @@
 #!/usr/bin/env bash
-# Inka pre-commit — fluency-trap enforcement.
+# Inka pre-commit — fluency-trap + determinism enforcement.
 #
-# Runs tools/drift-audit.sh over all staged .ka files. Blocks the commit
-# if any drift mode fires. This is the last line of defense; Claude Code
-# PostToolUse already runs the audit during editing, but git hooks survive
-# any editor, any model, any future tooling change.
+# Two gates run on every commit touching `.nx` files:
+#
+# 1. tools/drift-audit.sh — blocks the commit if any drift mode fires.
+#    Claude Code PostToolUse already runs this during editing, but git
+#    hooks survive any editor, any model, any future tooling change.
+#
+# 2. tools/determinism-gate.sh — blocks the commit if double-compile
+#    produces non-byte-identical WAT (per DET walkthrough §2.6 + PLAN.md
+#    item 24). Runs only when src/*.nx or lib/**/*.nx is staged. Pre-
+#    bootstrap the gate's contract stands but exits 2 (no-op) until
+#    item 27 lands hand-WAT.
 #
 # Enable with:
 #   git -C ~/Projects/inka config core.hooksPath .githooks
 # Or run the one-time setup: bash tools/setup-git-hooks.sh
 #
-# Bypass (rare, for non-.ka emergency fixes only) with --no-verify.
-# Do not bypass for .ka files — the drift-audit is exactly the discipline
-# CLAUDE.md establishes.
+# Bypass (rare, for non-.nx emergency fixes only) with --no-verify.
+# Do not bypass for .nx files — the drift-audit + determinism gate
+# are exactly the discipline CLAUDE.md establishes.
 
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 AUDIT="$REPO_ROOT/tools/drift-audit.sh"
+DETERMINISM="$REPO_ROOT/tools/determinism-gate.sh"
+
+# ─── Gate 1: drift-audit on staged .nx files ─────────────────────────
 
 if [[ ! -x "$AUDIT" ]]; then
     echo "pre-commit: drift-audit.sh not found or not executable — skipping" >&2
-    exit 0
-fi
-
-# Collect staged .ka files.
-staged=()
-while IFS= read -r f; do
-    [[ -n "$f" && -f "$REPO_ROOT/$f" ]] && staged+=("$REPO_ROOT/$f")
-done < <(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.ka$' || true)
-
-if [[ ${#staged[@]} -eq 0 ]]; then
-    exit 0
-fi
-
-echo "pre-commit: running drift-audit on ${#staged[@]} staged .ka file(s)..."
-if bash "$AUDIT" "${staged[@]}"; then
-    exit 0
 else
-    echo ""
-    echo "pre-commit: drift detected. The commit is blocked."
-    echo "Rewrite in residue form per the plan. If a match is a true false-positive,"
-    echo "suppress the single line with a trailing '# drift-audit: ignore' comment"
-    echo "(but first verify it is NOT one of the nine drift modes in disguise)."
-    exit 1
+    staged_nx=()
+    while IFS= read -r f; do
+        [[ -n "$f" && -f "$REPO_ROOT/$f" ]] && staged_nx+=("$REPO_ROOT/$f")
+    done < <(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.nx$' || true)
+
+    if [[ ${#staged_nx[@]} -gt 0 ]]; then
+        echo "pre-commit: running drift-audit on ${#staged_nx[@]} staged .nx file(s)..."
+        if ! bash "$AUDIT" "${staged_nx[@]}"; then
+            echo ""
+            echo "pre-commit: drift detected. The commit is blocked."
+            echo "Rewrite in residue form per the plan. If a match is a true false-positive,"
+            echo "suppress the single line with a trailing '# drift-audit: ignore' comment"
+            echo "(but first verify it is NOT one of the nine drift modes in disguise)."
+            exit 1
+        fi
+    fi
 fi
+
+# ─── Gate 2: determinism gate on staged compiler/lib .nx files ───────
+
+# Run only when staged files include src/*.nx or lib/**/*.nx — those
+# are the files whose changes can affect WAT output. Doc-only commits
+# skip this gate.
+if [[ -x "$DETERMINISM" ]]; then
+    has_compiler_change=false
+    while IFS= read -r f; do
+        if [[ "$f" == src/*.nx || "$f" == lib/*.nx || "$f" == lib/*/*.nx ]]; then
+            has_compiler_change=true
+            break
+        fi
+    done < <(git diff --cached --name-only --diff-filter=ACMR)
+
+    if [[ "$has_compiler_change" == "true" ]]; then
+        echo "pre-commit: running determinism-gate (compiler/lib .nx file(s) staged)..."
+        # Capture exit code without aborting; exit 2 is "pre-bootstrap
+        # no-op" (gate contract holds, runtime check can't fire yet).
+        det_status=0
+        bash "$DETERMINISM" || det_status=$?
+        if [[ "$det_status" -eq 0 ]]; then
+            : # byte-identical; proceed
+        elif [[ "$det_status" -eq 2 ]]; then
+            : # pre-bootstrap; gate is contract-only; proceed
+        else
+            echo ""
+            echo "pre-commit: determinism gate FAILED. The commit is blocked."
+            echo "Per DET walkthrough §3: every diffing region is a non-determinism source;"
+            echo "fix in-place, never deferred. Run tools/determinism-gate.sh manually for diff."
+            exit 1
+        fi
+    fi
+fi
+
+exit 0
