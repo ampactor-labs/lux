@@ -1,0 +1,192 @@
+// lsp_frame.nx — Content-Length JSON-RPC framing for LSP transport
+//
+// Per MV-LSP-adapter walkthrough §1.1 (commit 4d0fce1). Layer A of
+// the LSP transport stack: byte ↔ frame conversion. Layer B (JSON
+// parse/serialize) lives in lib/runtime/json.nx; Layer C
+// (lsp_adapter handler + dispatch) lives in src/mentl_lsp.nx.
+//
+// LSP wire format (per Microsoft LSP spec):
+//   Content-Length: <N>\r\n
+//   <optional other headers>\r\n
+//   \r\n
+//   <N bytes of JSON body>
+//
+// Substrate composes on read_chunk (lib/runtime/io.nx) for byte-at-a-
+// time stdin reading. Honest scope: LSP messages are typically <16 KB;
+// per-byte reads are O(N) but not a perf bottleneck for editor traffic.
+// Buffered framing (BatchedFrame peer sub-handle) lands when high-
+// throughput surfaces (web playground push-streams) need it.
+
+import types
+import runtime/io
+import runtime/strings
+
+/// LspFrame — one parsed JSON-RPC message body. EOF distinguishes
+/// stdin-closed (clean session termination) from empty body. Per
+/// drift mode 6: structural ADT, not a sentinel String.
+
+type LspFrame
+  = LspFrame(String)               // body text, length-prefixed Inka String
+  | LspFrameEof                    // stdin closed; session terminates
+
+// ─── Byte-at-a-time stdin reader ──────────────────────────────────────
+
+/// read_one_byte — read exactly 1 byte from stdin. Returns the byte
+/// value (0..255) or -1 on EOF. Substrate primitive for header
+/// parsing (where we don't know boundaries until we see \r\n).
+///
+/// Uses read_chunk with size=1; the read goes into a 1-byte scratch
+/// region at fixed offset (96 — the small scratch buffer per io.nx
+/// §"Scratch layout"). Honest: per-byte syscalls are slow for bulk
+/// data but fine for the ~50-byte LSP header section.
+
+fn read_one_byte() with Memory + Alloc + WASI =
+  let nread = read_chunk(96, 1)
+  if nread == 0 { 0 - 1 }
+  else { perform load_i8(96) }
+
+// ─── Header parsing — accumulate bytes into a String until \r\n\r\n ───
+
+/// read_lsp_frame — entry point. Read header section (until \r\n\r\n),
+/// parse Content-Length, read body bytes. Returns LspFrameEof if stdin
+/// closes during header read.
+
+fn read_lsp_frame() with Memory + Alloc + WASI =
+  let initial_cap = 256
+  let hdr_buf = perform alloc(initial_cap)
+  perform store_i32(hdr_buf, 0)
+  let hdr_result = read_headers_until_blank(hdr_buf, 0, initial_cap)
+  match hdr_result {
+    None              => LspFrameEof,
+    Some(hdr_str)     => {
+      let content_len = parse_content_length(hdr_str)
+      if content_len <= 0 { LspFrameEof }
+      else { read_body(content_len) }
+    }
+  }
+
+/// read_headers_until_blank — accumulate stdin bytes into hdr_buf until
+/// the sequence \r\n\r\n is observed. Returns Some(header_string) on
+/// success; None on EOF mid-header. Header string carries the bytes
+/// up to (not including) the terminating \r\n\r\n.
+
+fn read_headers_until_blank(buf, written, cap) with Memory + Alloc + WASI =
+  let b = read_one_byte()
+  if b < 0 { None }
+  else {
+    let (buf2, cap2) = if written < cap { (buf, cap) }
+                       else {
+                         let new_cap = cap * 2
+                         let new_buf = perform alloc(4 + new_cap)
+                         perform mem_copy(new_buf + 4, buf + 4, written)
+                         (new_buf, new_cap)
+                       }
+    perform store_i8(buf2 + 4 + written, b)
+    let new_written = written + 1
+    if header_terminator_seen(buf2, new_written) {
+      perform store_i32(buf2, new_written - 4)
+      Some(buf2)
+    } else {
+      read_headers_until_blank(buf2, new_written, cap2)
+    }
+  }
+
+/// header_terminator_seen — does the buffer end in \r\n\r\n (4 bytes)?
+/// Used as the terminator detector in the header read loop.
+
+fn header_terminator_seen(buf, written) with Memory =
+  if written < 4 { false }
+  else {
+    let b3 = perform load_i8(buf + 4 + written - 4)
+    let b2 = perform load_i8(buf + 4 + written - 3)
+    let b1 = perform load_i8(buf + 4 + written - 2)
+    let b0 = perform load_i8(buf + 4 + written - 1)
+    b3 == 13 && b2 == 10 && b1 == 13 && b0 == 10
+  }
+
+// ─── parse_content_length — find "Content-Length: N" header value ─────
+
+/// parse_content_length — scan headers (case-sensitive Content-Length
+/// per LSP spec). Returns the integer value or -1 if not found.
+/// Honest substrate: doesn't validate other headers; ignores them.
+
+fn parse_content_length(hdr_str) with Memory =
+  let hdr_len = byte_len(hdr_str)
+  let kw = "Content-Length:"
+  let kw_len = byte_len(kw)
+  let pos = find_header(hdr_str, hdr_len, kw, kw_len, 0)
+  if pos < 0 { 0 - 1 }
+  else {
+    let value_start = skip_header_spaces(hdr_str, hdr_len, pos + kw_len)
+    parse_int_from_pos(hdr_str, hdr_len, value_start, 0)
+  }
+
+fn find_header(src, src_len, kw, kw_len, pos) with Memory =
+  if pos + kw_len > src_len { 0 - 1 }
+  else if header_matches_at(src, kw, kw_len, pos, 0) { pos }
+  else { find_header(src, src_len, kw, kw_len, pos + 1) }
+
+fn header_matches_at(src, kw, kw_len, src_pos, i) with Memory =
+  if i >= kw_len { true }
+  else if perform load_i8(src + 4 + src_pos + i) == perform load_i8(kw + 4 + i) {
+    header_matches_at(src, kw, kw_len, src_pos, i + 1)
+  } else {
+    false
+  }
+
+fn skip_header_spaces(src, src_len, pos) with Memory =
+  if pos >= src_len { pos }
+  else {
+    let b = perform load_i8(src + 4 + pos)
+    if b == 32 || b == 9 { skip_header_spaces(src, src_len, pos + 1) }
+    else                 { pos }
+  }
+
+fn parse_int_from_pos(src, src_len, pos, acc) with Memory =
+  if pos >= src_len { acc }
+  else {
+    let b = perform load_i8(src + 4 + pos)
+    if b >= 48 && b <= 57 {
+      parse_int_from_pos(src, src_len, pos + 1, acc * 10 + (b - 48))
+    } else {
+      acc
+    }
+  }
+
+// ─── read_body — read exactly N bytes from stdin ──────────────────────
+
+/// read_body — accumulate exactly N bytes into a flat Inka String.
+/// Returns LspFrame(body) on success; LspFrameEof if stdin closes
+/// before N bytes received (truncated message; protocol error).
+
+fn read_body(n) with Memory + Alloc + WASI =
+  let buf = perform alloc(4 + n)
+  perform store_i32(buf, n)
+  let total = read_body_loop(buf, 0, n)
+  if total < n { LspFrameEof }
+  else         { LspFrame(buf) }
+
+fn read_body_loop(buf, written, total) with Memory + Alloc + WASI =
+  if written >= total { written }
+  else {
+    let chunk_size = total - written
+    let nread = read_chunk(buf + 4 + written, chunk_size)
+    if nread == 0 { written }
+    else { read_body_loop(buf, written + nread, total) }
+  }
+
+// ─── write_lsp_frame — write Content-Length-framed body to stdout ─────
+
+/// write_lsp_frame — emit "Content-Length: N\r\n\r\n<N bytes>" to fd 1.
+/// Per LSP spec the header is ASCII-only; body is the raw JSON bytes.
+/// Builds the header as a String, writes header then body via
+/// fd_write through the existing print_string substrate.
+
+fn write_lsp_frame(body) with Memory + Alloc + WASI =
+  let body_len = byte_len(body)
+  let hdr = "Content-Length: "
+    |> str_concat(int_to_str(body_len))
+    |> str_concat("\r\n\r\n")
+  print_string(hdr)
+  print_string(body)
+  ()
