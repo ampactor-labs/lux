@@ -405,8 +405,28 @@ effect Interact {
 /// → same verdict, deterministic. This is the substrate on which
 /// cursor-moved-turns decide whether to emit anything at all.
 
-fn silence_predicate(situation) with Pure =
-  proof_derivable(situation) && observation_new_since_last_turn(situation)
+/// SUPERSEDED by the oracle-queue-empty semantics per insight #11
+/// (CLAUDE.md / INSIGHTS §"The Continuous Oracle IS Incremental
+/// Compilation Plus One Cached Value", commit 636c365). The new
+/// silence is project-wide: Mentl is silent ONLY when the project
+/// queue is empty — the gradient's top, the proven-complete state.
+/// Per-Topic + per-tentacle novelty checks were too coarse — they
+/// silenced Mentl when she had more to say project-wide.
+///
+/// silence_predicate performs OracleQuery's query_project_queue and
+/// returns true (silence) iff the queue is empty. The
+/// proof_derivable / observation_new_since_last_turn helpers below
+/// stay available for the per-tentacle render arms (which still need
+/// to know "does THIS tentacle have something to render at this
+/// position") — but the TOP-LEVEL silence gate now lives at the
+/// queue, not per-Topic.
+
+fn silence_predicate(situation) with OracleQuery =
+  let queue = perform query_project_queue()
+  match queue {
+    []        => true,    // gradient at top — full silence
+    [_ | _]   => false    // queue has items — Mentl surfaces something
+  }
 
 /// Each tentacle asks: "does the graph hold a proven thing I can say
 /// about this topic right now?" If yes, proof_derivable true; else
@@ -664,4 +684,338 @@ fn select_modifier(situation, register) with Pure =
     RTerse    => NoMod,
     RPlayful  => pick_from_pool(s.tentacle, situation_hash(situation)),
     RExplain  => pick_from_pool(s.tentacle, situation_hash(situation))
+  }
+
+/// with_tentacle — pure update of Situation's tentacle field. Used by
+/// mentl_voice_default's fold to retarget the same Situation snapshot
+/// at each of the 8 tentacles in turn. All other Situation fields
+/// (topic, handle, env_snapshot, reasons, rows, ownership, refinements,
+/// gradient_next, handlers_installed, prior_turn_topic, facts,
+/// register) survive unchanged — only the tentacle perspective shifts.
+
+fn with_tentacle(situation, tentacle) with Pure =
+  let Situation(s) = situation
+  Situation({
+    tentacle:              tentacle,
+    topic:                 s.topic,
+    handle:                s.handle,
+    env_snapshot:          s.env_snapshot,
+    reason_at_topic:       s.reason_at_topic,
+    row_at_topic:          s.row_at_topic,
+    row_declared:          s.row_declared,
+    ownership_at_topic:    s.ownership_at_topic,
+    refinements:           s.refinements,
+    gradient_next:         s.gradient_next,
+    handlers_installed:    s.handlers_installed,
+    prior_turn_topic:      s.prior_turn_topic,
+    prior_turn_tentacle:   s.prior_turn_tentacle,
+    facts:                 s.facts,
+    register:              s.register
+  })
+
+/// topic_ident_or_empty — pure projection of a Topic to its identifier
+/// string when applicable. TopicIdent yields the name; TopicError
+/// yields the code; other variants yield empty string. Used by render
+/// arms to populate SIdent slots without re-routing through graph.
+/// H6 exhaustive over Topic.
+
+fn topic_ident_or_empty(topic) with Pure =
+  match topic {
+    TopicIdent(name)        => name,
+    TopicHandle(_)          => "",
+    TopicSpan(_)            => "",
+    TopicError(code, _)     => code,
+    TopicAsk(_)             => ""
+  }
+
+/// topic_span_or_zero — pure projection of a Topic to a Span. Variants
+/// without a natural span (TopicIdent / TopicHandle / TopicAsk) yield
+/// the zero-Span sentinel. Used for SSpan slot construction at render
+/// time. H6 exhaustive over Topic.
+
+fn topic_span_or_zero(topic) with Pure =
+  match topic {
+    TopicIdent(_)        => Span(0, 0, 0, 0),
+    TopicHandle(_)       => Span(0, 0, 0, 0),
+    TopicSpan(span)      => span,
+    TopicError(_, span)  => span,
+    TopicAsk(_)          => Span(0, 0, 0, 0)
+  }
+
+/// render_query_arm — TentQuery's render. Per MV §2.7.3 form FFactual,
+/// per AT1: `` `name` runs `Type`. Row. ``. Slots compose the
+/// identifier from topic, the inferred type from row_at_topic context,
+/// and the row itself. silence_predicate gated upstream — fires only
+/// when reason_at_topic is Some (per MV §2.7.5 TentQuery arm).
+
+fn render_query_arm(situation) with Pure =
+  let Situation(s) = situation
+  let name = topic_ident_or_empty(s.topic)
+  let row_slot = match s.row_at_topic {
+    None         => SLit(""),
+    Some(row)    => SRow(row)
+  }
+  VoiceLine(TentQuery, FFactual, [
+    SIdent(name),
+    SLit(" — bound at "),
+    SSpan(topic_span_or_zero(s.topic)),
+    SLit(". Row: "),
+    row_slot,
+    SLit(".")
+  ], select_modifier(situation, s.register))
+
+/// render_propose_arm — TentPropose's render. Per MV §2.7.3 form
+/// FOffering, per AT8 + AT10: hole completion / typo codeAction.
+/// Topic discriminates: TopicHandle (hole at handle) → "Hole expects
+/// `Type`"; TopicError (typo / missing) → "Did you mean ...?";
+/// TopicAsk (explicit ask) → echoes ask. silence_predicate gated.
+
+fn render_propose_arm(situation) with Pure =
+  let Situation(s) = situation
+  let TopicFacts(f) = s.facts
+  let body = match s.topic {
+    TopicHandle(_)       => [
+      SLit(if f.is_hole { "Hole expects synthesis here." }
+           else if is_some(f.error_code_at) { SLit_to_str(f.error_code_at) }
+           else { "" })
+    ],
+    TopicError(code, _)  => [SLit("Diagnostic at "), SIdent(code), SLit(" — codeAction available.")],
+    TopicAsk(_)          => [SLit("Ask received — proposing.")],
+    TopicIdent(_)        => [SLit("")],
+    TopicSpan(_)         => [SLit("")]
+  }
+  VoiceLine(TentPropose, FOffering, body, select_modifier(situation, s.register))
+
+/// render_topology_arm — TentTopology's render. Per MV §2.7.3 form
+/// FOffering with STYLE_NUDGE stance. Per AT4: nested-call depth >= 3
+/// surfaces a "use |> instead" suggestion. silence_predicate gated on
+/// nested_call_depth >= 3 (TopicFacts substrate from D.1.c).
+
+fn render_topology_arm(situation) with Pure =
+  let Situation(s) = situation
+  let TopicFacts(f) = s.facts
+  VoiceLine(TentTopology, FOffering, [
+    SLit("Nested-call depth "),
+    SLit(int_to_str_lite(f.nested_call_depth)),
+    SLit(" — `|>` would draw the topology")
+  ], select_modifier(situation, s.register))
+
+/// render_unlock_arm — TentUnlock's render. Per MV §2.7.3 form
+/// FCapability with EXCITED stance. Surfaces a capability that the
+/// gradient_next would unlock. silence_predicate gated on gradient_next
+/// AND gradient_unlocks_capability(gradient_next).
+
+fn render_unlock_arm(situation) with Pure =
+  let Situation(s) = situation
+  let body = match s.gradient_next {
+    None              => [SLit("")],
+    Some(step)        => {
+      let GradStep(g) = step
+      [
+        SLit("Adding "),
+        SAnnot(annotation_label(g.annotation)),
+        SLit(" unlocks "),
+        SCap(capability_label(g.unlocks))
+      ]
+    }
+  }
+  VoiceLine(TentUnlock, FCapability, body, select_modifier(situation, s.register))
+
+/// render_trace_arm — TentTrace's render. Per MV §2.7.3 form
+/// FRefutation with FIRM stance. Per AT3 + AT9 + AT10: ownership
+/// violation / dropped capability / missing import — Trace surfaces
+/// the violation site. silence_predicate gated on ownership_at_topic
+/// being Some OR row_subsumption_fails.
+
+fn render_trace_arm(situation) with Pure =
+  let Situation(s) = situation
+  let body = match s.ownership_at_topic {
+    Some(_)  => [
+      SLit("Ownership at "),
+      SSpan(topic_span_or_zero(s.topic)),
+      SLit(" — consumed; can't have it both ways")
+    ],
+    None     => [
+      SLit("Row narrowing failed at "),
+      SSpan(topic_span_or_zero(s.topic))
+    ]
+  }
+  VoiceLine(TentTrace, FRefutation, body, select_modifier(situation, s.register))
+
+/// render_verify_arm — TentVerify's render. Per MV §2.7.3 form
+/// FRefinement with THE-MATH-SAYS stance. Per AT2: refinement
+/// obligations + discharges. silence_predicate gated on
+/// list_non_empty(refinements).
+
+fn render_verify_arm(situation) with Pure =
+  let Situation(s) = situation
+  VoiceLine(TentVerify, FRefinement, [
+    SLit("Refinements at "),
+    SSpan(topic_span_or_zero(s.topic)),
+    SLit(": "),
+    SLit(int_to_str_lite(len(s.refinements))),
+    SLit(" obligations")
+  ], select_modifier(situation, s.register))
+
+/// render_teach_arm — TentTeach's render. Per MV §2.7.3 form
+/// FGradient with PATIENT-BUT-POINTED stance. Per AT1 + AT5 + AT9: the
+/// canonical "next step" voice — surface gradient_next as one
+/// annotation that unlocks one capability. silence_predicate gated on
+/// gradient_next being Some.
+
+fn render_teach_arm(situation) with Pure =
+  let Situation(s) = situation
+  let body = match s.gradient_next {
+    None              => [SLit("")],
+    Some(step)        => {
+      let GradStep(g) = step
+      [
+        SLit("Next: add "),
+        SAnnot(annotation_label(g.annotation)),
+        SLit(" on "),
+        SSpan(g.site)
+      ]
+    }
+  }
+  VoiceLine(TentTeach, FGradient, body, select_modifier(situation, s.register))
+
+/// render_why_arm — TentWhy's render. Per MV §2.7.3 form FTrace with
+/// REFLECTIVE stance. Per AT6: walks the Reason chain when the user
+/// explicitly asked a Why question. silence_predicate gated on
+/// TopicAsk(QWhy(_)) — only fires for explicit asks per MV §2.7.5.
+
+fn render_why_arm(situation) with Pure =
+  let Situation(s) = situation
+  let body = match s.reason_at_topic {
+    None              => [SLit("")],
+    Some(reason)      => [
+      SLit("Walking provenance: "),
+      SReason(reason)
+    ]
+  }
+  VoiceLine(TentWhy, FTrace, body, select_modifier(situation, s.register))
+
+/// render_for_tentacle — dispatches to the right per-tentacle render
+/// arm. H6 exhaustive 8-arm match. Each arm produces a VoiceLine
+/// (assumed silence_predicate has already passed for this tentacle).
+
+fn render_for_tentacle(situation) with Pure =
+  let Situation(s) = situation
+  match s.tentacle {
+    TentQuery     => render_query_arm(situation),
+    TentPropose   => render_propose_arm(situation),
+    TentTopology  => render_topology_arm(situation),
+    TentUnlock    => render_unlock_arm(situation),
+    TentTrace     => render_trace_arm(situation),
+    TentVerify    => render_verify_arm(situation),
+    TentTeach     => render_teach_arm(situation),
+    TentWhy       => render_why_arm(situation)
+  }
+
+/// fold_tentacles — walks the kernel-ordered tentacle list, retargets
+/// the Situation at each, checks silence_predicate, accumulates the
+/// VoiceLines that pass. Tail-recursive accumulator pattern; flat-
+/// array fold via list_extend_to + counter (Ω.3 substrate).
+
+fn fold_tentacles(situation, tentacles, i, n, acc, count) with Pure =
+  if i >= n { slice(acc, 0, count) }
+  else {
+    let tentacle = list_index(tentacles, i)
+    let situation_for_t = with_tentacle(situation, tentacle)
+    if silence_predicate(situation_for_t) {
+      let voiceline = render_for_tentacle(situation_for_t)
+      let extended  = list_extend_to(acc, count + 1)
+      let written   = list_set(extended, count, voiceline)
+      fold_tentacles(situation, tentacles, i + 1, n, written, count + 1)
+    }
+    else {
+      fold_tentacles(situation, tentacles, i + 1, n, acc, count)
+    }
+  }
+
+/// mentl_voice_default — THE handler entry. Takes a Situation seed
+/// (any tentacle in the field is fine; the fold retargets per-iteration)
+/// and returns List<VoiceLine> — one per silence-passing tentacle in
+/// kernel order (Query → Propose → Topology → Unlock → Trace → Verify
+/// → Teach → Why). Empty list = full silence (per MV §2.8 AT7).
+///
+/// Per F.1 walkthrough §3.3: same machinery cursor-time MV + batch
+/// F.1 inka doc. LSP picks the tentacle for its surface from the
+/// returned list; F.1 renders all. Tier-1 unification (INSIGHTS L509).
+///
+/// All eight tentacles always evaluated; silence_predicate filters.
+/// Pure over Situation — graph reads happened upstream when the
+/// Situation was composed; this handler operates on the frozen
+/// snapshot per MV §2.7.1.
+
+/// mentl_voice_default — queue-projection per insight #11. Queries the
+/// project queue via OracleQuery (cursor-relevance filtered when the
+/// situation has a cursor; project-wide otherwise); for each
+/// QueueItem, dispatches to the per-tentacle render arm based on
+/// tier_to_tentacle(item.impact.tier); accumulates VoiceLines.
+///
+/// Same machinery cursor-time MV + batch F.1: LSP picks the first
+/// VoiceLine for the cursor surface; F.1 inka doc renders all.
+/// Surface-side cursor-relevance projection (cursor_relevant op) +
+/// project-wide fallback (query_project_queue) compose at the
+/// surface; mentl_voice_default just projects the queue items it
+/// receives.
+///
+/// Per the realization-loop discipline (insight #12): this fn replaces
+/// the prior fold-over-8-tentacles approach (artifact of the per-Topic
+/// silence framing that insight #11 superseded). The new fold is over
+/// the QUEUE; tentacles are VIEWS on queue items, not separate
+/// handlers.
+
+fn mentl_voice_default(situation_seed) with OracleQuery =
+  let Situation(s) = situation_seed
+  let queue_items = match s.handle {
+    None       => perform query_project_queue(),
+    Some(h)    => {
+      let local = perform cursor_relevant(h, 200)
+      match local {
+        []        => perform query_project_queue(),
+        [_ | _]   => local
+      }
+    }
+  }
+  let n = len(queue_items)
+  fold_queue_items(situation_seed, queue_items, 0, n, make_list(n), 0)
+
+/// fold_queue_items — walk the queue items in priority order; per item,
+/// retarget the Situation at the item's tentacle (per tier_to_tentacle
+/// mapping) and call the per-tentacle render arm. Tail-recursive
+/// accumulator pattern; flat-buffer-plus-counter substrate (Ω.3 —
+/// list_extend_to + list_set + counter + slice).
+
+fn fold_queue_items(situation, items, i, n, acc, count) with OracleQuery =
+  if i >= n { slice(acc, 0, count) }
+  else {
+    let item = list_index(items, i)
+    let QueueItem(it) = item
+    let OraclePriority(p) = it.impact
+    let tentacle = tier_to_tentacle(p.tier)
+    let situation_for_t = with_tentacle(situation, tentacle)
+    let voiceline = render_for_tentacle(situation_for_t)
+    let extended  = list_extend_to(acc, count + 1)
+    let written   = list_set(extended, count, voiceline)
+    fold_queue_items(situation, items, i + 1, n, written, count + 1)
+  }
+
+/// tier_to_tentacle — map a PriorityTier (per src/mentl_oracle.nx)
+/// to the tentacle that renders it. H6 exhaustive over PriorityTier.
+///
+/// - TBlocking → TentTrace (compile error; refutation form)
+/// - TViolation → TentTrace (declared row contradicted; refutation)
+/// - TPending → TentVerify (V_Pending refinement obligation)
+/// - TUnlock → TentUnlock (capability available; the gradient surface)
+/// - TStyle → TentTopology (topology nudge; FOffering / STYLE_NUDGE)
+
+fn tier_to_tentacle(tier) with Pure =
+  match tier {
+    TBlocking   => TentTrace,
+    TViolation  => TentTrace,
+    TPending    => TentVerify,
+    TUnlock     => TentUnlock,
+    TStyle      => TentTopology
   }
