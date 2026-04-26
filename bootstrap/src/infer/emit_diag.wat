@@ -31,7 +31,9 @@
   ;;             $eprint_string (wasi.wat — fd 2 / stderr),
   ;;             $make_list / $list_index / $len (list.wat — for
   ;;               TTuple/TName arg-list rendering),
-  ;;             $graph_bind (graph.wat — handle binding to NErrorHole),
+  ;;             $graph_bind_kind (graph.wat — handle binding given a
+  ;;               pre-constructed NodeKind; emit_diag.wat passes
+  ;;               $node_kind_make_nerrorhole(reason)),
   ;;             $node_kind_make_nerrorhole (graph.wat — wraps Reason),
   ;;             $ty_tag (ty.wat — render dispatch),
   ;;             $ty_tvar_handle / $ty_tlist_elem / $ty_ttuple_elems /
@@ -419,8 +421,10 @@
 
   ;; ── Connector phrases ─────────────────────────────────────────────
   (data (i32.const 1824) "\0b\00\00\00 at handle ")                    ;; 11 bytes payload
-  (data (i32.const 1840) "\0c\00\00\00 — expected ")                   ;; 12 bytes payload (em-dash 3 bytes)
-  (data (i32.const 1856) "\08\00\00\00, found ")                       ;; 8 bytes payload
+  (data (i32.const 1840) "\0e\00\00\00 — expected ")                   ;; 14 bytes payload (em-dash 3 bytes; " — expected " is 14 bytes UTF-8)
+  ;; Note: ", found " (offset 1856 in earlier draft) overlapped with
+  ;; preceding " — expected " (UTF-8 14 bytes ending 1858). Relocated
+  ;; to safe offset 2864 below.
   (data (i32.const 1872) "\10\00\00\00 (infinite type)")               ;; 16 bytes payload
   (data (i32.const 1896) "\0c\00\00\00occurs check")                   ;; 12 bytes payload
   (data (i32.const 1912) "\01\00\00\00\0a")                            ;; "\n" — 1 byte payload
@@ -430,20 +434,22 @@
   (data (i32.const 1944) "\30\00\00\00<~ requires an ambient iterative-context handler")  ;; 48 bytes payload
 
   ;; ── E_HandlerUninstallable message body ───────────────────────────
-  (data (i32.const 2000) "\3f\00\00\00handler arms require effects not admitted by enclosing row")  ;; 63 bytes payload
+  (data (i32.const 2000) "\3a\00\00\00handler arms require effects not admitted by enclosing row")  ;; 58 bytes payload
 
   ;; ── E_PatternInexhaustive message body ────────────────────────────
-  (data (i32.const 2072) "\31\00\00\00match does not cover every variant of scrutinee")  ;; 49 bytes payload
+  (data (i32.const 2072) "\2f\00\00\00match does not cover every variant of scrutinee")  ;; 47 bytes payload
 
   ;; ── T_OverDeclared message body ───────────────────────────────────
-  (data (i32.const 2128) "\3a\00\00\00declared row strictly wider than inferred body row")  ;; 58 bytes payload
+  (data (i32.const 2128) "\32\00\00\00declared row strictly wider than inferred body row")  ;; 50 bytes payload
 
   ;; ── Reason payload context strings (passed to $reason_make_inferred
   ;;    for the four additional helpers) ─────────────────────────────
-  (data (i32.const 2192) "\14\00\00\00feedback no context")            ;; 19 bytes payload — for E_FeedbackNoContext (rounded for alignment header)
-  (data (i32.const 2216) "\16\00\00\00handler uninstallable")          ;; 21 bytes payload (rounded)
-  (data (i32.const 2240) "\14\00\00\00pattern inexhaustive")           ;; 20 bytes payload
-  (data (i32.const 2264) "\0e\00\00\00over-declared")                  ;; 13 bytes payload
+  (data (i32.const 2192) "\13\00\00\00feedback no context")            ;; 19 bytes payload — for E_FeedbackNoContext
+  (data (i32.const 2216) "\15\00\00\00handler uninstallable")          ;; 21 bytes payload
+  ;; Note: "pattern inexhaustive" (offset 2240 in earlier draft) overlapped
+  ;; with preceding "handler uninstallable" (21 bytes ending 2241).
+  ;; Relocated to safe offset 2880 below.
+  (data (i32.const 2264) "\0d\00\00\00over-declared")                  ;; 13 bytes payload
 
   ;; ── Ty rendering — variant name strings ───────────────────────────
   (data (i32.const 2288) "\03\00\00\00Int")                            ;; 3 bytes
@@ -456,11 +462,14 @@
   (data (i32.const 2368) "\01\00\00\00(")                              ;; 1 byte (TTuple open)
   (data (i32.const 2376) "\01\00\00\00)")                              ;; 1 byte (TTuple close)
   (data (i32.const 2384) "\02\00\00\00, ")                             ;; 2 bytes (separator)
-  (data (i32.const 2392) "\0c\00\00\00fn(...) -> ")                    ;; 12 bytes (TFun prefix; full row rendering deferred)
+  (data (i32.const 2392) "\0b\00\00\00fn(...) -> ")                    ;; 11 bytes (TFun prefix; full row rendering deferred)
   (data (i32.const 2408) "\05\00\00\00{...}")                          ;; 5 bytes (TRecord/TRecordOpen)
-  (data (i32.const 2416) "\09\00\00\00 where ...")                     ;; 9 bytes (TRefined suffix; predicate opaque)
+  ;; Note: " where ..." (offset 2416 in earlier draft) overlapped with
+  ;; preceding "{...}" (9 bytes ending 2417). Relocated to safe offset
+  ;; 2896 below.
   (data (i32.const 2432) "\05\00\00\00Cont<")                          ;; 5 bytes (TCont prefix)
-  (data (i32.const 2440) "\01\00\00\00<")                              ;; 1 byte (TName arg-list open)
+  ;; Note: "<" (offset 2440 in earlier draft) overlapped with preceding
+  ;; "Cont<" (9 bytes ending 2441). Relocated to safe offset 2912 below.
   (data (i32.const 2448) "\03\00\00\00...")                            ;; 3 bytes (cycle-bound overflow)
 
   ;; ── Code-prefix strings for canonicalization-lane additions ──────
@@ -470,18 +479,24 @@
   (data (i32.const 2536) "\1a\00\00\00E_CannotNegateCapability: ")       ;; 26 bytes payload
 
   ;; ── Message-body fragments (concatenated with dynamic values) ────
-  (data (i32.const 2568) "\16\00\00\00 is not a record type")            ;; 22 bytes (E_NotARecordType tail)
-  (data (i32.const 2600) "\23\00\00\00record literal has unknown field '") ;; 35 bytes (E_RecordFieldExtra head)
+  (data (i32.const 2568) "\15\00\00\00 is not a record type")            ;; 21 bytes (E_NotARecordType tail)
+  (data (i32.const 2600) "\22\00\00\00record literal has unknown field '") ;; 34 bytes (E_RecordFieldExtra head)
   (data (i32.const 2640) "\0b\00\00\00' for type ")                      ;; 11 bytes (shared field tail)
-  (data (i32.const 2656) "\1f\00\00\00record literal missing field '")   ;; 31 bytes (E_RecordFieldMissing head)
+  (data (i32.const 2656) "\1e\00\00\00record literal missing field '")   ;; 30 bytes (E_RecordFieldMissing head)
   (data (i32.const 2696) "\21\00\00\00cannot negate capability bundle '") ;; 33 bytes (E_CannotNegateCapability head)
   (data (i32.const 2736) "\01\00\00\00'")                                 ;; 1 byte (closing quote)
 
   ;; ── Reason-context strings (for $reason_make_inferred) ───────────
-  (data (i32.const 2744) "\12\00\00\00not a record type")                ;; 18 bytes
-  (data (i32.const 2768) "\13\00\00\00record field extra")               ;; 19 bytes
-  (data (i32.const 2792) "\15\00\00\00record field missing")             ;; 21 bytes
-  (data (i32.const 2824) "\19\00\00\00cannot negate capability")         ;; 25 bytes
+  (data (i32.const 2744) "\11\00\00\00not a record type")                ;; 17 bytes
+  (data (i32.const 2768) "\12\00\00\00record field extra")               ;; 18 bytes
+  (data (i32.const 2792) "\14\00\00\00record field missing")             ;; 20 bytes
+  (data (i32.const 2824) "\18\00\00\00cannot negate capability")         ;; 24 bytes
+
+  ;; ── Relocated overlap-conflict segments (safe slots above 2853) ──
+  (data (i32.const 2864) "\08\00\00\00, found ")                          ;; 8 bytes (was 1856)
+  (data (i32.const 2880) "\14\00\00\00pattern inexhaustive")              ;; 20 bytes (was 2240)
+  (data (i32.const 2912) "\0a\00\00\00 where ...")                        ;; 10 bytes (was 2416)
+  (data (i32.const 2928) "\01\00\00\00<")                                 ;; 1 byte (was 2440)
 
   ;; ─── $render_ty — Ty walker producing human-readable string ──────
   ;;
@@ -593,7 +608,7 @@
           (call $render_ty_loop
             (call $ty_trefined_base (local.get $ty))
             (i32.add (local.get $depth) (i32.const 1)))
-          (i32.const 2416)))))                              ;; " where ..."
+          (i32.const 2912)))))                              ;; " where ..." (relocated from 2416)
     ;; ── TCont(ret, disc) — "Cont<" + render(ret) + ">" ────────────
     (if (i32.eq (local.get $tag) (i32.const 112))
       (then (return
@@ -618,7 +633,7 @@
       (then (return (local.get $name))))
     (call $str_concat
       (call $str_concat
-        (call $str_concat (local.get $name) (i32.const 2440))   ;; name + "<"
+        (call $str_concat (local.get $name) (i32.const 2928))   ;; name + "<" (relocated from 2440)
         (call $render_ty_list (local.get $args) (local.get $depth)))
       (i32.const 2360)))                                         ;; ">"
 
@@ -662,13 +677,13 @@
     (local.set $msg (call $str_concat (local.get $msg) (call $int_to_str (local.get $handle))))
     (local.set $msg (call $str_concat (local.get $msg) (i32.const 1840)))   ;; " — expected "
     (local.set $msg (call $str_concat (local.get $msg) (call $render_ty (local.get $ty_a))))
-    (local.set $msg (call $str_concat (local.get $msg) (i32.const 1856)))   ;; ", found "
+    (local.set $msg (call $str_concat (local.get $msg) (i32.const 2864)))   ;; ", found " (relocated from 1856)
     (local.set $msg (call $str_concat (local.get $msg) (call $render_ty (local.get $ty_b))))
     (local.set $msg (call $str_concat (local.get $msg) (i32.const 1912)))   ;; "\n"
     ;; Write to stderr (fd 2)
     (call $eprint_string (local.get $msg))
     ;; Bind handle to NErrorHole(UnifyFailed(ty_a, ty_b))
-    (call $graph_bind
+    (call $graph_bind_kind
       (local.get $handle)
       (call $node_kind_make_nerrorhole
         (call $reason_make_unifyfailed (local.get $ty_a) (local.get $ty_b)))
@@ -691,7 +706,7 @@
     (local.set $msg (call $str_concat (local.get $msg) (i32.const 1912)))   ;; "\n"
     (call $eprint_string (local.get $msg))
     ;; Bind handle to NErrorHole(MissingVar(name))
-    (call $graph_bind
+    (call $graph_bind_kind
       (local.get $handle)
       (call $node_kind_make_nerrorhole
         (call $reason_make_missingvar (local.get $name)))
@@ -719,7 +734,7 @@
     (local.set $msg (call $str_concat (local.get $msg) (i32.const 1912)))   ;; "\n"
     (call $eprint_string (local.get $msg))
     ;; Bind handle to NErrorHole(Inferred("occurs check"))
-    (call $graph_bind
+    (call $graph_bind_kind
       (local.get $handle)
       (call $node_kind_make_nerrorhole
         (call $reason_make_inferred (i32.const 1896)))         ;; "occurs check"
@@ -741,7 +756,7 @@
     (local.set $msg (call $str_concat (local.get $msg) (i32.const 1944)))   ;; "<~ requires …"
     (local.set $msg (call $str_concat (local.get $msg) (i32.const 1912)))   ;; "\n"
     (call $eprint_string (local.get $msg))
-    (call $graph_bind
+    (call $graph_bind_kind
       (local.get $handle)
       (call $node_kind_make_nerrorhole
         (call $reason_make_inferred (i32.const 2192)))         ;; "feedback no context"
@@ -764,7 +779,7 @@
     (local.set $msg (call $str_concat (local.get $msg) (i32.const 2000)))   ;; "handler arms require…"
     (local.set $msg (call $str_concat (local.get $msg) (i32.const 1912)))   ;; "\n"
     (call $eprint_string (local.get $msg))
-    (call $graph_bind
+    (call $graph_bind_kind
       (local.get $handle)
       (call $node_kind_make_nerrorhole
         (call $reason_make_inferred (i32.const 2216)))         ;; "handler uninstallable"
@@ -787,10 +802,10 @@
     (local.set $msg (call $str_concat (local.get $msg) (i32.const 2072)))   ;; "match does not cover…"
     (local.set $msg (call $str_concat (local.get $msg) (i32.const 1912)))   ;; "\n"
     (call $eprint_string (local.get $msg))
-    (call $graph_bind
+    (call $graph_bind_kind
       (local.get $handle)
       (call $node_kind_make_nerrorhole
-        (call $reason_make_inferred (i32.const 2240)))         ;; "pattern inexhaustive"
+        (call $reason_make_inferred (i32.const 2880)))         ;; "pattern inexhaustive" (relocated from 2240)
       (local.get $reason)))
 
   ;; ─── $infer_emit_over_declared — T_OverDeclared (Warning kind) ──
@@ -841,7 +856,7 @@
     (local.set $msg (call $str_concat (local.get $msg) (i32.const 2568)))   ;; " is not a record type"
     (local.set $msg (call $str_concat (local.get $msg) (i32.const 1912)))   ;; "\n"
     (call $eprint_string (local.get $msg))
-    (call $graph_bind
+    (call $graph_bind_kind
       (local.get $handle)
       (call $node_kind_make_nerrorhole
         (call $reason_make_inferred (i32.const 2744)))         ;; "not a record type"
@@ -861,7 +876,7 @@
     (local.set $msg (call $str_concat (local.get $msg) (local.get $type_name)))
     (local.set $msg (call $str_concat (local.get $msg) (i32.const 1912)))
     (call $eprint_string (local.get $msg))
-    (call $graph_bind
+    (call $graph_bind_kind
       (local.get $handle)
       (call $node_kind_make_nerrorhole
         (call $reason_make_inferred (i32.const 2768)))
@@ -881,7 +896,7 @@
     (local.set $msg (call $str_concat (local.get $msg) (local.get $type_name)))
     (local.set $msg (call $str_concat (local.get $msg) (i32.const 1912)))
     (call $eprint_string (local.get $msg))
-    (call $graph_bind
+    (call $graph_bind_kind
       (local.get $handle)
       (call $node_kind_make_nerrorhole
         (call $reason_make_inferred (i32.const 2792)))
@@ -901,7 +916,7 @@
     (local.set $msg (call $str_concat (local.get $msg) (i32.const 2736)))
     (local.set $msg (call $str_concat (local.get $msg) (i32.const 1912)))
     (call $eprint_string (local.get $msg))
-    (call $graph_bind
+    (call $graph_bind_kind
       (local.get $handle)
       (call $node_kind_make_nerrorhole
         (call $reason_make_inferred (i32.const 2824)))

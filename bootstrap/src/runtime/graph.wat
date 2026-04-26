@@ -381,6 +381,31 @@
     (global.set $graph_epoch_g
       (i32.add (global.get $graph_epoch_g) (i32.const 1))))
 
+  ;; $graph_bind_kind — bind handle to an already-constructed NodeKind
+  ;; record (NErrorHole / NBound / etc). Used by emit_diag.wat's helpers
+  ;; that need to bind a handle to NErrorHole(reason) directly per spec
+  ;; 04 §Error handling Hazel productive-under-error pattern.
+  ;;
+  ;; Records MSetNode(handle, old_gnode) in trail; bumps epoch. Per the
+  ;; same trail discipline as $graph_bind, but does NOT wrap the second
+  ;; arg in NBound — caller has already constructed the desired NodeKind
+  ;; via $node_kind_make_nerrorhole / etc.
+  (func $graph_bind_kind (param $handle i32) (param $kind i32) (param $reason i32)
+    (local $old_gnode i32) (local $new_g i32)
+    (call $graph_init)
+    (local.set $old_gnode (call $graph_node_at (local.get $handle)))
+    (local.set $new_g (call $gnode_make (local.get $kind) (local.get $reason)))
+    (global.set $graph_nodes_ptr
+      (call $list_set
+        (call $list_extend_to (global.get $graph_nodes_ptr)
+                              (i32.add (local.get $handle) (i32.const 1)))
+        (local.get $handle)
+        (local.get $new_g)))
+    (call $trail_append
+      (call $mutation_make_set_node (local.get $handle) (local.get $old_gnode)))
+    (global.set $graph_epoch_g
+      (i32.add (global.get $graph_epoch_g) (i32.const 1))))
+
   ;; ─── Trail buffer ─────────────────────────────────────────────────
   ;; Append O(1) amortized via $list_extend_to + $list_set. trail_len
   ;; counter; entries above counter are stale (overwritten on next append).

@@ -1,0 +1,31 @@
+# bootstrap/test/INDEX.tsv
+#
+# Trace-harness manifest for the bootstrap WAT layer. Each row declares
+# one harness + the chunk(s) it exercises + the walkthrough paragraph it
+# executes (per ROADMAP §5 + Hβ-infer-substrate.md §11). Per Morgan's
+# framing: harnesses ARE the prose-made-executable, NOT a test framework.
+#
+# Authority:
+#   ROADMAP.md §5                          — acceptance criteria
+#   docs/specs/simulations/Hβ-infer-substrate.md §2/§2.3/§2.4/§8.1/§11
+#                                          — paragraph-per-harness mapping
+#   CLAUDE.md Mentl's anchor + drift modes — discipline the harnesses honor
+#
+# Read order is execution order; bootstrap/test.sh iterates this file.
+# Per drift-mode-9: every helper exported from scheme.wat + emit_diag.wat
+# is exercised by at least one harness named here.
+#
+# Status markers (matching bootstrap/src/infer/INDEX.tsv):
+#   ✓     landed
+#   ~     in-flight
+#   (blank) pending
+
+harness	chunk	hβ_paragraph	exercises	status
+infer/scheme_monomorphic.wat	scheme.wat	§2.4 empty-quantification short-circuit + §11.2 "Forall([], _)"	$generalize $instantiate $scheme_make_forall $scheme_quantified $scheme_body $is_scheme	✓
+infer/scheme_polymorphic.wat	scheme.wat	§2.3 algorithm box + §11.2 "Forall([qid], TFun([qid], qid, EfPure))"	$generalize $instantiate $build_inst_mapping $graph_fresh_ty	✓
+infer/scheme_free_in_ty.wat	scheme.wat	§2.4 $free_handles + scheme.wat 14-arm walker + ROADMAP §3 closure	$free_in_ty $free_in_list $singleton_handle $list_concat	✓
+infer/scheme_ty_substitute.wat	scheme.wat	§2.3 $ty_substitute walks each variant	$ty_substitute $ty_substitute_list	✓
+infer/scheme_subst_map.wat	scheme.wat	scheme.wat:351-415 substitution-map trio	$subst_map_make $subst_map_extend $subst_map_lookup $subst_pair_make $subst_pair_old $subst_pair_fresh	✓
+infer/scheme_recursion_parity.wat	scheme.wat	ROADMAP §3 acceptance + scheme.wat:587-651	$free_in_params $free_in_fields $ty_substitute_params $ty_substitute_fields	✓
+infer/emit_diag_render_ty.wat	emit_diag.wat	emit_diag.wat:486-611 + 14-variant coverage + cycle-bound	$render_ty $render_tname $render_ty_list $render_ty_loop	✓
+infer/emit_diag_emit_helpers.wat	emit_diag.wat	emit_diag.wat:648-908 + Hazel productive-under-error	$infer_emit_type_mismatch $infer_emit_missing_var $infer_emit_occurs_check $infer_emit_feedback_no_context $infer_emit_handler_uninstallable $infer_emit_pattern_inexhaustive $infer_emit_over_declared $infer_emit_not_a_record_type $infer_emit_record_field_extra $infer_emit_record_field_missing $infer_emit_cannot_negate_capability	✓

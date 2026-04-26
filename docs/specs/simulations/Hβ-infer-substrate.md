@@ -1005,6 +1005,62 @@ the oracle uses; infer doesn't fork itself.
       `.wat` for foreign-language drift markers is a named follow-up
       of this walkthrough.)
 
+### 11.5 Trace-harnesses landed (ROADMAP §5 closure addendum, 2026-04-26)
+
+The aspirational §11.2 functional-acceptance test "harness invoking
+$infer_fn_stmt + reading $graph_chase on each handle" depends on
+walk_stmt.wat which is pending. The closer projection of §11.2 onto
+helpers that DO exist landed per ROADMAP §5 as eight standalone WAT
+trace-harnesses under `bootstrap/test/infer/`:
+
+  - `scheme_monomorphic.wat` — §2.4 empty-quantification short-circuit
+  - `scheme_polymorphic.wat` — §2.3 algorithm box (Forall([qid], _))
+  - `scheme_free_in_ty.wat` — 14-arm $free_in_ty walker
+  - `scheme_ty_substitute.wat` — 14-arm $ty_substitute walker
+  - `scheme_subst_map.wat` — substitution-map trio
+  - `scheme_recursion_parity.wat` — ROADMAP §3 closure proof
+  - `emit_diag_render_ty.wat` — 14-arm $render_ty walker
+  - `emit_diag_emit_helpers.wat` — all 11 $infer_emit_* helpers
+
+Per the user's framing locked in the dispatch plan: harnesses ARE the
+prose-made-executable, NOT a test framework. Each harness is one
+walkthrough paragraph turned into a runnable WAT program with PASS/FAIL
+on stderr; `bootstrap/test.sh` is the runner; WABT toolchain at full
+leverage (wat2wasm + wasm-validate + wasm-objdump + wasmtime).
+
+Functional acceptance §11.2 #1 (`fn double(x) = x + x` end-to-end) and
+§11.2 #3 (deliberately-mistyped program continues per Hazel pattern)
+both depend on walk_stmt.wat + walk_expr.wat which remain pending. They
+are named follow-ups of this trace-harness commit, NOT silently
+deferred substrate.
+
+In the course of executing the harnesses three substrate concerns
+surfaced and were closed in the same commit per Anchor 2 (don't patch;
+restructure):
+
+  1. emit_diag.wat data segments had 16 length-prefix mismatches
+     (declared length ≠ actual payload bytes). Fixed by correcting
+     each declared `\xx` byte to match the literal payload length.
+  2. emit_diag.wat data segments had 4 byte-region overlaps where a
+     later segment's start offset fell inside the previous segment's
+     declared payload range. Fixed by relocating the four conflicting
+     segments to safe offsets above 2853 (`, found ` → 2864,
+     `pattern inexhaustive` → 2880, ` where ...` → 2912, `<` → 2928)
+     and updating the four call-site `i32.const` references.
+  3. emit_diag.wat helpers were calling `$graph_bind(handle,
+     $node_kind_make_nerrorhole(reason), reason_chain)`, but
+     `$graph_bind` wraps its second arg in `NBound` regardless — so
+     handles ended up bound to `NBound(NErrorHole(...))` instead of
+     `NErrorHole(...)`. Closed by adding `$graph_bind_kind` to
+     graph.wat (which takes a pre-constructed NodeKind and stores it
+     directly without wrapping) and updating all 10 emit-helper call
+     sites in emit_diag.wat to use the new primitive.
+
+These three closures are named here so future readers see the
+trace-harness substrate value in surfacing real misuses rather than
+just symbol-presence checks (the ROADMAP §5 acceptance language —
+"validation covers behavior, not just symbol presence" — at work).
+
 ---
 
 ## §12 Open questions — pre-resolved + named follow-ups
