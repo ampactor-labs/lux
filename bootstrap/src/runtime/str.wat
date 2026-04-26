@@ -1,7 +1,7 @@
   ;; ═══ str.wat — flat string primitives (Tier 1) ════════════════════
   ;; Implements: Hβ §1.6 — String layout [len:i32][bytes...].
   ;; Exports:    $str_alloc, $str_len, $byte_at, $byte_len,
-  ;;             $str_eq, $str_concat, $str_slice
+  ;;             $str_eq, $str_concat, $str_slice, $str_compare
   ;; Uses:       $alloc (alloc.wat)
   ;; Test:       runtime_test/str.wat
   ;;
@@ -87,3 +87,35 @@
           (i32.add (i32.add (local.get $s) (i32.const 4)) (local.get $start))
           (local.get $n))))
     (local.get $dest))
+
+  ;; $str_compare — lexicographic byte-by-byte compare. Returns:
+  ;;   -1 if $a < $b
+  ;;    0 if $a == $b
+  ;;    1 if $a > $b
+  ;; Used by row.wat's sorted-name-set ops (effect names are
+  ;; lex-sorted per spec 01 normal form). Equal-prefix-shorter-string
+  ;; is < (standard lex order; "abc" < "abcd").
+  (func $str_compare (param $a i32) (param $b i32) (result i32)
+    (local $la i32) (local $lb i32) (local $i i32)
+    (local $ba i32) (local $bb i32) (local $min i32)
+    (local.set $la (call $str_len (local.get $a)))
+    (local.set $lb (call $str_len (local.get $b)))
+    (local.set $min (local.get $la))
+    (if (i32.gt_u (local.get $la) (local.get $lb))
+      (then (local.set $min (local.get $lb))))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $cmp
+        (br_if $done (i32.ge_u (local.get $i) (local.get $min)))
+        (local.set $ba (call $byte_at (local.get $a) (local.get $i)))
+        (local.set $bb (call $byte_at (local.get $b) (local.get $i)))
+        (if (i32.lt_u (local.get $ba) (local.get $bb))
+          (then (return (i32.const -1))))
+        (if (i32.gt_u (local.get $ba) (local.get $bb))
+          (then (return (i32.const 1))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $cmp)))
+    ;; Common prefix matches; shorter wins.
+    (if (i32.lt_u (local.get $la) (local.get $lb)) (then (return (i32.const -1))))
+    (if (i32.gt_u (local.get $la) (local.get $lb)) (then (return (i32.const 1))))
+    (i32.const 0))

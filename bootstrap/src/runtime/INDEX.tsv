@@ -33,7 +33,7 @@
 chunk	tier	status	hβ_section	exports	uses
 alloc.wat	0	✓	§1.1	$alloc	$heap_ptr (shell)
 wasi.wat	1	✓	§1.15	$print_string $eprint_string $read_all_stdin	$alloc $str_alloc $str_len $str_concat $wasi_fd_read $wasi_fd_write
-str.wat	1	✓	§1.6	$str_alloc $str_len $byte_at $byte_len $str_eq $str_concat $str_slice	$alloc
+str.wat	1	✓	§1.6	$str_alloc $str_len $byte_at $byte_len $str_eq $str_concat $str_slice $str_compare	$alloc
 int.wat	1	✓	§1.6	$str_of_byte $str_from_mem $int_to_str $parse_int	$alloc $str_alloc $str_len $byte_at
 list.wat	1	✓	§1.7 (full tag dispatch — flat/snoc/concat/slice)	$make_list $len $list_tag $list_index $list_set $list_extend_to $slice $list_alloc_snoc $list_alloc_concat $list_alloc_slice $list_to_flat	$alloc
 record.wat	1	✓	§1.5 §1.8 §1.9	$make_record $record_get $record_set $tag_of $is_sentinel	$alloc $heap_base (shell)
@@ -41,6 +41,6 @@ closure.wat	2	✓	§1.3 (H1)	$make_closure $closure_get_slot $closure_set_slot	$
 cont.wat	2	✓	§1.13 (H7) — HOT PATH (Mentl's oracle on every save)	$alloc_continuation $cont_get_fn_index $cont_set_fn_index $cont_get_state $cont_set_state $cont_get_n_captures $cont_get_capture $cont_set_capture $cont_get_n_evidence $cont_get_ev_slot $cont_set_ev_slot $cont_get_ret_slot $cont_set_ret_slot	$alloc
 graph.wat	3	✓	§1.2 (spec 00) — load-bearing center; overlays + fork + snapshot deferred to follow-up	$graph_init $graph_fresh_ty $graph_fresh_row $graph_chase $graph_node_at $graph_bind $graph_bind_row $graph_push_checkpoint $graph_rollback $graph_epoch $graph_next_handle $gnode_make/kind/reason $node_kind_make_* $is_n* $node_kind_payload	$alloc $make_record $record_get $record_set $tag_of $make_list $list_index $list_set $list_extend_to $heap_base
 env.wat	3	✓	§1.2 (per-module overlay composition deferred to graph.wat follow-up)	$env_init $env_lookup $env_lookup_or $env_contains $env_extend $env_scope_enter $env_scope_exit $env_scope_depth $env_binding_make/name/handle	$alloc $make_record $record_get $record_set $make_list $list_index $list_set $list_extend_to $len $str_eq
-row.wat	3	§1.10 (spec 01 — Boolean effect algebra)		$row_union $row_diff $row_inter $row_subsumes	$str_eq $list_*
+row.wat	3	✓	§1.10 (spec 01 — Boolean effect algebra; Neg/Sub/Inter normalize follow-up)	$row_make_pure/closed/open/neg/sub/inter $row_tag $row_is_pure/closed/open $row_names $row_handle $name_set_contains/eq/subset/union/inter/diff $row_union $row_diff $row_inter $row_subsumes	$alloc $make_record $record_get $record_set $tag_of $make_list $list_index $list_set $len $slice $str_eq $str_compare $heap_base
 verify.wat	4		§1.11	$verify_init $verify_record $verify_discharge_ground	$alloc $list_* $graph_*
 wasi_fs.wat	4		FX walkthrough (FX.A.basics + FX.A.dirent + FX.1)	$fs_open $fs_close $fs_read $fs_unlink $fs_rename $fs_list_dir $fs_filestat_is_dir $fs_create_directory	$str_alloc $str_len $list_*
