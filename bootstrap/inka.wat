@@ -5887,25 +5887,26 @@
   ;;   253-259    reserved future ResumeDiscipline
   ;;   300-349    LowExpr (lower.wat — pending; per Hβ-lower §2)
   ;;
-  ;; TParam payload note (per Hβ-infer §2.3 + spec 02 src/types.nx:55-58):
+  ;; TParam payload note (per Hβ-infer §2.3 + spec 02 src/types.nx:55-58
+  ;; + ROADMAP §3 substrate-gap closure 2026-04-26):
   ;;   TFun's params field is a List of TParam records — TParam is its
   ;;   own ADT (TParam(name, ty, authored_ownership, resolved_ownership)
-  ;;   per OW.2). TParam records land in their own substrate chunk when
-  ;;   inference's $infer_lambda / $infer_fn_stmt arms construct them
-  ;;   (walk_stmt.wat or a peer); ty.wat just stores the List as opaque
-  ;;   ptr. The walker $chase_deep treats TFun's params field as a
-  ;;   List of opaque entries — the caller (e.g. own.wat or unify_shapes)
-  ;;   knows the TParam shape and dispatches if needed. This is the
-  ;;   same opaque-ptr discipline reason.wat uses for Ty / Span /
-  ;;   Predicate / BinOp payloads (verify.wat:39 precedent).
+  ;;   per OW.2). TParam records land in tparam.wat (sibling Tier-5
+  ;;   chunk; tag 202 + accessors $tparam_name / $tparam_ty /
+  ;;   $tparam_authored / $tparam_resolved). ty.wat continues to store
+  ;;   the params List as opaque ptr at the constructor / accessor
+  ;;   layer; the WALKERS that need to recurse INTO TParam (scheme.wat's
+  ;;   $free_in_params + $ty_substitute_params; eventually own.wat's
+  ;;   ownership-row composition; eventually a peer $chase_deep_param
+  ;;   helper) compose on tparam.wat directly.
   ;;
-  ;;   IMPORTANT: $chase_deep on TFun does NOT recurse into TParam's
-  ;;   inner Ty field — TParam is opaque here. Once TParam's chunk
-  ;;   lands with its own $tparam_ty accessor, a peer $chase_deep_param
-  ;;   helper can reach into TParam's Ty. For now: TFun's params + ret
-  ;;   chase semantics: chase the return Ty + leave params as-is (the
-  ;;   List ptr is preserved verbatim in the rebuilt TFun). row chase
-  ;;   is also passive — row.wat owns its own chase semantics.
+  ;;   $chase_deep currently does NOT recurse into TParam's inner Ty
+  ;;   (this chunk's $chase_deep_loop TFun arm at line ~615 preserves
+  ;;   params verbatim). That parity gap is ROADMAP-tracked separately
+  ;;   from the scheme.wat $free_in_ty / $ty_substitute parity (which
+  ;;   ROADMAP §3 closed); $chase_deep extension is a named peer
+  ;;   follow-up that lands when the TFun-row chase substrate (row.wat-
+  ;;   owned) lands alongside.
   ;;
   ;; ═══ EIGHT INTERROGATIONS (per Hβ-infer-substrate.md §6 + this
   ;;     chunk's edit sites per the dispatch contract) ═════════════════
@@ -6438,6 +6439,89 @@
         (br $iter)))
     (local.get $out))
 
+  ;; ═══ tparam.wat — TParam + record-field-pair + Ownership (Tier 5) ═
+  ;; Implements: Hβ-infer-substrate.md §2.3 (TParam payload note —
+  ;;             substrate gap closure 2026-04-26) + ROADMAP §3
+  ;;             scheme.wat recursion parity prerequisite + spec 02
+  ;;             src/types.nx:54-63 canonical TParam + Ownership ADTs.
+  ;;
+  ;;             Per the ty.wat:147-165 documented gap: ty.wat treats
+  ;;             TFun's params + TRecord/TRecordOpen's fields as opaque
+  ;;             pending the TParam + record-field-pair substrate. This
+  ;;             chunk closes that gap so scheme.wat's $free_in_ty +
+  ;;             $ty_substitute can recurse to canonical parity.
+  ;;
+  ;; Exports:    $tparam_make / $tparam_name / $tparam_ty /
+  ;;               $tparam_authored / $tparam_resolved / $is_tparam,
+  ;;             $field_pair_make / $field_pair_name / $field_pair_ty /
+  ;;               $is_field_pair,
+  ;;             $ownership_make_inferred / $ownership_make_own /
+  ;;               $ownership_make_ref,
+  ;;             $is_ownership_inferred / $is_ownership_own /
+  ;;               $is_ownership_ref
+  ;; Uses:       $make_record / $record_get / $record_set / $tag_of
+  ;;               (record.wat)
+  ;; Test:       runtime_test/infer_tparam.wat (pending — first acceptance
+  ;;             is $tparam_*-grep + wasm-validate per Hβ-infer §11)
+
+  ;; ─── 202 = TParam(String, Ty, Ownership, Ownership) — arity 4 ────
+  (func $tparam_make (param $name i32) (param $ty i32)
+                      (param $authored i32) (param $resolved i32)
+                      (result i32)
+    (local $p i32)
+    (local.set $p (call $make_record (i32.const 202) (i32.const 4)))
+    (call $record_set (local.get $p) (i32.const 0) (local.get $name))
+    (call $record_set (local.get $p) (i32.const 1) (local.get $ty))
+    (call $record_set (local.get $p) (i32.const 2) (local.get $authored))
+    (call $record_set (local.get $p) (i32.const 3) (local.get $resolved))
+    (local.get $p))
+
+  (func $tparam_name (param $p i32) (result i32)
+    (call $record_get (local.get $p) (i32.const 0)))
+
+  (func $tparam_ty (param $p i32) (result i32)
+    (call $record_get (local.get $p) (i32.const 1)))
+
+  (func $tparam_authored (param $p i32) (result i32)
+    (call $record_get (local.get $p) (i32.const 2)))
+
+  (func $tparam_resolved (param $p i32) (result i32)
+    (call $record_get (local.get $p) (i32.const 3)))
+
+  (func $is_tparam (param $p i32) (result i32)
+    (i32.eq (call $tag_of (local.get $p)) (i32.const 202)))
+
+  ;; ─── 203 = (String, Ty) record-field-pair — arity 2 ──────────────
+  (func $field_pair_make (param $name i32) (param $ty i32) (result i32)
+    (local $p i32)
+    (local.set $p (call $make_record (i32.const 203) (i32.const 2)))
+    (call $record_set (local.get $p) (i32.const 0) (local.get $name))
+    (call $record_set (local.get $p) (i32.const 1) (local.get $ty))
+    (local.get $p))
+
+  (func $field_pair_name (param $p i32) (result i32)
+    (call $record_get (local.get $p) (i32.const 0)))
+
+  (func $field_pair_ty (param $p i32) (result i32)
+    (call $record_get (local.get $p) (i32.const 1)))
+
+  (func $is_field_pair (param $p i32) (result i32)
+    (i32.eq (call $tag_of (local.get $p)) (i32.const 203)))
+
+  ;; ─── 260-262 = Ownership (3 nullary sentinels) ───────────────────
+  (func $ownership_make_inferred (result i32) (i32.const 260))
+  (func $ownership_make_own      (result i32) (i32.const 261))
+  (func $ownership_make_ref      (result i32) (i32.const 262))
+
+  (func $is_ownership_inferred (param $o i32) (result i32)
+    (i32.eq (call $tag_of (local.get $o)) (i32.const 260)))
+
+  (func $is_ownership_own (param $o i32) (result i32)
+    (i32.eq (call $tag_of (local.get $o)) (i32.const 261)))
+
+  (func $is_ownership_ref (param $o i32) (result i32)
+    (i32.eq (call $tag_of (local.get $o)) (i32.const 262)))
+
   ;; ═══ scheme.wat — Forall + instantiate + generalize (Tier 5) ═════
   ;; Implements: Hβ-infer-substrate.md §2 (Scheme substrate; extended
   ;;             commits `38b0075` for reason gap-find + `17205e9` for
@@ -6459,7 +6543,10 @@
   ;;             $free_in_ty,
   ;;             $ty_substitute,
   ;;             $subst_map_make / $subst_map_extend /
-  ;;               $subst_map_lookup
+  ;;               $subst_map_lookup,
+  ;;             $list_concat,
+  ;;             $free_in_params / $free_in_fields,
+  ;;             $ty_substitute_params / $ty_substitute_fields
   ;; Uses:       $make_record / $record_get / $record_set / $tag_of
   ;;               (record.wat),
   ;;             $make_list / $list_index / $list_set / $list_extend_to /
@@ -6482,6 +6569,11 @@
   ;;               $ty_tcont_discipline /
   ;;               $ty_make_talias / $ty_talias_name /
   ;;               $ty_talias_resolved (ty.wat),
+  ;;             $tparam_make / $tparam_name / $tparam_ty /
+  ;;               $tparam_authored / $tparam_resolved (tparam.wat —
+  ;;               for $ty_substitute_params rebuild),
+  ;;             $field_pair_make / $field_pair_name / $field_pair_ty
+  ;;               (tparam.wat — for $ty_substitute_fields rebuild),
   ;;             $reason_make_instantiation / $reason_make_fresh
   ;;               (reason.wat — for $instantiate's per-quantified-slot
   ;;               Reason and the inner Fresh(handle) wrap),
@@ -6560,27 +6652,45 @@
   ;;   NERRORHOLE — per src/infer.nx:1822-1832 same shape). No `_ =>`
   ;;   silent fallback that fabricates a monotype.
   ;;
-  ;; TParam + TRecord opaque fields (per ty.wat $chase_deep precedent):
-  ;;   ty.wat's $chase_deep treats TFun's params + TRecord/TRecordOpen's
-  ;;   fields as opaque (TParam substrate + record-field-pair substrate
-  ;;   not yet landed). $free_in_ty + $ty_substitute follow the same
-  ;;   discipline — TFun walks return Ty + leaves params; TRecord/
-  ;;   TRecordOpen leave fields verbatim. When TParam + record-field-pair
-  ;;   chunks land, peer $free_in_params + $free_in_fields helpers
-  ;;   extend coverage. The wheel's full coverage (src/infer.nx:1912-
-  ;;   1924) is the substrate target; current Tier-5 base composes on
-  ;;   ty.wat's same opaque-pass discipline for matching coverage.
+  ;; TParam + TRecord recursion parity (closed 2026-04-26 per ROADMAP §3
+  ;; + tparam.wat sibling chunk landing):
+  ;;   Earlier draft of this chunk treated TFun's params + TRecord/
+  ;;   TRecordOpen's fields as opaque, matching ty.wat's $chase_deep
+  ;;   precedent. ROADMAP §3 surfaced this as a load-bearing recursion-
+  ;;   parity gap: canonical src/infer.nx:1898 (free_in_params) +
+  ;;   src/infer.nx:1900-1901 (free_in_fields) + src/infer.nx:1961-1962
+  ;;   (subst_params) + src/infer.nx:1967-1968 (subst_fields) DO recurse
+  ;;   through these list shapes. Without parity, `fn id(x: a) = x`
+  ;;   generalizes wrong (param's TVar handle missed in body_free) and
+  ;;   instantiated polymorphic record-shaped types lose substitution
+  ;;   on their fields.
+  ;;
+  ;;   Resolution: tparam.wat sibling chunk (tag 202 TParam + tag 203
+  ;;   field-pair + tags 260-262 Ownership) lands the substrate; this
+  ;;   chunk's $free_in_ty / $ty_substitute extend their TFun + TRecord
+  ;;   + TRecordOpen arms to recurse via $free_in_params / $free_in_fields
+  ;;   / $ty_substitute_params / $ty_substitute_fields. Coverage now
+  ;;   matches src/infer.nx:1890-1990 exactly.
+  ;;
+  ;;   ty.wat's $chase_deep is a separate substrate concern (ROADMAP §3
+  ;;   acceptance scope is scheme.wat's $free_in_ty + $ty_substitute);
+  ;;   $chase_deep recursion-parity extension is a named peer follow-up
+  ;;   alongside the TFun-row chase (which row.wat owns).
   ;;
   ;; ═══ TAG REGION ═══════════════════════════════════════════════════
   ;;
-  ;; Per Hβ-infer-substrate.md §2.1 + audit at acceptance criterion:
+  ;; Per Hβ-infer-substrate.md §2.1 + audit at acceptance criterion +
+  ;; ROADMAP §3 recursion-parity substrate-gap closure (2026-04-26 —
+  ;; tparam.wat sibling chunk lands TParam + field-pair + Ownership):
   ;;
   ;;   200    SCHEME_TAG               (this chunk — Forall record)
   ;;   201    SUBST_PAIR_TAG           (this chunk — (old, fresh) entry)
-  ;;   202-209 reserved future infer non-Reason private records
+  ;;   202    TPARAM_TAG               (tparam.wat — TParam record arity 4)
+  ;;   203    FIELD_PAIR_TAG           (tparam.wat — (name, Ty) record arity 2)
+  ;;   204-209 reserved future infer non-Reason private records
   ;;
   ;; Verified non-colliding (per Hβ-infer §2.1 + state.wat / ty.wat /
-  ;; reason.wat / runtime substrate sweep):
+  ;; tparam.wat / reason.wat / runtime substrate sweep):
   ;;   0-44       TokenKind sentinels (lexer.wat)
   ;;   50-99      graph.wat (NodeKind 60-64, GNode 80, Mutation 70-72)
   ;;   100-113    Ty variants (ty.wat — 14 variants + reserved 114-119)
@@ -6589,7 +6699,9 @@
   ;;   180-199    verify.wat (VerifyObligation 180)
   ;;   200        SCHEME_TAG (this chunk)
   ;;   201        SUBST_PAIR_TAG (this chunk)
-  ;;   202-209    reserved future infer non-Reason private
+  ;;   202        TPARAM_TAG (tparam.wat)
+  ;;   203        FIELD_PAIR_TAG (tparam.wat)
+  ;;   204-209    reserved future infer non-Reason private
   ;;   210-212    state.wat (REF_ESCAPE_ENTRY / SPAN_INDEX_ENTRY /
   ;;              INTENT_INDEX_ENTRY)
   ;;   213-219    reserved
@@ -6597,6 +6709,8 @@
   ;;   243-249    reserved future Reason
   ;;   250-252    ResumeDiscipline (ty.wat)
   ;;   253-259    reserved future ResumeDiscipline
+  ;;   260-262    Ownership (tparam.wat — Inferred / Own / Ref)
+  ;;   263-269    reserved future Ownership
   ;;   300-349    LowExpr (lower.wat — pending; per Hβ-lower §2)
   ;;
   ;; ═══ EIGHT INTERROGATIONS (per Hβ-infer-substrate.md §6.1) ═══════
@@ -6829,26 +6943,26 @@
   ;; appended as encountered). Per H6 wildcard discipline: each
   ;; variant has its arm explicit; trap on unknown.
   ;;
-  ;; Coverage discipline (per ty.wat $chase_deep precedent):
+  ;; Coverage discipline (canonical parity with src/infer.nx:1890-1924
+  ;; closed 2026-04-26 per ROADMAP §3 + tparam.wat sibling chunk):
   ;;   - Nullary sentinels (TInt/TFloat/TString/TUnit): empty list.
   ;;   - TVar(h): singleton [h].
   ;;   - TList(elem): recurse on elem.
   ;;   - TTuple(elems): recurse on each list element via $free_in_list.
-  ;;   - TFun(params, ret, row): recurse on ret. Per Hβ-infer §6.1
-  ;;     answer-4 + ty.wat $chase_deep precedent — params + row left
-  ;;     opaque (TParam substrate + row.wat free-walk pending; named
-  ;;     follow-up surfaces those). The wheel's full coverage
-  ;;     (src/infer.nx:1899 includes free_in_params) lands when
-  ;;     TParam chunk lands; current Tier-5 base matches ty.wat
-  ;;     $chase_deep coverage exactly.
+  ;;   - TFun(params, ret, row): concat $free_in_params(params) +
+  ;;     $free_in_ty(ret). Row stays opaque — row.wat owns the row's
+  ;;     free-handle walk; this chunk reaches Ty-side parity only.
+  ;;     Per src/infer.nx:1898-1899 exact recursion shape.
   ;;   - TName(name, args): recurse on each arg via $free_in_list.
-  ;;   - TRecord(fields): preserve opaque (record-field-pair substrate
-  ;;     pending). Per ty.wat $chase_deep parity.
-  ;;   - TRecordOpen(fields, rowvar): rowvar IS a free handle —
-  ;;     singleton [rowvar]. (Per src/infer.nx:1902 — rowvar IS treated
-  ;;     as a free handle even at the Tier-5 base.)
-  ;;   - TRefined(base, pred): recurse on base; predicate opaque.
-  ;;   - TCont(ret, disc): recurse on ret; discipline sentinel opaque.
+  ;;   - TRecord(fields): recurse via $free_in_fields over field-pair
+  ;;     list. Per src/infer.nx:1900.
+  ;;   - TRecordOpen(fields, rowvar): [rowvar] ++ $free_in_fields(fields).
+  ;;     Per src/infer.nx:1901 exact shape.
+  ;;   - TRefined(base, pred): recurse on base; predicate ptr passed
+  ;;     verbatim (verify.wat:39 precedent — predicate opaque to
+  ;;     scheme; verify_smt walks it structurally).
+  ;;   - TCont(ret, disc): recurse on ret; discipline sentinel passed
+  ;;     verbatim (ResumeDiscipline ADT; ty.wat owns).
   ;;   - TAlias(name, resolved): recurse on resolved (per src/infer.nx:
   ;;     1905 — alias's inner Ty contributes free handles).
 
@@ -6876,22 +6990,31 @@
     (if (i32.eq (local.get $tag) (i32.const 106))
       (then (return
         (call $free_in_list (call $ty_ttuple_elems (local.get $ty))))))
-    ;; ── TFun(params, ret, row) — recurse on ret only (params + row
-    ;;    opaque per ty.wat $chase_deep precedent + Tier-5 discipline) ─
+    ;; ── TFun(params, ret, row) — recurse on params (via $free_in_params
+    ;;    over TParam-list) + ret. Row stays opaque per Hβ-infer §6.1
+    ;;    answer-4 + §12 row-normalize follow-up — row.wat owns row's
+    ;;    free-handle walk; this chunk reaches Ty-side parity only. ──
     (if (i32.eq (local.get $tag) (i32.const 107))
       (then (return
-        (call $free_in_ty (call $ty_tfun_return (local.get $ty))))))
+        (call $list_concat
+          (call $free_in_params (call $ty_tfun_params (local.get $ty)))
+          (call $free_in_ty (call $ty_tfun_return (local.get $ty)))))))
     ;; ── TName(name, args) — concat free across arg list ────────────
     (if (i32.eq (local.get $tag) (i32.const 108))
       (then (return
         (call $free_in_list (call $ty_tname_args (local.get $ty))))))
-    ;; ── TRecord(fields) — preserve opaque (record-field-pair pending)─
+    ;; ── TRecord(fields) — recurse via $free_in_fields over field-pair list ─
     (if (i32.eq (local.get $tag) (i32.const 109))
-      (then (return (call $make_list (i32.const 0)))))
-    ;; ── TRecordOpen(fields, rowvar) — rowvar IS a free handle ──────
+      (then (return
+        (call $free_in_fields (call $ty_trecord_fields (local.get $ty))))))
+    ;; ── TRecordOpen(fields, rowvar) — rowvar IS a free handle +
+    ;;    fields recurse via $free_in_fields. Per src/infer.nx:1901
+    ;;    `[v] ++ free_in_fields(fields)` exact parity. ──────────────
     (if (i32.eq (local.get $tag) (i32.const 110))
       (then (return
-        (call $singleton_handle (call $ty_trecordopen_rowvar (local.get $ty))))))
+        (call $list_concat
+          (call $singleton_handle (call $ty_trecordopen_rowvar (local.get $ty)))
+          (call $free_in_fields (call $ty_trecordopen_fields (local.get $ty)))))))
     ;; ── TRefined(base, pred) — recurse on base; pred opaque ────────
     (if (i32.eq (local.get $tag) (i32.const 111))
       (then (return
@@ -6956,6 +7079,99 @@
     ;; Slice down to logical length so $len returns the right count.
     (call $slice (local.get $out) (i32.const 0) (local.get $out_n)))
 
+  ;; $list_concat(a, b) — flat-list concatenation. Buffer-counter pattern
+  ;; per CLAUDE.md operational essentials; avoids `acc ++ [X]` O(N²).
+  (func $list_concat (param $a i32) (param $b i32) (result i32)
+    (local $na i32) (local $nb i32) (local $i i32)
+    (local $out i32)
+    (local.set $na (call $len (local.get $a)))
+    (local.set $nb (call $len (local.get $b)))
+    (local.set $out (call $make_list (i32.add (local.get $na) (local.get $nb))))
+    (local.set $i (i32.const 0))
+    (block $done_a
+      (loop $iter_a
+        (br_if $done_a (i32.ge_u (local.get $i) (local.get $na)))
+        (drop (call $list_set (local.get $out) (local.get $i)
+          (call $list_index (local.get $a) (local.get $i))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter_a)))
+    (local.set $i (i32.const 0))
+    (block $done_b
+      (loop $iter_b
+        (br_if $done_b (i32.ge_u (local.get $i) (local.get $nb)))
+        (drop (call $list_set (local.get $out)
+          (i32.add (local.get $na) (local.get $i))
+          (call $list_index (local.get $b) (local.get $i))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter_b)))
+    (local.get $out))
+
+  ;; $free_in_params(params) — concat $free_in_ty across each TParam's
+  ;; Ty field. Per src/infer.nx:1911-1916 free_in_params recursion shape.
+  (func $free_in_params (param $params i32) (result i32)
+    (local $n i32) (local $i i32)
+    (local $sub i32) (local $sub_n i32) (local $sub_j i32)
+    (local $out i32) (local $out_n i32)
+    (local.set $n (call $len (local.get $params)))
+    (local.set $out (call $make_list (i32.const 4)))
+    (local.set $out_n (i32.const 0))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $sub (call $free_in_ty
+          (call $tparam_ty
+            (call $list_index (local.get $params) (local.get $i)))))
+        (local.set $sub_n (call $len (local.get $sub)))
+        (local.set $sub_j (i32.const 0))
+        (block $sub_done
+          (loop $sub_iter
+            (br_if $sub_done (i32.ge_u (local.get $sub_j) (local.get $sub_n)))
+            (local.set $out
+              (call $list_extend_to (local.get $out)
+                                    (i32.add (local.get $out_n) (i32.const 1))))
+            (drop (call $list_set (local.get $out) (local.get $out_n)
+              (call $list_index (local.get $sub) (local.get $sub_j))))
+            (local.set $out_n (i32.add (local.get $out_n) (i32.const 1)))
+            (local.set $sub_j (i32.add (local.get $sub_j) (i32.const 1)))
+            (br $sub_iter)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter)))
+    (call $slice (local.get $out) (i32.const 0) (local.get $out_n)))
+
+  ;; $free_in_fields(fields) — same pattern over field-pair list.
+  ;; Per src/infer.nx:1918-1923.
+  (func $free_in_fields (param $fields i32) (result i32)
+    (local $n i32) (local $i i32)
+    (local $sub i32) (local $sub_n i32) (local $sub_j i32)
+    (local $out i32) (local $out_n i32)
+    (local.set $n (call $len (local.get $fields)))
+    (local.set $out (call $make_list (i32.const 4)))
+    (local.set $out_n (i32.const 0))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $sub (call $free_in_ty
+          (call $field_pair_ty
+            (call $list_index (local.get $fields) (local.get $i)))))
+        (local.set $sub_n (call $len (local.get $sub)))
+        (local.set $sub_j (i32.const 0))
+        (block $sub_done
+          (loop $sub_iter
+            (br_if $sub_done (i32.ge_u (local.get $sub_j) (local.get $sub_n)))
+            (local.set $out
+              (call $list_extend_to (local.get $out)
+                                    (i32.add (local.get $out_n) (i32.const 1))))
+            (drop (call $list_set (local.get $out) (local.get $out_n)
+              (call $list_index (local.get $sub) (local.get $sub_j))))
+            (local.set $out_n (i32.add (local.get $out_n) (i32.const 1)))
+            (local.set $sub_j (i32.add (local.get $sub_j) (i32.const 1)))
+            (br $sub_iter)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter)))
+    (call $slice (local.get $out) (i32.const 0) (local.get $out_n)))
+
   ;; ─── $ty_substitute — Ty walker rewriting TVar(q) to TVar(map[q]) ─
   ;;
   ;; Per src/infer.nx:1951-1973 (subst_ty). Recursive walker over the
@@ -6964,17 +7180,20 @@
   ;; substitution touches (returns the input pointer unchanged for
   ;; nullary sentinels; rebuilds for composites).
   ;;
-  ;; Coverage discipline (per ty.wat $chase_deep + $free_in_ty parity):
+  ;; Coverage discipline (canonical parity with src/infer.nx:1950-1990
+  ;; closed 2026-04-26 per ROADMAP §3 + tparam.wat sibling chunk):
   ;;   - Nullary sentinels: identity (return as-is).
   ;;   - TVar(q): if map.contains(q), return TVar(map[q]); else identity.
-  ;;   - TList/TTuple/TFun(ret only)/TName/TRefined(base only)/TCont(ret
-  ;;     only)/TAlias(resolved only): rebuild with substituted sub-Ty.
-  ;;   - TFun's params + row, TRecord's fields, TRecordOpen's fields:
-  ;;     opaque (substrate pending; matches $chase_deep + $free_in_ty
-  ;;     coverage). The rowvar handle in TRecordOpen IS substitutable
-  ;;     in principle but matches ty.wat's chase_deep opaque pass for
-  ;;     this Tier-5 base — when row.wat's $row_substitute extension
-  ;;     lands the rowvar substitution joins.
+  ;;   - TList/TTuple/TName/TRefined(base only)/TCont(ret only)/
+  ;;     TAlias(resolved only): rebuild with substituted sub-Ty.
+  ;;   - TFun(params, ret, row): rebuild with $ty_substitute_params(params)
+  ;;     + $ty_substitute(ret) + row preserved verbatim. Row substitution
+  ;;     awaits row.wat's $row_substitute extension (Hβ-infer §12 named
+  ;;     follow-up "Hβ.infer.row-normalize").
+  ;;   - TRecord(fields): rebuild with $ty_substitute_fields(fields).
+  ;;   - TRecordOpen(fields, rowvar): rebuild with $ty_substitute_fields(
+  ;;     fields) + rowvar preserved verbatim (rowvar substitution joins
+  ;;     when row.wat's $row_substitute lands alongside).
 
   (func $ty_substitute (param $ty i32) (param $map i32) (param $map_len i32)
                         (result i32)
@@ -7013,12 +7232,16 @@
           (call $ty_substitute_list
             (call $ty_ttuple_elems (local.get $ty))
             (local.get $map) (local.get $map_len))))))
-    ;; ── TFun(params, ret, row) — substitute ret only (params + row
-    ;;    opaque per Tier-5 base discipline) ──────────────────────
+    ;; ── TFun(params, ret, row) — substitute params (via TParam list
+    ;;    walk) + ret. Row stays opaque per Hβ-infer §6.1 answer-4 +
+    ;;    §12 row-normalize follow-up. Per src/infer.nx:1961-1965 exact
+    ;;    recursion shape (subst_params + subst_ty + eff verbatim). ──
     (if (i32.eq (local.get $tag) (i32.const 107))
       (then (return
         (call $ty_make_tfun
-          (call $ty_tfun_params (local.get $ty))
+          (call $ty_substitute_params
+            (call $ty_tfun_params (local.get $ty))
+            (local.get $map) (local.get $map_len))
           (call $ty_substitute
             (call $ty_tfun_return (local.get $ty))
             (local.get $map) (local.get $map_len))
@@ -7031,13 +7254,27 @@
           (call $ty_substitute_list
             (call $ty_tname_args (local.get $ty))
             (local.get $map) (local.get $map_len))))))
-    ;; ── TRecord(fields) — preserve opaque ────────────────────────
+    ;; ── TRecord(fields) — substitute via field-pair list walk. Per
+    ;;    src/infer.nx:1967 `TRecord(subst_fields(fields, mapping))`. ──
     (if (i32.eq (local.get $tag) (i32.const 109))
-      (then (return (local.get $ty))))
-    ;; ── TRecordOpen(fields, rowvar) — preserve opaque (rowvar opaque
-    ;;    until row.wat $row_substitute lands) ───────────────────
+      (then (return
+        (call $ty_make_trecord
+          (call $ty_substitute_fields
+            (call $ty_trecord_fields (local.get $ty))
+            (local.get $map) (local.get $map_len))))))
+    ;; ── TRecordOpen(fields, rowvar) — substitute fields via field-pair
+    ;;    list walk; preserve rowvar verbatim (rowvar substitution awaits
+    ;;    row.wat $row_substitute extension — Hβ-infer §12 named follow-
+    ;;    up). Per src/infer.nx:1968 `mk_record_open(subst_fields(fields,
+    ;;    mapping), v)` — at the WAT layer the smart constructor is just
+    ;;    $ty_make_trecordopen with the substituted fields + original v. ─
     (if (i32.eq (local.get $tag) (i32.const 110))
-      (then (return (local.get $ty))))
+      (then (return
+        (call $ty_make_trecordopen
+          (call $ty_substitute_fields
+            (call $ty_trecordopen_fields (local.get $ty))
+            (local.get $map) (local.get $map_len))
+          (call $ty_trecordopen_rowvar (local.get $ty))))))
     ;; ── TRefined(base, pred) — substitute base; preserve pred ───
     (if (i32.eq (local.get $tag) (i32.const 111))
       (then (return
@@ -7084,6 +7321,57 @@
           (call $ty_substitute
             (call $list_index (local.get $tys) (local.get $i))
             (local.get $map) (local.get $map_len))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter)))
+    (local.get $out))
+
+  ;; $ty_substitute_params — apply $ty_substitute to each TParam's Ty
+  ;; field, preserving name / authored / resolved Ownership verbatim.
+  ;; Per src/infer.nx:1978-1983.
+  (func $ty_substitute_params (param $params i32) (param $map i32)
+                               (param $map_len i32) (result i32)
+    (local $n i32) (local $i i32) (local $out i32) (local $p i32)
+    (local.set $n (call $len (local.get $params)))
+    (local.set $out (call $make_list (local.get $n)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $p (call $list_index (local.get $params) (local.get $i)))
+        (drop (call $list_set
+          (local.get $out)
+          (local.get $i)
+          (call $tparam_make
+            (call $tparam_name (local.get $p))
+            (call $ty_substitute
+              (call $tparam_ty (local.get $p))
+              (local.get $map) (local.get $map_len))
+            (call $tparam_authored (local.get $p))
+            (call $tparam_resolved (local.get $p)))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter)))
+    (local.get $out))
+
+  ;; $ty_substitute_fields — apply $ty_substitute to each field-pair's
+  ;; Ty field, preserving name verbatim. Per src/infer.nx:1985-1990.
+  (func $ty_substitute_fields (param $fields i32) (param $map i32)
+                               (param $map_len i32) (result i32)
+    (local $n i32) (local $i i32) (local $out i32) (local $f i32)
+    (local.set $n (call $len (local.get $fields)))
+    (local.set $out (call $make_list (local.get $n)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $f (call $list_index (local.get $fields) (local.get $i)))
+        (drop (call $list_set
+          (local.get $out)
+          (local.get $i)
+          (call $field_pair_make
+            (call $field_pair_name (local.get $f))
+            (call $ty_substitute
+              (call $field_pair_ty (local.get $f))
+              (local.get $map) (local.get $map_len)))))
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $iter)))
     (local.get $out))

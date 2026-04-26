@@ -97,6 +97,7 @@ CHUNKS=(
   "bootstrap/src/infer/state.wat"        # Tier 4 (uses $alloc + list + record; Hβ.infer §1)
   "bootstrap/src/infer/reason.wat"       # Tier 5 (uses record; Hβ.infer §1 + §8.1 + 23-variant ADT)
   "bootstrap/src/infer/ty.wat"           # Tier 5 (uses record + graph + list; Hβ.infer §2.3 + Hβ.lower §3.1; 14 Ty + 3 ResumeDiscipline + $chase_deep)
+  "bootstrap/src/infer/tparam.wat"       # Tier 5 (uses record; Hβ.infer §2.3 substrate-gap closure 2026-04-26; TParam + field-pair + Ownership; ROADMAP §3 prerequisite)
   "bootstrap/src/infer/scheme.wat"       # Tier 5 (uses record + list + graph + ty + reason; Hβ.infer §2 + §2.4; Forall + instantiate + generalize)
   "bootstrap/src/infer/emit_diag.wat"    # Tier 6 (uses str + int + wasi + graph + ty + reason; Hβ.infer §8.1 + spec 04 §Error handling; 7 emit helpers + $render_ty)
 

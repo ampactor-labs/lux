@@ -144,25 +144,26 @@
   ;;   253-259    reserved future ResumeDiscipline
   ;;   300-349    LowExpr (lower.wat — pending; per Hβ-lower §2)
   ;;
-  ;; TParam payload note (per Hβ-infer §2.3 + spec 02 src/types.nx:55-58):
+  ;; TParam payload note (per Hβ-infer §2.3 + spec 02 src/types.nx:55-58
+  ;; + ROADMAP §3 substrate-gap closure 2026-04-26):
   ;;   TFun's params field is a List of TParam records — TParam is its
   ;;   own ADT (TParam(name, ty, authored_ownership, resolved_ownership)
-  ;;   per OW.2). TParam records land in their own substrate chunk when
-  ;;   inference's $infer_lambda / $infer_fn_stmt arms construct them
-  ;;   (walk_stmt.wat or a peer); ty.wat just stores the List as opaque
-  ;;   ptr. The walker $chase_deep treats TFun's params field as a
-  ;;   List of opaque entries — the caller (e.g. own.wat or unify_shapes)
-  ;;   knows the TParam shape and dispatches if needed. This is the
-  ;;   same opaque-ptr discipline reason.wat uses for Ty / Span /
-  ;;   Predicate / BinOp payloads (verify.wat:39 precedent).
+  ;;   per OW.2). TParam records land in tparam.wat (sibling Tier-5
+  ;;   chunk; tag 202 + accessors $tparam_name / $tparam_ty /
+  ;;   $tparam_authored / $tparam_resolved). ty.wat continues to store
+  ;;   the params List as opaque ptr at the constructor / accessor
+  ;;   layer; the WALKERS that need to recurse INTO TParam (scheme.wat's
+  ;;   $free_in_params + $ty_substitute_params; eventually own.wat's
+  ;;   ownership-row composition; eventually a peer $chase_deep_param
+  ;;   helper) compose on tparam.wat directly.
   ;;
-  ;;   IMPORTANT: $chase_deep on TFun does NOT recurse into TParam's
-  ;;   inner Ty field — TParam is opaque here. Once TParam's chunk
-  ;;   lands with its own $tparam_ty accessor, a peer $chase_deep_param
-  ;;   helper can reach into TParam's Ty. For now: TFun's params + ret
-  ;;   chase semantics: chase the return Ty + leave params as-is (the
-  ;;   List ptr is preserved verbatim in the rebuilt TFun). row chase
-  ;;   is also passive — row.wat owns its own chase semantics.
+  ;;   $chase_deep currently does NOT recurse into TParam's inner Ty
+  ;;   (this chunk's $chase_deep_loop TFun arm at line ~615 preserves
+  ;;   params verbatim). That parity gap is ROADMAP-tracked separately
+  ;;   from the scheme.wat $free_in_ty / $ty_substitute parity (which
+  ;;   ROADMAP §3 closed); $chase_deep extension is a named peer
+  ;;   follow-up that lands when the TFun-row chase substrate (row.wat-
+  ;;   owned) lands alongside.
   ;;
   ;; ═══ EIGHT INTERROGATIONS (per Hβ-infer-substrate.md §6 + this
   ;;     chunk's edit sites per the dispatch contract) ═════════════════
