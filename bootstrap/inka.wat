@@ -7639,7 +7639,11 @@
   ;;             $infer_emit_feedback_no_context,
   ;;             $infer_emit_handler_uninstallable,
   ;;             $infer_emit_pattern_inexhaustive,
-  ;;             $infer_emit_over_declared
+  ;;             $infer_emit_over_declared,
+  ;;             $infer_emit_not_a_record_type,
+  ;;             $infer_emit_record_field_extra,
+  ;;             $infer_emit_record_field_missing,
+  ;;             $infer_emit_cannot_negate_capability
   ;; Uses:       $alloc (alloc.wat),
   ;;             $str_alloc / $str_concat / $str_len /
   ;;               $str_from_mem (str.wat + int.wat),
@@ -7658,7 +7662,7 @@
   ;;             $reason_make_unifyfailed / $reason_make_missingvar /
   ;;               $reason_make_inferred (reason.wat — the three
   ;;               canonical Reason payloads NErrorHole wraps for the
-  ;;               three core diagnostics; the four additional helpers
+  ;;               three core diagnostics; the eight additional helpers
   ;;               compose on $reason_make_inferred per the seed's
   ;;               descriptive-context discipline)
   ;; Test:       runtime_test/infer_emit_diag.wat (pending — first
@@ -7747,6 +7751,40 @@
   ;;         the chunk so walk_stmt's FnStmt arm can call it without
   ;;         routing the warning through the same NErrorHole-binding
   ;;         path as Errors.
+  ;;     $infer_emit_not_a_record_type(handle, type_name, reason)
+  ;;       — emitted by NamedRecordExpr arm when env_lookup resolves
+  ;;         the type-name to a non-RecordSchemeKind Scheme (per
+  ;;         src/infer.nx:609). Message: "E_NotARecordType: at
+  ;;         handle <h> — '<type_name>' is not a record type\n".
+  ;;         Reason payload: Inferred("not a record type"). Per
+  ;;         docs/errors/E_NotARecordType.md.
+  ;;     $infer_emit_record_field_extra(handle, field_name, type_name, reason)
+  ;;       — emitted by check_nominal_record_fields when provided
+  ;;         record literal has a field name no declared field
+  ;;         matches (per src/infer.nx:1406, 1442). Message:
+  ;;         "E_RecordFieldExtra: at handle <h> — record literal has
+  ;;         unknown field '<field_name>' for type <type_name>\n".
+  ;;         Reason payload: Inferred("record field extra"). Per
+  ;;         docs/errors/E_RecordFieldExtra.md.
+  ;;     $infer_emit_record_field_missing(handle, field_name, type_name, reason)
+  ;;       — emitted by check_nominal_record_fields when declared
+  ;;         record type has a field the literal omits (per
+  ;;         src/infer.nx:1415, 1434). Message: "E_RecordFieldMissing:
+  ;;         at handle <h> — record literal missing field '<field_name>'
+  ;;         for type <type_name>\n". Reason payload: Inferred("record
+  ;;         field missing"). Per docs/errors/E_RecordFieldMissing.md.
+  ;;     $infer_emit_cannot_negate_capability(handle, capability_name, reason)
+  ;;       — emitted by expand_capabilities when an ENamed(s) resolves
+  ;;         to CapabilityScheme(_) AND `negated == true` (per
+  ;;         src/infer.nx:433). Per ROADMAP item 2 (commit 63b25ce):
+  ;;         CapabilityScheme is the fifth canonical SchemeKind variant
+  ;;         (FnScheme, ConstructorScheme, EffectOpScheme,
+  ;;         RecordSchemeKind, CapabilityScheme); this helper is the
+  ;;         diagnostic peer of that variant landing. Message:
+  ;;         "E_CannotNegateCapability: at handle <h> — cannot negate
+  ;;         capability bundle '<capability_name>'\n". Reason payload:
+  ;;         Inferred("cannot negate capability"). Per
+  ;;         docs/errors/E_CannotNegateCapability.md.
   ;;
   ;;   Helper:
   ;;     $render_ty(ty) -> String
@@ -7797,21 +7835,19 @@
   ;;                                       3 chunks already landed per
   ;;                                       parser_*.wat); not infer.
   ;;
-  ;;   Wheel-side codes WITHOUT catalog files (deferred until the
-  ;;   docs/errors/ catalog grows + walk arms wire them):
-  ;;     E_NotARecordType (src/infer.nx:609 — TRecord field-access on
-  ;;                       non-record), E_RecordFieldExtra (src/infer.nx:
-  ;;                       1407, 1443), E_RecordFieldMissing (src/infer.nx:
-  ;;                       1416, 1435), E_CannotNegateCapability
-  ;;                       (src/infer.nx:433). Per Anchor 2 + drift mode 9:
-  ;;                       these become $infer_emit_<code>(...) helpers
-  ;;                       AS the catalog files land + walk arms call
-  ;;                       them; not pre-emitted. Per the acceptance
-  ;;                       criterion (Hβ-infer §11.4 diagnostic coverage:
-  ;;                       "every E_/V_ code in docs/errors/ that the
-  ;;                       Hβ.infer walk can emit" — these are wheel-
-  ;;                       canonical but not catalog-canonical yet, so
-  ;;                       the seed honors the catalog as the gate).
+  ;;   ROADMAP item 4 — Diagnostic Boundary Canonicalization (closed
+  ;;   this commit): The four codes E_NotARecordType /
+  ;;   E_RecordFieldExtra / E_RecordFieldMissing /
+  ;;   E_CannotNegateCapability previously sat as deferred-without-
+  ;;   catalog-files; canonical src/infer.nx (lines 609, 1406+1442,
+  ;;   1415+1434, 433) DOES emit them. Per drift mode 9 + ROADMAP §4
+  ;;   acceptance ("no bootstrap header or walkthrough text says 'not
+  ;;   emitted by Hβ.infer' when canonical src/infer.nx does emit
+  ;;   it"): catalog files landed + helpers landed in this commit.
+  ;;   E_CannotNegateCapability's earlier deferral cited "wait for
+  ;;   SchemeKind to grow CapabilityScheme"; ROADMAP item 2 (commit
+  ;;   63b25ce) made CapabilityScheme canonical, so the deferral is
+  ;;   structurally closed.
   ;;
   ;; No new tag region required:
   ;;   This chunk doesn't introduce its own ADT records — it composes
@@ -7949,10 +7985,13 @@
   ;;                                    (E_FeedbackNoContext,
   ;;                                    E_HandlerUninstallable,
   ;;                                    E_PatternInexhaustive,
-  ;;                                    T_OverDeclared) gets its
-  ;;                                    $infer_emit_<code> function in
-  ;;                                    THIS commit. Diagnostics
-  ;;                                    deferred to peer chunks (own.wat
+  ;;                                    T_OverDeclared, E_NotARecordType,
+  ;;                                    E_RecordFieldExtra,
+  ;;                                    E_RecordFieldMissing,
+  ;;                                    E_CannotNegateCapability) gets
+  ;;                                    its $infer_emit_<code> function in
+  ;;                                    THIS chunk. Diagnostics deferred
+  ;;                                    to peer chunks (own.wat
   ;;                                    OwnershipViolation; row.wat
   ;;                                    PurityViolated/EffectMismatch;
   ;;                                    lower.wat UnresolvedType) are
@@ -8043,6 +8082,26 @@
   (data (i32.const 2432) "\05\00\00\00Cont<")                          ;; 5 bytes (TCont prefix)
   (data (i32.const 2440) "\01\00\00\00<")                              ;; 1 byte (TName arg-list open)
   (data (i32.const 2448) "\03\00\00\00...")                            ;; 3 bytes (cycle-bound overflow)
+
+  ;; ── Code-prefix strings for canonicalization-lane additions ──────
+  (data (i32.const 2456) "\12\00\00\00E_NotARecordType: ")               ;; 18 bytes payload
+  (data (i32.const 2480) "\14\00\00\00E_RecordFieldExtra: ")             ;; 20 bytes payload
+  (data (i32.const 2504) "\16\00\00\00E_RecordFieldMissing: ")           ;; 22 bytes payload
+  (data (i32.const 2536) "\1a\00\00\00E_CannotNegateCapability: ")       ;; 26 bytes payload
+
+  ;; ── Message-body fragments (concatenated with dynamic values) ────
+  (data (i32.const 2568) "\16\00\00\00 is not a record type")            ;; 22 bytes (E_NotARecordType tail)
+  (data (i32.const 2600) "\23\00\00\00record literal has unknown field '") ;; 35 bytes (E_RecordFieldExtra head)
+  (data (i32.const 2640) "\0b\00\00\00' for type ")                      ;; 11 bytes (shared field tail)
+  (data (i32.const 2656) "\1f\00\00\00record literal missing field '")   ;; 31 bytes (E_RecordFieldMissing head)
+  (data (i32.const 2696) "\21\00\00\00cannot negate capability bundle '") ;; 33 bytes (E_CannotNegateCapability head)
+  (data (i32.const 2736) "\01\00\00\00'")                                 ;; 1 byte (closing quote)
+
+  ;; ── Reason-context strings (for $reason_make_inferred) ───────────
+  (data (i32.const 2744) "\12\00\00\00not a record type")                ;; 18 bytes
+  (data (i32.const 2768) "\13\00\00\00record field extra")               ;; 19 bytes
+  (data (i32.const 2792) "\15\00\00\00record field missing")             ;; 21 bytes
+  (data (i32.const 2824) "\19\00\00\00cannot negate capability")         ;; 25 bytes
 
   ;; ─── $render_ty — Ty walker producing human-readable string ──────
   ;;
@@ -8381,6 +8440,92 @@
     ;; chain; T_OverDeclared does not bind to NErrorHole — the FnStmt
     ;; remains well-typed per the Warning classification).
     (drop (local.get $reason)))
+
+  ;; ─── $infer_emit_not_a_record_type — E_NotARecordType ───────────
+  ;;
+  ;; Per spec 04 + docs/errors/E_NotARecordType.md + src/infer.nx:609.
+  ;; Emitted by NamedRecordExpr arm when env_lookup resolves the
+  ;; type-name to a non-RecordSchemeKind Scheme. Message:
+  ;; "E_NotARecordType: at handle <h> — '<type_name>' is not a record
+  ;; type\n". Reason payload: Inferred("not a record type").
+  (func $infer_emit_not_a_record_type (param $handle i32) (param $type_name i32)
+                                        (param $reason i32)
+    (local $msg i32)
+    (local.set $msg (i32.const 2456))                          ;; "E_NotARecordType: "
+    (local.set $msg (call $str_concat (local.get $msg) (i32.const 1824)))   ;; "at handle "
+    (local.set $msg (call $str_concat (local.get $msg) (call $int_to_str (local.get $handle))))
+    (local.set $msg (call $str_concat (local.get $msg) (i32.const 1840)))   ;; " — "
+    (local.set $msg (call $str_concat (local.get $msg) (i32.const 2736)))   ;; "'"
+    (local.set $msg (call $str_concat (local.get $msg) (local.get $type_name)))
+    (local.set $msg (call $str_concat (local.get $msg) (i32.const 2736)))   ;; "'"
+    (local.set $msg (call $str_concat (local.get $msg) (i32.const 2568)))   ;; " is not a record type"
+    (local.set $msg (call $str_concat (local.get $msg) (i32.const 1912)))   ;; "\n"
+    (call $eprint_string (local.get $msg))
+    (call $graph_bind
+      (local.get $handle)
+      (call $node_kind_make_nerrorhole
+        (call $reason_make_inferred (i32.const 2744)))         ;; "not a record type"
+      (local.get $reason)))
+
+  ;; ─── $infer_emit_record_field_extra — E_RecordFieldExtra ────────
+  (func $infer_emit_record_field_extra (param $handle i32) (param $field_name i32)
+                                         (param $type_name i32) (param $reason i32)
+    (local $msg i32)
+    (local.set $msg (i32.const 2480))
+    (local.set $msg (call $str_concat (local.get $msg) (i32.const 1824)))
+    (local.set $msg (call $str_concat (local.get $msg) (call $int_to_str (local.get $handle))))
+    (local.set $msg (call $str_concat (local.get $msg) (i32.const 1840)))
+    (local.set $msg (call $str_concat (local.get $msg) (i32.const 2600)))
+    (local.set $msg (call $str_concat (local.get $msg) (local.get $field_name)))
+    (local.set $msg (call $str_concat (local.get $msg) (i32.const 2640)))
+    (local.set $msg (call $str_concat (local.get $msg) (local.get $type_name)))
+    (local.set $msg (call $str_concat (local.get $msg) (i32.const 1912)))
+    (call $eprint_string (local.get $msg))
+    (call $graph_bind
+      (local.get $handle)
+      (call $node_kind_make_nerrorhole
+        (call $reason_make_inferred (i32.const 2768)))
+      (local.get $reason)))
+
+  ;; ─── $infer_emit_record_field_missing — E_RecordFieldMissing ────
+  (func $infer_emit_record_field_missing (param $handle i32) (param $field_name i32)
+                                           (param $type_name i32) (param $reason i32)
+    (local $msg i32)
+    (local.set $msg (i32.const 2504))
+    (local.set $msg (call $str_concat (local.get $msg) (i32.const 1824)))
+    (local.set $msg (call $str_concat (local.get $msg) (call $int_to_str (local.get $handle))))
+    (local.set $msg (call $str_concat (local.get $msg) (i32.const 1840)))
+    (local.set $msg (call $str_concat (local.get $msg) (i32.const 2656)))
+    (local.set $msg (call $str_concat (local.get $msg) (local.get $field_name)))
+    (local.set $msg (call $str_concat (local.get $msg) (i32.const 2640)))
+    (local.set $msg (call $str_concat (local.get $msg) (local.get $type_name)))
+    (local.set $msg (call $str_concat (local.get $msg) (i32.const 1912)))
+    (call $eprint_string (local.get $msg))
+    (call $graph_bind
+      (local.get $handle)
+      (call $node_kind_make_nerrorhole
+        (call $reason_make_inferred (i32.const 2792)))
+      (local.get $reason)))
+
+  ;; ─── $infer_emit_cannot_negate_capability — E_CannotNegateCapability
+  (func $infer_emit_cannot_negate_capability (param $handle i32)
+                                               (param $capability_name i32)
+                                               (param $reason i32)
+    (local $msg i32)
+    (local.set $msg (i32.const 2536))
+    (local.set $msg (call $str_concat (local.get $msg) (i32.const 1824)))
+    (local.set $msg (call $str_concat (local.get $msg) (call $int_to_str (local.get $handle))))
+    (local.set $msg (call $str_concat (local.get $msg) (i32.const 1840)))
+    (local.set $msg (call $str_concat (local.get $msg) (i32.const 2696)))
+    (local.set $msg (call $str_concat (local.get $msg) (local.get $capability_name)))
+    (local.set $msg (call $str_concat (local.get $msg) (i32.const 2736)))
+    (local.set $msg (call $str_concat (local.get $msg) (i32.const 1912)))
+    (call $eprint_string (local.get $msg))
+    (call $graph_bind
+      (local.get $handle)
+      (call $node_kind_make_nerrorhole
+        (call $reason_make_inferred (i32.const 2824)))
+      (local.get $reason)))
 
   ;; ═══ WAT Fragment Data Segments ═════════════════════════════════════
   ;; Raw byte strings for WAT syntax emission. No length prefix —

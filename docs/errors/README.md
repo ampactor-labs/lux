@@ -65,6 +65,10 @@ Minimal code triggering it + the fix.
 | [E_FeedbackNoContext](E_FeedbackNoContext.md) | `infer.nx` — `<~` checking |
 | [E_PurityViolated](E_PurityViolated.md) | `effects.nx` — unify_row |
 | [E_EffectMismatch](E_EffectMismatch.md) | `effects.nx` — unify_row |
+| [E_NotARecordType](E_NotARecordType.md) | `infer.nx` — NamedRecordExpr |
+| [E_RecordFieldExtra](E_RecordFieldExtra.md) | `infer.nx` — check_nominal_record_fields |
+| [E_RecordFieldMissing](E_RecordFieldMissing.md) | `infer.nx` — check_nominal_record_fields |
+| [E_CannotNegateCapability](E_CannotNegateCapability.md) | `infer.nx` — expand_capabilities |
 | [E_ReplayExhausted](E_ReplayExhausted.md) | `clock.nx` — replay handlers |
 | [P_ExpectedToken](P_ExpectedToken.md) | `parser.nx` — `expect` helper |
 | [P_UnexpectedToken](P_UnexpectedToken.md) | `parser.nx` — primary fallthrough |

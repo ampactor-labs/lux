@@ -723,8 +723,17 @@ bootstrap/src/infer/
   own.wat                ;; Tier 7 — ownership inline helpers
                          ;;          ($infer_ref_escape_push/pop/check)
   emit_diag.wat          ;; Tier 6 — diagnostic emission helpers
-                         ;;          ($infer_emit_type_mismatch / missing_var
-                         ;;          / occurs_check)
+                         ;;          ($render_ty + 11 $infer_emit_*
+                         ;;          helpers covering every E_/T_ code
+                         ;;          canonical src/infer.nx emits per
+                         ;;          ROADMAP §4 closure: type_mismatch,
+                         ;;          missing_var, occurs_check,
+                         ;;          feedback_no_context,
+                         ;;          handler_uninstallable,
+                         ;;          pattern_inexhaustive, over_declared,
+                         ;;          not_a_record_type, record_field_extra,
+                         ;;          record_field_missing,
+                         ;;          cannot_negate_capability)
   main.wat               ;; Tier 8 — top-level orchestrator $infer_program
                          ;;          (called from seed's pipeline between parse
                          ;;          + lower)
@@ -792,13 +801,13 @@ After unify.wat:
 | reason.wat | ~280-320 | spec 02 + spec 08 + src/types.nx canonical 23-variant Reason ADT (constructor + accessors per variant ≈ 12-14 WAT lines × 23 variants; revised 2026-04-26 per Wave 2.E.infer.reason substrate-gap finding — earlier 9-named undercount yielded ~150 estimate; canonical reality is 23 variants) |
 | ty.wat | ~430 | spec 02 + this walkthrough §2.3 (revised 2026-04-26 from ~400 per 14th variant TAlias + 3 ResumeDiscipline sentinel constructors) |
 | scheme.wat | ~250 | spec 04 §Env+Scheme + this §2 |
-| emit_diag.wat | ~200 | spec 04 §Error handling + docs/errors |
+| emit_diag.wat | ~960 | spec 04 §Error handling + docs/errors (revised 2026-04-26 ROADMAP §4 — extended from earlier ~200 estimate per Wave 2.E.infer.emit_diag canonicalization: 11 helpers covering every E_/T_ code canonical src/infer.nx emits, including newly-cataloged E_NotARecordType / E_RecordFieldExtra / E_RecordFieldMissing / E_CannotNegateCapability) |
 | unify.wat | ~700 | spec 04 §Unification + spec 01 §Unification rules |
 | own.wat | ~150 | spec 04 §Ownership + spec 07 |
 | walk_expr.wat | ~900 | spec 03 + spec 04 §What the walk produces |
 | walk_stmt.wat | ~400 | spec 03 + spec 04 |
 | main.wat | ~150 | this walkthrough §10 + Hβ-bootstrap §1.16 |
-| **TOTAL** | **~3380** | |
+| **TOTAL** | **~4140** | |
 
 Per Hβ §13 estimate (50-150k lines total): ~3380 is the inference
 contribution; comparable order to lowering (Hβ.lower) and emit
