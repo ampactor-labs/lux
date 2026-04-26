@@ -39,7 +39,7 @@ list.wat	1	✓	§1.7 (full tag dispatch — flat/snoc/concat/slice)	$make_list $
 record.wat	1	✓	§1.5 §1.8 §1.9	$make_record $record_get $record_set $tag_of $is_sentinel	$alloc $heap_base (shell)
 closure.wat	2	✓	§1.3 (H1)	$make_closure $closure_get_slot $closure_set_slot	$alloc
 cont.wat	2	✓	§1.13 (H7) — HOT PATH (Mentl's oracle on every save)	$alloc_continuation $cont_get_fn_index $cont_set_fn_index $cont_get_state $cont_set_state $cont_get_n_captures $cont_get_capture $cont_set_capture $cont_get_n_evidence $cont_get_ev_slot $cont_set_ev_slot $cont_get_ret_slot $cont_set_ret_slot	$alloc
-graph.wat	3		§1.2 (spec 00 + IC.3)	$graph_init $graph_fresh_ty $graph_chase $graph_bind $graph_push_checkpoint $graph_rollback $overlay_*	$alloc $make_list $list_extend_to $list_set $list_index
+graph.wat	3	✓	§1.2 (spec 00) — load-bearing center; overlays + fork + snapshot deferred to follow-up	$graph_init $graph_fresh_ty $graph_fresh_row $graph_chase $graph_node_at $graph_bind $graph_bind_row $graph_push_checkpoint $graph_rollback $graph_epoch $graph_next_handle $gnode_make/kind/reason $node_kind_make_* $is_n* $node_kind_payload	$alloc $make_record $record_get $record_set $tag_of $make_list $list_index $list_set $list_extend_to $heap_base
 env.wat	3		§1.2 (spec 00)	$env_lookup $env_extend $env_scope_enter $env_scope_exit	$alloc $str_eq $list_*
 row.wat	3	§1.10 (spec 01 — Boolean effect algebra)		$row_union $row_diff $row_inter $row_subsumes	$str_eq $list_*
 verify.wat	4		§1.11	$verify_init $verify_record $verify_discharge_ground	$alloc $list_* $graph_*
