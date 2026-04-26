@@ -2,7 +2,9 @@
 
 > *The visual identity of the ultimate intent → machine instruction medium.*
 
-Syntax highlighting and color theme for the [Inka](https://github.com/ampactor-labs/inka) programming language (`.nx` files).
+Syntax highlighting, color theme, and **Mentl-via-LSP** for the [Inka](https://github.com/ampactor-labs/inka) programming language (`.nx` files).
+
+This package is one peer transport per CLAUDE.md anchor: *every transport is a handler.* `inka edit` (the canonical browser-holographic-live IDE per the IE walkthrough) is the canonical projection. This extension is the LSP-peer-transport bridge for developers who use VS Code or VS Code-derivative editors (Cursor, Windsurf, etc.). Both compose on the same kernel through different handler chains.
 
 ## Features
 
@@ -10,6 +12,7 @@ Syntax highlighting and color theme for the [Inka](https://github.com/ampactor-l
 - **Inka Obsidian** — a dark color theme designed for resonance with Inka's eight-primitive kernel
 - **Colorblind-safe** — Wong/Okabe-Ito palette, WCAG AA compliant, with bold/italic secondary cues
 - **Ligature-aware** — designed to work beautifully with JetBrains Mono
+- **Mentl as LSP** — hovers, completions, diagnostics, and code actions surface Mentl's voice through her installed handler chain (graph + Interact + mentl_voice_filesystem + mentl_voice_default). Requires the `inka` wheel binary on PATH; activates automatically when you open any `.nx` file.
 
 ## The Color Language
 
@@ -45,20 +48,38 @@ This gives you beautiful ligatures for Inka's pipe verbs: `|>` → ▷, `->` →
 
 ## Installation
 
-### From source (development)
+### Prerequisites
 
-1. Clone the Inka repository
-2. Open `tools/editor/vscode-inka/` in VS Code
-3. Press `F5` to launch the Extension Development Host
-4. Open any `.nx` file — the theme activates automatically
+- **VS Code** ≥ 1.75.0 (or any compatible derivative — Cursor, Windsurf, etc.)
+- **Node.js + npm** for building from source
+- **Inka wheel binary** on PATH (`inka`) — required for LSP. The wheel ships post-first-light-L1 (see the Inka project's plan tracker). Until then, only syntax highlighting + the color theme activate; the LSP client surfaces a non-fatal error noting the binary isn't yet built.
 
-### Manual install
+### Build from source
 
 ```bash
 cd tools/editor/vscode-inka
-npx vsce package --no-dependencies
-code --install-extension inka-0.1.0.vsix
+npm install
+npm run compile
+npx vsce package
+code --install-extension inka-0.2.0.vsix
 ```
+
+### Development (Extension Development Host)
+
+1. Open `tools/editor/vscode-inka/` in VS Code
+2. Run `npm install` (one-time)
+3. Press `F5` — launches the Extension Development Host with the LSP client active
+4. Open any `.nx` file — syntax + theme activate immediately; LSP connects to `inka lsp` if the wheel is on PATH
+
+### Configuration
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `inka.serverPath` | `"inka"` | Path to the Inka wheel binary. Override if `inka` is not on PATH. |
+| `inka.serverArgs` | `["lsp"]` | Arguments passed to the wheel to start the LSP transport. |
+| `inka.trace.server` | `"off"` | LSP trace verbosity. Set to `"messages"` or `"verbose"` to inspect the JSON-RPC stream in the **Inka Language Server** output channel. |
+
+The LSP wiring composes on the substrate landed in the wheel itself: `lib/runtime/json.nx` (JSON parse + serialize), `lib/runtime/lsp_frame.nx` (Content-Length JSON-RPC framing), `src/mentl_lsp.nx` (LSP transport handler — `inka_lsp_session` + dispatch + 12 method handlers), and the `inka lsp` subcommand at `src/main.nx`. VS Code spawns the wheel; the wheel runs Mentl's full handler chain; every LSP request reaches her, every response is her voice projected through the LSP transport.
 
 ## Syntax Coverage
 

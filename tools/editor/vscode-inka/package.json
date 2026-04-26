@@ -1,8 +1,8 @@
 {
   "name": "inka",
   "displayName": "Inka",
-  "description": "Syntax highlighting and color theme for the Inka programming language (.nx files). The medium that refuses ceremony the graph doesn't require.",
-  "version": "0.1.0",
+  "description": "Syntax highlighting, color theme, and LSP client for the Inka programming language (.nx files). The medium that refuses ceremony the graph doesn't require.",
+  "version": "0.2.0",
   "publisher": "ampactor-labs",
   "license": "MIT OR Apache-2.0",
   "repository": {
@@ -21,7 +21,13 @@
     "nx",
     "effect handlers",
     "pipe topology",
-    "algebraic effects"
+    "algebraic effects",
+    "mentl",
+    "lsp"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onLanguage:inka"
   ],
   "contributes": {
     "languages": [
@@ -49,6 +55,43 @@
         "uiTheme": "vs-dark",
         "path": "./themes/inka-obsidian-color-theme.json"
       }
-    ]
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Inka",
+      "properties": {
+        "inka.serverPath": {
+          "type": "string",
+          "default": "inka",
+          "description": "Path to the inka executable (the wheel binary that hosts `inka lsp`). Default: `inka` on PATH."
+        },
+        "inka.serverArgs": {
+          "type": "array",
+          "default": ["lsp"],
+          "items": { "type": "string" },
+          "description": "Arguments passed to the inka executable to start the LSP transport. Default: `[\"lsp\"]` (invokes the lsp subcommand)."
+        },
+        "inka.trace.server": {
+          "type": "string",
+          "scope": "window",
+          "enum": ["off", "messages", "verbose"],
+          "default": "off",
+          "description": "Trace LSP communication between VS Code and `inka lsp`. The trace surfaces in the Output panel under \"Inka Language Server\"."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.75.0",
+    "typescript": "^5.3.0"
   }
 }
