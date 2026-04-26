@@ -78,8 +78,11 @@ CHUNKS=(
   # chunks (state / reason / ty / scheme / emit_diag / unify / own /
   # walk_expr / walk_stmt / main); this commit opens the layer with
   # state.wat (the per-walk scratchpads). Subsequent chunks land per
-  # Hβ-infer-substrate.md §13.3 dep order.
+  # Hβ-infer-substrate.md §13.3 dep order. reason.wat lands second
+  # per §13.3 (no deps beyond record.wat) — 23 canonical Reason
+  # variant constructors per src/types.nx + extended walkthrough.
   "bootstrap/src/infer/state.wat"        # Tier 4 (uses $alloc + list + record; Hβ.infer §1)
+  "bootstrap/src/infer/reason.wat"       # Tier 5 (uses record; Hβ.infer §1 + §8.1 + 23-variant ADT)
 
   # ── Layer 5: Emitter ──
   "bootstrap/src/emit_data.wat"
