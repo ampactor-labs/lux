@@ -298,7 +298,7 @@ validated. Read them when relevant; update them when you learn
 something new.
 
 **The vision document is `docs/DESIGN.md`. The execution roadmap is
-`docs/PLAN.md`. The living compendium of crystallized truths is
+`ROADMAP.md`. The living compendium of crystallized truths is
 `docs/INSIGHTS.md`. The cascade walkthroughs live in
 `docs/specs/simulations/H*.md` (one per handle). The eight
 anchors below are the minimum discipline; the vision is what makes
@@ -490,7 +490,7 @@ Each handle in the γ cascade lands in one well-defined sequence:
 in `std/compiler/` IS the compiler — written unconstrained from the
 12 specs. A disposable bootstrap translator (any language, ~3-5K
 lines) will compile it once. After that, Inka compiles itself. The
-translator is deleted. Active plan: `docs/PLAN.md`.
+translator is deleted. Active plan: `ROADMAP.md`.
 
 **Cascade state:** the γ approach (γ = handle-graph; one walkthrough
 per handle resolves design before code freeze). Landed: Σ (SYNTAX),
@@ -521,8 +521,7 @@ diff inka2.wat inka3.wat    # empty = first-light
 **WASM as substrate.** WASM is the compilation target. No custom VM.
 Linear memory, no GC, tail-call support via wasmtime. Handler
 elimination maps cleanly: tail-resumptive (85%) → `call`, linear →
-state machine, multi-shot → heap struct. See PLAN.md "WASM as Target
-Substrate."
+state machine, multi-shot → heap struct. See `ROADMAP.md`.
 
 **Bug classes that cost hours — never recreate:**
 - Polymorphic dispatch fallback (`match … with _`) that silently masks type errors.
@@ -569,7 +568,7 @@ wasm-objdump -x bootstrap/build/lux3.wasm                  # sections
 **Memory model:** bump allocator, monotonic, never frees. Every
 allocation is permanent. Any function that accumulates strings via
 `++` in a loop is a potential memory bomb. Traps at 16 MB. GC is a
-handler (Arc F.4 scoped arenas). See PLAN.md "Memory Model."
+handler (Arc F.4 scoped arenas). See `ROADMAP.md`.
 
 **Representations:**
 - **Strings** always flat: `[len_i32][bytes...]`. `str_concat` copies.
@@ -610,7 +609,7 @@ once, fix.
 | `bootstrap/src/` | 15 modular WAT chunks (Layer 2 lexer, Layer 3 parser, Layer 4 emit) |
 | `bootstrap/inka.wat` | Assembled bootstrap image (build artifact; shell preserved across builds) |
 | `bootstrap/first-light.sh` | First-light test harness (diff inka2.wat vs inka3.wat) |
-| `docs/PLAN.md` | THE plan |
+| `ROADMAP.md` | THE roadmap |
 | `docs/SYNTAX.md` | Canonical syntax (Σ landed; SYNTAX is the wheel parser is the lathe) |
 | `docs/specs/00–11-*.md` | The 12 executable specs |
 | `docs/specs/simulations/H*.md` | Per-handle walkthroughs (γ cascade) — read before touching the handle's substrate |
@@ -775,7 +774,7 @@ during the γ cascade — that bind all implementation:
     plan tracker update, road map, sequencing), read the load-
     bearing corpus IN FULL — `CLAUDE.md` end-to-end + `docs/DESIGN.md`
     end-to-end (first session; thereafter §0.5 + relevant chapter)
-    + `docs/INSIGHTS.md` load-bearing sections + `~/.claude/plans/the-residue.md`
+    + `docs/INSIGHTS.md` load-bearing sections + `ROADMAP.md`
     in full + all walkthroughs at `docs/specs/simulations/` that
     touch the proposed work area + `docs/SYNTAX.md` if any
     parser/lexer/syntax work + `docs/specs/00-11` for any module
@@ -803,9 +802,9 @@ during the γ cascade — that bind all implementation:
 
 ## Deep context (read when you need it)
 
-- **`docs/PLAN.md`** — THE plan. γ cascade with explicit handle
-  ordering and Ω audit phases. Bootstrap remains out of mind
-  until the cascade closes.
+- **`ROADMAP.md`** — THE roadmap. Current status, sequencing, and
+  anti-drift execution guidance. Bootstrap remains out of mind until
+  the roadmap says otherwise.
 - **`docs/SYNTAX.md`** — canonical syntax (Σ phase). The wheel
   Ω.4's parser was shaped to.
 - **`docs/specs/00–11-*.md`** — the 12 executable specs. ADTs,

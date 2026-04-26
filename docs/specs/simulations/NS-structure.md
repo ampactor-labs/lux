@@ -343,7 +343,7 @@ Every file move generates `Reason::Inferred("moved per NS-structure.md:<section>
 
 ### Decision 1.6 — root-level files
 
-- No new root-level files. Forbidden to add `ROADMAP.md` / `CHANGELOG.md` / `CONTRIBUTING.md` / other conventional top-level files unless they serve load-bearing purpose (PLAN.md is roadmap; git history is changelog; CLAUDE.md is contribution discipline).
+- No new root-level files unless they serve load-bearing purpose. `ROADMAP.md` is now the canonical roadmap; git history is changelog; `CLAUDE.md` is contribution discipline.
 
 ### Cross-cutting bug classes at restructure-execution sites
 
@@ -445,8 +445,8 @@ This directory holds Inka's bootstrap soundness artifact.
   through it → diff. Empty diff means first-light.
 
 See `docs/specs/simulations/Hβ-bootstrap.md` for the hand-WAT
-walkthrough + conventions. See `docs/PLAN.md` Pending Work items
-26–31 for the bootstrap critical path.
+walkthrough + conventions. See `ROADMAP.md` for the bootstrap
+critical path.
 
 **Hand-WAT is NOT deleted post-first-light** (unlike disposable
 Rust/C translators would be). It IS the reference soundness
@@ -471,7 +471,7 @@ WASM="$ROOT/bootstrap/inka.wasm"
 
 if [[ ! -s "$WAT" ]]; then
   echo "bootstrap/inka.wat is empty or missing — hand-WAT not yet started." >&2
-  echo "See docs/specs/simulations/Hβ-bootstrap.md + docs/PLAN.md items 27–29." >&2
+  echo "See docs/specs/simulations/Hβ-bootstrap.md + ROADMAP.md." >&2
   exit 1
 fi
 
@@ -535,7 +535,7 @@ Every `.md` file referencing `std/compiler/`, `std/runtime/`, `std/dsp/`, `std/m
 
 - `docs/DESIGN.md` — every Ch 10 scenario, every file-reference.
 - `docs/INSIGHTS.md` — every file-reference.
-- `docs/PLAN.md` — this very file's future sections.
+- `ROADMAP.md` — the canonical roadmap's future sections.
 - `docs/SYNTAX.md` — every file-reference.
 - `CLAUDE.md` — the File Map section + Session Zero references.
 - `README.md` — the Repository layout (gets completely rewritten to reflect new shape).
