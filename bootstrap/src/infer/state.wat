@@ -4,6 +4,7 @@
   ;;             span/intent indices) + $infer_init idempotent.
   ;; Exports:    $infer_init,
   ;;             $infer_ref_escape_push, $infer_ref_escape_len,
+  ;;             $infer_ref_escape_clear_state,
   ;;             $infer_fn_stack_push, $infer_fn_stack_pop,
   ;;             $infer_fn_stack_top, $infer_fn_stack_len,
   ;;             $infer_span_index_append, $infer_intent_index_append,
@@ -220,3 +221,12 @@
     (global.set $infer_fn_stack_len_g     (i32.const 0))
     (global.set $infer_span_index_len_g   (i32.const 0))
     (global.set $infer_intent_index_len_g (i32.const 0)))
+
+  ;; ─── Per-FnStmt-exit ref-escape reset ────────────────────────────
+  ;; Finer-grained than $infer_reset_walk — clears only the ref-escape
+  ;; tracker (not fn-stack / span-index / intent-index). Called by
+  ;; own.wat's $infer_ref_escape_clear at FnStmt exit per src/own.nx:371-376
+  ;; check_ref_escape lifecycle. Length-only reset (buffers stay).
+  (func $infer_ref_escape_clear_state
+    (call $infer_init)
+    (global.set $infer_ref_escape_len_g (i32.const 0)))

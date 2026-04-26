@@ -803,11 +803,11 @@ After unify.wat:
 | scheme.wat | ~250 | spec 04 §Env+Scheme + this §2 |
 | emit_diag.wat | ~960 | spec 04 §Error handling + docs/errors (revised 2026-04-26 ROADMAP §4 — extended from earlier ~200 estimate per Wave 2.E.infer.emit_diag canonicalization: 11 helpers covering every E_/T_ code canonical src/infer.nx emits, including newly-cataloged E_NotARecordType / E_RecordFieldExtra / E_RecordFieldMissing / E_CannotNegateCapability) |
 | unify.wat | ~700 | spec 04 §Unification + spec 01 §Unification rules |
-| own.wat | ~150 | spec 04 §Ownership + spec 07 |
+| own.wat | ~280-340 | spec 04 §Ownership + spec 07 + emit_diag.wat:189-195 contract (OwnershipViolation diagnostic helper lands here per ROADMAP §4 closure pattern; revised 2026-04-26 from ~150 per affine ledger + branch protocol + 3 emit helpers + ledger substrate landing in one commit) |
 | walk_expr.wat | ~900 | spec 03 + spec 04 §What the walk produces |
 | walk_stmt.wat | ~400 | spec 03 + spec 04 |
 | main.wat | ~150 | this walkthrough §10 + Hβ-bootstrap §1.16 |
-| **TOTAL** | **~4140** | |
+| **TOTAL** | **~4300** | |
 
 Per Hβ §13 estimate (50-150k lines total): ~3380 is the inference
 contribution; comparable order to lowering (Hβ.lower) and emit
@@ -1085,6 +1085,23 @@ just symbol-presence checks (the ROADMAP §5 acceptance language —
   form (Neg via De Morgan + Sub expansion + Inter normal form).
 - **Hβ.infer.refinement-compose** — `$verify_record` integration
   with $unify_shapes' TRefined arm calling PAnd(p, q) per spec 04.
+
+- **Hβ.infer.region-tracker** — H4.1 Tofte-Talpin region_tracker
+  handler substrate (src/own.nx:199-295). Lands when Hβ.lower's
+  Alloc surface matures (the helpers tag allocations; allocation-
+  handle stamping is the gating substrate). NOT a drift-mode-9
+  deferral: walk arms calling the affine_ledger projects HAVE full
+  coverage when own.wat commits; region_tracker is parallel concern.
+
+- **Hβ.infer.used-binary-search** — own.wat's $infer_consume_seen
+  uses linear scan over the sorted name list; profiling-driven
+  upgrade to binary search lands when seed compile-of-self profile
+  shows ownership-set membership hot.
+
+- **Hβ.infer.used-sites-deque** — own.wat's $own_used_sites_push
+  uses shift-right insert at index 0 (O(N) per push). For realistic
+  function bodies (~tens of own params) this is fine; deque
+  substrate is the named upgrade.
 
 ---
 
