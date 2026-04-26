@@ -76,13 +76,17 @@ CHUNKS=(
   # ── Layer 4: Inference (per Hβ-infer-substrate.md) ──
   # Per Hβ-infer-substrate.md §8.2 the eventual full layer holds 10
   # chunks (state / reason / ty / scheme / emit_diag / unify / own /
-  # walk_expr / walk_stmt / main); this commit opens the layer with
-  # state.wat (the per-walk scratchpads). Subsequent chunks land per
-  # Hβ-infer-substrate.md §13.3 dep order. reason.wat lands second
-  # per §13.3 (no deps beyond record.wat) — 23 canonical Reason
-  # variant constructors per src/types.nx + extended walkthrough.
+  # walk_expr / walk_stmt / main); chunks land per §13.3 dep order:
+  #   1. state.wat — per-walk scratchpads (no deps beyond runtime).
+  #   2. reason.wat — 23 canonical Reason constructors (deps: record).
+  #   3. ty.wat — 14 Ty constructors + 3 ResumeDiscipline sentinels +
+  #      $chase_deep (deps: record + graph; SHARED with Hβ.lower per
+  #      Hβ-lower-substrate.md §7.1 — lower lands as the second consumer).
+  # Subsequent: scheme.wat (deps: ty), emit_diag.wat, unify.wat, own.wat,
+  # walk_expr.wat, walk_stmt.wat, main.wat.
   "bootstrap/src/infer/state.wat"        # Tier 4 (uses $alloc + list + record; Hβ.infer §1)
   "bootstrap/src/infer/reason.wat"       # Tier 5 (uses record; Hβ.infer §1 + §8.1 + 23-variant ADT)
+  "bootstrap/src/infer/ty.wat"           # Tier 5 (uses record + graph + list; Hβ.infer §2.3 + Hβ.lower §3.1; 14 Ty + 3 ResumeDiscipline + $chase_deep)
 
   # ── Layer 5: Emitter ──
   "bootstrap/src/emit_data.wat"
