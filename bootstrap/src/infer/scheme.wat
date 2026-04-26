@@ -119,9 +119,11 @@
   ;;   The aspirational $set_diff form lands when env iteration becomes
   ;;   needed by other surfaces (e.g., better diagnostic precision on
   ;;   "this var was generalized over a free env handle"). That's a
-  ;;   named follow-up alongside the env_binding_make extension that
-  ;;   accepts (scheme, reason) per Hβ-infer §4.2 — both extensions
-  ;;   land together when env_for_each_binding becomes a primitive.
+  ;;   named follow-up alongside an `$env_for_each_binding` primitive.
+  ;;   The (scheme, reason) two-arg form Hβ-infer §4.2 named is now
+  ;;   superseded — env.wat's $env_extend takes the canonical four-
+  ;;   tuple directly per ROADMAP item 1 (name, Scheme, Reason,
+  ;;   SchemeKind); see env.wat HEAP RECORD LAYOUTS comment.
   ;;
   ;;   Per H6 wildcard discipline: $generalize dispatches explicitly on
   ;;   ALL 5 NodeKind variants (NBOUND/NFREE/NROWBOUND/NROWFREE/

@@ -1391,21 +1391,33 @@
   ;;             $env_extend,
   ;;             $env_scope_enter, $env_scope_exit,
   ;;             $env_scope_depth,
-  ;;             $env_binding_make, $env_binding_name, $env_binding_handle
-  ;; Uses:       $alloc (alloc.wat), $make_record/$record_get/$record_set
-  ;;             (record.wat), $make_list/$list_index/$list_set/
+  ;;             $env_binding_make,
+  ;;             $env_binding_name, $env_binding_scheme,
+  ;;             $env_binding_reason, $env_binding_kind,
+  ;;             $schemekind_make_fn, $schemekind_make_ctor,
+  ;;             $schemekind_make_effectop, $schemekind_make_record,
+  ;;             $schemekind_make_capability,
+  ;;             $schemekind_ctor_tag_id, $schemekind_ctor_total,
+  ;;             $schemekind_effectop_name,
+  ;;             $schemekind_record_fields,
+  ;;             $schemekind_capability_pairs,
+  ;;             $schemekind_tag, $schemekind_wire_byte
+  ;; Uses:       $alloc (alloc.wat), $make_record/$record_get/$record_set/
+  ;;             $tag_of (record.wat), $make_list/$list_index/$list_set/
   ;;             $list_extend_to/$len (list.wat),
-  ;;             $str_eq (str.wat)
+  ;;             $str_eq (str.wat), $heap_base (Layer 0 shell)
   ;; Test:       runtime_test/env.wat
   ;;
   ;; ═══ DESIGN ═══════════════════════════════════════════════════════
   ;; Per Hβ §1.2 + src/types.nx Env discipline:
   ;;
   ;; State lives in module-level globals — a stack of scope frames.
-  ;; Each scope frame is a flat list of (name, handle) binding records.
-  ;; $env_lookup walks the stack from innermost (top) to outermost
-  ;; (bottom) and returns the first matching handle. $env_extend
-  ;; pushes a new binding onto the topmost frame.
+  ;; Each scope frame is a flat list of 4-field binding records
+  ;; (name, scheme, reason, kind) per the canonical Env entry shape
+  ;; (src/types.nx:78-110 + src/cache.nx:145-183, 416-456). $env_lookup
+  ;; walks the stack from innermost to outermost and returns the first
+  ;; matching binding record (caller projects via the four accessors).
+  ;; $env_extend pushes a new 4-tuple binding onto the topmost frame.
   ;;
   ;; The seed's HM inference (Hβ.infer — Wave 2.E) calls these
   ;; primitives during compilation to track let-bindings, function
@@ -1423,28 +1435,48 @@
   ;;
   ;; ═══ HEAP RECORD LAYOUTS ═══════════════════════════════════════════
   ;;
-  ;; Binding (name, handle):
-  ;;   $make_record(ENV_BINDING_TAG=130, arity=2)
-  ;;     offset 8:  field_0 = name (heap-allocated string ptr; str.wat layout)
-  ;;     offset 12: field_1 = handle (i32 — graph handle)
+  ;; Per src/types.nx (post-item-2: SchemeKind has 5 variants) +
+  ;; src/cache.nx:145-183, 416-456 (canonical wire format) +
+  ;; src/infer.nx:219, 233, 279, 368, 380-389, 600-614, 794, 861,
+  ;; 1589-1591, 2009, 2051-2058, 2094-2097, 2104-2108 (call sites
+  ;; that read the four-tuple). The env entry shape is canonical:
+  ;;   Env entry = (name, Scheme, Reason, SchemeKind).
   ;;
-  ;; Scope frame: flat list of binding pointers.
+  ;; Binding (4-field record):
+  ;;   $make_record(ENV_BINDING_TAG=130, arity=4)
+  ;;     offset  8: field_0 = name        (heap-allocated string ptr)
+  ;;     offset 12: field_1 = scheme_ptr  (Scheme record from
+  ;;                                       infer/scheme.wat — SCHEME_TAG=200)
+  ;;     offset 16: field_2 = reason_ptr  (Reason record; tagged 220-242
+  ;;                                       per infer/reason.wat)
+  ;;     offset 20: field_3 = kind_ptr    (SchemeKind record; tagged
+  ;;                                       131-135 per the SchemeKind block)
   ;;
-  ;; Tag allocation: env.wat private region 130-149 (avoids graph.wat
-  ;; range 50-99 and TokenKind sentinels 0-44).
-  ;;   130   ENV_BINDING_TAG  — (name, handle) binding
-  ;;   131-149 reserved for future env-substrate records
+  ;; Scope frame: flat list of binding pointers (unchanged shape).
+  ;;
+  ;; Tag allocation: env.wat private region 130-149.
+  ;;   130   ENV_BINDING_TAG               — 4-field binding
+  ;;   131   SCHEMEKIND_FN_TAG             — FnScheme (nullary sentinel)
+  ;;   132   SCHEMEKIND_CTOR_TAG           — ConstructorScheme(tag_id, total)
+  ;;   133   SCHEMEKIND_EFFECTOP_TAG       — EffectOpScheme(name)
+  ;;   134   SCHEMEKIND_RECORD_TAG         — RecordSchemeKind(fields)
+  ;;   135   SCHEMEKIND_CAPABILITY_TAG     — CapabilityScheme(eff_pairs)
+  ;;   136-149 reserved for future env-substrate records
+  ;;
+  ;; SchemeKind tag-byte invariant: runtime_tag - 131 == cache_wire_byte.
+  ;;   FnScheme              → byte 0  (cache.nx:165)
+  ;;   ConstructorScheme     → byte 1  (cache.nx:166-170)
+  ;;   EffectOpScheme        → byte 2  (cache.nx:171-174)
+  ;;   RecordSchemeKind      → byte 3  (cache.nx:175-179)
+  ;;   CapabilityScheme      → byte 4  (cache.nx:180-184)
+  ;; Drift-mode-8 closed by ADT dispatch on the runtime tag — NEVER
+  ;; by `mode == 0/1/2/3/4` int.
   ;;
   ;; ═══ NOT-FOUND CONVENTION ═════════════════════════════════════════
-  ;; $env_lookup returns 0 when the name is not bound (handle 0 is the
-  ;; first fresh allocation if any; callers must distinguish via
-  ;; $env_contains or $env_lookup_or which takes a sentinel default).
-  ;; Per src/graph.nx overlay_find precedent (returns count = past-
-  ;; valid-index sentinel); the seed's idiom is "lookup returns 0;
-  ;; callers wrap with $env_contains for presence tests."
-  ;;
-  ;; Future Hβ.infer may want a richer return (e.g., (handle, scope_idx)
-  ;; tuple) — that's a substrate extension under env.wat's follow-up.
+  ;; $env_lookup returns 0 (null) when name not bound. Bound bindings
+  ;; are >= HEAP_BASE (4096); collision-free. Returned pointer (when
+  ;; found) IS the binding record; callers project via the four
+  ;; $env_binding_* accessors.
 
   ;; ─── Module-level globals ─────────────────────────────────────────
   ;; $env_scopes_ptr — flat list of scope-frame pointers (each frame
@@ -1468,20 +1500,93 @@
     ;; Push the outermost (global) scope.
     (call $env_scope_enter))
 
-  ;; ─── Binding constructors + accessors ────────────────────────────
+  ;; ─── SchemeKind constructors + accessors ─────────────────────────
+  ;; Five canonical variants per src/types.nx:105-110 + cache.nx:162-184.
 
-  (func $env_binding_make (param $name i32) (param $handle i32) (result i32)
+  ;; FnScheme — nullary; sentinel-encoded as the tag itself (no record).
+  (func $schemekind_make_fn (result i32)
+    (i32.const 131))
+
+  ;; ConstructorScheme(tag_id: Int, total: Int)
+  (func $schemekind_make_ctor (param $tag_id i32) (param $total i32) (result i32)
+    (local $r i32)
+    (local.set $r (call $make_record (i32.const 132) (i32.const 2)))
+    (call $record_set (local.get $r) (i32.const 0) (local.get $tag_id))
+    (call $record_set (local.get $r) (i32.const 1) (local.get $total))
+    (local.get $r))
+
+  (func $schemekind_ctor_tag_id (param $k i32) (result i32)
+    (call $record_get (local.get $k) (i32.const 0)))
+
+  (func $schemekind_ctor_total (param $k i32) (result i32)
+    (call $record_get (local.get $k) (i32.const 1)))
+
+  ;; EffectOpScheme(effect_name: String)
+  (func $schemekind_make_effectop (param $effect_name i32) (result i32)
+    (local $r i32)
+    (local.set $r (call $make_record (i32.const 133) (i32.const 1)))
+    (call $record_set (local.get $r) (i32.const 0) (local.get $effect_name))
+    (local.get $r))
+
+  (func $schemekind_effectop_name (param $k i32) (result i32)
+    (call $record_get (local.get $k) (i32.const 0)))
+
+  ;; RecordSchemeKind(fields: List of (name, ty) pairs)
+  (func $schemekind_make_record (param $fields i32) (result i32)
+    (local $r i32)
+    (local.set $r (call $make_record (i32.const 134) (i32.const 1)))
+    (call $record_set (local.get $r) (i32.const 0) (local.get $fields))
+    (local.get $r))
+
+  (func $schemekind_record_fields (param $k i32) (result i32)
+    (call $record_get (local.get $k) (i32.const 0)))
+
+  ;; CapabilityScheme(eff_pairs: List of (EffName, Bool) pairs)
+  (func $schemekind_make_capability (param $eff_pairs i32) (result i32)
+    (local $r i32)
+    (local.set $r (call $make_record (i32.const 135) (i32.const 1)))
+    (call $record_set (local.get $r) (i32.const 0) (local.get $eff_pairs))
+    (local.get $r))
+
+  (func $schemekind_capability_pairs (param $k i32) (result i32)
+    (call $record_get (local.get $k) (i32.const 0)))
+
+  ;; SchemeKind tag dispatch — sentinel-collapse for FnScheme.
+  (func $schemekind_tag (param $k i32) (result i32)
+    (if (i32.lt_u (local.get $k) (global.get $heap_base))
+      (then (return (local.get $k))))
+    (call $tag_of (local.get $k)))
+
+  ;; SchemeKind wire-byte projection — round-trip with cache.nx pack_byte.
+  (func $schemekind_wire_byte (param $k i32) (result i32)
+    (i32.sub (call $schemekind_tag (local.get $k)) (i32.const 131)))
+
+  ;; ─── Binding constructors + accessors ────────────────────────────
+  ;; 4-field record: (name, scheme, reason, kind). Tag 130.
+
+  (func $env_binding_make
+        (param $name i32) (param $scheme i32)
+        (param $reason i32) (param $kind i32)
+        (result i32)
     (local $b i32)
-    (local.set $b (call $make_record (i32.const 130) (i32.const 2)))
+    (local.set $b (call $make_record (i32.const 130) (i32.const 4)))
     (call $record_set (local.get $b) (i32.const 0) (local.get $name))
-    (call $record_set (local.get $b) (i32.const 1) (local.get $handle))
+    (call $record_set (local.get $b) (i32.const 1) (local.get $scheme))
+    (call $record_set (local.get $b) (i32.const 2) (local.get $reason))
+    (call $record_set (local.get $b) (i32.const 3) (local.get $kind))
     (local.get $b))
 
   (func $env_binding_name (param $b i32) (result i32)
     (call $record_get (local.get $b) (i32.const 0)))
 
-  (func $env_binding_handle (param $b i32) (result i32)
+  (func $env_binding_scheme (param $b i32) (result i32)
     (call $record_get (local.get $b) (i32.const 1)))
+
+  (func $env_binding_reason (param $b i32) (result i32)
+    (call $record_get (local.get $b) (i32.const 2)))
+
+  (func $env_binding_kind (param $b i32) (result i32)
+    (call $record_get (local.get $b) (i32.const 3)))
 
   ;; ─── Scope management ────────────────────────────────────────────
 
@@ -1526,23 +1631,26 @@
           (i32.sub (global.get $env_scope_count_g) (i32.const 1))))))
 
   ;; ─── Extend (push binding to current scope) ──────────────────────
-  ;; $env_extend(name, handle) — append (name, handle) binding to the
-  ;; current (topmost) scope frame. No shadowing check at the WAT
-  ;; level — Hβ.infer's lexical-scoping discipline handles shadowing
-  ;; semantics; later bindings shadow earlier ones via $env_lookup's
-  ;; reverse-walk semantics.
-  (func $env_extend (param $name i32) (param $handle i32)
+  ;; $env_extend(name, scheme, reason, kind) — append a 4-field
+  ;; binding to the current (topmost) scope frame. Mirrors canonical
+  ;; src/infer.nx perform env_extend at lines 219, 233, 251, 279, 368,
+  ;; 1589-1591, 2009, 2051, 2057, 2061, 2094, 2105.
+  (func $env_extend
+        (param $name i32) (param $scheme i32)
+        (param $reason i32) (param $kind i32)
     (local $current_idx i32) (local $frame i32) (local $frame_len i32) (local $binding i32)
     (call $env_init)
     (if (i32.eqz (global.get $env_scope_count_g))
-      (then (return)))   ;; no current scope — silent no-op (defensive)
+      (then (return)))
     (local.set $current_idx
       (i32.sub (global.get $env_scope_count_g) (i32.const 1)))
     (local.set $frame (call $list_index (global.get $env_scopes_ptr)
                                         (local.get $current_idx)))
     (local.set $frame_len (call $len (local.get $frame)))
-    (local.set $binding (call $env_binding_make (local.get $name) (local.get $handle)))
-    ;; Append to frame: extend + set + replace in scopes list.
+    (local.set $binding
+      (call $env_binding_make
+        (local.get $name) (local.get $scheme)
+        (local.get $reason) (local.get $kind)))
     (local.set $frame
       (call $list_set
         (call $list_extend_to (local.get $frame)
@@ -1555,30 +1663,24 @@
                       (local.get $frame))))
 
   ;; ─── Lookup ──────────────────────────────────────────────────────
-  ;; $env_lookup(name) — walks scopes from innermost (top) to
-  ;; outermost (bottom), and within each scope walks bindings from
-  ;; last-pushed to first (so later bindings shadow earlier ones at
-  ;; the same scope). Returns the matching handle on first hit, or 0
-  ;; if not bound anywhere.
+  ;; $env_lookup(name) — returns matching BINDING RECORD (4-field
+  ;; (name, scheme, reason, kind) per ENV_BINDING_TAG=130) on first
+  ;; hit, or 0 if not bound. Callers project via $env_binding_scheme
+  ;; / $env_binding_reason / $env_binding_kind.
   (func $env_lookup (param $name i32) (result i32)
     (call $env_lookup_or (local.get $name) (i32.const 0)))
 
-  ;; $env_lookup_or(name, default) — returns default when name is
-  ;; not bound. Useful when 0 is a valid handle and the caller wants
-  ;; a different sentinel.
   (func $env_lookup_or (param $name i32) (param $default i32) (result i32)
     (local $scope_idx i32) (local $frame i32)
     (local $binding_idx i32) (local $binding i32)
     (call $env_init)
     (local.set $scope_idx (global.get $env_scope_count_g))
-    ;; Outer loop: scopes from current down to 0.
     (block $outer_done
       (loop $scope_loop
         (br_if $outer_done (i32.eqz (local.get $scope_idx)))
         (local.set $scope_idx (i32.sub (local.get $scope_idx) (i32.const 1)))
         (local.set $frame
           (call $list_index (global.get $env_scopes_ptr) (local.get $scope_idx)))
-        ;; Inner loop: bindings within the frame from last to first.
         (local.set $binding_idx (call $len (local.get $frame)))
         (block $inner_done
           (loop $binding_loop
@@ -1588,7 +1690,7 @@
               (call $list_index (local.get $frame) (local.get $binding_idx)))
             (if (call $str_eq (call $env_binding_name (local.get $binding))
                               (local.get $name))
-              (then (return (call $env_binding_handle (local.get $binding)))))
+              (then (return (local.get $binding))))
             (br $binding_loop)))
         (br $scope_loop)))
     (local.get $default))
@@ -6643,9 +6745,11 @@
   ;;   The aspirational $set_diff form lands when env iteration becomes
   ;;   needed by other surfaces (e.g., better diagnostic precision on
   ;;   "this var was generalized over a free env handle"). That's a
-  ;;   named follow-up alongside the env_binding_make extension that
-  ;;   accepts (scheme, reason) per Hβ-infer §4.2 — both extensions
-  ;;   land together when env_for_each_binding becomes a primitive.
+  ;;   named follow-up alongside an `$env_for_each_binding` primitive.
+  ;;   The (scheme, reason) two-arg form Hβ-infer §4.2 named is now
+  ;;   superseded — env.wat's $env_extend takes the canonical four-
+  ;;   tuple directly per ROADMAP item 1 (name, Scheme, Reason,
+  ;;   SchemeKind); see env.wat HEAP RECORD LAYOUTS comment.
   ;;
   ;;   Per H6 wildcard discipline: $generalize dispatches explicitly on
   ;;   ALL 5 NodeKind variants (NBOUND/NFREE/NROWBOUND/NROWFREE/

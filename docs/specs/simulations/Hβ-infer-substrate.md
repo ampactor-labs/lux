@@ -482,12 +482,14 @@ generalize-and-extend-env arm:
                     (call $scheme_to_env_value (local.get $scheme))))
 ```
 
-`$scheme_to_env_value(scheme)` packages (scheme, reason) per env's
-Tier-3 binding shape. (Currently env.wat's $env_binding_make takes
-just (name, handle); accepting (scheme, reason) is the natural
-extension — env.wat's Tier-3 binding shape can grow per the
-Hβ.infer follow-up; or env.wat is augmented with $env_binding_make_full
-in this chunk's prelude.)
+`$scheme_to_env_value(scheme)` is no longer needed at the WAT layer:
+env.wat's `$env_extend` takes the four-tuple (name, scheme, reason,
+kind) directly per ROADMAP item 1's canonicalization. Callers compose
+the kind via `$schemekind_make_*` constructors; the binding record
+stores all four fields per `ENV_BINDING_TAG=130, arity=4`. Mirrors
+canonical src/infer.nx's `perform env_extend(name, scheme, reason,
+kind)` at lines 219, 233, 279, 368, 1589-1591, 2009, 2051, 2057,
+2061, 2094, 2105.
 
 ### 4.3 Worked patterns by spec 04 production
 
