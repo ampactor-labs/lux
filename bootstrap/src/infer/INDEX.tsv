@@ -1,0 +1,54 @@
+# bootstrap/src/infer/INDEX.tsv
+#
+# The dependency graph for Layer 4 (inference) substrate chunks. Each
+# row declares one chunk + its tier + its Hβ-infer-substrate.md §
+# citation + its imports (must be defined in priors). build.sh
+# assembles per this order; future drift-audit verifies imports
+# resolve before chunk lands.
+#
+# Design contract: docs/specs/simulations/Hβ-infer-substrate.md
+#   §1  — module-level state (state.wat)
+#   §2  — Scheme substrate (scheme.wat)
+#   §2.3 — Ty tag conventions (ty.wat — coordinated with Hβ.lower)
+#   §3  — unification primitive (unify.wat)
+#   §4  — the walk (walk_expr.wat / walk_stmt.wat)
+#   §5  — ownership inference inline (own.wat)
+#   §6  — per-edit-site eight interrogations
+#   §7  — forbidden patterns
+#   §8  — chunk decomposition (this file follows §8.1)
+#   §13.3 — sub-handle dependency order
+#
+# Per the eight interrogations on Hβ.infer structure (mirroring the
+# runtime/INDEX.tsv discipline at the inference layer):
+#   Graph?       — this file IS the dep graph for Layer 4 chunks
+#   Handler?     — build.sh is the assembler-handler reading this
+#   Verb?        — chunk concatenation is `|>` per row order
+#   Row?         — each chunk's "uses" column declares its symbol-row
+#   Ownership?   — each chunk OWNS its exports; consumers `ref` them
+#   Refinement?  — Hβ-infer-substrate.md § cite IS the per-chunk
+#                  refinement contract
+#   Gradient?    — each row added unlocks one inference capability
+#   Reason?      — hβ_section + commit message records why each landed
+#
+# Tiers (dependency depth FROM the inference layer's point of view —
+# Layer 4 sits atop Layer 1 runtime substrate which provides Tier 0-4
+# of its own dep stack; see runtime/INDEX.tsv for that):
+#   4 — depends only on Layer 1 runtime substrate (no infer-layer deps)
+#   5 — depends on Tier 4 + Layer 1 runtime
+#   6 — depends on Tier 5 + Tier 4 + Layer 1 runtime
+#   7 — depends on Tier 6 + Tier 5 + Tier 4 + Layer 1 runtime
+#   8 — depends on Tier 7 + ... (orchestrator)
+#
+# Status markers (matching runtime/INDEX.tsv):
+#   ✓     landed
+#   ~     in-flight
+#   (blank) pending
+#
+# Future rows (reason.wat / ty.wat / scheme.wat / emit_diag.wat /
+# unify.wat / own.wat / walk_expr.wat / walk_stmt.wat / main.wat) get
+# appended as their chunks land per Hβ-infer-substrate.md §13.3
+# dep order. NO placeholder rows for unlanded chunks per the residue
+# tracker convention.
+
+chunk	tier	status	hβ_section	exports	uses
+state.wat	4	✓	§1	$infer_init $infer_ref_escape_push $infer_ref_escape_len $infer_fn_stack_push $infer_fn_stack_pop $infer_fn_stack_top $infer_fn_stack_len $infer_span_index_append $infer_intent_index_append $infer_reset_walk	$alloc $make_list $list_set $list_index $list_extend_to $len $make_record $record_get $record_set

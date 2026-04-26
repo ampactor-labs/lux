@@ -73,7 +73,15 @@ CHUNKS=(
   "bootstrap/src/parser_compound.wat"
   "bootstrap/src/parser_toplevel.wat"
 
-  # ── Layer 4: Emitter ──
+  # ── Layer 4: Inference (per Hβ-infer-substrate.md) ──
+  # Per Hβ-infer-substrate.md §8.2 the eventual full layer holds 10
+  # chunks (state / reason / ty / scheme / emit_diag / unify / own /
+  # walk_expr / walk_stmt / main); this commit opens the layer with
+  # state.wat (the per-walk scratchpads). Subsequent chunks land per
+  # Hβ-infer-substrate.md §13.3 dep order.
+  "bootstrap/src/infer/state.wat"        # Tier 4 (uses $alloc + list + record; Hβ.infer §1)
+
+  # ── Layer 5: Emitter ──
   "bootstrap/src/emit_data.wat"
   "bootstrap/src/emit_infra.wat"
   "bootstrap/src/emit_expr.wat"
