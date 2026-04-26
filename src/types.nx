@@ -94,12 +94,20 @@ type Scheme
 // EffectOpScheme(effect_name) is the declaring effect's name.
 // `perform op_name(args)` reads this to know which effect this op
 // participates in without re-inspecting the row.
+//
+// CapabilityScheme(eff_pairs) carries the `(EffName, Bool)` pairs
+// declared in `capability Foo = E1 + E2 + !E3`. `expand_capabilities`
+// reads this at effect-row build time and substitutes the bundle's
+// contents inline at every reference site. The Scheme stored beside it
+// is the degenerate `Forall([], TTuple([]))` — capabilities are not
+// callable values; the SchemeKind variant carries the real payload.
 
 type SchemeKind
   = FnScheme
   | ConstructorScheme(TagId, Int)
   | EffectOpScheme(String)
   | RecordSchemeKind(List)               // [(field_name: String, ty: Ty)] declared
+  | CapabilityScheme(List)               // [(EffName, Bool)] expansion bundle
 
 // The Boolean algebra lives as functions in effects.nx; the ADT
 // lives here so every module that speaks types can speak rows.

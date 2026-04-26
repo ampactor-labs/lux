@@ -44,7 +44,10 @@ type KaiFile = {
 //   v5 — B.9 LFeedback emit completed (load-prior + state-globals
 //        prologue; cache invalidates because emitted WAT shape
 //        differs at every LFeedback site)
-fn cache_compiler_version() with Pure = 5
+//   v6 — SchemeKind canonicalization: CapabilityScheme(List) variant
+//        added (env entries for `capability` decls round-trip through
+//        Pack/Unpack with new tag byte 4)
+fn cache_compiler_version() with Pure = 6
 
 /// 32-bit FNV-1a hash of the source bytes. Non-cryptographic;
 /// collision resistance is sufficient for cache invalidation.
@@ -156,7 +159,8 @@ fn cache_pack_scheme(scheme) with Pack + !Unpack = {
   cache_pack_ty(ty)
 }
 
-// SchemeKind tags: 0=FnScheme, 1=ConstructorScheme, 2=EffectOpScheme, 3=RecordSchemeKind
+// SchemeKind tags: 0=FnScheme, 1=ConstructorScheme, 2=EffectOpScheme,
+//                  3=RecordSchemeKind, 4=CapabilityScheme
 fn cache_pack_kind(kind) with Pack + !Unpack = match kind {
   FnScheme => perform pack_byte(0),
   ConstructorScheme(tag, total) => {
@@ -172,6 +176,11 @@ fn cache_pack_kind(kind) with Pack + !Unpack = match kind {
     perform pack_byte(3)
     perform pack_i32(len(fields))
     cache_pack_fields(fields, 0, len(fields))
+  },
+  CapabilityScheme(eff_pairs) => {
+    perform pack_byte(4)
+    perform pack_i32(len(eff_pairs))
+    cache_pack_eff_pairs(eff_pairs, 0, len(eff_pairs))
   }
 }
 
@@ -311,6 +320,17 @@ fn cache_pack_effnames(names, i, n) with Pack + !Unpack =
     cache_pack_effnames(names, i + 1, n)
   }
 
+// CapabilityScheme payload — `(EffName, Bool)` pairs. The trailing byte
+// records whether the effect was declared negated within the bundle.
+fn cache_pack_eff_pairs(pairs, i, n) with Pack + !Unpack =
+  if i >= n { () }
+  else {
+    let (name, negated) = list_index(pairs, i)
+    cache_pack_effname(name)
+    perform pack_byte(if negated { 1 } else { 0 })
+    cache_pack_eff_pairs(pairs, i + 1, n)
+  }
+
 // EffName tags: 0=ENamed, 1=EParameterized
 fn cache_pack_effname(name) with Pack + !Unpack = match name {
   ENamed(s) => {
@@ -426,6 +446,11 @@ fn cache_unpack_kind() with Unpack + !Pack = {
     let n_fields = perform unpack_i32()
     let fields = cache_unpack_fields(n_fields, 0, make_list(n_fields))
     RecordSchemeKind(fields)
+  }
+  else if tag == 4 {
+    let n_pairs = perform unpack_i32()
+    let pairs = cache_unpack_eff_pairs(n_pairs, 0, make_list(n_pairs))
+    CapabilityScheme(pairs)
   }
   else { FnScheme }
 }
@@ -561,6 +586,15 @@ fn cache_unpack_effnames(n, i, buf) with Unpack + !Pack =
   else {
     let name = cache_unpack_effname()
     cache_unpack_effnames(n, i + 1, list_set(buf, i, name))
+  }
+
+fn cache_unpack_eff_pairs(n, i, buf) with Unpack + !Pack =
+  if i >= n { slice(buf, 0, n) }
+  else {
+    let name = cache_unpack_effname()
+    let neg_byte = perform unpack_byte()
+    let negated = neg_byte != 0
+    cache_unpack_eff_pairs(n, i + 1, list_set(buf, i, (name, negated)))
   }
 
 fn cache_unpack_effname() with Unpack + !Pack = {
