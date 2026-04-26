@@ -25,11 +25,11 @@
 // complete state.
 //
 // Authority:
-// - INSIGHTS.md §"Incremental Compilation: Purity Enables Caching" (L480-505)
-// - INSIGHTS.md §"Inference IS the Light" (L50-66)
-// - INSIGHTS.md §"The Duty of Inference is Reification" (L77-90)
-// - INSIGHTS.md §"The Hole Is the Gradient's Absence Marker" (commit 7505ade)
-// - INSIGHTS.md §"Feedback Is Inka's Genuine Novelty" (L1761-1796)
+// - SUBSTRATE.md §"Incremental Compilation: Purity Enables Caching" (L480-505)
+// - SUBSTRATE.md §"Inference IS the Light" (L50-66)
+// - SUBSTRATE.md §"The Duty of Inference is Reification" (L77-90)
+// - SUBSTRATE.md §"The Hole Is the Gradient's Absence Marker" (commit 7505ade)
+// - SUBSTRATE.md §"Feedback Is Inka's Genuine Novelty" (L1761-1796)
 // - CLAUDE.md Mentl's anchor + eight interrogations
 // - src/mentl.nx:155-175 (existing speculative loop — extends here)
 // - src/graph.nx graph_handler (trail substrate already in place)

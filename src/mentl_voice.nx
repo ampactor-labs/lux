@@ -74,7 +74,7 @@ type GradientStep
 type EnvEntry
   = EnvEntry(String, Scheme, Reason, SchemeKind)
 
-/// The ~> chain is a capability stack (INSIGHTS.md "The Handler Chain
+/// The ~> chain is a capability stack (SUBSTRATE.md "The Handler Chain
 /// Is a Capability Stack"). HandlerEntry captures one position in it:
 /// handler name, the effects it absorbs, and the Reason that placed
 /// it here. Mentl's Unlock tentacle reads this to surface "this

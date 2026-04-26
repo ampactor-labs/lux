@@ -45,7 +45,7 @@
 // - src/lower.nx + src/backends/wasm.nx (commits 4236b96 + ad78384 +
 //   bafd63a — LMakeContinuation runtime substrate that this file's
 //   MultiShot handlers depend on)
-// - INSIGHTS.md §"Inference IS the Light" (L50-66), §"The Continuous
+// - SUBSTRATE.md §"Inference IS the Light" (L50-66), §"The Continuous
 //   Oracle IS Incremental Compilation Plus One Cached Value" (commit
 //   636c365)
 

@@ -43,7 +43,7 @@ Other documents remain authoritative in their own layer:
 
 - `CLAUDE.md` — discipline, anchors, drift modes, session-zero method
 - `docs/DESIGN.md` — manifesto and kernel thesis
-- `docs/INSIGHTS.md` — crystallized truths
+- `docs/SUBSTRATE.md` — canonical substrate (kernel, verbs, algebra, handlers, gradient, refinement, theorems)
 - `docs/specs/00-11-*.md` — per-module contracts
 - `docs/specs/simulations/*.md` — handle-level design contracts
 
@@ -59,7 +59,7 @@ Before any substrate proposal or code edit:
 
 1. Read `CLAUDE.md`.
 2. Read `docs/DESIGN.md`.
-3. Read `docs/INSIGHTS.md`.
+3. Read `docs/SUBSTRATE.md` cursor-adjacent (not bulk).
 4. Read this file, `ROADMAP.md`.
 5. Read the relevant walkthrough(s) for the handle being touched.
 6. Read the relevant `docs/specs/00-11-*.md` module contract(s).
@@ -303,7 +303,7 @@ layers. Wrong semantics here cascade outward.
 
 - `CLAUDE.md`
 - `docs/DESIGN.md`
-- `docs/INSIGHTS.md`
+- `docs/SUBSTRATE.md` (cursor-adjacent §I, §IV, §VII for this lane)
 - `ROADMAP.md`
 - `docs/specs/04-inference.md`
 - `docs/specs/simulations/Hβ-infer-substrate.md`
@@ -522,7 +522,7 @@ Historical roadmap detail belongs in:
 
 - git history
 - walkthrough history
-- `docs/INSIGHTS.md` crystallizations
+- `docs/SUBSTRATE.md` crystallizations
 - old roadmap files as archived compatibility pointers
 
 The live roadmap should stay optimized for:

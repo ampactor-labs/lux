@@ -111,8 +111,8 @@ framing is architectural, not decorative.**
 - **[`docs/DESIGN.md`](docs/DESIGN.md)** — the manifesto. §0.5
   enumerates the kernel; twelve chapters develop it. Every
   cascade decision rests on it.
-- **[`docs/INSIGHTS.md`](docs/INSIGHTS.md)** — the crystallized
-  truths; composition consequences of the kernel.
+- **[`docs/SUBSTRATE.md`](docs/SUBSTRATE.md)** — canonical substrate;
+  kernel, verbs, algebra, handlers, gradient, refinement, theorems.
 - **[`docs/SYNTAX.md`](docs/SYNTAX.md)** — the canonical syntax;
   every parser decision implements something here.
 - **[`ROADMAP.md`](ROADMAP.md)** — the canonical roadmap. Current
@@ -182,12 +182,12 @@ std/
   dsp/                    — DSP examples (signal, spectral)
   ml/                     — ML examples (autodiff)
 
+ROADMAP.md                — canonical roadmap (repo root)
 docs/
   DESIGN.md               — the manifesto (§0.5 = the kernel)
-  ROADMAP.md              — canonical roadmap
+  SUBSTRATE.md            — canonical substrate (kernel, verbs, algebra, handlers, gradient, refinement, theorems)
   SYNTAX.md               — canonical syntax
-  INSIGHTS.md             — crystallized truths
-  rebuild/                — twelve executable specs (00–11)
+  specs/                  — twelve executable specs (00–11)
     simulations/          — per-handle cascade walkthroughs
   traces/
     a-day.md              — post-cascade integration trace
