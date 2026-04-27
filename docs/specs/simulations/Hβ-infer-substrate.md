@@ -805,7 +805,7 @@ After unify.wat:
 | unify.wat | ~700 | spec 04 §Unification + spec 01 §Unification rules |
 | own.wat | ~280-340 | spec 04 §Ownership + spec 07 + emit_diag.wat:189-195 contract (OwnershipViolation diagnostic helper lands here per ROADMAP §4 closure pattern; revised 2026-04-26 from ~150 per affine ledger + branch protocol + 3 emit helpers + ledger substrate landing in one commit) |
 | walk_expr.wat | ~1500 | spec 03 + spec 04 §What the walk produces (revised 2026-04-26 per Wave 2.E.infer.walk_expr landing — header+forbidden-patterns block + 22 per-Expr-variant arms + 5 PipeKind sub-arms + 12 private helpers + 29 data-segment Reason-inner strings; landed 1523 lines vs. earlier ~900 estimate; the ~600-line overshoot is per-arm verbosity around Reason composition and TFun construction at CallExpr / LambdaExpr / FieldExpr / PForward, plus the explicit dispatch-by-tag chain in $infer_walk_expr) |
-| walk_stmt.wat | ~400 | spec 03 + spec 04 |
+| walk_stmt.wat | ~400 (landed 713 incl. ~280-line header per Wave 2.E.infer.walk_stmt commit; 12 public exports — Stmt-tag dispatch over parser tags 120-128 + LetStmt/FnStmt fully wired + 5 inert seed-stubs per named follow-ups + closure of walk_expr.wat:824 BlockExpr §13.3 #9 forward-decl) | spec 03 + spec 04 |
 | main.wat | ~150 | this walkthrough §10 + Hβ-bootstrap §1.16 |
 | **TOTAL** | **~4900** | (revised 2026-04-26 from ~4300 per walk_expr.wat overshoot) |
 

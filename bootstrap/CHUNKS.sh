@@ -75,6 +75,7 @@ CHUNKS=(
   "bootstrap/src/infer/unify.wat"        # Tier 6 (uses graph + ty + tparam + scheme + reason + emit_diag; Hβ.infer §3 + §6.2 + §7.1 + §8.1 + §8.4 + §11; 25 exports — type unification engine)
   "bootstrap/src/infer/own.wat"          # Tier 7 (uses alloc + str + int + list + record + wasi + graph + state + reason; Hβ.infer §5 + §6.2 + §7.3 + §8.1 + §11; 11 exports — affine ledger + branch protocol + ref-escape + 3 OwnershipViolation diagnostic helpers per emit_diag.wat:189-195 delegation)
   "bootstrap/src/infer/walk_expr.wat"    # Tier 7 (uses alloc + str + int + list + record + wasi + graph + env + state + reason + ty + tparam + scheme + emit_diag + unify + own; Hβ.infer §3 + §4.1 + §4.3 + §5 + §6.3 + §7.2 + §8.1 + §8.4 + §9 + §11; 29 public exports — Expr-tag dispatch + per-variant arms over parser tags 80-101; inert seed-stubs for row + handler-stack + region tracking per named follow-ups)
+  "bootstrap/src/infer/walk_stmt.wat"    # Tier 7 (uses walk_expr + scheme + env + graph + ty + tparam + reason + state + runtime; Hβ.infer §3 + §4.2 + §6.3 + §7.2 + §8.1 + §8.4 + §11.2 + §13.3 #9; 12 public exports — Stmt-tag dispatch over parser tags 120-128 + LetStmt/FnStmt fully wired + 5 inert seed-stubs per named follow-ups in chunk header; closes BlockExpr §13.3 #9 forward-decl)
 
   # ── Layer 5: Emitter ──
   "bootstrap/src/emit_data.wat"

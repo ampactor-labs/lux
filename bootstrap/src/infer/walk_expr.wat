@@ -83,7 +83,8 @@
   ;;               $infer_emit_not_a_record_type (emit_diag.wat),
   ;;             $unify (unify.wat),
   ;;             $infer_consume_use / $infer_branch_enter /
-  ;;               $infer_branch_divider / $infer_branch_exit (own.wat).
+  ;;               $infer_branch_divider / $infer_branch_exit (own.wat),
+  ;;             $infer_stmt_list (walk_stmt.wat — peer Tier 7).
   ;; Test:       bootstrap/test/infer/walk_expr_lit_int.wat,
   ;;             bootstrap/test/infer/walk_expr_var_ref_miss.wat,
   ;;             bootstrap/test/infer/walk_expr_binop_arith.wat,
@@ -257,9 +258,9 @@
   ;; - Hβ.infer.qualified-name: FieldExpr's dotted-name fallback
   ;;   (src/infer.nx:710-722) deferred; seed treats every FieldExpr as
   ;;   record field access.
-  ;; - walk_stmt.wat (peer Tier 7 chunk per §13.3 #9): provides
-  ;;   $infer_stmt_list. BlockExpr arm forward-declares the call; this is
-  ;;   a peer handle, NOT silent deferral.
+  ;; - walk_stmt.wat (peer Tier 7 chunk per §13.3 #9): LANDED. Provides
+  ;;   $infer_stmt_list; BlockExpr arm now calls it directly (Hβ.infer
+  ;;   §13.3 #9 closure complete).
 
   ;; ─── Data segment — Reason-inner string fragments ────────────────────
   ;;
@@ -821,8 +822,11 @@
     ;; Layout: [tag=91][stmts][final_expr]
     (local.set $stmts   (i32.load offset=4 (local.get $expr)))
     (local.set $final_e (i32.load offset=8 (local.get $expr)))
-    (drop (local.get $stmts))   ;; walk_stmt.wat peer chunk (Hβ.infer §13.3 #9)
     (call $env_scope_enter)
+    ;; walk_stmt.wat peer chunk now landed (Hβ.infer §13.3 #9 closed):
+    ;; walk the block's stmts so their let-extends populate env before
+    ;; final_expr's VarRefs read.
+    (call $infer_stmt_list (local.get $stmts))
     (local.set $fh (call $infer_walk_expr (local.get $final_e)))
     (call $graph_bind (local.get $handle)
       (call $ty_make_tvar (local.get $fh))
