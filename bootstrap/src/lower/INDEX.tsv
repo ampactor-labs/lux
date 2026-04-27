@@ -1,0 +1,52 @@
+# bootstrap/src/lower/INDEX.tsv
+#
+# Dependency graph for Layer 5 (lowering) substrate chunks. Each row
+# declares one chunk + its tier + its Hβ-lower-substrate.md § citation
+# + its imports (must be defined in priors). build.sh assembles per
+# this order; future drift-audit verifies imports resolve before chunk
+# lands. Mirror of bootstrap/src/infer/INDEX.tsv discipline.
+#
+# Design contract: docs/specs/simulations/Hβ-lower-substrate.md
+#   §1   — LookupTy + LowerCtx primitives (state.wat + lookup.wat)
+#   §2   — LowExpr ADT shape (lexpr.wat — coordinated tag region 300-349)
+#   §3   — handler elimination ($classify_handler — classify.wat)
+#   §4   — the lowering walk (walk_*.wat)
+#   §5   — per-edit-site eight interrogations
+#   §6   — forbidden patterns
+#   §7.1 — chunk decomposition (this file follows §7.1)
+#   §12.3 — sub-handle dependency order
+#
+# Per the eight interrogations on Hβ.lower structure (mirroring the
+# infer/INDEX.tsv discipline at the lowering layer):
+#   Graph?       — this file IS the dep graph for Layer 5 chunks
+#   Handler?     — build.sh is the assembler-handler reading this
+#   Verb?        — chunk concatenation is `|>` per row order
+#   Row?         — each chunk's "uses" column declares its symbol-row
+#   Ownership?   — each chunk OWNS its exports; consumers `ref` them
+#   Refinement?  — Hβ-lower-substrate.md § cite IS the per-chunk
+#                  refinement contract
+#   Gradient?    — each row added unlocks one lowering capability
+#   Reason?      — hβ_section + commit message records why each landed
+#
+# Tiers (dependency depth — Layer 5 sits atop Layer 1 runtime + Layer 4
+# infer; see runtime/INDEX.tsv + infer/INDEX.tsv for those stacks):
+#   4 — depends only on Layer 1 runtime + env.wat (no other lower-layer deps)
+#   5 — depends on Tier 4 + Layer 1 runtime + Layer 4 infer (ty.wat)
+#   6 — depends on Tier 5 + Tier 4 + lower-layer + infer
+#   7 — depends on Tier 6 + ... per §12.3 dep order
+#   8 — depends on Tier 7 + ...
+#   9 — orchestrator
+#
+# Status markers (matching infer/INDEX.tsv):
+#   ✓     landed
+#   ~     in-flight
+#   (blank) pending
+#
+# Future rows (lookup.wat / lexpr.wat / classify.wat / walk_const.wat /
+# walk_call.wat / walk_handle.wat / walk_compound.wat / walk_stmt.wat /
+# emit_diag.wat / main.wat) get appended as their chunks land per
+# Hβ-lower-substrate.md §12.3 dep order. NO placeholder rows for
+# unlanded chunks per the residue-tracker convention.
+
+chunk	tier	status	hβ_section	exports	uses
+state.wat	4	✓	§1.2	$lower_init $ls_bind_local $ls_lookup_local $ls_lookup_or_capture $ls_reset_function $lower_locals_len $lower_captures_len	$alloc $make_list $list_set $list_index $list_extend_to $len $make_record $record_get $record_set $str_eq $env_contains

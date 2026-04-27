@@ -78,7 +78,18 @@ CHUNKS=(
   "bootstrap/src/infer/walk_stmt.wat"    # Tier 7 (uses walk_expr + scheme + env + graph + ty + tparam + reason + state + runtime; Hβ.infer §3 + §4.2 + §6.3 + §7.2 + §8.1 + §8.4 + §11.2 + §13.3 #9; 12 public exports — Stmt-tag dispatch over parser tags 120-128 + LetStmt/FnStmt fully wired + 5 inert seed-stubs per named follow-ups in chunk header; closes BlockExpr §13.3 #9 forward-decl)
   "bootstrap/src/infer/main.wat"         # Tier 8 (uses walk_stmt.infer_program; Hβ.infer §8.1 + §10.3 + §13.3 #10 — closes the cascade; pipeline-stage boundary $inka_infer; $sys_main retrofit deferred to peer handle Hβ.infer.pipeline-wire pending Hβ.lower)
 
-  # ── Layer 5: Emitter ──
+  # ── Layer 5: Lowering (per Hβ-lower-substrate.md) ──
+  # Per Hβ-lower-substrate.md §7.1 the eventual full layer holds 11
+  # chunks (state / lookup / lexpr / classify / walk_const / walk_call /
+  # walk_handle / walk_compound / walk_stmt / emit_diag / main); chunks
+  # land per §12.3 dep order:
+  #   1. state.wat — per-fn locals/captures ledger (deps: alloc + list +
+  #      record + str + env from runtime/Layer-1 + env.wat).
+  # Subsequent: lookup.wat, lexpr.wat, classify.wat, walk_*.wat,
+  # emit_diag.wat, main.wat.
+  "bootstrap/src/lower/state.wat"        # Tier 4 (uses $alloc + list + record + str_eq + env_contains; Hβ.lower §1.2)
+
+  # ── Layer 6: Emitter ──
   "bootstrap/src/emit_data.wat"
   "bootstrap/src/emit_infra.wat"
   "bootstrap/src/emit_expr.wat"
