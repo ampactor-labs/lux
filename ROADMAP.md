@@ -83,20 +83,25 @@ Current architectural state:
   second**
 - Hβ bootstrap work is the critical path to first-light
 
-Current Hβ.infer bootstrap state:
+Current Hβ.infer bootstrap state — **CASCADE CLOSED (11/11 chunks live)**:
 
-- landed:
-  - `state.wat` — `f1a0ed3`
-  - `reason.wat` — `2609c82`
-  - `ty.wat` — `1d43a73`
-  - `scheme.wat` — `407ba4e`
-  - `emit_diag.wat` — `9496299`
-- pending:
-  - `unify.wat`
-  - `own.wat`
-  - `walk_expr.wat`
-  - `walk_stmt.wat`
-  - `main.wat`
+- landed (Tier 4–8, all live in build):
+  - `state.wat` — `f1a0ed3` (Tier 4)
+  - `reason.wat` — `2609c82` (Tier 5)
+  - `ty.wat` — `1d43a73` (Tier 5)
+  - `tparam.wat` — `b2b9e82` (Tier 5; substrate-gap closure 2026-04-26)
+  - `scheme.wat` — `407ba4e` + recursion parity `b2b9e82` (Tier 5)
+  - `emit_diag.wat` — `9496299` + boundary canonicalization `88992bc` (Tier 6)
+  - `unify.wat` — `facbc3e` (Tier 6 — type unification engine, 25 exports)
+  - `own.wat` — `7d0ebd2` (Tier 7 — affine ledger + branch protocol + ref escape)
+  - `walk_expr.wat` — `48d5674` (Tier 7 — 22 Expr-tag arms, 29 exports)
+  - `walk_stmt.wat` — `945afa2` (Tier 7 — 12 exports, closes §13.3 #9)
+  - `main.wat` — `b6e1f23` (Tier 8 — `$inka_infer` pipeline-stage boundary)
+- closure metrics:
+  - 7,712 lines of inference substrate under `bootstrap/src/infer/`
+  - assembled image: 14,645 lines / 71,095 bytes
+  - 25/25 trace-harnesses PASS; first-light Tier 1 LIVE non-regression
+  - drift-audit clean
 - named follow-up peer handles (per drift-mode-9 discipline):
   - **Hβ.infer.pipeline-wire** — retrofit `$sys_main` (build.sh Layer 6 inline)
     to chain `$inka_infer` between `$parse_program` and `$emit_program`.
@@ -105,10 +110,15 @@ Current Hβ.infer bootstrap state:
     When Hβ.lower's `$inka_lower` lands, `$sys_main` becomes:
     `stdin |> read_all_stdin |> lex |> parse_program |> $inka_infer
     |> $inka_lower |> $emit_program |> proc_exit`.
+  - additional Hβ.infer follow-ups named in chunk headers + walkthrough §12:
+    row-normalize, handler-stack, walk_pat, match-exhaustive,
+    named-record-validate, iterative-context, qualified-name,
+    lambda-params, unaryop-class, region-tracker, docstring-reason,
+    used-binary-search, used-sites-deque, refinement-compose, synth.
 
-Current branch tip at roadmap consolidation time:
+Current branch tip:
 
-- cleanup commit: `039b77b` — ignore local `.codex` artifact
+- `b6e1f23` — `substrate: bootstrap/src/infer/main.wat — Hβ.infer cascade closure`
 
 ---
 
@@ -131,195 +141,64 @@ These are the live operating rules for roadmap execution:
 
 ## Immediate Priority
 
-The immediate correctness lane is **pre-`unify.wat` canonicalization**.
+The pre-`unify.wat` canonicalization lane is **resolved** (all five
+items landed; see Archive below). The Hβ.infer cascade is **closed**
+(11/11 chunks live). Cursor advances to **Hβ.lower**.
 
-Do not push deeper into Hβ.infer bootstrap transcription until these
-five items are resolved.
+The immediate priority is now **Hβ.lower walkthrough audit + first
+chunk dispatch** per `docs/specs/simulations/Hβ-lower-substrate.md`
+(1057 lines; canonical contract for the lowering layer that consumes
+the graph populated by `$inka_infer`).
 
-### 1. Env ABI Canonicalization
+### Hβ.lower Entry Surface
 
-**Problem**
+**The clean handoff** (Hβ-infer-substrate.md §10.3): inference
+produces typed AST + populated graph; lower reads via `$graph_chase`.
+`main.wat` already names the boundary (`$inka_infer`); the next
+pipeline stage will be `$inka_lower`.
 
-`bootstrap/src/runtime/env.wat` stores env bindings as `(name,
-handle)`, while canonical Inka models env entries as `(name, Scheme,
-Reason, SchemeKind)`.
+**Eight interrogations applied to the layer entry**:
 
-**Why this is load-bearing**
+1. Graph?       Reads only — `$graph_chase` over handles bound by infer.
+2. Handler?     Wheel's `lowering_ctx` is OneShot row-accumulation;
+                seed maps to direct WAT call flow.
+3. Verb?        `|>` — `parsed |> $inka_infer |> $inka_lower
+                |> $emit_program`.
+4. Row?         EfPure (LowIR construction is mutation-free at the
+                seed; the gradient enters at Hβ.emit).
+5. Ownership?   AST + graph by shared pointer; LowIR is fresh.
+6. Refinement?  TRefined obligations crystallize into LowIR
+                check-emit calls per spec 05.
+7. Gradient?    LowIR shape determines runtime cost; the layer is
+                where the continuous gradient becomes machine code.
+8. Reason?      Each LowIR node carries the originating AST handle
+                so the Why Engine can walk back through `$graph_chase`.
 
-`walk_expr.wat` and `walk_stmt.wat` need env lookup and env extend to
-compose on the real substrate, not a temporary shape. If they land
-against the current two-field env shape, they will need structural
-rewrite later.
+### Read List For The Lower Lane
 
-**Canonical sources**
+- `docs/specs/simulations/Hβ-lower-substrate.md` (full)
+- `docs/specs/05-lower.md` (canonical contract)
+- `docs/SUBSTRATE.md` §III (handlers), §IX (heap has one story)
+- `src/lower.nx` (canonical wheel — live-observer lowering via
+  `LookupTy`)
+- `bootstrap/src/infer/main.wat` (boundary the cursor has just
+  closed; `$inka_infer` is the upstream signal for Hβ.lower)
+- `bootstrap/src/runtime/graph.wat` (`$graph_chase` is the read API)
 
-- `src/types.nx`
-- `src/infer.nx`
-- `docs/specs/04-inference.md`
-- `docs/specs/simulations/Hβ-infer-substrate.md`
+### Suggested Commit Boundaries For The Lower Lane
 
-**Likely edit sites**
+Cascade discipline (CLAUDE.md Anchor 7) — walkthrough first, audit
+always:
 
-- `bootstrap/src/runtime/env.wat`
-- `bootstrap/src/runtime/INDEX.tsv`
-- `bootstrap/build.sh`
-- any already-landed bootstrap infer chunks that assume handle-only env
-
-**Acceptance**
-
-- env binding shape in bootstrap matches canonical `(name, Scheme,
-  Reason, SchemeKind)`
-- lookup/extend semantics match canonical inference usage
-- Hβ.infer walkthrough text and chunk headers no longer rely on the
-  two-field shape
-
-### 2. SchemeKind Canonicalization
-
-**Problem**
-
-Canonical `SchemeKind` in `src/types.nx` has four variants, but
-`src/infer.nx` still refers to `CapabilityScheme`.
-
-**Why this is load-bearing**
-
-This is a design contradiction, not a cleanup nit. The bootstrap
-cannot honestly transcribe inference and lowering while the canonical
-surface disagrees on a central env classification type.
-
-**Canonical sources**
-
-- `src/types.nx`
-- `src/infer.nx`
-- relevant walkthroughs that mention env entries or capability
-  expansion
-
-**Required result**
-
-One source of truth:
-
-- either `CapabilityScheme` becomes canonical and `types.nx` grows it
-- or capability bundles are re-expressed in the existing four-variant
-  `SchemeKind`
-
-**Acceptance**
-
-- `src/types.nx` and `src/infer.nx` agree
-- roadmap, walkthroughs, and bootstrap work stop referring to two
-  incompatible realities
-
-### 3. `scheme.wat` Recursion Parity
-
-**Problem**
-
-Bootstrap `scheme.wat` leaves TFun params and record fields opaque in
-free-variable collection and substitution, while canonical `src/infer.nx`
-recurses through them.
-
-**Why this is load-bearing**
-
-This affects generalization and instantiation correctness. If left
-unfixed, later Hβ.infer chunks will be built on an intentionally
-weakened type substrate.
-
-**Canonical sources**
-
-- `src/infer.nx` — `free_in_ty`, `free_in_params`, `free_in_fields`,
-  `subst_ty`, `subst_params`, `subst_fields`
-- `src/types.nx` — `TParam` and field shapes
-- `bootstrap/src/infer/scheme.wat`
-
-**Likely edit sites**
-
-- `bootstrap/src/infer/scheme.wat`
-- possibly `bootstrap/src/infer/ty.wat` if helper accessors are
-  missing for parity
-- `bootstrap/src/runtime/record.wat` or list helpers only if new
-  substrate access is genuinely required
-
-**Acceptance**
-
-- bootstrap substitution and free-variable traversal match canonical
-  recursion coverage
-- no “opaque for now” treatment remains for TFun params / record fields
-  unless the canonical source also treats them as opaque
-
-### 4. Diagnostic Boundary Canonicalization
-
-**Problem**
-
-`emit_diag.wat` currently claims a narrower infer-diagnostic surface
-than canonical `src/infer.nx` actually emits.
-
-**Why this is load-bearing**
-
-If diagnostic ownership is fuzzy, `unify.wat`, row-related chunks, and
-walk arms will either duplicate logic or silently omit real canonical
-diagnostics.
-
-**Canonical sources**
-
-- `src/infer.nx` `report(...)` call inventory
-- `docs/errors/*.md`
-- `bootstrap/src/infer/emit_diag.wat`
-- `docs/specs/04-inference.md`
-
-**Required result**
-
-For each diagnostic emitted by canonical inference:
-
-- either it belongs in `emit_diag.wat`
-- or it is explicitly assigned to a peer chunk with a named reason
-
-**Acceptance**
-
-- no bootstrap header or walkthrough text says “not emitted by Hβ.infer”
-  when canonical `src/infer.nx` does emit it
-- helper inventory and ownership boundary are explicit and honest
-
-### 5. Focused Executable Substrate Tests
-
-**Problem**
-
-`scheme.wat` and `emit_diag.wat` are validated mostly by build/grep
-checks. That is not enough for load-bearing semantic substrate.
-
-**Why this is load-bearing**
-
-These chunks are dependency substrate for `unify.wat` and the walk
-layers. Wrong semantics here cascade outward.
-
-**Desired tests**
-
-- instantiate/generalize focused tests for `scheme.wat`
-- type-render / diagnostic bind behavior tests for `emit_diag.wat`
-
-**Acceptance**
-
-- at least one thin executable test path exists for each chunk
-- validation covers behavior, not just symbol presence
-
-### Suggested Commit Boundaries For A Fresh Session
-
-1. Canonicalize `SchemeKind` in `src/types.nx` and `src/infer.nx`.
-2. Extend bootstrap `env.wat` to the real binding shape.
-3. Fix `scheme.wat` recursion parity to canonical `src/infer.nx`.
-4. Canonicalize `emit_diag.wat` ownership boundary.
-5. Add focused substrate tests for `scheme.wat` and `emit_diag.wat`.
-6. Only then resume `unify.wat`.
-
-### Fresh-Session Read List For This Lane
-
-- `CLAUDE.md`
-- `docs/DESIGN.md`
-- `docs/SUBSTRATE.md` (cursor-adjacent §I, §IV, §VII for this lane)
-- `ROADMAP.md`
-- `docs/specs/04-inference.md`
-- `docs/specs/simulations/Hβ-infer-substrate.md`
-- `src/types.nx`
-- `src/infer.nx`
-- `bootstrap/src/runtime/env.wat`
-- `bootstrap/src/infer/scheme.wat`
-- `bootstrap/src/infer/emit_diag.wat`
+1. Audit `Hβ-lower-substrate.md` against landed Hβ.infer substrate
+   (riffle-back) — surface convergences, ABI mismatches, naming-
+   convention drift before any chunk freezes.
+2. Plan first chunk per `inka-plan` skill (Opus); dispatch via
+   `inka-implementer` agent.
+3. Land Layer 5 chunks per `Hβ-lower-substrate.md` dep order; one
+   commit per chunk; named follow-ups for any deferred sub-handle.
+4. Hβ.infer.pipeline-wire after `$inka_lower` arrives (drift mode 9
+   closure for the still-bypassed `$sys_main` pipeline).
 
 ---
 
@@ -346,9 +225,10 @@ Subphases:
 - Hβ.link
 - Hβ.harness
 
-Current immediate blocker inside Hβ.infer:
+Current state inside Hβ.infer:
 
-- the five pre-`unify.wat` canonicalization items above
+- **closed** (11/11 chunks live as of `b6e1f23`)
+- cursor advances to Hβ.lower
 
 ### Phase B — Kernel Surface Completion
 
@@ -430,15 +310,13 @@ Goals:
 
 Use this order unless a walkthrough explicitly forces a different one:
 
-1. Pre-`unify.wat` canonicalization lane
-2. Finish Hβ.infer (`unify.wat` → `own.wat` → `walk_expr.wat` →
-   `walk_stmt.wat` → `main.wat`)
-3. Hβ.lower
-4. Hβ.emit / start / link / harness
-5. `first-light-L1`
-6. `verify_smt` witness path
-7. crucible execution
-8. MV.2 completion and user-facing surfaces
+1. **Hβ.lower** (current cursor — walkthrough audit, then chunks)
+2. Hβ.infer.pipeline-wire (peer handle — closes once `$inka_lower` lands)
+3. Hβ.emit / start / link / harness
+4. `first-light-L1`
+5. `verify_smt` witness path
+6. crucible execution
+7. MV.2 completion and user-facing surfaces
 
 ---
 
@@ -521,6 +399,28 @@ Their role is:
   themselves non-canonical
 
 They should not be used as live roadmap documents after this merge.
+
+---
+
+## Archive
+
+### Pre-`unify.wat` Canonicalization Lane (RESOLVED 2026-04-26)
+
+All five items landed before the rest of the cascade:
+
+1. **Env ABI** — canonical 4-tuple `(name, Scheme, Reason, SchemeKind)`
+   landed in `683f064`.
+2. **SchemeKind** — `CapabilityScheme` is canonical in `src/types.nx`
+   alongside the other three variants; `src/types.nx` and `src/infer.nx`
+   agree.
+3. **`scheme.wat` recursion parity** — `b2b9e82` closed TFun params +
+   record fields recursion; `tparam.wat` substrate-gap closure landed
+   alongside.
+4. **Diagnostic boundary** — `88992bc` canonicalized `emit_diag.wat`
+   ownership boundary against canonical `report(...)` inventory.
+5. **Focused executable substrate tests** — `0e3e641` added trace-
+   harnesses for `scheme.wat` + `emit_diag.wat`; subsequent chunks
+   each added their own; current count is 25/25 PASS.
 
 ---
 
