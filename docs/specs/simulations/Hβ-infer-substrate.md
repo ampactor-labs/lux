@@ -804,10 +804,10 @@ After unify.wat:
 | emit_diag.wat | ~960 | spec 04 §Error handling + docs/errors (revised 2026-04-26 ROADMAP §4 — extended from earlier ~200 estimate per Wave 2.E.infer.emit_diag canonicalization: 11 helpers covering every E_/T_ code canonical src/infer.nx emits, including newly-cataloged E_NotARecordType / E_RecordFieldExtra / E_RecordFieldMissing / E_CannotNegateCapability) |
 | unify.wat | ~700 | spec 04 §Unification + spec 01 §Unification rules |
 | own.wat | ~280-340 | spec 04 §Ownership + spec 07 + emit_diag.wat:189-195 contract (OwnershipViolation diagnostic helper lands here per ROADMAP §4 closure pattern; revised 2026-04-26 from ~150 per affine ledger + branch protocol + 3 emit helpers + ledger substrate landing in one commit) |
-| walk_expr.wat | ~900 | spec 03 + spec 04 §What the walk produces |
+| walk_expr.wat | ~1500 | spec 03 + spec 04 §What the walk produces (revised 2026-04-26 per Wave 2.E.infer.walk_expr landing — header+forbidden-patterns block + 22 per-Expr-variant arms + 5 PipeKind sub-arms + 12 private helpers + 29 data-segment Reason-inner strings; landed 1523 lines vs. earlier ~900 estimate; the ~600-line overshoot is per-arm verbosity around Reason composition and TFun construction at CallExpr / LambdaExpr / FieldExpr / PForward, plus the explicit dispatch-by-tag chain in $infer_walk_expr) |
 | walk_stmt.wat | ~400 | spec 03 + spec 04 |
 | main.wat | ~150 | this walkthrough §10 + Hβ-bootstrap §1.16 |
-| **TOTAL** | **~4300** | |
+| **TOTAL** | **~4900** | (revised 2026-04-26 from ~4300 per walk_expr.wat overshoot) |
 
 Per Hβ §13 estimate (50-150k lines total): ~3380 is the inference
 contribution; comparable order to lowering (Hβ.lower) and emit
@@ -1102,6 +1102,56 @@ just symbol-presence checks (the ROADMAP §5 acceptance language —
   uses shift-right insert at index 0 (O(N) per push). For realistic
   function bodies (~tens of own params) this is fine; deque
   substrate is the named upgrade.
+
+- **Hβ.infer.handler-stack** — walk_expr.wat's $walk_expr_inf_push_handler
+  / _pop_handler are inert seed-stubs. Wheel's inf_push_handler /
+  inf_pop_handler (src/infer.nx:127-138) tag the handler-stack frame
+  with handled-effect identity for W4 monomorphic-dispatch. Lands when
+  W4 evidence-reification surface matures.
+
+- **Hβ.infer.walk_pat** — Pat dispatch (PVar / PCon / PTuple / PList /
+  PRecord / PWild / PLit per spec 03 + src/infer.nx:1587-1655) called
+  from walk_expr.wat's MatchExpr arm. Lands as peer Tier 7 chunk before
+  walk_stmt.wat (let-stmts also use patterns).
+
+- **Hβ.infer.match-exhaustive** — exhaustiveness check
+  (src/infer.nx:1709-1718) omitted at the seed; uses the already-
+  landed $infer_emit_pattern_inexhaustive helper from emit_diag.wat.
+  Requires ConstructorScheme(_, total_variants) reads from env, which
+  in turn requires the walk_pat chunk.
+
+- **Hβ.infer.named-record-validate** — check_nominal_record_fields
+  (src/infer.nx:1397-1450) omitted at the seed's NamedRecordExpr arm;
+  uses already-landed $infer_emit_record_field_extra / _missing
+  helpers. Requires RecordSchemeKind reads from env-binding.kind.
+
+- **Hβ.infer.iterative-context** — walk_expr.wat's PFeedback arm
+  pessimistically emits feedback-no-context unconditionally; lands
+  when Clock/Tick/Sample handler-stack-walk substrate matures
+  (depends on Hβ.infer.handler-stack).
+
+- **Hβ.infer.qualified-name** — FieldExpr's dotted-name fallback
+  (src/infer.nx:710-722). Seed's walk_expr.wat treats every FieldExpr
+  as record field access; the qualified-name path lands when driver
+  composition surfaces dotted module-export names in env.
+
+- **Hβ.infer.lambda-params** — walk_expr.wat's LambdaExpr arm builds
+  TFun([], TVar(body_h), row_h) at the seed. Wheel's mint_params
+  (src/infer.nx:724-740) walks each parser-emitted Param record and
+  extends env via env_extend. Lands once parser surfaces the Param
+  record's offset convention.
+
+- **Hβ.infer.unaryop-class** — walk_expr.wat's UnaryOpExpr arm treats
+  every op as default (TVar transparent). Wheel's infer_unaryop
+  (src/infer.nx:1574-1583) special-cases "Neg" / "Not" via str_eq.
+  Lands when the seed has data-segment-resident "Neg" / "Not"
+  constants (or, preferably, when parser surfaces UnaryOp as ADT
+  sentinels per drift-mode-8 closure).
+
+- **Hβ.infer.docstring-reason** — Documented Stmt arm absent (parser
+  doesn't emit Documented today; lands pre-DS.3). Affects walk_stmt.wat
+  more than walk_expr.wat, but $reason_make_docstringreason from
+  reason.wat is already landed for caller use.
 
 ---
 
