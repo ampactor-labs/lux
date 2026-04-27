@@ -97,6 +97,14 @@ Current Hβ.infer bootstrap state:
   - `walk_expr.wat`
   - `walk_stmt.wat`
   - `main.wat`
+- named follow-up peer handles (per drift-mode-9 discipline):
+  - **Hβ.infer.pipeline-wire** — retrofit `$sys_main` (build.sh Layer 6 inline)
+    to chain `$inka_infer` between `$parse_program` and `$emit_program`.
+    Gated on Hβ.lower arrival per Hβ-infer-substrate.md §10.3 (the clean
+    handoff is infer→lower; emit_program does not consume graph state).
+    When Hβ.lower's `$inka_lower` lands, `$sys_main` becomes:
+    `stdin |> read_all_stdin |> lex |> parse_program |> $inka_infer
+    |> $inka_lower |> $emit_program |> proc_exit`.
 
 Current branch tip at roadmap consolidation time:
 
