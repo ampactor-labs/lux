@@ -85,9 +85,13 @@ CHUNKS=(
   # land per §12.3 dep order:
   #   1. state.wat — per-fn locals/captures ledger (deps: alloc + list +
   #      record + str + env from runtime/Layer-1 + env.wat).
-  # Subsequent: lookup.wat, lexpr.wat, classify.wat, walk_*.wat,
-  # emit_diag.wat, main.wat.
+  #   2. lookup.wat — live $lookup_ty graph read + $monomorphic_at row-
+  #      ground gate + $resume_discipline_of TCont accessor + $ty_make_terror_hole
+  #      lookup-private nullary sentinel at tag 114 (deps: graph + row +
+  #      ty + wasi; forward-decl $lower_emit_unresolved_type per chunk #4).
+  # Subsequent: lexpr.wat, classify.wat, walk_*.wat, emit_diag.wat, main.wat.
   "bootstrap/src/lower/state.wat"        # Tier 4 (uses $alloc + list + record + str_eq + env_contains; Hβ.lower §1.2)
+  "bootstrap/src/lower/lookup.wat"       # Tier 5 (uses graph + row + ty + wasi; Hβ.lower §1.1 + §3.1 + §3.2 + §11; 5 exports — live $lookup_ty + $ty_make_terror_hole nullary sentinel + $row_is_ground monomorphism gate + $monomorphic_at + $resume_discipline_of; forward-decl $lower_emit_unresolved_type per §12.3 dep order chunk #4)
 
   # ── Layer 6: Emitter ──
   "bootstrap/src/emit_data.wat"

@@ -50,3 +50,4 @@
 
 chunk	tier	status	hβ_section	exports	uses
 state.wat	4	✓	§1.2	$lower_init $ls_bind_local $ls_lookup_local $ls_lookup_or_capture $ls_reset_function $lower_locals_len $lower_captures_len	$alloc $make_list $list_set $list_index $list_extend_to $len $make_record $record_get $record_set $str_eq $env_contains
+lookup.wat	5	✓	§1.1 + §3.1 + §3.2 + §11	$lookup_ty $ty_make_terror_hole $row_is_ground $monomorphic_at $resume_discipline_of	$graph_chase $gnode_kind $node_kind_tag $node_kind_payload $row_is_pure $row_is_closed $ty_tag $ty_tfun_row $ty_tcont_discipline
