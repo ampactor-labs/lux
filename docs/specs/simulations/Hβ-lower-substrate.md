@@ -1,6 +1,16 @@
 # Hβ.lower — LowIR construction + handler elimination at the WAT layer
 
-> **Status:** `[DRAFT 2026-04-25]`. Sub-walkthrough peer to
+> **Status:** `[DRAFT 2026-04-25; riffle-back-audited 2026-04-27]`.
+> 2026-04-27 audit applied 6 mechanical fixes against landed Hβ.infer
+> substrate (commit `b6e1f23`, 11/11 chunks live): MULTISHOT 221→251
+> (§4.2), `$ast_handle` → `$walk_expr_node_handle` (§4.1+§4.2),
+> `$program_stmts` removed (§4.3), `$ty_make_terror_hole` ownership
+> + tag pinned (§11), lower-vs-infer diagnostic boundary pinned
+> (§11), line estimates revised (§7.4 + §13). Audit residue at
+> `/tmp/inka-plans/Hβ-lower-audit-2026-04-27.md`. Walkthrough is now
+> transcription-ready per §12.3 dep order.
+>
+> Sub-walkthrough peer to
 > `Hβ-bootstrap.md` (commit `95fdc3c`) + `Hβ-infer-substrate.md`
 > (commit `729ee59`). Names the design contract for the seed's
 > LowIR construction layer + handler elimination dispatch, projected
@@ -143,10 +153,13 @@ $graph_chase.
   ;; NBound — return the bound Ty pointer.
   (if (i32.eq (local.get $tag) (i32.const 60))      ;; NBOUND
     (then (return (call $node_kind_payload (local.get $nk)))))
-  ;; NErrorHole — return TName("ERROR_HOLE", []) sentinel.
-  ;; Lowering tolerates this; emit lowers ERROR_HOLE expr to (unreachable).
+  ;; NErrorHole — return $ty_make_terror_hole sentinel (lookup.wat-private,
+  ;; tag 114; lookup-time-only; the type system never produces it — NErrorHole
+  ;; lives at the GNode layer, not the Ty layer; this sentinel is the bridge
+  ;; into Hβ.lower's ERROR_HOLE → (unreachable) emit path per §11 audit
+  ;; resolution 2026-04-27).
   (if (i32.eq (local.get $tag) (i32.const 64))      ;; NERRORHOLE
-    (then (return (call $ty_make_error_hole))))
+    (then (return (call $ty_make_terror_hole))))
   ;; NFree — compiler-internal bug per spec 05 invariant 2.
   ;; Emit E_UnresolvedType + halt build (the seed itself emits to
   ;; stderr + exits non-zero; full diagnostic threading per Hβ.emit).
@@ -387,7 +400,10 @@ Per spec 05 + src/lower.nx lower_expr.
 (func $lower_expr (param $node i32) (result i32)
   (local $tag i32) (local $h i32)
   (local.set $tag (call $tag_of (local.get $node)))
-  (local.set $h (call $ast_handle (local.get $node)))   ;; spec 03 helper
+  (local.set $h (call $walk_expr_node_handle (local.get $node)))
+                                              ;; landed in walk_expr.wat:306-307
+                                              ;; (i32.load offset=12 — N-wrapper
+                                              ;; handle field per parser_infra.wat:32-39)
   ;; Walk per AST variant; one arm per variant; trap on unknown.
   (if (i32.eq (local.get $tag) (i32.const <CONST_TAG>))
     (then (return (call $lower_const (local.get $node)))))
@@ -413,7 +429,7 @@ Per spec 05 + src/lower.nx lower_expr.
 **`$lower_var_ref(node)`**:
 ```wat
 (local.set $name (call $var_ref_name (local.get $node)))
-(local.set $h (call $ast_handle (local.get $node)))
+(local.set $h (call $walk_expr_node_handle (local.get $node)))
 ;; Look up in current function's locals first (LowerCtx).
 (local.set $slot (call $ls_lookup_or_capture (local.get $name)))
 (if (i32.lt_s (local.get $slot) (i32.const 0))
@@ -426,7 +442,7 @@ Per spec 05 + src/lower.nx lower_expr.
 
 **`$lower_binop(node)`**:
 ```wat
-(local.set $h  (call $ast_handle (local.get $node)))
+(local.set $h  (call $walk_expr_node_handle (local.get $node)))
 (local.set $op (call $binop_op (local.get $node)))
 (local.set $l  (call $lower_expr (call $binop_left (local.get $node))))
 (local.set $r  (call $lower_expr (call $binop_right (local.get $node))))
@@ -435,7 +451,7 @@ Per spec 05 + src/lower.nx lower_expr.
 
 **`$lower_call(node)`** — the monomorphic-vs-polymorphic gate:
 ```wat
-(local.set $h    (call $ast_handle (local.get $node)))
+(local.set $h    (call $walk_expr_node_handle (local.get $node)))
 (local.set $f    (call $lower_expr (call $call_fn (local.get $node))))
 (local.set $args (call $lower_args (call $call_args (local.get $node))))
 (if (call $monomorphic_at (local.get $h))
@@ -452,7 +468,7 @@ resume discipline. Per H7 §4.1 Change 3:
 (local.set $op_ty   (call $env_lookup_op_type (local.get $op_name)))
 ;; Extract ResumeDiscipline from op_ty (which is TCont(_, discipline) ish).
 (local.set $disc (call $resume_discipline_of (local.get $op_ty)))
-(if (i32.eq (local.get $disc) (i32.const 221))   ;; MULTISHOT
+(if (i32.eq (local.get $disc) (i32.const 251))   ;; MULTISHOT (per ty.wat:128 lock)
   (then
     ;; Allocate continuation + emit suspend per H7.
     (local.set $state_idx (call $ms_alloc_state
@@ -513,11 +529,16 @@ maintains a flat list of LowStmts, returns the lowered program for
 emit consumption.
 
 ```wat
-(func $lower_program (param $typed_ast i32) (result i32)
-  (local $stmts i32) (local $n i32) (local $i i32)
+(func $lower_program (param $stmts i32) (result i32)
+  (local $n i32) (local $i i32)
   (local $out i32) (local $lowered i32)
   (call $lower_init)
-  (local.set $stmts (call $program_stmts (local.get $typed_ast)))
+  ;; $stmts is the SAME flat list parsed_stmts that was passed to
+  ;; $inka_infer; the graph carries the inferred type info per handle.
+  ;; No "typed_ast" wrapper exists — pipeline shape per main.wat:154-156:
+  ;;   parsed_stmts |> $inka_infer |> $inka_lower |> $emit_program
+  ;; (every stage takes the same `stmts` pointer; graph IS the constraint
+  ;; store per DESIGN.md §0.5).
   (local.set $n (call $len (local.get $stmts)))
   (local.set $out (call $make_list (local.get $n)))
   (local.set $i (i32.const 0))
@@ -742,9 +763,16 @@ After walk_call.wat:
 | main.wat | ~100 | this §4.3 |
 | **TOTAL** | **~3050** | |
 
-Combined Hβ.infer + Hβ.lower: ~6430 WAT lines. Plus existing
-emitter ~1728 lines + needs extension for new LowExpr variants
-~500 lines. Total seed substrate post-Wave-2.E ≈ 11000+ WAT lines.
+Combined Hβ.infer + Hβ.lower (revised 2026-04-27 audit): Hβ.infer
+landed at **7,712 WAT lines** across 11 chunks (1.2× the original
+~6430 estimate per the eight-interrogations + named-follow-up
+discipline expanding chunk headers); applying the same factor to
+the §7.4 ~3050-line lower estimate gives ~3700 lines for Hβ.lower.
+Combined ≈ **11,400 WAT lines** + existing emitter ~1728 + emitter
+extension ~500 ≈ **13,600+ WAT lines** total seed substrate
+post-Wave-2.E. (Hβ.infer baseline: bootstrap/src/infer/ totals
+7,712 lines as of commit `b6e1f23`; build assembles to 14,645
+lines / 71,095 bytes.)
 
 ---
 
@@ -922,6 +950,9 @@ correctly so the wheel can run the oracle.
 | Either-discipline strategy — what's the seed's default? | Linear (1) when handler body's static check can't classify TailResumptive. Per src/lower.nx classify_handler precedent. |
 | Cross-module function symbol resolution? | Hβ.link (BT.A.2) via link.py + symbol-rename. Hβ.lower emits module-local references; link resolves at assembly time. |
 | Does the seed lower MultiShot ops at all in Tier-3 base? | Yes — per H7 §2.5 substrate already in src/lower.nx; the seed transcribes the same. |
+| `$ty_make_terror_hole` ownership + tag value? | LOCKED 2026-04-27 audit (riffle-back against landed Hβ.infer): lookup.wat-private constructor; tag value 114 (next free after ty.wat 100-113); lookup-time-only sentinel (the type system never produces NErrorHole at the Ty layer; NErrorHole is at the GNode layer per graph.wat:55-59). Lower's `$lookup_ty` returns this for NERRORHOLE NodeKinds; emit dispatches it to (unreachable). NOT a 15th Ty variant — staying lower-private preserves ty.wat's 14-variant ADT discipline. |
+| `$walk_expr_node_handle` cross-layer reuse vs. lower-private re-derive? | LOCKED 2026-04-27: lower's lookup.wat + walk_const/var_ref/binop/call USE `$walk_expr_node_handle` directly (Hβ.infer landed it at walk_expr.wat:306-307; cross-layer convergence per Anchor 4). Optional cleanup follow-up `Hβ.shared.node_handle` — rename to `$node_handle` and move to `parser_infra.wat` as a runtime-shared helper. Three sites earn the abstraction (parser builds, infer reads, lower reads); ready when Hβ.lower's walk arms land + create the third. |
+| Lower-private vs. infer-owned diagnostics — boundary? | Per §D.3 audit: `$lower_emit_unresolved_type` IS lower-owned (NFree at lookup time means inference didn't bind a handle that lower expects bound; it's a lowering-stage compiler bug, not an inference user error). All Hazel productive-under-error user diagnostics remain in `bootstrap/src/infer/emit_diag.wat` (infer-owned per `88992bc` boundary canonicalization). Lower's `emit_diag.wat` chunk is purely for lower-private classes (e.g., unsupported pipe verb at lower target, monomorphic gate logic-bug). |
 
 ### Named follow-ups (Hβ.lower extensions)
 
@@ -964,19 +995,24 @@ fluency + per-handle walkthrough reading.
 | emit_diag.wat | Opus inline OR Sonnet | report-effect arm; mechanical |
 | main.wat | Opus inline OR Sonnet | orchestrator |
 
-### 12.3 Sub-handle dependency order
+### 12.3 Sub-handle dependency order (revised 2026-04-27 audit)
 
 1. **state.wat** (deps: alloc, list, record)
-2. **lookup.wat** (deps: state, graph, row, ty.wat from infer)
+2. **lookup.wat** (deps: state, graph, row, ty.wat from infer,
+   walk_expr.wat for `$walk_expr_node_handle` access; OWNS
+   `$ty_make_terror_hole` per §11 lock)
 3. **lexpr.wat** (deps: record, list)
-4. **emit_diag.wat** (deps: lookup, infer's reason.wat)
+4. **emit_diag.wat** (deps: lookup, infer's reason.wat,
+   infer's emit_diag.wat for delegation surface per §11 boundary)
 5. **classify.wat** (deps: lookup, lexpr)
-6. **walk_const.wat** (deps: lexpr, state)
-7. **walk_call.wat** (deps: classify, lookup, lexpr, cont.wat from runtime)
+6. **walk_const.wat** (deps: lexpr, state, walk_expr.wat)
+7. **walk_call.wat** (deps: classify, lookup, lexpr, cont.wat,
+   walk_expr.wat) — **gets the 251 fix per §4.2**
 8. **walk_handle.wat** (deps: classify, walk_call, cont.wat)
 9. **walk_compound.wat** (deps: lexpr, walk_const, walk_call)
 10. **walk_stmt.wat** (deps: walk_compound, walk_handle, env)
-11. **main.wat** (deps: walk_stmt)
+11. **main.wat** (deps: walk_stmt) — pipeline-stage boundary
+    `$inka_lower` (symmetric with `$inka_infer` per Hβ-bootstrap §1.15)
 
 ### 12.4 Per-handle landing discipline
 
