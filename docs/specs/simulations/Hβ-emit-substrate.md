@@ -85,11 +85,13 @@ H7; LFeedback per LF; LSuspend per H1.6).
 
 ### 0.4 What Hβ.emit does NOT design
 
-- **Bump-allocator-pressure substrate.** The arena handler (B.5
-  AM-arena-multishot) OR per-fn scoped-arena-reset is the SECOND gate
-  on pipeline-wire. Hβ.emit's cascade closes the FIRST gate. The
-  second is its own concern — likely a peer cascade or single
-  substrate-growth commit.
+- **Build-time bump-allocator-pressure substrate.** The seed's
+  OWN runtime memory model (alloc.wat bump allocator under
+  $heap_ptr) traps when infer/lower walk real-world ASTs at
+  build-time per the ba327c9 audit. This is `Hβ-arena-substrate.md`'s
+  concern — separate walkthrough — and is DISTINCT from the
+  emit-time EmitMemory swap surface this walkthrough transcribes
+  per §3.5 below. **Two arenas, two substrates.**
 - **Pipeline-wire `$sys_main` retrofit.** Trivial commit AFTER both
   gates lift. Per Hβ.infer.pipeline-wire follow-up.
 - **`verify_smt` witness path.** First-light-L2 concern, post-L1.
@@ -316,6 +318,82 @@ case).
 
 **`$emit_llet(r)`** — local binding. Emits `(local.set $<name> ...)`
 + inner value. The wheel's existing emit_stmt.wat shape extends.
+
+---
+
+## §3.5 The EmitMemory effect — memory strategy as handler swap
+
+**Critical wheel substrate the original walkthrough missed**, found
+during the 2026-04-28 SYNTAX/SUBSTRATE riffle-back audit. Per
+src/backends/wasm.nx:55-110 wheel canonical:
+
+```
+effect EmitMemory {
+  emit_alloc(Int, String) -> ()             @resume=OneShot
+}
+```
+
+Three sibling handlers on the same effect:
+- `emit_memory_bump` (lines 72-86) — emits monotonic bump from
+  `$heap_ptr` (the V1 default; what the emitted program does today).
+- `emit_memory_arena` (lines 88-110) — emits region-tracked alloc
+  with O(1) drop on scope exit (W5 substrate). Same effect surface;
+  different `(global.set $arena_ptr)` vs `(global.set $heap_ptr)`.
+- `emit_memory_gc` (named in wheel comment line 64) — full collector
+  with header tags (post-first-light substrate).
+
+**This IS the kernel's primitive #2 (Handlers) PROVING ITSELF AT
+THE EMIT LAYER.** The emitted program's memory strategy is a
+ONE-HANDLER SWAP per Anchor 5 + DESIGN.md §7.3 "the handler IS
+the backend." Pipeline can swap `~> emit_memory_bump` for
+`~> emit_memory_arena` with zero source changes, producing
+different WAT.
+
+### §3.5.1 Hβ.emit transcription discipline
+
+Every site in this walkthrough that emits an allocation MUST route
+through `perform emit_alloc(size, target)` per the wheel canonical
+(NOT direct `(global.get $heap_ptr) ... (global.set $heap_ptr)`
+inline). The seed transcribes:
+
+- `$emit_alloc(size, target)` as a function the seed's emit chunks
+  call — defaults to bump-allocation WAT generation (matches
+  emit_memory_bump body).
+- The handler-swap surface is preserved structurally: post-L1, when
+  arena/GC handlers grow per W5 / post-first-light substrate, a
+  single chunk-#? swap-substrate commit installs them as alternatives.
+- The seed's `$emit_alloc` is the SUBSTRATE-LEVEL HANDLER REFERENCE;
+  the wheel's `emit_memory_bump`/`_arena`/`_gc` are the WHEEL-LEVEL
+  HANDLERS. Anchor 4 wheel-parity: seed mirrors wheel's structure
+  even if the seed installs only the bump handler in V1.
+
+### §3.5.2 Drift 9 closure: every allocation site
+
+Every LMakeClosure / LMakeContinuation / LMakeRecord / LMakeVariant /
+LMakeList / LMakeTuple emit arm in §2 calls `$emit_alloc(size,
+target)` — NOT inline `$heap_ptr` manipulation. This is THE Anchor 5
+discipline made physical at the WAT layer: memory strategy lives
+behind ONE swap surface, not scattered across 35 emit arms.
+
+If the seed's emit_call.wat / emit_handler.wat / emit_const.wat /
+etc. directly inline `(global.set $heap_ptr)`, that's drift mode
+("scattered duplication of substrate-decision-point" — analogous to
+drift 1 vtable refusal but at the memory-allocation surface). All
+emit arms route through `$emit_alloc`.
+
+### §3.5.3 What this unlocks post-L1
+
+Per Anchor 5 + DESIGN.md §7.3: when the W5 region-arena substrate
+lands as a wheel handler, the seed installs `emit_memory_arena`
+alongside `emit_memory_bump` with zero source changes to the emit
+arms. When the GC substrate lands post-first-light, same. **The
+emit-layer becomes a swap surface from day one** — exactly what
+Inka means by "if it needs to exist, it's a handler."
+
+This composes with §0.6's handler-family framing: `$inka_emit` is
+ONE handler-on-graph (graph→WAT); the WAT-emit handler INTERNALLY
+composes another handler swap (EmitMemory bump/arena/gc). Handlers
+all the way down. The substrate IS the medium.
 
 ---
 
