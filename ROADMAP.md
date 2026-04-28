@@ -134,12 +134,17 @@ Current Hβ.lower bootstrap state — **CASCADE CLOSED (11/11 chunks live)**:
   - 59/59 trace-harnesses PASS; first-light Tier 1 LIVE non-regression
   - drift-audit clean
 - named follow-up peer handles (per drift-mode-9 discipline):
-  - **Hβ.infer.pipeline-wire** — UNGATED — retrofit `$sys_main` (build.sh
-    Layer 6 inline) to chain `$inka_infer` + `$inka_lower` between
-    `$parse_program` and `$emit_program`. The cascade closure ungates this;
-    immediate-next-commit per Lock #4 two-stage discipline. `$sys_main`
-    becomes: `stdin |> read_all_stdin |> lex |> parse_program |> $inka_infer
-    |> $inka_lower |> $emit_program |> proc_exit`.
+  - **Hβ.infer.pipeline-wire** — GATED on TWO substrate growths
+    (per ba327c9 substrate-honesty audit 2026-04-28): (1)
+    Hβ.lower.emit-extension (emit_program consumes LowExpr); (2)
+    Hβ.infer bump-allocator-pressure substrate. Stage-A attempt
+    (chain $inka_infer alone) trapped first-light Tier 1 with
+    out-of-bounds memory fault on real parse_program AST — the 25/25
+    infer trace-harnesses use synthetic minimal ASTs that don't
+    exercise allocator pressure. Both gates need to lift before
+    `$sys_main` retrofit. When unblocked: `stdin |> read_all_stdin
+    |> lex |> parse_program |> $inka_infer |> $inka_lower
+    |> $emit_program |> proc_exit`.
   - **Hβ.lower.toplevel-pre-register** — wheel-parity two-pass globals
     pre-registration per src/lower.nx:1106-1110 + Lock #1.
   - **Hβ.lower.emit-extension** — extend Layer 6 emit_*.wat to consume
