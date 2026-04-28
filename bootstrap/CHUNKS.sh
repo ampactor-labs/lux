@@ -98,11 +98,18 @@ CHUNKS=(
   #      wrapper (deps: str + int + wasi + infer/ty + infer/emit_diag;
   #      Hβ.lower §1.1 + §11 boundary lock; closes the
   #      Hβ.lower.unresolved-emit-retrofit named follow-up).
-  # Subsequent: classify.wat, walk_*.wat, main.wat.
+  #   5. classify.wat — handler-elimination strategy classifier (deps:
+  #      lookup; reads TCont.discipline via $resume_discipline_of, returns
+  #      0/1/2 strategy code per Hβ-lower-substrate.md §3.1 + §11;
+  #      $is_tail_resumptive conservative-Linear seed default per named
+  #      follow-up Hβ.lower.tail-resumptive-discrimination — wheel parity
+  #      per Anchor 4).
+  # Subsequent: walk_*.wat, main.wat.
   "bootstrap/src/lower/state.wat"        # Tier 4 (uses $alloc + list + record + str_eq + env_contains; Hβ.lower §1.2)
   "bootstrap/src/lower/lookup.wat"       # Tier 5 (uses graph + row + ty + wasi; Hβ.lower §1.1 + §3.1 + §3.2 + §11; 5 exports — live $lookup_ty + $ty_make_terror_hole nullary sentinel + $row_is_ground monomorphism gate + $monomorphic_at + $resume_discipline_of; forward-decl $lower_emit_unresolved_type per §12.3 dep order chunk #4)
   "bootstrap/src/lower/lexpr.wat"        # Tier 6 (uses $make_record + $record_get + $record_set + $tag_of from record.wat; Hβ.lower §2; 35 LowExpr variant constructors + 67 non-handle accessors + universal $lexpr_handle over tag region 300-334; LDeclareFn tag-313 anomaly per §11 — handle returns 0; 335-349 reserved for future LowExpr variants)
   "bootstrap/src/lower/emit_diag.wat"     # Tier 6 (uses str + int + wasi + ty + infer/emit_diag; Hβ.lower §1.1 + §11 + §12.3 #4; 2 exports — $lower_emit_unresolved_type closes Hβ.lower.unresolved-emit-retrofit named follow-up from lookup.wat + $lower_render_ty wraps infer's $render_ty with tag-114 TError-hole sentinel arm per §11 boundary lock)
+  "bootstrap/src/lower/classify.wat"     # Tier 7 (uses lower/lookup + infer/ty; Hβ.lower §3.1 + §11 + §12.3 #5; 3 exports — $classify_handler 3-arm dispatch on TCont.discipline (250/251/252) returning strategy 0/1/2 + $is_tail_resumptive conservative-Linear seed default per named follow-up Hβ.lower.tail-resumptive-discrimination + $either_strategy returns Linear per §11 lock; named follow-ups: tail-resumptive-discrimination, either-install-negotiation, classify-trap-testing)
 
   # ── Layer 6: Emitter ──
   "bootstrap/src/emit_data.wat"

@@ -13171,7 +13171,11 @@
   ;; Uses:       $graph_chase / $gnode_kind / $node_kind_tag /
   ;;               $node_kind_payload (graph.wat),
   ;;             $row_is_pure / $row_is_closed (row.wat),
-  ;;             $ty_tag / $ty_tfun_row / $ty_tcont_discipline (infer/ty.wat)
+  ;;             $ty_tag / $ty_tfun_row / $ty_tcont_discipline (infer/ty.wat),
+  ;;             $lower_emit_unresolved_type (lower/emit_diag.wat — chunk #4
+  ;;               retrofit landed alongside this commit per
+  ;;               Hβ.lower.unresolved-emit-retrofit closure),
+  ;;             $wasi_proc_exit (Layer 0 import — spec 05 invariant 2 trap)
   ;; Test:       bootstrap/test/lower/lookup_ty_nbound.wat,
   ;;             bootstrap/test/lower/lookup_ty_nerrorhole.wat,
   ;;             bootstrap/test/lower/monomorphic_at_pure.wat,
@@ -13316,18 +13320,6 @@
   ;;                             handler-row-arity check; lands then so
   ;;                             substrate-now-wiring-later (drift 9) is
   ;;                             avoided.
-  ;;   - Hβ.lower.unresolved-emit-retrofit:
-  ;;                             $lookup_ty's NFree arm currently traps
-  ;;                             via (unreachable). Lands when chunk #4
-  ;;                             emit_diag.wat provides
-  ;;                             $lower_emit_unresolved_type — at that
-  ;;                             point, the arm becomes
-  ;;                             `$lower_emit_unresolved_type + (unreachable)`
-  ;;                             (the proc_exit/trap is preserved per
-  ;;                             spec 05 invariant 2; the user-facing
-  ;;                             E_UnresolvedType message gets emitted
-  ;;                             before halt). Per §11 boundary lock
-  ;;                             this diagnostic is lower-owned.
 
   ;; ─── $ty_make_terror_hole — lookup-private nullary sentinel ──────
   ;; Per Hβ-lower-substrate.md §11 audit lock 2026-04-27 + nullary-
@@ -13361,10 +13353,17 @@
     ;; NErrorHole — return $ty_make_terror_hole sentinel (tag 114).
     (if (i32.eq (local.get $tag) (i32.const 64))
       (then (return (call $ty_make_terror_hole))))
-    ;; NFree — compiler-internal bug per spec 05 invariant 2. The seed
-    ;; traps (the user-facing E_UnresolvedType emit retrofits via peer
-    ;; follow-up Hβ.lower.unresolved-emit-retrofit when emit_diag.wat
-    ;; chunk #4 lands; until then the trap surfaces the bug to dev).
+    ;; NFree — compiler-internal bug per spec 05 invariant 2.
+    ;; emit + halt per the closed Hβ.lower.unresolved-emit-retrofit
+    ;; follow-up (chunk #4 emit_diag.wat landed alongside this retrofit).
+    ;; The (unreachable) is preserved per spec 05 invariant 2 trap
+    ;; discipline; $wasi_proc_exit's exit code 1 reaches the caller in
+    ;; well-formed runtimes; the (unreachable) guards against runtimes
+    ;; that don't honor proc_exit.
+    (if (i32.eq (local.get $tag) (i32.const 61))                       ;; NFREE
+      (then
+        (call $lower_emit_unresolved_type (local.get $handle))
+        (call $wasi_proc_exit (i32.const 1))))
     ;; NRowBound (62) / NRowFree (63) — should never reach $lookup_ty;
     ;; rows are queried via $lookup_row_for (peer; named follow-up
     ;; Hβ.lower.lookup-row — lands when walk_handle.wat needs it).
@@ -14231,6 +14230,636 @@
 
   (func $lexpr_lfieldload_offset_bytes (param $r i32) (result i32)
     (call $record_get (local.get $r) (i32.const 2)))
+
+  ;; ═══ emit_diag.wat — Hβ.lower private diagnostic emission (Tier 6) ═══
+  ;; Hβ.lower cascade chunk #4 of 11 — closes named follow-up
+  ;; Hβ.lower.unresolved-emit-retrofit from lookup.wat:163-174
+  ;; (commit e1209cc).
+  ;;
+  ;; What this chunk IS (per Hβ-lower-substrate.md §11 boundary lock
+  ;; 2026-04-27 + §12.3 dep order chunk #4):
+  ;;   The seed projection of spec 05 L43-50's lookup_ty_graph default
+  ;;   handler NFree arm — the ONE lower-private diagnostic class:
+  ;;   E_UnresolvedType. Inventory of src/lower.nx (full 1284 lines):
+  ;;   zero `report(` / `eprint(` / `panic(` calls; lower itself never
+  ;;   emits except through LookupTy's NFree handler arm. Therefore
+  ;;   this chunk owns exactly ONE emit helper.
+  ;;
+  ;;   Per Hβ-lower-substrate.md §11 boundary lock: "All Hazel
+  ;;   productive-under-error user diagnostics remain in
+  ;;   bootstrap/src/infer/emit_diag.wat (infer-owned per 88992bc
+  ;;   boundary canonicalization). Lower's emit_diag.wat chunk is
+  ;;   purely for lower-private classes (e.g., NFree at lookup time
+  ;;   means inference didn't bind a handle that lower expects bound;
+  ;;   it's a lowering-stage compiler bug, not an inference user
+  ;;   error)."
+  ;;
+  ;;   The chunk also lands $lower_render_ty — a wrapper around
+  ;;   infer's $render_ty that adds one arm for the lookup-private
+  ;;   TError-hole sentinel (tag 114, lookup.wat-owned per §11 audit
+  ;;   lock). Composition direction: lower wraps infer; infer's
+  ;;   14-arm canonical Ty walker stays untouched. The ONLY current
+  ;;   caller of $lower_render_ty is reserved (no walk arm yet uses
+  ;;   it for lower-private diagnostic message construction); the
+  ;;   helper lands now to satisfy the lookup.wat:73-75 forward
+  ;;   declaration ("Downstream emit_diag.wat dispatches tag 114
+  ;;   in $render_ty: prints '<error-hole>'") and to close Drift 9
+  ;;   on the lookup-private sentinel's downstream rendering path.
+  ;;
+  ;; Exports:    $lower_emit_unresolved_type,
+  ;;             $lower_render_ty
+  ;; Uses:       $alloc (alloc.wat),
+  ;;             $str_concat (str.wat),
+  ;;             $int_to_str (int.wat),
+  ;;             $eprint_string (wasi.wat — fd 2 / stderr),
+  ;;             $ty_tag (infer/ty.wat — render dispatch precondition),
+  ;;             $render_ty (infer/emit_diag.wat — composition
+  ;;               surface; preserves the canonical 14-arm Ty walker
+  ;;               at the infer layer per Anchor 4 + §11 boundary lock)
+  ;; Test:       bootstrap/test/lower/emit_diag_unresolved_type.wat
+  ;;
+  ;; ═══ EIGHT INTERROGATIONS (per Hβ-lower-substrate.md §5.1
+  ;;                            projected onto emit_diag) ════════════
+  ;;
+  ;; 1. Graph?      $lower_emit_unresolved_type takes the handle integer
+  ;;                only. Does NOT chase — at the call site (lookup.wat
+  ;;                NFree arm) the GNode is already proven NFree; chasing
+  ;;                here would re-traverse for no information gain. The
+  ;;                Reason walk is named follow-up
+  ;;                Hβ.lower.unresolved-emit-reason-walk — lands when the
+  ;;                IDE projection needs Why-Engine context. $lower_render_ty
+  ;;                operates on Ty pointers (not graph) and delegates the
+  ;;                14 ground arms to infer's $render_ty.
+  ;;
+  ;; 2. Handler?    Wheel form: spec 05's lookup_ty_graph handler at the
+  ;;                NFree arm performs `report("", "E_UnresolvedType",
+  ;;                "UnresolvedType", ...)` + halts the build via
+  ;;                resume(TName("UNRESOLVED", [])) sentinel. Seed form:
+  ;;                direct $eprint_string + caller-side $wasi_proc_exit
+  ;;                + (unreachable). The proc_exit is in the CALLER per
+  ;;                spec 05 invariant 2 ("NFree is a compiler-internal
+  ;;                error and halts"); this helper is emit-only so the
+  ;;                trace harness can exercise the message construction
+  ;;                without forcing a wasmtime non-zero exit per harness
+  ;;                run. @resume=OneShot at the wheel (matches all spec
+  ;;                05 default handler arms).
+  ;;
+  ;; 3. Verb?       N/A — direct call site from lookup.wat's NFree arm.
+  ;;
+  ;; 4. Row?        Wheel: GraphRead + Diagnostic (no GraphWrite —
+  ;;                lower's row stays read-only on graph per spec 05
+  ;;                invariant 1; the Boolean effect algebra gates the
+  ;;                "no graph_bind" property structurally — an accidental
+  ;;                bind here would fail handler-install type-check).
+  ;;                Seed: direct $eprint_string call (Diagnostic
+  ;;                projection); no graph mutation. $lower_render_ty
+  ;;                is EfPure at the seed (no effects performed; pure
+  ;;                tag-dispatch + delegate).
+  ;;
+  ;; 5. Ownership?  Message string `own` of the bump allocator
+  ;;                (CLAUDE.md memory model: monotonic; never freed; one
+  ;;                allocation per build halt — bounded). Handle is a
+  ;;                value (i32); no transfer. The static "<error-hole>"
+  ;;                string lives in the data segment (`ref`; data
+  ;;                segments are never deallocated — they're part of
+  ;;                the wasm image).
+  ;;
+  ;; 6. Refinement? N/A at $lower_emit_unresolved_type. At
+  ;;                $lower_render_ty: TRefined (tag 111) transparent —
+  ;;                delegates to infer's $render_ty which renders
+  ;;                "render(base) + ' where ...'" per the canonical
+  ;;                walker; lower never inspects the predicate (verify
+  ;;                ledger holds it).
+  ;;
+  ;; 7. Gradient?   $lower_emit_unresolved_type IS the diagnostic-class
+  ;;                enumeration that closes Drift 9 on lookup.wat's
+  ;;                NFree arm. Each diagnostic IS one gradient signal
+  ;;                in reverse — the developer (compiler-internal-bug
+  ;;                surface; not user-facing) sees what the inference
+  ;;                layer COULDN'T prove rather than encountering an
+  ;;                opaque (unreachable). $lower_render_ty's tag-114 arm
+  ;;                IS one gradient step that makes the lookup-private
+  ;;                sentinel legible at the diagnostic surface without
+  ;;                infer learning lookup's tag.
+  ;;
+  ;; 8. Reason?     The offending GNode at the handle has its Reason
+  ;;                chain populated by inference at every $graph_bind
+  ;;                site. This chunk does NOT walk it for V1 — the
+  ;;                handle integer + the message form
+  ;;                "E_UnresolvedType: handle <h> is NFree at lower-time"
+  ;;                is sufficient compiler-internal-bug surface. The
+  ;;                Reason walk is named follow-up
+  ;;                Hβ.lower.unresolved-emit-reason-walk; lands when the
+  ;;                IDE projection of compiler-internal-bug surfaces
+  ;;                needs the Why-Engine context.
+  ;;
+  ;; ═══ FORBIDDEN PATTERNS AUDIT (per Hβ-lower-substrate.md §6
+  ;;                               projected onto emit_diag) ═════════
+  ;;
+  ;; - Drift 1 (Rust vtable):              No diagnostic dispatch table.
+  ;;                                       $lower_emit_unresolved_type is
+  ;;                                       a direct named function. NO
+  ;;                                       data segment named
+  ;;                                       $lower_diag_table. The word
+  ;;                                       "vtable" appears nowhere in
+  ;;                                       this chunk.
+  ;; - Drift 4 (Haskell monad transformer): No DiagM monad. Single i32
+  ;;                                       parameter (handle); void return.
+  ;; - Drift 5 (C calling convention):     One i32 param; no threaded
+  ;;                                       diagnostic-context-struct +
+  ;;                                       state ptr.
+  ;; - Drift 8 (string-keyed):             Diagnostic class IS a function
+  ;;                                       name ($lower_emit_unresolved_type),
+  ;;                                       NOT a string-tag dispatch. NO
+  ;;                                       $lower_emit(handle, code: i32, ...)
+  ;;                                       int-coded entry point. Mirrors
+  ;;                                       infer/emit_diag.wat's
+  ;;                                       per-class-direct-fn discipline
+  ;;                                       (12 peer functions; not one
+  ;;                                       table). Per drift mode 8 +
+  ;;                                       infer/emit_diag.wat:354-363:
+  ;;                                       every flag OR enum-as-int is
+  ;;                                       an ADT begging to exist; the
+  ;;                                       ADT IS the code-name + per-code
+  ;;                                       helper function pair. With
+  ;;                                       exactly one helper, the family
+  ;;                                       is degenerate but the discipline
+  ;;                                       holds.
+  ;; - Drift 9 (deferred-by-omission):     $lower_emit_unresolved_type
+  ;;                                       lands FULLY BODIED this commit;
+  ;;                                       NO stub. The lookup.wat NFree
+  ;;                                       arm retrofit lands in the SAME
+  ;;                                       commit (TWO-FILE landing); NO
+  ;;                                       "substrate now / wiring later"
+  ;;                                       split. Hβ.lower.unresolved-emit-retrofit
+  ;;                                       follow-up CLOSED this commit.
+  ;;                                       $lower_render_ty bodied this
+  ;;                                       commit per the lookup.wat:73-75
+  ;;                                       forward declaration ("Downstream
+  ;;                                       emit_diag.wat (chunk #4)
+  ;;                                       dispatches tag 114 in $render_ty
+  ;;                                       — prints '<error-hole>'");
+  ;;                                       NOT half-built.
+  ;;
+  ;; - Foreign fluency — exception machinery: NO "throw" / "panic" /
+  ;;                                       "unwind" / "exception" / "catch"
+  ;;                                       vocabulary. The seed's surface
+  ;;                                       is one $eprint_string + the
+  ;;                                       caller's (call $wasi_proc_exit)
+  ;;                                       + (unreachable). Per spec 05
+  ;;                                       invariant 2: "NFree is a
+  ;;                                       compiler-internal error and
+  ;;                                       halts" — direct halt, no
+  ;;                                       unwinding. Hazel productive-
+  ;;                                       under-error pattern (per spec
+  ;;                                       04) applies to USER
+  ;;                                       diagnostics — emit + bind
+  ;;                                       NErrorHole + walk continues;
+  ;;                                       compiler-internal bugs (NFree
+  ;;                                       at lower) DO halt because
+  ;;                                       they're upstream-pass failures,
+  ;;                                       not user errors. This chunk is
+  ;;                                       the latter category exclusively.
+  ;;
+  ;; - Foreign fluency — log levels:       NO "info" / "debug" / "warn" /
+  ;;                                       "error" enum dispatch. The
+  ;;                                       diagnostic kind is the catalog
+  ;;                                       code's prefix (E_) per
+  ;;                                       docs/errors/README.md L24-31;
+  ;;                                       this helper has no log-level
+  ;;                                       parameter.
+  ;;
+  ;; Tag region: no new tags claimed.
+  ;;   This chunk doesn't introduce its own ADT records — it composes on
+  ;;   str.wat (message construction), int.wat ($int_to_str), wasi.wat
+  ;;   ($eprint_string), infer/ty.wat ($ty_tag), infer/emit_diag.wat
+  ;;   ($render_ty delegation). No tag allocation.
+  ;;
+  ;; Named follow-ups (per Drift 9 + Hβ-lower-substrate.md §11):
+  ;;   - Hβ.lower.unresolved-emit-reason-walk:
+  ;;                              $lower_emit_unresolved_type currently
+  ;;                              emits handle integer only. Future
+  ;;                              enrichment reads $gnode_reason(graph_chase
+  ;;                              (handle)) + walks the Reason chain to
+  ;;                              surface "inference left handle <h> NFree
+  ;;                              because <reason chain>" per Why-Engine
+  ;;                              discipline. Lands when IDE projection
+  ;;                              of compiler-internal bugs needs richer
+  ;;                              context. Lower-private follow-up;
+  ;;                              composes on infer's reason.wat chain-
+  ;;                              walking primitives (post-Wave-2.E
+  ;;                              substrate per Mentl tentacle-Why
+  ;;                              landing).
+  ;;
+  ;; ─── Data segment — diagnostic message fragments ──────────────────
+  ;;
+  ;; All diagnostic message strings live in the data segment per the
+  ;; infer/emit_diag.wat precedent. Length-prefixed flat-string layout
+  ;; ([len:i32][bytes...]). Offsets sit above infer/emit_diag.wat's last
+  ;; data segment (2928 + 4 + 1 = 2933; next 8-byte-aligned offset = 2944)
+  ;; and well below HEAP_BASE = 4096 per CLAUDE.md memory model.
+  ;; Available: 2944 .. 4095 = 1152 bytes. Used: ~80 bytes. Headroom: ample.
+
+  (data (i32.const 2944) "\21\00\00\00E_UnresolvedType: lower-time NFree at handle ")  ;; 33 bytes payload (header)
+  (data (i32.const 2992) "\01\00\00\00\0a")                                              ;; "\n" — 1 byte payload
+  (data (i32.const 3000) "\0c\00\00\00<error-hole>")                                     ;; 12 bytes payload (tag-114 render)
+
+  ;; ─── $lower_emit_unresolved_type — E_UnresolvedType helper ────────
+  ;;
+  ;; Per spec 05 L43-50 + Hβ-lower-substrate.md §1.1 lines 165-172 +
+  ;; §11 boundary lock 2026-04-27. Closes Hβ.lower.unresolved-emit-retrofit
+  ;; named follow-up from lookup.wat:163-174. Emit-only — caller
+  ;; (lookup.wat NFree arm) chains $wasi_proc_exit + (unreachable) per
+  ;; spec 05 invariant 2.
+  ;;
+  ;; Message form: "E_UnresolvedType: lower-time NFree at handle <h>\n"
+  ;; (simplified from spec 05 L46's wheel form
+  ;; '"handle " ++ show(h) ++ " @epoch=" ++ show(epoch)' — the @epoch
+  ;; suffix is wheel-time graph metadata not yet exposed by graph.wat;
+  ;; the seed surfaces handle integer only. Future enrichment under
+  ;; named follow-up Hβ.lower.unresolved-emit-reason-walk).
+  (func $lower_emit_unresolved_type (export "lower_emit_unresolved_type")
+                                      (param $handle i32)
+    (local $msg i32)
+    (local.set $msg (i32.const 2944))                                  ;; "E_UnresolvedType: lower-time NFree at handle "
+    (local.set $msg (call $str_concat (local.get $msg) (call $int_to_str (local.get $handle))))
+    (local.set $msg (call $str_concat (local.get $msg) (i32.const 2992)))   ;; "\n"
+    (call $eprint_string (local.get $msg)))
+
+  ;; ─── $lower_render_ty — Ty walker with TError-hole sentinel arm ───
+  ;;
+  ;; Per Hβ-lower-substrate.md §11 boundary lock 2026-04-27 +
+  ;; lookup.wat:73-75 forward declaration. Wraps infer's $render_ty
+  ;; (bootstrap/src/infer/emit_diag.wat:539-626 — the canonical 14-arm
+  ;; walker over Ty tags 100-113). Adds one arm for the lookup-private
+  ;; TError-hole sentinel (tag 114, owned by lookup.wat per §11 audit
+  ;; lock — NOT a 15th canonical Ty variant).
+  ;;
+  ;; Composition direction: lower COMPOSES on infer's render walker;
+  ;; infer's chunk stays UNTOUCHED (preserves Anchor 4 — build the
+  ;; wheel; never wrap the axle; infer's 14-arm walker IS the canonical
+  ;; render contract). The wrapper preserves the contract by
+  ;; SHORT-CIRCUITING tag 114 to a static data-segment string before
+  ;; delegating; tags 100-113 fall through to infer.
+  (func $lower_render_ty (export "lower_render_ty") (param $ty i32) (result i32)
+    ;; Tag-114 short-circuit — lookup-private TError-hole sentinel.
+    (if (i32.eq (call $ty_tag (local.get $ty)) (i32.const 114))
+      (then (return (i32.const 3000))))                                 ;; "<error-hole>"
+    ;; Tags 100-113 — delegate to infer's canonical 14-arm walker.
+    (call $render_ty (local.get $ty)))
+
+  ;; ═══ classify.wat — Hβ.lower handler-elimination strategy classifier (Tier 7) ═══
+  ;; Hβ.lower cascade chunk #5 of 11 per Hβ-lower-substrate.md §12.3 dep order.
+  ;;
+  ;; What this chunk IS (per Hβ-lower-substrate.md §3.1 lines 304-348):
+  ;;   The seed's projection of spec 05 §Handler elimination strategy
+  ;;   classification. Reads TCont(_, discipline) via $lookup_ty +
+  ;;   $resume_discipline_of (chunk #2 lookup.wat) and returns one of
+  ;;   three strategy codes the chunks #7/#8 walk_call/walk_handle
+  ;;   consume to choose lowering shape:
+  ;;
+  ;;     0 = TailResumptive  →  direct (call $h_op ...) — zero indirection
+  ;;                            per H1 evidence reification + spec 05 §Handler
+  ;;                            elimination "OneShot-typed arms become direct
+  ;;                            call". The 85% case in self-hosted Inka
+  ;;                            (per spec 05 + H1 §1.2).
+  ;;     1 = Linear          →  state machine — per-perform-site state ordinal +
+  ;;                            saved locals; same shape as MultiShot but with
+  ;;                            at-most-one-resume invariant. Per spec 05 §Handler
+  ;;                            elimination + Hβ-lower-substrate.md §3 table.
+  ;;     2 = MultiShot       →  heap-captured continuation per H7 — $alloc_continuation
+  ;;                            + cont.wat. Per H7 §1.2 + Hβ-lower-substrate.md §3
+  ;;                            line 307 + LMakeContinuation arity-6 at lexpr.wat
+  ;;                            tag 312. Mentl's hot path per insight #11.
+  ;;
+  ;; Strategy-code enum (sentinel < HEAP_BASE = 4096):
+  ;;     STRATEGY_TAIL_RESUMPTIVE = 0
+  ;;     STRATEGY_LINEAR          = 1
+  ;;     STRATEGY_MULTISHOT       = 2
+  ;;
+  ;; Vocabulary lock (per Hβ-lower-substrate.md §6.2 + spec 05): the
+  ;; strategy names are TailResumptive / Linear / MultiShot. NEVER
+  ;; "promise-like" / "async" / "future" (foreign fluency JS async/await).
+  ;; NEVER "call/cc" / "undelimited" (foreign fluency Scheme). NEVER
+  ;; "calling convention enum" (foreign fluency LLVM/GHC). The
+  ;; continuations are DELIMITED — scoped to the handler-install
+  ;; boundary per H7 §3.2.
+  ;;
+  ;; Implements: Hβ-lower-substrate.md §3.1 lines 304-348 — $classify_handler
+  ;;             4-arm dispatch on TCont.discipline (250/251/252) with
+  ;;             $is_tail_resumptive subdiscrimination for OneShot;
+  ;;             §11 lock — $either_strategy returns Linear (1) per the
+  ;;             Either-discipline seed default ("Linear (1) when handler
+  ;;             body's static check can't classify TailResumptive. Per
+  ;;             src/lower.nx classify_handler precedent" — line 922).
+  ;; Exports:    $classify_handler,
+  ;;             $is_tail_resumptive,
+  ;;             $either_strategy
+  ;; Uses:       $lookup_ty (lower/lookup.wat — chunk #2),
+  ;;             $resume_discipline_of (lower/lookup.wat — chunk #2),
+  ;;             $ty_tag (infer/ty.wat — TCONT_TAG=112 precondition guard)
+  ;; Test:       bootstrap/test/lower/classify_oneshot.wat,
+  ;;             bootstrap/test/lower/classify_multishot.wat,
+  ;;             bootstrap/test/lower/classify_either.wat
+  ;;
+  ;; ═══ EIGHT INTERROGATIONS (per Hβ-lower-substrate.md §5.2 projected
+  ;;                            onto classify.wat) ═══════════════════════
+  ;;
+  ;; 1. Graph?       $classify_handler reads through $lookup_ty(handler_handle)
+  ;;                 — which is $graph_chase + NodeKind tag dispatch (chunk #2).
+  ;;                 The graph IS the substrate; classify is a lens that reads
+  ;;                 the bound TCont.discipline field via $resume_discipline_of.
+  ;;                 No graph mutation; row at the wheel is GraphRead + LookupTy
+  ;;                 (no GraphWrite — structural isolation by effect-row
+  ;;                 subsumption per spec 05 §The LookupTy effect).
+  ;;
+  ;; 2. Handler?     At the wheel: classification is part of LookupTy + LowerCtx
+  ;;                 effect composition (@resume=OneShot — single call, scalar
+  ;;                 return). At the seed: direct dispatch on TCont.discipline
+  ;;                 sentinel via 3-arm if-chain over (250 / 251 / 252) +
+  ;;                 explicit (unreachable) trap on non-TCont input or unknown
+  ;;                 discipline (compiler-internal bug per spec 05 invariant).
+  ;;                 NO vtable. NO dispatch_table. NO $op_table data segment.
+  ;;                 NO _lookup_handler_for_op function.
+  ;;
+  ;; 3. Verb?        N/A. Verb projection (~> / <~) lands at chunks #7/#8 as
+  ;;                 LHandleWith (lexpr.wat tag 329) / LFeedback (lexpr.wat
+  ;;                 tag 330). Classify is verb-silent.
+  ;;
+  ;; 4. Row?         N/A. The row-ground gate ($row_is_ground / $monomorphic_at
+  ;;                 at lookup.wat) is a sibling concern at chunk #7 walk_call's
+  ;;                 monomorphic-vs-polymorphic dispatch decision. Per
+  ;;                 Hβ-lower-substrate.md §3.2 last paragraph: "the 95/5 split
+  ;;                 is about MONOMORPHIC vs POLYMORPHIC dispatch, NOT about
+  ;;                 OneShot vs MultiShot resume discipline" — the two
+  ;;                 questions are orthogonal.
+  ;;
+  ;; 5. Ownership?   Read-only on Ty + GNode. No allocation; no `own` transfer.
+  ;;                 Inputs: handler_handle (i32 value). Outputs: strategy code
+  ;;                 i32 sentinel < HEAP_BASE. The discipline value read via
+  ;;                 $resume_discipline_of is a sentinel (250/251/252); same
+  ;;                 nullary discipline as TInt/TFloat/TString/TUnit
+  ;;                 (ty.wat:100-103) — no allocation, no transfer.
+  ;;
+  ;; 6. Refinement?  N/A at the seed. TRefined transparent — would never wrap
+  ;;                 a TCont (refinement on a continuation type is ill-formed);
+  ;;                 classify's precondition guards on ($ty_tag == 112) which
+  ;;                 traps via (unreachable) on any wrapper type.
+  ;;
+  ;; 7. Gradient?    $classify_handler IS the gradient measurement for handler
+  ;;                 dispatch. Each strategy choice cashes one inference-earned
+  ;;                 win:
+  ;;                   - TailResumptive (0) collapses to direct (call $h_op ...)
+  ;;                     zero-indirection per H1 evidence reification;
+  ;;                   - Linear (1) avoids heap continuation alloc — state
+  ;;                     machine via per-perform-site state ordinal;
+  ;;                   - MultiShot (2) opens H7's heap-captured-continuation
+  ;;                     path — full first-class continuation for Mentl's
+  ;;                     speculative inference per insight #11.
+  ;;                 The classification IS the cash-out: each handler arm whose
+  ;;                 type is proven OneShot at infer time becomes a direct call
+  ;;                 at lower time; that's one row-inference win materialized
+  ;;                 as compile-time capability.
+  ;;
+  ;; 8. Reason?      Read-only. The TCont's parent GNode (the handler_handle
+  ;;                 chase target) carries the Reason chain via $gnode_reason
+  ;;                 (graph.wat); classify.wat does not surface it (downstream
+  ;;                 emit_diag.wat uses Reason when building diagnostics for
+  ;;                 handler-uninstallable errors per §11 boundary lock —
+  ;;                 those errors live in infer-owned emit_diag, not
+  ;;                 lower-owned). This chunk is Reason-silent.
+  ;;
+  ;; ═══ FORBIDDEN PATTERNS AUDIT (per Hβ-lower-substrate.md §6.2 +
+  ;;                                project-wide drift modes 1-9) ════════
+  ;;
+  ;; - Drift 1 (Rust vtable):              CRITICAL per walkthrough §6.2
+  ;;                                       lines 619-626. The seed's emit
+  ;;                                       must NOT generate a dispatch_table
+  ;;                                       for handler ops. Per H1 evidence
+  ;;                                       reification: closure record's
+  ;;                                       fn_index FIELD + call_indirect
+  ;;                                       at emit time. Three named drift
+  ;;                                       signals to refuse:
+  ;;                                         - "dispatch_table" / "dispatch
+  ;;                                           table" in any chunk comment
+  ;;                                         - any data segment named
+  ;;                                           $op_table or $handler_dispatch
+  ;;                                         - any function returning i32
+  ;;                                           named _lookup_handler_for_op
+  ;;                                       This chunk's classifier is a
+  ;;                                       3-arm (if (i32.eq disc 250/251/252))
+  ;;                                       chain — direct sentinel comparison;
+  ;;                                       no table indirection.
+  ;;
+  ;; - Drift 4 (Haskell monad transformer): No ClassifyM. Single i32 input
+  ;;                                       (handler_handle), single i32 output
+  ;;                                       (strategy code). Direct.
+  ;;
+  ;; - Drift 5 (C calling convention):     Per H7 §1.2: ONE $cont_ptr parameter
+  ;;                                       on resume_fn. N/A at this chunk —
+  ;;                                       $classify_handler takes ONE i32,
+  ;;                                       returns ONE i32. The discipline
+  ;;                                       applies downstream when chunk #8's
+  ;;                                       LMakeContinuation lands.
+  ;;
+  ;; - Drift 6 (primitive-special-case):   ResumeDiscipline 250/251/252 are
+  ;;                                       nullary sentinels — same compilation
+  ;;                                       discipline as TInt/TFloat/TString/
+  ;;                                       TUnit at ty.wat:100-103 (per HB
+  ;;                                       anchor). NO "OneShot is special
+  ;;                                       because it's tail" carveout.
+  ;;
+  ;; - Drift 8 (string-keyed):             Tag-int dispatch only —
+  ;;                                       (i32.eq disc 250), NOT
+  ;;                                       (if str_eq(disc_name, "OneShot")).
+  ;;                                       Strategy codes are i32 sentinels
+  ;;                                       0/1/2, NOT strings at the dispatch
+  ;;                                       surface.
+  ;;
+  ;; - Drift 9 (deferred-by-omission):     All three exports land FULLY BODIED
+  ;;                                       this commit. $classify_handler
+  ;;                                       complete 4-arm dispatch.
+  ;;                                       $is_tail_resumptive returns
+  ;;                                       conservative Linear (1) — bodied
+  ;;                                       with explicit reasoning — NOT a
+  ;;                                       stub. The structural body-walk
+  ;;                                       enrichment is named follow-up
+  ;;                                       Hβ.lower.tail-resumptive-discrimination
+  ;;                                       (per the wheel src/lower.nx 1284-line
+  ;;                                       inventory: the wheel itself does
+  ;;                                       NOT yet implement TailResumptive
+  ;;                                       discrimination — handler arms lower
+  ;;                                       via lower_handler_arms_as_decls to
+  ;;                                       LDeclareFn entries; the seed's
+  ;;                                       Linear default matches the wheel's
+  ;;                                       current behavior per Anchor 4
+  ;;                                       "build the wheel; never wrap the
+  ;;                                       axle"). $either_strategy returns
+  ;;                                       Linear (1) per §11 lock; same
+  ;;                                       discipline.
+  ;;
+  ;; - Foreign fluency — JS async/await:   NEVER "promise-like" / "async" /
+  ;;                                       "future". Vocabulary is
+  ;;                                       TailResumptive / Linear / MultiShot
+  ;;                                       per spec 05.
+  ;;
+  ;; - Foreign fluency — Scheme call/cc:   Continuations here are DELIMITED
+  ;;                                       (scoped to handler-install boundary),
+  ;;                                       NOT undelimited. Per H7 §3.2.
+  ;;
+  ;; - Foreign fluency — backend enums:    Strategy codes 0/1/2 are NOT a
+  ;;                                       generic "calling convention" enum
+  ;;                                       (LLVM/GHC). Vocabulary stays Inka:
+  ;;                                       TailResumptive / Linear / MultiShot
+  ;;                                       per spec 05 §Handler elimination.
+  ;;
+  ;; Tag region: no new tags claimed. Composes on lookup.wat's
+  ;; $resume_discipline_of (which composes on ty.wat:410-411
+  ;; $ty_tcont_discipline) + ty.wat 250/251/252 ResumeDiscipline sentinels
+  ;; + 112 TCONT_TAG. Strategy codes 0/1/2 are FUNCTION RETURNS, never
+  ;; stored as record tags.
+  ;;
+  ;; Named follow-ups (per Drift 9 + Hβ-lower-substrate.md §11):
+  ;;
+  ;;   - Hβ.lower.tail-resumptive-discrimination:
+  ;;                              $is_tail_resumptive currently returns
+  ;;                              conservative Linear (1) for all OneShot
+  ;;                              handler arms. Future enrichment walks the
+  ;;                              handler arm body's LowExpr tree post-lower
+  ;;                              + checks every ResumeExpr is in tail
+  ;;                              position. When tail-position invariant
+  ;;                              holds, returns 0 (TailResumptive); else
+  ;;                              stays 1 (Linear). Lands when:
+  ;;                                (a) chunk #8 walk_handle.wat has lowered
+  ;;                                    handler arm bodies to LowExpr trees;
+  ;;                                (b) the wheel src/lower.nx grows the
+  ;;                                    canonical structural-body-walk
+  ;;                                    classifier per Anchor 4 (the seed
+  ;;                                    follows the wheel; the wheel hasn't
+  ;;                                    grown this substrate yet — wheel
+  ;;                                    inventory full 1284 lines: zero
+  ;;                                    classify_handler/is_tail_resumptive
+  ;;                                    function bodies; lower_handler_arms_as_decls
+  ;;                                    lowers ALL arms to LDeclareFn —
+  ;;                                    Linear by structure).
+  ;;
+  ;;   - Hβ.lower.either-install-negotiation:
+  ;;                              $either_strategy currently returns Linear
+  ;;                              (1) per §11 walkthrough lock (line 922 +
+  ;;                              line 950). Future enrichment performs
+  ;;                              install-time negotiation between
+  ;;                              TailResumptive (0) and Linear (1) based on
+  ;;                              the handler-install context's expected
+  ;;                              behavior. Lands when handler-install
+  ;;                              substrate grows past simple resume-on-arm
+  ;;                              (post-Wave-2.E.lower; potentially
+  ;;                              post-L1).
+  ;;
+  ;;   - Hβ.lower.classify-trap-testing:
+  ;;                              The (unreachable) traps for non-TCont input
+  ;;                              and unknown discipline are not currently
+  ;;                              trace-harness-covered (the harness shell
+  ;;                              expects exit 0 / exit 1 via $wasi_proc_exit;
+  ;;                              wasm trap aborts process out-of-band). Lands
+  ;;                              when harness shell grows trap-expected mode.
+
+  ;; ─── $classify_handler — the strategy-code dispatcher ─────────────
+  ;; Per Hβ-lower-substrate.md §3.1 lines 309-342. Reads the handler's
+  ;; TCont type via $lookup_ty + extracts the discipline sentinel via
+  ;; $resume_discipline_of (chunk #2 lookup.wat). Three-arm dispatch
+  ;; on the discipline (250 OneShot / 251 MultiShot / 252 Either)
+  ;; returning the strategy code; (unreachable) on non-TCont input
+  ;; (compiler-internal bug — caller passed a non-handler handle) or
+  ;; unknown discipline sentinel (compiler-internal bug — ResumeDiscipline
+  ;; ADT extended without retrofitting this dispatcher).
+  ;;
+  ;; Dispatch order matches expected frequency per spec 05 + H1 + H7:
+  ;; OneShot first (>85% case in self-hosted Inka per spec 05 §Handler
+  ;; elimination); MultiShot second (Mentl hot path per insight #11);
+  ;; Either third (rare; install-time negotiation).
+  (func $classify_handler (export "classify_handler")
+                            (param $handler_handle i32)
+                            (result i32)
+    (local $ty i32)
+    (local $disc i32)
+    (local.set $ty (call $lookup_ty (local.get $handler_handle)))
+    ;; Precondition guard: $ty_tag == 112 (TCONT_TAG). Calling
+    ;; $classify_handler on a non-TCont handle is a compiler-internal
+    ;; bug. Mirrors $resume_discipline_of's same-precondition discipline
+    ;; (lookup.wat) + spec 05 invariant 2.
+    (if (i32.ne (call $ty_tag (local.get $ty)) (i32.const 112))
+      (then (unreachable)))
+    (local.set $disc (call $resume_discipline_of (local.get $ty)))
+    ;; OneShot — discriminate TailResumptive (0) vs Linear (1) by
+    ;; structural body check. Per the conservative seed default +
+    ;; named follow-up Hβ.lower.tail-resumptive-discrimination,
+    ;; $is_tail_resumptive returns 1 (Linear) unconditionally for V1.
+    (if (i32.eq (local.get $disc) (i32.const 250))
+      (then (return (call $is_tail_resumptive (local.get $handler_handle)))))
+    ;; MultiShot — heap-captured continuation per H7. LMakeContinuation
+    ;; arity-6 at lexpr.wat tag 312; cont.wat owns the runtime alloc.
+    (if (i32.eq (local.get $disc) (i32.const 251))
+      (then (return (i32.const 2))))
+    ;; Either — install-time negotiation; seed default Linear (1) per
+    ;; Hβ-lower-substrate.md §11 line 922 + named follow-up
+    ;; Hβ.lower.either-install-negotiation.
+    (if (i32.eq (local.get $disc) (i32.const 252))
+      (then (return (call $either_strategy (local.get $handler_handle)))))
+    ;; Unknown ResumeDiscipline sentinel — compiler-internal bug
+    ;; (ADT extended at ty.wat without retrofitting this dispatcher).
+    (unreachable))
+
+  ;; ─── $is_tail_resumptive — OneShot subdiscriminator (seed: Linear) ─
+  ;; Per Hβ-lower-substrate.md §3.1 lines 344-348 + §11 named follow-up
+  ;; Hβ.lower.tail-resumptive-discrimination.
+  ;;
+  ;; CONSERVATIVE SEED DEFAULT: returns 1 (Linear) unconditionally for V1.
+  ;;
+  ;; The structural body-walk that discriminates TailResumptive (0) vs
+  ;; Linear (1) — checking every ResumeExpr in the handler arm body is
+  ;; in tail position — is named-follow-up substrate. Reasoning:
+  ;;
+  ;;   1. The wheel src/lower.nx (full 1284-line inventory) does NOT
+  ;;      yet implement TailResumptive discrimination. The wheel's
+  ;;      lower_handler_arms_as_decls lowers ALL handler arms via the
+  ;;      same path: LDeclareFn entries at module level + emit-time
+  ;;      fn_idx lookup. That IS the Linear shape. The seed returning 1
+  ;;      (Linear) for OneShot defaults to wheel parity per Anchor 4.
+  ;;
+  ;;   2. Dep-order surfacing: the structural body walk needs handler
+  ;;      arm bodies as LowExpr trees BUT the arm bodies themselves
+  ;;      are not lowered until walk_handle.wat (chunk #8). classify.wat
+  ;;      lands at #5 — BEFORE walk_handle.wat. That substrate is its
+  ;;      own peer handle, not a chunk-#5 sub-concern.
+  ;;
+  ;;   3. Drift-9 closure: the deferred work is named, not absorbed.
+  ;;
+  ;; The function exists at the named symbol, returns a defensible value
+  ;; matching the wheel's current behavior, and Drift-1 vtable refusal +
+  ;; spec-05-invariant trap shape are preserved.
+  (func $is_tail_resumptive (export "is_tail_resumptive")
+                              (param $handler_handle i32)
+                              (result i32)
+    ;; Conservative seed default — Linear. Future enrichment per named
+    ;; follow-up Hβ.lower.tail-resumptive-discrimination.
+    (i32.const 1))
+
+  ;; ─── $either_strategy — Either-discipline strategy chooser ────────
+  ;; Per Hβ-lower-substrate.md §11 line 922 + line 950 walkthrough lock:
+  ;; "Linear (1) when handler body's static check can't classify
+  ;; TailResumptive. Per src/lower.nx classify_handler precedent."
+  ;;
+  ;; Seed default: returns 1 (Linear) unconditionally. Future enrichment
+  ;; under named follow-up Hβ.lower.either-install-negotiation.
+  ;;
+  ;; The handler_handle parameter is reserved for the future negotiation
+  ;; signature; the seed's body does not consult it (yet — preserved at
+  ;; the export shape so future enrichment doesn't break callers).
+  (func $either_strategy (export "either_strategy")
+                          (param $handler_handle i32)
+                          (result i32)
+    ;; Seed default — Linear. See §11 walkthrough lock + named follow-up.
+    (i32.const 1))
 
   ;; ═══ WAT Fragment Data Segments ═════════════════════════════════════
   ;; Raw byte strings for WAT syntax emission. No length prefix —
