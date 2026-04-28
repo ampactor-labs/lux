@@ -274,20 +274,32 @@
   ;; expansion visible.
   ;;
   ;; Currently dispatches:
-  ;;   80 LitInt    → $lower_lit_int    (chunk #6 walk_const)
+  ;;   80 LitInt    → $lower_lit_int       (chunk #6 walk_const)
   ;;   81 LitFloat  → $lower_lit_float
   ;;   82 LitString → $lower_lit_string
   ;;   83 LitBool   → $lower_lit_bool
   ;;   84 LitUnit   → $lower_lit_unit
   ;;   85 VarRef    → $lower_var_ref
-  ;;   88 CallExpr   → $lower_call      (this chunk #7)
-  ;;   93 HandleExpr → $lower_handle    (chunk #8 retrofit)
+  ;;   87 UnaryOp   → $lower_unary_op      (chunk #9 retrofit)
+  ;;   88 CallExpr  → $lower_call          (this chunk #7)
+  ;;   89 Lambda    → $lower_lambda        (chunk #9 retrofit)
+  ;;   90 If        → $lower_if            (chunk #9 retrofit)
+  ;;   91 Block     → $lower_block         (chunk #9 retrofit)
+  ;;   92 Match     → $lower_match         (chunk #9 retrofit)
+  ;;   93 HandleExpr → $lower_handle       (chunk #8 retrofit)
   ;;   94 Perform    → $lower_perform
   ;;   95 Resume     → $lower_resume
-  ;;   101 PipeExpr  → $lower_pipe      (chunk #8 retrofit)
+  ;;   96 MakeList   → $lower_make_list    (chunk #9 retrofit)
+  ;;   97 MakeTuple  → $lower_make_tuple   (chunk #9 retrofit)
+  ;;   98 MakeRecord → $lower_make_record  (chunk #9 retrofit)
+  ;;   99 NamedRecord → $lower_named_record (chunk #9 retrofit)
+  ;;   100 FieldExpr → $lower_field        (chunk #9 retrofit)
+  ;;   101 PipeExpr  → $lower_pipe         (chunk #8 retrofit)
   ;;
-  ;; Unknown (lambda/if/block/match/list/tuple/record/...) → (unreachable)
-  ;; until chunks #9/#10 retrofit per Hβ.lower.lower-expr-dispatch-extension.
+  ;; Unknown (BinOpExpr 86 — chunk #6 BinOp arm pending; future Expr-region
+  ;; growth) → (unreachable) trap. Named follow-up
+  ;; Hβ.lower.lower-expr-dispatch-extension closes BinOp at the next
+  ;; cycle.
   ;;
   ;; AST navigation: $node is the N-wrapper; tag dispatch reads
   ;; offset 4 → NExpr → offset 4 → variant Expr; tag is at offset 0
@@ -319,8 +331,28 @@
       (then (return (call $lower_handle     (local.get $node)))))
     (if (i32.eq (local.get $tag) (i32.const 101))
       (then (return (call $lower_pipe       (local.get $node)))))
-    ;; Unknown (lambda/if/block/match/list/tuple/record/...) — chunks
-    ;; #9/#10 retrofit per Hβ.lower.lower-expr-dispatch-extension.
+    (if (i32.eq (local.get $tag) (i32.const 87))
+      (then (return (call $lower_unary_op    (local.get $node)))))
+    (if (i32.eq (local.get $tag) (i32.const 89))
+      (then (return (call $lower_lambda      (local.get $node)))))
+    (if (i32.eq (local.get $tag) (i32.const 90))
+      (then (return (call $lower_if          (local.get $node)))))
+    (if (i32.eq (local.get $tag) (i32.const 91))
+      (then (return (call $lower_block       (local.get $node)))))
+    (if (i32.eq (local.get $tag) (i32.const 92))
+      (then (return (call $lower_match       (local.get $node)))))
+    (if (i32.eq (local.get $tag) (i32.const 96))
+      (then (return (call $lower_make_list   (local.get $node)))))
+    (if (i32.eq (local.get $tag) (i32.const 97))
+      (then (return (call $lower_make_tuple  (local.get $node)))))
+    (if (i32.eq (local.get $tag) (i32.const 98))
+      (then (return (call $lower_make_record (local.get $node)))))
+    (if (i32.eq (local.get $tag) (i32.const 99))
+      (then (return (call $lower_named_record (local.get $node)))))
+    (if (i32.eq (local.get $tag) (i32.const 100))
+      (then (return (call $lower_field       (local.get $node)))))
+    ;; Unknown (BinOpExpr 86 — Hβ.lower.binop-arm named follow-up;
+    ;; future Expr-region growth) → trap.
     (unreachable))
 
   ;; ─── $lower_args — chunk-private buffer-counter helper (Lock #5) ──
