@@ -51,3 +51,7 @@ lower/lookup_ty_nbound.wat	lookup.wat	§1.1 NBound arm + §10.1 acceptance — T
 lower/lookup_ty_nerrorhole.wat	lookup.wat	§1.1 NErrorHole arm + §11 audit lock + §10.1 acceptance — NErrorHole → tag 114 sentinel	$lookup_ty $ty_make_terror_hole $node_kind_make_nerrorhole $graph_bind_kind	~
 lower/monomorphic_at_pure.wat	lookup.wat	§3.2 monomorphism gate + §10.1 acceptance — Pure row → 1	$monomorphic_at $row_is_ground $lookup_ty $ty_make_tfun $row_make_pure	~
 lower/monomorphic_at_open.wat	lookup.wat	§3.2 monomorphism gate + §10.1 acceptance — Open row → 0	$monomorphic_at $row_is_ground $lookup_ty $ty_make_tfun $row_make_open $graph_fresh_row	~
+lower/lexpr_lconst_roundtrip.wat	lexpr.wat	§2 LConst roundtrip — $lexpr_make_lconst + $lexpr_handle + $lexpr_lconst_value + tag check	$lexpr_make_lconst $lexpr_handle $lexpr_lconst_value $tag_of	~
+lower/lexpr_lcall_field_extraction.wat	lexpr.wat	§2 LCall arity-3 roundtrip	$lexpr_make_lcall $lexpr_handle $lexpr_lcall_fn $lexpr_lcall_args $tag_of	~
+lower/lexpr_lmakecontinuation_arity6.wat	lexpr.wat	§2 LMakeContinuation arity-6 roundtrip — H7 substrate; field-ordering proof	$lexpr_make_lmakecontinuation $lexpr_handle $lexpr_lmakecontinuation_fn $lexpr_lmakecontinuation_caps $lexpr_lmakecontinuation_evs $lexpr_lmakecontinuation_state_idx $lexpr_lmakecontinuation_ret_slot $tag_of	~
+lower/lexpr_handle_universal.wat	lexpr.wat	§2 + §6 + §11 — $lexpr_handle universal across LConst/LCall/LIf + tag-313 LDeclareFn returns 0	$lexpr_make_lconst $lexpr_make_lcall $lexpr_make_lif $lexpr_make_ldeclarefn $lexpr_handle	~
