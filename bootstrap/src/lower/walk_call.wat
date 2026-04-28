@@ -280,12 +280,14 @@
   ;;   83 LitBool   → $lower_lit_bool
   ;;   84 LitUnit   → $lower_lit_unit
   ;;   85 VarRef    → $lower_var_ref
-  ;;   88 CallExpr  → $lower_call       (this chunk #7)
-  ;;   94 Perform   → $lower_perform
-  ;;   95 Resume    → $lower_resume
+  ;;   88 CallExpr   → $lower_call      (this chunk #7)
+  ;;   93 HandleExpr → $lower_handle    (chunk #8 retrofit)
+  ;;   94 Perform    → $lower_perform
+  ;;   95 Resume     → $lower_resume
+  ;;   101 PipeExpr  → $lower_pipe      (chunk #8 retrofit)
   ;;
-  ;; Unknown (handle/pipe/lambda/if/block/match/...) → (unreachable)
-  ;; until chunks #8-#10 retrofit.
+  ;; Unknown (lambda/if/block/match/list/tuple/record/...) → (unreachable)
+  ;; until chunks #9/#10 retrofit per Hβ.lower.lower-expr-dispatch-extension.
   ;;
   ;; AST navigation: $node is the N-wrapper; tag dispatch reads
   ;; offset 4 → NExpr → offset 4 → variant Expr; tag is at offset 0
@@ -313,8 +315,12 @@
       (then (return (call $lower_perform    (local.get $node)))))
     (if (i32.eq (local.get $tag) (i32.const 95))
       (then (return (call $lower_resume     (local.get $node)))))
-    ;; Unknown — chunks #8/#9/#10 retrofit per
-    ;; Hβ.lower.lower-expr-dispatch-extension.
+    (if (i32.eq (local.get $tag) (i32.const 93))
+      (then (return (call $lower_handle     (local.get $node)))))
+    (if (i32.eq (local.get $tag) (i32.const 101))
+      (then (return (call $lower_pipe       (local.get $node)))))
+    ;; Unknown (lambda/if/block/match/list/tuple/record/...) — chunks
+    ;; #9/#10 retrofit per Hβ.lower.lower-expr-dispatch-extension.
     (unreachable))
 
   ;; ─── $lower_args — chunk-private buffer-counter helper (Lock #5) ──
