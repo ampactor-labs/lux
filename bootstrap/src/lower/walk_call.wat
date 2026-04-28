@@ -331,6 +331,8 @@
       (then (return (call $lower_handle     (local.get $node)))))
     (if (i32.eq (local.get $tag) (i32.const 101))
       (then (return (call $lower_pipe       (local.get $node)))))
+    (if (i32.eq (local.get $tag) (i32.const 86))
+      (then (return (call $lower_binop       (local.get $node)))))
     (if (i32.eq (local.get $tag) (i32.const 87))
       (then (return (call $lower_unary_op    (local.get $node)))))
     (if (i32.eq (local.get $tag) (i32.const 89))

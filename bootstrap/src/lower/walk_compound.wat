@@ -32,7 +32,8 @@
   ;;             src/lower.nx:401-428 LambdaExpr arm (Lock #1+#11);
   ;;             src/lower.nx:450-461 FieldExpr arm (Lock #4);
   ;;             src/lower.nx:1063-1068 lower_record_field_values.
-  ;; Exports:    $lower_unary_op,
+  ;; Exports:    $lower_binop,
+  ;;             $lower_unary_op,
   ;;             $lower_lambda,
   ;;             $lower_if,
   ;;             $lower_block,
@@ -351,6 +352,38 @@
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $each)))
     (local.get $buf))
+
+  ;; ─── $lower_binop — BinOpExpr arm (parser tag 86) ──────────────────
+  ;; Per src/lower.nx:341-342: BinOpExpr(op, left, right) =>
+  ;;   LBinOp(handle, op, lower_expr(left), lower_expr(right)).
+  ;; AST per parser_infra.wat:101-107:
+  ;;   [tag=86][op][left_node][right_node] offsets 0/4/8/12.
+  ;; The op is a BinOp i32 sentinel (BAdd=140..BConcat=153 per
+  ;; parser_infra.wat:26 — same nullary-sentinel discipline as
+  ;; ResumeDiscipline 250-252; $tag_of(op) returns 140-153 by heap-base
+  ;; threshold). Lock-closure for Hβ.lower.binop-arm named follow-up
+  ;; surfaced at chunk #9 landing — the wheel src/lower.nx places this
+  ;; arm in lower_expr_body alongside UnaryOp; the seed honors the
+  ;; pairing here at walk_compound (the §7.1 walkthrough's "walk_const
+  ;; owns BinOp" was prose drift; wheel canonical pairs binop+unaryop
+  ;; structurally as the two arithmetic-like compound arms).
+  (func $lower_binop (export "lower_binop") (param $node i32) (result i32)
+    (local $h i32) (local $body i32) (local $binop_struct i32)
+    (local $op i32) (local $left_node i32) (local $right_node i32)
+    (local $lo_l i32) (local $lo_r i32)
+    (local.set $h            (call $walk_expr_node_handle (local.get $node)))
+    (local.set $body         (i32.load offset=4 (local.get $node)))
+    (local.set $binop_struct (i32.load offset=4 (local.get $body)))
+    (local.set $op           (i32.load offset=4 (local.get $binop_struct)))
+    (local.set $left_node    (i32.load offset=8 (local.get $binop_struct)))
+    (local.set $right_node   (i32.load offset=12 (local.get $binop_struct)))
+    (local.set $lo_l         (call $lower_expr (local.get $left_node)))
+    (local.set $lo_r         (call $lower_expr (local.get $right_node)))
+    (call $lexpr_make_lbinop
+      (local.get $h)
+      (local.get $op)
+      (local.get $lo_l)
+      (local.get $lo_r)))
 
   ;; ─── $lower_unary_op — UnaryOpExpr arm (parser tag 87) ──────────────
   ;; Per src/lower.nx:344-345: UnaryOpExpr(op, inner) =>
