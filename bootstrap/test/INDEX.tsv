@@ -62,3 +62,6 @@ lower/classify_either.wat	classify.wat	§3.1 lines 337-340 + §11 line 922 — T
 lower/walk_const_lit_int.wat	walk_const.wat	§4.2 LitInt arm + §10.1 acceptance — 42 round-trips through LConst tag 300	$lower_lit_int $mk_LitInt $nexpr $lexpr_handle $lexpr_lconst_value $tag_of	~
 lower/walk_const_var_ref_local.wat	walk_const.wat	§4.2 VarRef-RLocal arm + Lock #1 — LLocal carries binding-time ty_handle not AST handle	$lower_var_ref $ls_bind_local $mk_VarRef $nexpr $lexpr_llocal_name $lexpr_handle $str_eq $graph_fresh_ty	~
 lower/walk_const_var_ref_global.wat	walk_const.wat	§4.2 VarRef-RGlobal arm — unbound name lowers to LGlobal	$lower_var_ref $mk_VarRef $nexpr $lexpr_lglobal_name $lexpr_handle $str_eq $tag_of	~
+lower/walk_call_monomorphic.wat	walk_call.wat	§3.2 + §4.2 + Lock #1 — Pure-row callee → LCall tag 308	$lower_call $lower_call_default $monomorphic_at $mk_CallExpr $nexpr $mk_LitInt $graph_bind $ty_make_tfun $row_make_pure $tag_of	~
+lower/walk_call_polymorphic.wat	walk_call.wat	§3.2 + §4.2 + Lock #1 + Lock #7 — Open-row callee → LSuspend tag 325 with empty evs	$lower_call $lower_call_default $derive_ev_slots $mk_CallExpr $nexpr $graph_bind $ty_make_tfun $row_make_open $graph_fresh_row $tag_of	~
+lower/walk_perform_oneshot.wat	walk_call.wat	§4.2 + Lock #2 — wheel-parity LPerform regardless of discipline	$lower_perform $mk_PerformExpr $nexpr $tag_of	~
