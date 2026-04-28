@@ -111,9 +111,17 @@ for chunk in "${CHUNKS[@]}"; do
   echo "" >> "$OUT"
 done
 
-# ─── Layer 5: Entry point (inline) ──────────────────────────────────
+# ─── Layer 6: Entry point (inline) ──────────────────────────────────
 # `_start` per WASI. Pipeline: stdin → lex → parse → emit → stdout.
 # Closes the (module ...) wrapper.
+#
+# Pipeline-wire status: Hβ.infer.pipeline-wire follow-up is GATED on
+# Hβ.lower.emit-extension AND on Hβ.infer's bump-allocator-pressure
+# substrate (a real parse_program AST blows the bump allocator
+# during $inka_infer's walk — the trace-harnesses use synthetic
+# small inputs that don't exercise it). Both are post-L1 substrate
+# growth; first-light Tier 1 stays clean by leaving emit consuming
+# raw AST.
 
 cat >> "$OUT" <<'EOF'
 
