@@ -15,7 +15,11 @@
   ;; Uses:       $graph_chase / $gnode_kind / $node_kind_tag /
   ;;               $node_kind_payload (graph.wat),
   ;;             $row_is_pure / $row_is_closed (row.wat),
-  ;;             $ty_tag / $ty_tfun_row / $ty_tcont_discipline (infer/ty.wat)
+  ;;             $ty_tag / $ty_tfun_row / $ty_tcont_discipline (infer/ty.wat),
+  ;;             $lower_emit_unresolved_type (lower/emit_diag.wat — chunk #4
+  ;;               retrofit landed alongside this commit per
+  ;;               Hβ.lower.unresolved-emit-retrofit closure),
+  ;;             $wasi_proc_exit (Layer 0 import — spec 05 invariant 2 trap)
   ;; Test:       bootstrap/test/lower/lookup_ty_nbound.wat,
   ;;             bootstrap/test/lower/lookup_ty_nerrorhole.wat,
   ;;             bootstrap/test/lower/monomorphic_at_pure.wat,
@@ -160,18 +164,6 @@
   ;;                             handler-row-arity check; lands then so
   ;;                             substrate-now-wiring-later (drift 9) is
   ;;                             avoided.
-  ;;   - Hβ.lower.unresolved-emit-retrofit:
-  ;;                             $lookup_ty's NFree arm currently traps
-  ;;                             via (unreachable). Lands when chunk #4
-  ;;                             emit_diag.wat provides
-  ;;                             $lower_emit_unresolved_type — at that
-  ;;                             point, the arm becomes
-  ;;                             `$lower_emit_unresolved_type + (unreachable)`
-  ;;                             (the proc_exit/trap is preserved per
-  ;;                             spec 05 invariant 2; the user-facing
-  ;;                             E_UnresolvedType message gets emitted
-  ;;                             before halt). Per §11 boundary lock
-  ;;                             this diagnostic is lower-owned.
 
   ;; ─── $ty_make_terror_hole — lookup-private nullary sentinel ──────
   ;; Per Hβ-lower-substrate.md §11 audit lock 2026-04-27 + nullary-
@@ -205,10 +197,17 @@
     ;; NErrorHole — return $ty_make_terror_hole sentinel (tag 114).
     (if (i32.eq (local.get $tag) (i32.const 64))
       (then (return (call $ty_make_terror_hole))))
-    ;; NFree — compiler-internal bug per spec 05 invariant 2. The seed
-    ;; traps (the user-facing E_UnresolvedType emit retrofits via peer
-    ;; follow-up Hβ.lower.unresolved-emit-retrofit when emit_diag.wat
-    ;; chunk #4 lands; until then the trap surfaces the bug to dev).
+    ;; NFree — compiler-internal bug per spec 05 invariant 2.
+    ;; emit + halt per the closed Hβ.lower.unresolved-emit-retrofit
+    ;; follow-up (chunk #4 emit_diag.wat landed alongside this retrofit).
+    ;; The (unreachable) is preserved per spec 05 invariant 2 trap
+    ;; discipline; $wasi_proc_exit's exit code 1 reaches the caller in
+    ;; well-formed runtimes; the (unreachable) guards against runtimes
+    ;; that don't honor proc_exit.
+    (if (i32.eq (local.get $tag) (i32.const 61))                       ;; NFREE
+      (then
+        (call $lower_emit_unresolved_type (local.get $handle))
+        (call $wasi_proc_exit (i32.const 1))))
     ;; NRowBound (62) / NRowFree (63) — should never reach $lookup_ty;
     ;; rows are queried via $lookup_row_for (peer; named follow-up
     ;; Hβ.lower.lookup-row — lands when walk_handle.wat needs it).

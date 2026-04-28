@@ -88,15 +88,21 @@ CHUNKS=(
   #   2. lookup.wat — live $lookup_ty graph read + $monomorphic_at row-
   #      ground gate + $resume_discipline_of TCont accessor + $ty_make_terror_hole
   #      lookup-private nullary sentinel at tag 114 (deps: graph + row +
-  #      ty + wasi; forward-decl $lower_emit_unresolved_type per chunk #4).
+  #      ty + wasi; forward-decl $lower_emit_unresolved_type per chunk #4
+  #      — RETROFITTED alongside chunk #4's landing).
   #   3. lexpr.wat — 35 LowExpr variant constructors + accessors over
   #      tag region 300-334 (per Hβ-lower-substrate.md §2; src/lower.nx:97-150
   #      canonical) + universal $lexpr_handle accessor with LDeclareFn
   #      tag-313 anomaly arm (deps: record).
-  # Subsequent: classify.wat, walk_*.wat, emit_diag.wat, main.wat.
+  #   4. emit_diag.wat — $lower_emit_unresolved_type + $lower_render_ty
+  #      wrapper (deps: str + int + wasi + infer/ty + infer/emit_diag;
+  #      Hβ.lower §1.1 + §11 boundary lock; closes the
+  #      Hβ.lower.unresolved-emit-retrofit named follow-up).
+  # Subsequent: classify.wat, walk_*.wat, main.wat.
   "bootstrap/src/lower/state.wat"        # Tier 4 (uses $alloc + list + record + str_eq + env_contains; Hβ.lower §1.2)
   "bootstrap/src/lower/lookup.wat"       # Tier 5 (uses graph + row + ty + wasi; Hβ.lower §1.1 + §3.1 + §3.2 + §11; 5 exports — live $lookup_ty + $ty_make_terror_hole nullary sentinel + $row_is_ground monomorphism gate + $monomorphic_at + $resume_discipline_of; forward-decl $lower_emit_unresolved_type per §12.3 dep order chunk #4)
   "bootstrap/src/lower/lexpr.wat"        # Tier 6 (uses $make_record + $record_get + $record_set + $tag_of from record.wat; Hβ.lower §2; 35 LowExpr variant constructors + 67 non-handle accessors + universal $lexpr_handle over tag region 300-334; LDeclareFn tag-313 anomaly per §11 — handle returns 0; 335-349 reserved for future LowExpr variants)
+  "bootstrap/src/lower/emit_diag.wat"     # Tier 6 (uses str + int + wasi + ty + infer/emit_diag; Hβ.lower §1.1 + §11 + §12.3 #4; 2 exports — $lower_emit_unresolved_type closes Hβ.lower.unresolved-emit-retrofit named follow-up from lookup.wat + $lower_render_ty wraps infer's $render_ty with tag-114 TError-hole sentinel arm per §11 boundary lock)
 
   # ── Layer 6: Emitter ──
   "bootstrap/src/emit_data.wat"
