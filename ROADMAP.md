@@ -219,14 +219,23 @@ After Hβ.emit cascade lands (~6-8 chunks, mirror of Hβ.lower):
 
 ### Path order
 
-1. Hβ-emit-substrate.md walkthrough (single-session authoring)
-2. Hβ.emit cascade chunks (~6-8 per the walkthrough decomposition)
-3. Bump-allocator-pressure substrate (arena handler OR scoped reset)
-4. Hβ.infer.pipeline-wire (`$sys_main` retrofit)
-5. first-light-L1 harness automation
-6. first-light-L2 (verify_smt witness path; refinement layer physical)
-7. Mentl substrate composition (oracle = IC + cached value per insight #11)
-8. `inka edit` web playground (Mentl V1 surface; LSP one transport)
+1. **Hβ-emit-substrate.md walkthrough** — AUTHORED 2026-04-28 commits
+   `e8aa29d` + `4c876bc` + `4c8a22a`. Four-axis pre-audited per
+   `protocol_walkthrough_pre_audit.md`. Includes EmitMemory effect
+   substrate transcription per wheel canonical.
+2. **Hβ-arena-substrate.md walkthrough** — AUTHORED 2026-04-28 commit
+   `4c8a22a` IN PARALLEL with Hβ-emit. Solves build-time
+   bump-allocator-pressure (Hβ.infer.pipeline-wire's second gate).
+3. **Hβ.emit cascade chunks** (~9 chunks per Hβ-emit §7.1)
+4. **Hβ.arena chunk** (single chunk: `bootstrap/src/runtime/arena.wat`)
+5. **Per-cascade-boundary retrofits** — `$inka_infer/_lower/_emit`
+   set arena stage tag at entry; reset on transition.
+6. **Hβ.infer.pipeline-wire** (`$sys_main` retrofit; trivial after
+   gates lift)
+7. **first-light-L1** (`inka2.wat == inka3.wat` self-compile fixed point)
+8. `verify_smt` witness path / first-light-L2
+9. Mentl substrate composition (oracle = IC + cached value)
+10. `inka edit` web playground (Mentl V1 surface; LSP one transport)
 
 ---
 
