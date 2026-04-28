@@ -107,6 +107,52 @@ Per Anchor 4: src/backends/wasm.nx IS the wheel; this WAT IS its
 seed transcription. The existing 1728 lines of emit code stay
 canonical — extended, not replaced.
 
+### 0.6 The deeper framing — emit IS one handler-on-graph
+
+Per `docs/SUBSTRATE.md` §VIII "The Graph IS the Program" + Anchor 5
+("if it needs to exist, it's a handler"): emit is **ONE handler**
+in a family of graph-projection handlers. The same Graph + Env
+populated by Hβ.infer + projected into LowExpr by Hβ.lower hosts
+multiple peer-projections:
+
+```
+                   Graph + Env + LowExpr
+                   (the universal representation)
+                          │
+          ┌───────┬───────┼───────┬───────┬───────┐
+          │       │       │       │       │       │
+       emit    format   doc    query   teach    LSP
+       handler  handler handler handler handler handler
+          │       │       │       │       │       │
+        WAT    source  markdown  answer  hint   JSON-RPC
+```
+
+Hβ.emit's `$inka_emit` is the WAT-shadow. The cascade's
+`$emit_lexpr` 35-arm dispatcher (§1) is the **template** every
+sister-handler will reuse: `$format_lexpr` (Arc F.x — formatter as
+graph→canonical-source handler), `$doc_lexpr` (Arc F.x — doc as
+graph→markdown), `$lsp_lexpr` (Arc F.2 — LSP as graph→JSON-RPC),
+`$mentl_lexpr` (Arc F.6 — Mentl as graph→mentorship per insight #11).
+Each is a graph-shadow; the Graph IS the source of truth.
+
+**This reframes the cascade discipline**: the 9 chunks below aren't
+a one-off implementation — they're the **canonical shape** every
+future graph-shadow handler inherits. The dispatcher's tag-300-334
+arm structure, the `$lookup_ty` integration, the H1.4 funcref-table
+substrate — all are reusable substrate. Arc F.2 (LSP) / Arc F.6
+(Mentl) compose post-L1 without re-architecture; they are NOT new
+features but new shadow-handlers reading the same graph.
+
+The chunk #11's `$inka_emit` symbol is one of an eventual N peer
+`$inka_<verb>` symbols. Per Hβ-bootstrap §1.15: pipeline-stage
+boundaries name handler-projection sites. emit is one site; the
+others compose later.
+
+**Per SUBSTRATE.md §VIII**: every "output" is a handler. If it
+can't be expressed as a handler on the graph, the graph is
+incomplete. This walkthrough's discipline IS that anchor made
+physical at the WAT layer.
+
 ---
 
 ## §1 The emit-dispatcher — `$emit_lexpr`
@@ -322,12 +368,12 @@ eight.
 |---|-----------|--------|
 | 1 | **Graph?** | Each variant arm reads `$lookup_ty($lexpr_handle(r))` for type info — the live graph read. |
 | 2 | **Handler?** | At wheel: `Emit` effect with WAT-text-output row. At seed: direct calls to emit_infra primitives. |
-| 3 | **Verb?** | `$emit_lpipe`-equivalents (the 5 verbs collapse to LowExpr tags by Hβ.lower's projection); emit reads the tag and emits the WAT shape. |
-| 4 | **Row?** | Read live via `$lookup_ty` for closure construction (caps + evs allocation per H1.6). |
+| 3 | **Verb?** | The 5 verbs become physical at the WAT layer per SUBSTRATE.md §II + SYNTAX.md "Pipe verbs" line 333. Each LowExpr tag resolves to one canonical WAT-shape: `\|>` (LCall tag 308) → direct `call $<fn>`; `<\|` (LMakeTuple of LCalls per Hβ.lower Lock #3) → record-build with per-branch calls; `><` (LMakeTuple pair) → 2-element record-build; `~>` (LHandleWith tag 329 / LHandle tag 332) → handler-install setup + body emission within installed-handler-row scope; `<~` (LFeedback tag 330 per LF) → state-slot load/tee/store sequence on enclosing handler's state record; LSuspend (tag 325, polymorphic call) → `call_indirect (table $funcref_table)` reading fn_index from closure record's evidence-slot field. The verbs ARE the runtime topology made physical at WAT. |
+| 4 | **Row?** | Three row-read sites (per spec 01 + Hβ-lower §3.2): (1) **LSuspend emit** — read callee's TFun row via `$lookup_ty + $ty_tfun_row`; row's effect-name list sizes the evs allocation per H1.6. (2) **LHandleWith emit** — read handler's TCont row to determine which ops the handler-install intercepts; one funcref-table slot per intercepted op per H1.4. (3) **LDeclareFn emit** — read fn's effect signature for the WAT signature decoration (compile-time effects don't appear in WAT but DO determine the per-arm fn naming `$op_<name>` per H1.4 + H7 §1.2). |
 | 5 | **Ownership?** | Emit produces WAT text (output bytes); consumes LowExpr `ref`. No allocation of new LowExprs. |
 | 6 | **Refinement?** | TRefined transparent — emit reads the underlying type via `$lookup_ty`. Refinement obligations in verify ledger surface as `verify_smt` calls post-L2. |
 | 7 | **Gradient?** | Each LCall vs LSuspend choice CASHES OUT here — direct `call` vs `call_indirect`. The row inference's >95% monomorphic claim IS the gradient. |
-| 8 | **Reason?** | Each emitted op preserves the source handle as a comment OR debug-name annotation per `wabt`'s name section. Mentl post-L1 reads back via the handle. |
+| 8 | **Reason?** | LOCKED per SUBSTRATE.md §VIII "The Graph IS the Program": Reasons are read-only via the graph by **sister-handlers** (Mentl-Why per Arc F.6, doc-handler, error-handler) WITHOUT going through emit's WAT text. Emit IS one shadow per §0.6 framing; reason-annotation in WAT would be decoration, NOT load-bearing — sister-handlers compose on the same Reason chain via `$gnode_reason($graph_chase($lexpr_handle(r)))`. V1 emit produces unannotated WAT; the Why-Engine surface remains graph-side. Named follow-up `Hβ.emit.reason-annotation` covers OPTIONAL debug-name section enrichment for `wabt`-readable trace; it is purely additive (decoration), never load-bearing for Mentl's projection. |
 
 ### 5.2 At handler-arm emission (LDeclareFn + LMakeContinuation)
 
