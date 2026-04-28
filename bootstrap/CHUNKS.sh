@@ -78,7 +78,7 @@ CHUNKS=(
   "bootstrap/src/infer/walk_stmt.wat"    # Tier 7 (uses walk_expr + scheme + env + graph + ty + tparam + reason + state + runtime; Hβ.infer §3 + §4.2 + §6.3 + §7.2 + §8.1 + §8.4 + §11.2 + §13.3 #9; 12 public exports — Stmt-tag dispatch over parser tags 120-128 + LetStmt/FnStmt fully wired + 5 inert seed-stubs per named follow-ups in chunk header; closes BlockExpr §13.3 #9 forward-decl)
   "bootstrap/src/infer/main.wat"         # Tier 8 (uses walk_stmt.infer_program; Hβ.infer §8.1 + §10.3 + §13.3 #10 — closes the cascade; pipeline-stage boundary $inka_infer; $sys_main retrofit deferred to peer handle Hβ.infer.pipeline-wire pending Hβ.lower)
 
-  # ── Layer 5: Lowering (per Hβ-lower-substrate.md) ──
+  # ── Layer 5: Lowering (per Hβ-lower-substrate.md) — CASCADE CLOSED 11/11 ──
   # Per Hβ-lower-substrate.md §7.1 the eventual full layer holds 11
   # chunks (state / lookup / lexpr / classify / walk_const / walk_call /
   # walk_handle / walk_compound / walk_stmt / emit_diag / main); chunks
@@ -114,8 +114,11 @@ CHUNKS=(
   #      upval-handle-resolution, varref-schemekind-dispatch,
   #      state-entry-accessor, litfloat-litunit-harness,
   #      walk_const-lupval-harness).
-  # Subsequent: walk_call.wat, walk_handle.wat, walk_compound.wat,
-  #             walk_stmt.wat, main.wat.
+  # CASCADE CLOSED: 11/11 chunks live; $inka_lower pipeline-stage boundary
+  # named at chunk #11 main.wat. Cursor advances to Hβ.infer.pipeline-wire
+  # (peer-handle commit retrofitting $sys_main to chain
+  # parsed |> $inka_infer |> $inka_lower |> $emit_program) + Hβ.emit
+  # substrate growth.
   "bootstrap/src/lower/state.wat"        # Tier 4 (uses $alloc + list + record + str_eq + env_contains; Hβ.lower §1.2)
   "bootstrap/src/lower/lookup.wat"       # Tier 5 (uses graph + row + ty + wasi; Hβ.lower §1.1 + §3.1 + §3.2 + §11; 5 exports — live $lookup_ty + $ty_make_terror_hole nullary sentinel + $row_is_ground monomorphism gate + $monomorphic_at + $resume_discipline_of; forward-decl $lower_emit_unresolved_type per §12.3 dep order chunk #4)
   "bootstrap/src/lower/lexpr.wat"        # Tier 6 (uses $make_record + $record_get + $record_set + $tag_of from record.wat; Hβ.lower §2; 35 LowExpr variant constructors + 67 non-handle accessors + universal $lexpr_handle over tag region 300-334; LDeclareFn tag-313 anomaly per §11 — handle returns 0; 335-349 reserved for future LowExpr variants)
@@ -126,6 +129,7 @@ CHUNKS=(
   "bootstrap/src/lower/walk_handle.wat"  # Tier 7 (uses lookup + lexpr + cross-layer infer/walk_expr.wat + cross-chunk lower/walk_call.wat $lower_expr; Hβ.lower §4.2 + §6.2 + §11 + §12.3 #8; 8 exports — $lower_handle (HandleExpr → LBlock+LHandle per Lock #1) + $lower_pipe (5-PipeKind dispatch) + 5 per-verb arms ($lower_pipe_forward/diverge/compose/handle/feedback) + $lower_handler_arms_as_decls (Lock #7 third caller — empty-list seed pending Hβ.lower.handler-arm-decls-substrate); Lock #2 PTeeBlock+PTeeInline collapse; Lock #4 classify_handler NOT INVOKED (deferred to emit per wheel); Lock #6 LMakeContinuation NOT constructed here; RETROFITS walk_call.wat $lower_expr with tag-93 + tag-101 arms; named follow-ups: classify-at-handle-site, handle-pipe-harness-builders, handler-arm-decls-substrate, feedback-state-slot-allocation, diverge-irregular-fallback-harness, handle-expr-arm-row-passthrough)
   "bootstrap/src/lower/walk_compound.wat" # Tier 7 (uses lookup + lexpr + cross-layer infer/walk_expr.wat + cross-chunk lower/walk_call.wat $lower_expr; Hβ.lower §4.2 + §6.3 + §11 + §12.3 #9; 11 exports — $lower_binop (closes Hβ.lower.binop-arm at ab76cc9) + $lower_unary_op + $lower_lambda + $lower_if + $lower_block + $lower_match + $lower_make_list / $lower_make_tuple + $lower_make_record + $lower_named_record + $lower_field; RETROFITS walk_call.wat $lower_expr with tag-86/87/89/90/91/92/96/97/98/99/100 arms; named follow-ups: lambda-capture-substrate, blockexpr-stmts-substrate, match-arm-pattern-substrate, field-offset-resolution)
   "bootstrap/src/lower/walk_stmt.wat"     # Tier 8 (uses lower/state + lower/lexpr + lower/walk_call $lower_expr + lower/walk_handle $lower_handler_arms_as_decls + cross-layer infer/walk_expr.wat + runtime/list + record; Hβ.lower §4.3 + §6.3 + §11 + §12.3 #10; 11 exports — $lower_stmt (NodeBody+Stmt-tag dispatcher per Lock #12) + $lower_stmt_list (Ω.3 buffer-counter per Lock #11) + 9 per-Stmt arms over parser tags 120-128; FnStmt Lock #1 LLet+LMakeClosure NOT bare LDeclareFn + LetStmt PVar-only Lock #5 + 4 inert LConst-sentinel arms Lock #9 + HandlerDeclStmt invokes chunk #8 helper Lock #7 third caller + ExprStmt $lower_expr passthrough Lock #8 + Documented inner-recurse Lock #10; named follow-ups: fn-stmt-closure-substrate, fn-stmt-frame-discipline, letstmt-destructure, handler-arm-decls-substrate, documented-arm-substrate, toplevel-pre-register)
+  "bootstrap/src/lower/main.wat"          # Tier 9 (uses lower/walk_stmt $lower_stmt_list; Hβ.lower §4.3 + §10.3 + §13 + §12.3 #11 — closes the cascade; pipeline-stage boundary $inka_lower per Hβ-bootstrap §1.15 + §10.3 — symmetric to $inka_infer; $sys_main retrofit deferred to peer handle Hβ.infer.pipeline-wire per Lock #4 two-stage cascade-closure-then-peer-handle pattern)
 
   # ── Layer 6: Emitter ──
   "bootstrap/src/emit_data.wat"

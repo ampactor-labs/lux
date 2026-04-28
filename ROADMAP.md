@@ -116,9 +116,52 @@ Current Hβ.infer bootstrap state — **CASCADE CLOSED (11/11 chunks live)**:
     lambda-params, unaryop-class, region-tracker, docstring-reason,
     used-binary-search, used-sites-deque, refinement-compose, synth.
 
+Current Hβ.lower bootstrap state — **CASCADE CLOSED (11/11 chunks live)**:
+
+- landed (Tier 4–9, all live in build):
+  - `state.wat` — `8af659a` (Tier 4)
+  - `lookup.wat` — `e1209cc` (Tier 5)
+  - `lexpr.wat` — `50f842a` (Tier 6)
+  - `emit_diag.wat` — `d417332` (Tier 6)
+  - `classify.wat` — `3ae5200` (Tier 7)
+  - `walk_const.wat` — `d4d537c` (Tier 7)
+  - `walk_call.wat` — `fbc0295` (Tier 7)
+  - `walk_handle.wat` — `f01ea67` (Tier 7)
+  - `walk_compound.wat` — `92a9a30` (Tier 7) + binop closure `ab76cc9`
+  - `walk_stmt.wat` — `f104ddd` (Tier 8 — 11 exports, closes §13.3 #10)
+  - `main.wat` — `<this commit>` (Tier 9 — `$inka_lower` pipeline-stage boundary)
+- closure metrics:
+  - 59/59 trace-harnesses PASS; first-light Tier 1 LIVE non-regression
+  - drift-audit clean
+- named follow-up peer handles (per drift-mode-9 discipline):
+  - **Hβ.infer.pipeline-wire** — UNGATED — retrofit `$sys_main` (build.sh
+    Layer 6 inline) to chain `$inka_infer` + `$inka_lower` between
+    `$parse_program` and `$emit_program`. The cascade closure ungates this;
+    immediate-next-commit per Lock #4 two-stage discipline. `$sys_main`
+    becomes: `stdin |> read_all_stdin |> lex |> parse_program |> $inka_infer
+    |> $inka_lower |> $emit_program |> proc_exit`.
+  - **Hβ.lower.toplevel-pre-register** — wheel-parity two-pass globals
+    pre-registration per src/lower.nx:1106-1110 + Lock #1.
+  - **Hβ.lower.emit-extension** — extend Layer 6 emit_*.wat to consume
+    LowExpr per Hβ-lower-substrate.md §9.2; Hβ-emit-substrate.md walkthrough
+    TBD per Hβ-lower §13 sibling list.
+  - additional Hβ.lower follow-ups named in chunk headers + walkthrough §11:
+    evidence-thunk, either, refinement-erasure, cross-module,
+    fn-stmt-closure-substrate, fn-stmt-frame-discipline, letstmt-destructure,
+    handler-arm-decls-substrate, documented-arm-substrate,
+    tail-resumptive-discrimination, either-install-negotiation,
+    classify-trap-testing, lvalue-lowfn-lpat-substrate, upval-handle-resolution,
+    varref-schemekind-dispatch, state-entry-accessor, perform-multishot-dispatch,
+    derive-ev-slots-naming, op-type-resolution, classify-at-handle-site,
+    handle-pipe-harness-builders, feedback-state-slot-allocation,
+    diverge-irregular-fallback-harness, lambda-capture-substrate,
+    blockexpr-stmts-substrate, match-arm-pattern-substrate,
+    field-offset-resolution, synth.
+
 Current branch tip:
 
 - `b6e1f23` — `substrate: bootstrap/src/infer/main.wat — Hβ.infer cascade closure`
+- `<this commit>` — `substrate: bootstrap/src/lower/main.wat — Hβ.lower cascade closure`
 
 ---
 
@@ -141,64 +184,25 @@ These are the live operating rules for roadmap execution:
 
 ## Immediate Priority
 
-The pre-`unify.wat` canonicalization lane is **resolved** (all five
-items landed; see Archive below). The Hβ.infer cascade is **closed**
-(11/11 chunks live). Cursor advances to **Hβ.lower**.
+The Hβ.infer + Hβ.lower cascades are both **closed** (11/11 + 11/11 chunks
+live). The cursor advances to **Hβ.infer.pipeline-wire** — the named peer-
+handle commit retrofitting `$sys_main` to chain `$inka_infer + $inka_lower`
+into the pipeline. Lock #4 two-stage cascade-closure-then-peer-handle-
+retrofit discipline is now formalized as a third instance per Anchor 7.4.
 
-The immediate priority is now **Hβ.lower walkthrough audit + first
-chunk dispatch** per `docs/specs/simulations/Hβ-lower-substrate.md`
-(1057 lines; canonical contract for the lowering layer that consumes
-the graph populated by `$inka_infer`).
+### Hβ.infer.pipeline-wire Entry Surface
 
-### Hβ.lower Entry Surface
+The retrofit lives in `bootstrap/build.sh` Layer 6 inline `$sys_main` (or
+wherever `$sys_main` is currently defined). Pipeline becomes:
 
-**The clean handoff** (Hβ-infer-substrate.md §10.3): inference
-produces typed AST + populated graph; lower reads via `$graph_chase`.
-`main.wat` already names the boundary (`$inka_infer`); the next
-pipeline stage will be `$inka_lower`.
+```
+stdin |> read_all_stdin |> lex |> parse_program
+      |> $inka_infer |> $inka_lower |> $emit_program |> proc_exit
+```
 
-**Eight interrogations applied to the layer entry**:
-
-1. Graph?       Reads only — `$graph_chase` over handles bound by infer.
-2. Handler?     Wheel's `lowering_ctx` is OneShot row-accumulation;
-                seed maps to direct WAT call flow.
-3. Verb?        `|>` — `parsed |> $inka_infer |> $inka_lower
-                |> $emit_program`.
-4. Row?         EfPure (LowIR construction is mutation-free at the
-                seed; the gradient enters at Hβ.emit).
-5. Ownership?   AST + graph by shared pointer; LowIR is fresh.
-6. Refinement?  TRefined obligations crystallize into LowIR
-                check-emit calls per spec 05.
-7. Gradient?    LowIR shape determines runtime cost; the layer is
-                where the continuous gradient becomes machine code.
-8. Reason?      Each LowIR node carries the originating AST handle
-                so the Why Engine can walk back through `$graph_chase`.
-
-### Read List For The Lower Lane
-
-- `docs/specs/simulations/Hβ-lower-substrate.md` (full)
-- `docs/specs/05-lower.md` (canonical contract)
-- `docs/SUBSTRATE.md` §III (handlers), §IX (heap has one story)
-- `src/lower.nx` (canonical wheel — live-observer lowering via
-  `LookupTy`)
-- `bootstrap/src/infer/main.wat` (boundary the cursor has just
-  closed; `$inka_infer` is the upstream signal for Hβ.lower)
-- `bootstrap/src/runtime/graph.wat` (`$graph_chase` is the read API)
-
-### Suggested Commit Boundaries For The Lower Lane
-
-Cascade discipline (CLAUDE.md Anchor 7) — walkthrough first, audit
-always:
-
-1. Audit `Hβ-lower-substrate.md` against landed Hβ.infer substrate
-   (riffle-back) — surface convergences, ABI mismatches, naming-
-   convention drift before any chunk freezes.
-2. Plan first chunk per `inka-plan` skill (Opus); dispatch via
-   `inka-implementer` agent.
-3. Land Layer 5 chunks per `Hβ-lower-substrate.md` dep order; one
-   commit per chunk; named follow-ups for any deferred sub-handle.
-4. Hβ.infer.pipeline-wire after `$inka_lower` arrives (drift mode 9
-   closure for the still-bypassed `$sys_main` pipeline).
+After this lands, the seed performs the full classical pipeline (lex /
+parse / infer / lower / emit) where every primitive is welded to the
+kernel's eight (DESIGN.md §0.5).
 
 ---
 
@@ -228,7 +232,10 @@ Subphases:
 Current state inside Hβ.infer:
 
 - **closed** (11/11 chunks live as of `b6e1f23`)
-- cursor advances to Hβ.lower
+
+Current state inside Hβ.lower:
+
+- **closed** (11/11 chunks live; cursor advances to Hβ.infer.pipeline-wire)
 
 ### Phase B — Kernel Surface Completion
 
@@ -310,13 +317,13 @@ Goals:
 
 Use this order unless a walkthrough explicitly forces a different one:
 
-1. **Hβ.lower** (current cursor — walkthrough audit, then chunks)
-2. Hβ.infer.pipeline-wire (peer handle — closes once `$inka_lower` lands)
-3. Hβ.emit / start / link / harness
-4. `first-light-L1`
-5. `verify_smt` witness path
-6. crucible execution
-7. MV.2 completion and user-facing surfaces
+1. **Hβ.infer.pipeline-wire** (UNGATED — retrofit `$sys_main` to chain
+   `$inka_infer + $inka_lower`; immediate next commit per Lock #4)
+2. Hβ.emit / start / link / harness
+3. `first-light-L1`
+4. `verify_smt` witness path
+5. crucible execution
+6. MV.2 completion and user-facing surfaces
 
 ---
 
