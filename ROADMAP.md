@@ -129,7 +129,7 @@ Current Hβ.lower bootstrap state — **CASCADE CLOSED (11/11 chunks live)**:
   - `walk_handle.wat` — `f01ea67` (Tier 7)
   - `walk_compound.wat` — `92a9a30` (Tier 7) + binop closure `ab76cc9`
   - `walk_stmt.wat` — `f104ddd` (Tier 8 — 11 exports, closes §13.3 #10)
-  - `main.wat` — `<this commit>` (Tier 9 — `$inka_lower` pipeline-stage boundary)
+  - `main.wat` — `c53904d` (Tier 9 — `$inka_lower` pipeline-stage boundary)
 - closure metrics:
   - 59/59 trace-harnesses PASS; first-light Tier 1 LIVE non-regression
   - drift-audit clean
@@ -161,7 +161,7 @@ Current Hβ.lower bootstrap state — **CASCADE CLOSED (11/11 chunks live)**:
 Current branch tip:
 
 - `b6e1f23` — `substrate: bootstrap/src/infer/main.wat — Hβ.infer cascade closure`
-- `<this commit>` — `substrate: bootstrap/src/lower/main.wat — Hβ.lower cascade closure`
+- `c53904d` — `substrate: bootstrap/src/lower/main.wat — Hβ.lower cascade closure`
 
 ---
 
