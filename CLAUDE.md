@@ -222,9 +222,14 @@ in `std/compiler/` IS the compiler. A disposable bootstrap translator
 translator is deleted. Live sequencing: `ROADMAP.md`.
 
 **Cascade state.** γ approach (γ = handle-graph). Landed: Σ (SYNTAX),
-Ω.0–Ω.5, H6, H3, H3.1, H2, HB, H1 substrate, H4 substrate, H2.3.
-Active: Hβ family (bootstrap substrate — Wave 2.B/C/D/E per recent
-commits). Then H1.4/H1.6, H4 sweeps, H5 (Mentl's arms).
+Ω.0–Ω.5, H6, H3, H3.1, H2, HB, H1 substrate, H4 substrate, H2.3,
+**Hβ.infer cascade CLOSED** (11/11 chunks; commit `b6e1f23` 2026-04-27),
+**Hβ.lower cascade CLOSED** (11/11 chunks; commit `c53904d` 2026-04-28).
+Active: **Hβ.emit cascade** (next walkthrough Hβ-emit-substrate.md TBD;
+unlocks emit consuming LowExpr per Hβ-lower §9.2; gates first-light-L1).
+Pipeline-wire follow-up dual-gated on emit-extension + bump-allocator-
+pressure substrate (per ba327c9 substrate-honesty audit). Then
+H1.4/H1.6, H4 sweeps, H5 (Mentl's arms).
 
 **Build commands** (when bootstrap translator exists):
 

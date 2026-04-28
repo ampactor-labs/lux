@@ -1,6 +1,16 @@
 # Hβ.lower — LowIR construction + handler elimination at the WAT layer
 
-> **Status:** `[DRAFT 2026-04-25; riffle-back-audited 2026-04-27]`.
+> **Status:** `[CASCADE CLOSED 2026-04-28]`. 11/11 chunks structurally
+> live under `bootstrap/src/lower/`; `$inka_lower` pipeline-stage
+> boundary named at commit `c53904d`. With Hβ.infer (commit `b6e1f23`)
+> the full kernel-projected compiler pipeline is live in the seed.
+> 59/59 trace-harnesses PASS; first-light Tier 1 LIVE non-regression;
+> drift-audit clean. Closure crystallization at memory file
+> `protocol_hbeta_lower_closure.md`. Pipeline-wire (`$sys_main`
+> retrofit) GATED on TWO substrate growths per ba327c9 audit:
+> Hβ.lower.emit-extension + Hβ.infer bump-allocator-pressure substrate.
+>
+> Prior audit history: `[DRAFT 2026-04-25; riffle-back-audited 2026-04-27]`.
 > 2026-04-27 audit applied 6 mechanical fixes against landed Hβ.infer
 > substrate (commit `b6e1f23`, 11/11 chunks live): MULTISHOT 221→251
 > (§4.2), `$ast_handle` → `$walk_expr_node_handle` (§4.1+§4.2),

@@ -190,24 +190,43 @@ These are the live operating rules for roadmap execution:
 ## Immediate Priority
 
 The Hβ.infer + Hβ.lower cascades are both **closed** (11/11 + 11/11 chunks
-live). The cursor advances to **Hβ.infer.pipeline-wire** — the named peer-
-handle commit retrofitting `$sys_main` to chain `$inka_infer + $inka_lower`
-into the pipeline. Lock #4 two-stage cascade-closure-then-peer-handle-
-retrofit discipline is now formalized as a third instance per Anchor 7.4.
+live, 22 total cascade chunks). Stage-A pipeline-wire (commit ba327c9 audit)
+discovered a substrate-honest dual-gate: chaining `$inka_infer` alone trapped
+first-light Tier 1 with bump-allocator pressure on real parse_program ASTs.
+The cursor advances to the **next cascade — Hβ.emit** — which unlocks both
+gates simultaneously.
 
-### Hβ.infer.pipeline-wire Entry Surface
+### Hβ.emit cascade — the next walkthrough
 
-The retrofit lives in `bootstrap/build.sh` Layer 6 inline `$sys_main` (or
-wherever `$sys_main` is currently defined). Pipeline becomes:
+Authoring `docs/specs/simulations/Hβ-emit-substrate.md` is the immediate
+priority. It's the per-handle design contract for extending the existing
+`bootstrap/src/emit_*.wat` chunks (~1728 lines) to consume LowExpr (35
+variants over tag region 300-334) instead of templating WAT directly from
+AST. Per Hβ-lower §9.2: emit reads LowExpr via `$lexpr_handle + $tag_of`
+dispatch; calls `$lookup_ty` for type info.
 
-```
-stdin |> read_all_stdin |> lex |> parse_program
-      |> $inka_infer |> $inka_lower |> $emit_program |> proc_exit
-```
+After Hβ.emit cascade lands (~6-8 chunks, mirror of Hβ.lower):
+- `Hβ.lower.emit-extension` follow-up closes
+- `Hβ.infer.pipeline-wire` second gate (bump-allocator-pressure substrate)
+  surfaces; lands as either arena handler (B.5 AM-arena-multishot) or
+  per-fn scoped-arena-reset substrate
+- Pipeline-wire `$sys_main` retrofit becomes trivial:
+  ```
+  stdin |> read_all_stdin |> lex |> parse_program
+        |> $inka_infer |> $inka_lower |> $emit_program |> proc_exit
+  ```
+- first-light-L1 unlocks (`inka2.wat == inka3.wat` self-compile fixed point)
 
-After this lands, the seed performs the full classical pipeline (lex /
-parse / infer / lower / emit) where every primitive is welded to the
-kernel's eight (DESIGN.md §0.5).
+### Path order
+
+1. Hβ-emit-substrate.md walkthrough (single-session authoring)
+2. Hβ.emit cascade chunks (~6-8 per the walkthrough decomposition)
+3. Bump-allocator-pressure substrate (arena handler OR scoped reset)
+4. Hβ.infer.pipeline-wire (`$sys_main` retrofit)
+5. first-light-L1 harness automation
+6. first-light-L2 (verify_smt witness path; refinement layer physical)
+7. Mentl substrate composition (oracle = IC + cached value per insight #11)
+8. `inka edit` web playground (Mentl V1 surface; LSP one transport)
 
 ---
 
@@ -322,13 +341,19 @@ Goals:
 
 Use this order unless a walkthrough explicitly forces a different one:
 
-1. **Hβ.infer.pipeline-wire** (UNGATED — retrofit `$sys_main` to chain
-   `$inka_infer + $inka_lower`; immediate next commit per Lock #4)
-2. Hβ.emit / start / link / harness
-3. `first-light-L1`
-4. `verify_smt` witness path
-5. crucible execution
-6. MV.2 completion and user-facing surfaces
+1. **Hβ-emit-substrate.md walkthrough** (next cascade design contract;
+   single-session Opus authoring)
+2. **Hβ.emit cascade** (~6-8 chunks; mirror of Hβ.lower; extends existing
+   `bootstrap/src/emit_*.wat` to consume LowExpr per Hβ-lower §9.2)
+3. **Bump-allocator-pressure substrate** (arena handler B.5 OR per-fn
+   scoped-arena-reset; closes Hβ.infer.pipeline-wire's second gate)
+4. **Hβ.infer.pipeline-wire** ($sys_main retrofit; trivial after gates lift)
+5. **first-light-L1** (`inka2.wat == inka3.wat` self-compile fixed point)
+6. `verify_smt` witness path / first-light-L2
+7. Mentl substrate composition (oracle = IC + cached value)
+8. `inka edit` web playground (Mentl V1 surface)
+9. crucible execution
+10. MV.2 completion and user-facing surfaces
 
 ---
 
