@@ -264,17 +264,281 @@
     (call $ec5_emit_body (call $lexpr_lblock_stmts (local.get $r))))
 
   ;; ─── $emit_lmatch — LMatch tag 321 emit arm per §2.3 ───────────────
-  ;; Per src/backends/wasm.nx:1379-1394 + emit_match_arms at line 1815+.
-  ;; Empty arms emit "(unreachable)" — the exhaustiveness-violation
-  ;; runtime trap complementing the inference-time E_PatternInexhaustive
-  ;; check (SYNTAX.md "Exhaustiveness" §). Nonempty arms invoke the HB
-  ;; threshold-aware mixed-variant dispatch which depends on LowPat
-  ;; substrate; lands per NAMED follow-up Hβ.emit.lmatch-pattern-compile
-  ;; when Hβ.lower.lvalue-lowfn-lpat-substrate populates LowPat.
+  ;; Per src/backends/wasm.nx:1379-1394 + emit_match_arms at line 1792+.
+  ;;
+  ;; Three-shape dispatch — the H6 gradient cash-out:
+  ;;   PureNullary (shape 0): every LPCon has empty sub_pats.
+  ;;     Scrutinee IS the sentinel. Direct compare: scrut == tag_id.
+  ;;   PureFielded (shape 1): every LPCon has non-empty sub_pats.
+  ;;     Scrutinee IS a heap pointer. Load tag at offset=0, compare.
+  ;;   Mixed (shape 2): both kinds present. Threshold gate at
+  ;;     heap_base=4096: (scrut < 4096) → nullary cascade, else fielded.
+  ;;
+  ;; Bool is NOT special. True/False are sentinels 0/1. Option.None is
+  ;; a sentinel. Every nullary variant compiles through the same path.
+  ;; One mechanism for all ADT matching. No Drift 6.
+  ;;
+  ;; Per SUBSTRATE.md §IX "the heap has one story" — sentinels live in
+  ;; [0, 4096); heap pointers live at [1 MiB, ∞). The threshold
+  ;; comparison discriminates without ambiguity.
   (func $emit_lmatch (param $r i32)
+    (local $arms i32) (local $shape i32)
     (call $emit_lexpr (call $lexpr_lmatch_scrut (local.get $r)))
     (call $ec5_emit_local_set_scrut_tmp)
-    (call $ec_emit_unreachable))
+    (local.set $arms (call $lexpr_lmatch_arms (local.get $r)))
+    (if (i32.eqz (call $len (local.get $arms)))
+      (then (call $ec_emit_unreachable))
+      (else
+        (local.set $shape (call $ec5_classify_arms_shape (local.get $arms)))
+        (if (i32.eq (local.get $shape) (i32.const 2))
+          (then (call $ec5_emit_match_arms_mixed (local.get $arms)))
+          (else (call $ec5_emit_match_arms_from
+                  (local.get $arms) (i32.const 0) (local.get $shape)))))))
+
+  ;; ─── $ec5_classify_arms_shape — classify arm set shape ──────────────
+  ;; Per src/backends/wasm.nx:1807-1829 classify_arms_shape.
+  ;; Walk arms list. For each LPCon, check len(sub_pats):
+  ;;   0 → nullary, >0 → fielded. Track accumulated shape.
+  ;; Returns: 0=PureNullary, 1=PureFielded, 2=Mixed.
+  ;; Non-LPCon patterns (LPWild, LPVar, LPLit) are shape-neutral.
+  (func $ec5_classify_arms_shape (param $arms i32) (result i32)
+    (local $i i32) (local $n i32) (local $acc i32) (local $seen i32)
+    (local $arm i32) (local $pat i32) (local $arm_shape i32)
+    (local.set $n (call $len (local.get $arms)))
+    (local.set $acc (i32.const 1))   ;; default PureFielded
+    (local.set $seen (i32.const 0))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $arm (call $list_index (local.get $arms) (local.get $i)))
+        (local.set $pat (call $lowpat_lparm_pat (local.get $arm)))
+        (if (i32.eq (call $tag_of (local.get $pat)) (i32.const 363)) ;; LPCon
+          (then
+            (local.set $arm_shape
+              (if (result i32)
+                  (i32.eqz (call $len (call $lowpat_lpcon_args (local.get $pat))))
+                (then (i32.const 0))   ;; PureNullary
+                (else (i32.const 1)))) ;; PureFielded
+            (if (i32.eqz (local.get $seen))
+              (then
+                (local.set $acc (local.get $arm_shape))
+                (local.set $seen (i32.const 1)))
+              (else
+                (if (i32.ne (local.get $acc) (local.get $arm_shape))
+                  (then (local.set $acc (i32.const 2))))))))  ;; Mixed
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter)))
+    (if (result i32) (local.get $seen)
+      (then (local.get $acc))
+      (else (i32.const 1))))   ;; No LPCon seen → PureFielded default
+
+  ;; ─── $ec5_emit_match_arms_from — uniform-shape arm dispatch ─────────
+  ;; Per src/backends/wasm.nx:1842-1903 emit_match_arms_uniform.
+  ;; Recursive: emits arms starting from index $idx.
+  ;; Per-arm dispatch on LowPat tag:
+  ;;   LPCon (363): load scrut (shape-dependent), compare tag_id,
+  ;;     emit (if (result i32) (then ...body...) (else ...rest...)).
+  ;;   LPWild (361): always-match terminal. Emit body directly.
+  ;;   LPVar (360): bind scrut to name, emit body.
+  ;;   LPLit (362): scalar equality check on scrut value.
+  ;;   LPTuple/LPList/LPRecord/LPAlt/LPAs: skip (NAMED follow-up).
+  (func $ec5_emit_match_arms_from
+        (param $arms i32) (param $idx i32) (param $shape i32)
+    (local $arm i32) (local $pat i32) (local $body i32)
+    (local $ptag i32) (local $sub_pats i32)
+    ;; Base case: no more arms → unreachable (exhaustiveness trap).
+    (if (i32.ge_u (local.get $idx) (call $len (local.get $arms)))
+      (then (call $ec_emit_unreachable) (return)))
+    (local.set $arm (call $list_index (local.get $arms) (local.get $idx)))
+    (local.set $pat (call $lowpat_lparm_pat (local.get $arm)))
+    (local.set $body (call $lowpat_lparm_body (local.get $arm)))
+    (local.set $ptag (call $tag_of (local.get $pat)))
+
+    ;; ── LPCon (363) — constructor pattern ──
+    (if (i32.eq (local.get $ptag) (i32.const 363))
+      (then
+        (local.set $sub_pats (call $lowpat_lpcon_args (local.get $pat)))
+        ;; Load scrutinee for comparison.
+        (call $ec5_emit_local_get_scrut_tmp)
+        ;; PureFielded (shape 1): load tag at offset=0 from heap record.
+        (if (i32.eq (local.get $shape) (i32.const 1))
+          (then (call $el_emit_i32_load_offset (i32.const 0))))
+        ;; Compare tag.
+        (call $emit_i32_const (call $lowpat_lpcon_tag_id (local.get $pat)))
+        (call $ec5_emit_i32_eq)
+        ;; (if (result i32) (then ...body...) (else ...rest...))
+        (call $ec5_emit_if_open_with_result_i32)
+        (call $ec5_emit_then_open)
+        ;; Bind fields if fielded.
+        (if (i32.eq (local.get $shape) (i32.const 1))
+          (then (call $ec5_emit_pat_field_binds
+                  (local.get $sub_pats) (i32.const 0))))
+        (call $emit_lexpr (local.get $body))
+        (call $emit_close)   ;; close then
+        (call $ec5_emit_else_open)
+        ;; Recurse on rest.
+        (call $ec5_emit_match_arms_from
+          (local.get $arms) (i32.add (local.get $idx) (i32.const 1))
+          (local.get $shape))
+        (call $emit_close)   ;; close else
+        (call $emit_close)   ;; close if
+        (return)))
+
+    ;; ── LPWild (361) — always-match terminal ──
+    (if (i32.eq (local.get $ptag) (i32.const 361))
+      (then
+        (call $emit_lexpr (local.get $body))
+        (return)))
+
+    ;; ── LPVar (360) — bind scrut to name ──
+    (if (i32.eq (local.get $ptag) (i32.const 360))
+      (then
+        (call $ec5_emit_local_get_scrut_tmp)
+        (call $ec_emit_local_set_dollar
+          (call $lowpat_lpvar_name (local.get $pat)))
+        (call $emit_lexpr (local.get $body))
+        (return)))
+
+    ;; ── LPLit (362) — scalar equality ──
+    (if (i32.eq (local.get $ptag) (i32.const 362))
+      (then
+        (call $ec5_emit_local_get_scrut_tmp)
+        (call $emit_i32_const (call $lowpat_lplit_value (local.get $pat)))
+        (call $ec5_emit_i32_eq)
+        (call $ec5_emit_if_open_with_result_i32)
+        (call $ec5_emit_then_open)
+        (call $emit_lexpr (local.get $body))
+        (call $emit_close)
+        (call $ec5_emit_else_open)
+        (call $ec5_emit_match_arms_from
+          (local.get $arms) (i32.add (local.get $idx) (i32.const 1))
+          (local.get $shape))
+        (call $emit_close)
+        (call $emit_close)
+        (return)))
+
+    ;; ── LPTuple/LPList/LPRecord/LPAlt/LPAs — skip (NAMED follow-up) ──
+    (call $ec5_emit_match_arms_from
+      (local.get $arms) (i32.add (local.get $idx) (i32.const 1))
+      (local.get $shape)))
+
+  ;; ─── $ec5_emit_match_arms_mixed — threshold gate dispatch ───────────
+  ;; Per src/backends/wasm.nx:1909-1922 emit_match_arms_mixed.
+  ;; Emits:
+  ;;   (local.get $scrut_tmp)(i32.const 4096)(i32.lt_u)
+  ;;   (if (result i32)
+  ;;     (then <nullary_cascade>)
+  ;;     (else <fielded_cascade>))
+  ;; Each cascade filters arms by shape, keeping wildcards/vars/lits
+  ;; in both (they always-match irrespective of shape).
+  (func $ec5_emit_match_arms_mixed (param $arms i32)
+    (call $ec5_emit_local_get_scrut_tmp)
+    (call $emit_i32_const (i32.const 4096))
+    (call $ec5_emit_i32_lt_u)
+    (call $ec5_emit_if_open_with_result_i32)
+    (call $ec5_emit_then_open)
+    ;; Nullary cascade — filter to PureNullary LPCon + always-match.
+    (call $ec5_emit_match_arms_filtered_from
+      (local.get $arms) (i32.const 0) (i32.const 0))
+    (call $emit_close)   ;; close then
+    (call $ec5_emit_else_open)
+    ;; Fielded cascade — filter to PureFielded LPCon + always-match.
+    (call $ec5_emit_match_arms_filtered_from
+      (local.get $arms) (i32.const 0) (i32.const 1))
+    (call $emit_close)   ;; close else
+    (call $emit_close))  ;; close if
+
+  ;; ─── $ec5_emit_match_arms_filtered_from — shape-filtered dispatch ───
+  ;; Called from mixed-dispatch. Skips LPCon arms whose shape doesn't
+  ;; match $want_shape; always processes LPWild/LPVar/LPLit.
+  ;; $want_shape: 0=PureNullary, 1=PureFielded.
+  (func $ec5_emit_match_arms_filtered_from
+        (param $arms i32) (param $idx i32) (param $want_shape i32)
+    (local $arm i32) (local $pat i32) (local $ptag i32)
+    (local $arm_shape i32)
+    ;; Base case: no more arms → unreachable.
+    (if (i32.ge_u (local.get $idx) (call $len (local.get $arms)))
+      (then (call $ec_emit_unreachable) (return)))
+    (local.set $arm (call $list_index (local.get $arms) (local.get $idx)))
+    (local.set $pat (call $lowpat_lparm_pat (local.get $arm)))
+    (local.set $ptag (call $tag_of (local.get $pat)))
+    ;; LPCon: check shape match.
+    (if (i32.eq (local.get $ptag) (i32.const 363))
+      (then
+        (local.set $arm_shape
+          (if (result i32)
+              (i32.eqz (call $len (call $lowpat_lpcon_args (local.get $pat))))
+            (then (i32.const 0))
+            (else (i32.const 1))))
+        (if (i32.ne (local.get $arm_shape) (local.get $want_shape))
+          (then
+            ;; Shape mismatch — skip this arm.
+            (call $ec5_emit_match_arms_filtered_from
+              (local.get $arms) (i32.add (local.get $idx) (i32.const 1))
+              (local.get $want_shape))
+            (return)))))
+    ;; Shape matches, or non-LPCon (always process). Delegate to
+    ;; uniform dispatch with the want_shape.
+    (call $ec5_emit_match_arms_from
+      (local.get $arms) (local.get $idx) (local.get $want_shape)))
+
+  ;; ─── $ec5_emit_pat_field_binds — per-field sub-pattern binding ──────
+  ;; Per src/backends/wasm.nx:1987-2009 emit_pat_field_binds.
+  ;; For each LPVar sub-pattern at index i, emits:
+  ;;   (local.get $scrut_tmp)(i32.load offset=4+4*i)(local.set $<name>)
+  ;; LPWild sub-patterns bind nothing. Nested constructors skip (TODO).
+  (func $ec5_emit_pat_field_binds (param $sub_pats i32) (param $i i32)
+    (local $n i32) (local $p i32) (local $ptag i32)
+    (local.set $n (call $len (local.get $sub_pats)))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $p (call $list_index (local.get $sub_pats) (local.get $i)))
+        (local.set $ptag (call $tag_of (local.get $p)))
+        ;; LPVar (360): bind from field offset.
+        (if (i32.eq (local.get $ptag) (i32.const 360))
+          (then
+            (call $ec5_emit_local_get_scrut_tmp)
+            (call $el_emit_i32_load_offset
+              (i32.add (i32.const 4)
+                       (i32.mul (i32.const 4) (local.get $i))))
+            (call $ec_emit_local_set_dollar
+              (call $lowpat_lpvar_name (local.get $p)))))
+        ;; LPWild (361), others: skip.
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter))))
+
+  ;; ─── Byte-emission helpers for match dispatch ───────────────────────
+
+  (func $ec5_emit_local_get_scrut_tmp
+    ;; emits: (local.get $scrut_tmp)
+    (call $emit_byte (i32.const 40)) (call $emit_byte (i32.const 108))
+    (call $emit_byte (i32.const 111)) (call $emit_byte (i32.const 99))
+    (call $emit_byte (i32.const 97)) (call $emit_byte (i32.const 108))
+    (call $emit_byte (i32.const 46)) (call $emit_byte (i32.const 103))
+    (call $emit_byte (i32.const 101)) (call $emit_byte (i32.const 116))
+    (call $emit_byte (i32.const 32)) (call $emit_byte (i32.const 36))
+    (call $emit_byte (i32.const 115)) (call $emit_byte (i32.const 99))
+    (call $emit_byte (i32.const 114)) (call $emit_byte (i32.const 117))
+    (call $emit_byte (i32.const 116)) (call $emit_byte (i32.const 95))
+    (call $emit_byte (i32.const 116)) (call $emit_byte (i32.const 109))
+    (call $emit_byte (i32.const 112)) (call $emit_byte (i32.const 41)))
+
+  (func $ec5_emit_i32_eq
+    ;; emits: (i32.eq)
+    (call $emit_byte (i32.const 40)) (call $emit_byte (i32.const 105))
+    (call $emit_byte (i32.const 51)) (call $emit_byte (i32.const 50))
+    (call $emit_byte (i32.const 46)) (call $emit_byte (i32.const 101))
+    (call $emit_byte (i32.const 113)) (call $emit_byte (i32.const 41)))
+
+  (func $ec5_emit_i32_lt_u
+    ;; emits: (i32.lt_u)
+    (call $emit_byte (i32.const 40)) (call $emit_byte (i32.const 105))
+    (call $emit_byte (i32.const 51)) (call $emit_byte (i32.const 50))
+    (call $emit_byte (i32.const 46)) (call $emit_byte (i32.const 108))
+    (call $emit_byte (i32.const 116)) (call $emit_byte (i32.const 95))
+    (call $emit_byte (i32.const 117)) (call $emit_byte (i32.const 41)))
 
   ;; ─── $emit_lregion — LRegion tag 328 emit arm per §2.3 ─────────────
   ;; Per src/backends/wasm.nx:1514+. Inert seed: emits the body's stmts
