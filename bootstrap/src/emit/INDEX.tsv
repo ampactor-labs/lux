@@ -1,0 +1,61 @@
+# bootstrap/src/emit/INDEX.tsv
+#
+# Dependency graph for Layer 6 (LowExpr-consuming emit) substrate chunks.
+# Each row declares one chunk + its tier + its Hβ-emit-substrate.md §
+# citation + its imports (must be defined in priors). build.sh assembles
+# per this order; future drift-audit verifies imports resolve before
+# chunk lands. Mirror of bootstrap/src/lower/INDEX.tsv discipline.
+#
+# Design contract: docs/specs/simulations/Hβ-emit-substrate.md
+#   §1   — $emit_lexpr top-level dispatcher (emit_dispatcher.wat — chunk #8)
+#   §2   — per-variant emit arms (emit_const + emit_local + emit_control +
+#          emit_call + emit_handler.wat — chunks #3-#7)
+#   §3   — H1.4 single-handler-per-op naming + funcref-table (state.wat —
+#          this chunk + emit_handler.wat reads)
+#   §3.5 — EmitMemory swap surface (state.wat is substrate-level reference;
+#          wheel-level emit_memory_bump/_arena/_gc handlers post-L1)
+#   §4   — module orchestration $emit_lowir_program / $inka_emit (main.wat —
+#          chunk #9)
+#   §5   — per-edit-site eight interrogations
+#   §6   — forbidden patterns
+#   §7.1 — chunk decomposition (this file follows §7.1)
+#   §7.2 — alongside legacy bootstrap/src/emit_*.wat (Layer 6 alongside)
+#   §11.2 — per-chunk dispatch matrix (Opus-only vs Opus-OR-Sonnet)
+#   §11.3 — sub-handle dependency order
+#
+# Per the eight interrogations on Hβ.emit structure (mirroring the
+# lower/INDEX.tsv discipline at the emit layer):
+#   Graph?       — this file IS the dep graph for Layer 6 (LowExpr-consuming) chunks
+#   Handler?     — build.sh is the assembler-handler reading this
+#   Verb?        — chunk concatenation is `|>` per row order
+#   Row?         — each chunk's "uses" column declares its symbol-row
+#   Ownership?   — each chunk OWNS its exports; consumers `ref` them
+#   Refinement?  — Hβ-emit-substrate.md § cite IS the per-chunk
+#                  refinement contract
+#   Gradient?    — each row added unlocks one emission capability
+#   Reason?      — hβ_section + commit message records why each landed
+#
+# Tiers (dependency depth — Layer 6 sits atop Layer 1 runtime + Layer 4
+# infer + Layer 5 lower; see runtime/INDEX.tsv + infer/INDEX.tsv +
+# lower/INDEX.tsv for those stacks):
+#   4 — depends only on Layer 1 runtime (no other emit-layer deps)
+#   5 — depends on Tier 4 + Layer 1 runtime + Layer 4 infer (ty.wat) +
+#       Layer 5 lower (lookup + lexpr)
+#   6 — depends on Tier 5 + Tier 4 + lower-layer + infer
+#   7 — depends on Tier 6 + ... per §11.3 dep order
+#   8 — dispatcher
+#   9 — orchestrator
+#
+# Status markers (matching infer/INDEX.tsv + lower/INDEX.tsv):
+#   ✓     landed
+#   ~     in-flight
+#   (blank) pending
+#
+# Future rows (lookup.wat / emit_const.wat / emit_local.wat /
+# emit_control.wat / emit_call.wat / emit_handler.wat / emit_dispatcher.wat
+# / main.wat) get appended as their chunks land per
+# Hβ-emit-substrate.md §11.3 dep order. NO placeholder rows for
+# unlanded chunks per the residue-tracker convention.
+
+chunk	tier	status	hβ_section	exports	uses
+state.wat	4	~	§3 + §3.5 + §5.1 + §7.1 + §11.3	$emit_init $emit_funcref_register $emit_funcref_lookup $emit_funcref_count $emit_funcref_at $emit_set_body_context $emit_body_captures_count $emit_body_evidence $emit_body_evidence_len $emit_string_intern $emit_string_lookup $emit_string_table_count $emit_string_table_at $emit_fn_reset	$alloc $make_list $list_set $list_index $list_extend_to $len $make_record $record_get $record_set $str_eq $str_len
