@@ -175,18 +175,21 @@ Current Hβ.emit + Hβ.arena cascade state — **WALKTHROUGHS LANDED, CHUNKS PEN
   Hβ-emit's second-pass audit. Solves build-time bump-allocator-pressure
   per `ba327c9` substrate-honesty audit. Single-chunk landing target
   `bootstrap/src/runtime/arena.wat`.
-- `bootstrap/src/emit/` directory currently git-untracked. Chunk #1
-  `state.wat` is **drafted** (368 lines; eight-interrogations cited;
-  exports `$emit_init` / `$emit_funcref_register` / `$emit_string_intern`
-  / etc.; per-fn `$emit_fn_reset`) — pending trace harness at
-  `bootstrap/test/emit/state_init.wat`, INDEX.tsv, build.sh integration,
-  and commit per Hβ.lower cascade landing precedent.
+- `bootstrap/src/emit/` directory live. Chunk #1 `state.wat` **LANDED**
+  at `676f4b7` — 368 lines; 14 exports ($emit_init / funcref-table
+  register/lookup/count/at / body-context set + read + len / string-
+  intern register/lookup/count/at / fn_reset); trace harness
+  `bootstrap/test/emit/state_init.wat` PASSes (60/60 harness suite);
+  drift-audit CLEAN; wasm-validate PASS; first-light Tier 1 non-
+  regression confirmed.
 - Cascade chunk dispatch order:
   - **Hβ.arena**: single chunk `bootstrap/src/runtime/arena.wat` + per-
     cascade-boundary retrofits. Not yet drafted.
-  - **Hβ.emit**: 9 chunks per Hβ-emit §7.1 (state ✎, lookup, emit_const,
+  - **Hβ.emit**: 9 chunks per Hβ-emit §7.1 (state ✓, lookup, emit_const,
     emit_local, emit_control, emit_call, emit_handler, emit_dispatcher,
-    main). Dependency order at Hβ-emit §11.3. State drafted; rest pending.
+    main). Dependency order at Hβ-emit §11.3. Chunk #1 landed; #2
+    lookup.wat is next (Opus-inline per §11.2 — type-driven dispatch
+    load-bearing for LConst/LCall).
 
 Current branch tip:
 
