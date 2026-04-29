@@ -64,8 +64,7 @@ H7; LFeedback per LF; LSuspend per H1.6).
     LMakeRecord)
   - §2.2 Local-scope family (LLocal / LGlobal / LUpval / LStore /
     LStateGet / LStateSet / LField)
-  - §2.3 Control family (LIf / LBlock / LMatch / LSwitch / LLoop /
-    LBreak / LReturn / LRegion)
+  - §2.3 Control family (LIf / LBlock / LMatch / LReturn / LRegion)
   - §2.4 Call family (LCall / LTailCall / LBinOp / LUnaryOp / LSuspend
     / LIndex / LFieldLoad)
   - §2.5 Handler family (LHandleWith / LHandle / LPerform /
@@ -248,17 +247,24 @@ field access. Offset comes from `$lexpr_lfieldload_offset_bytes(r)`.
 **`$emit_lblock(r)`** — sequential emit of stmts list. `$lexpr_lblock_stmts(r)`
 returns the list; iterate + emit each LowExpr.
 
-**`$emit_lmatch(r)` / `$emit_lswitch(r)`** — pattern dispatch per
-tag-int comparison chain (no vtable; Drift 1 refusal). LSwitch is
-the int-key form; LMatch is the structured form.
+**`$emit_lmatch(r)`** — pattern dispatch per tag-int comparison chain
+(no vtable; Drift 1 refusal). HB threshold-aware mixed-variant
+dispatch when scrutinee mixes nullary sentinels with fielded heap-
+record variants: the threshold check `(scrut < HEAP_BASE)` cleanly
+discriminates without ambiguity per HB substrate.
 
-**`$emit_lloop(r)` + `$emit_lbreak(r)`** — `(block ...) (loop ...) (br_if ...)`
-per WASM control flow.
-
-**`$emit_lreturn(r)`** — `return` of the inner LowExpr's value.
+**`$emit_lreturn(r)`** — emits `(return)` for the inner LowExpr's
+value. NOT an imperative-`return` arm: Inka has no `return` keyword
+(SYNTAX.md line 1335). LReturn is the lowered form of `resume(value)`
+inside an OneShot handler arm (Hβ.lower walk_call.wat Lock #6 —
+`ResumeExpr → LReturn`); the WAT-level `(return)` is the WASM
+control-flow primitive that hands the resumed value back to the
+suspended `perform` site.
 
 **`$emit_lregion(r)`** — region scoping for arena / scoped state.
-Currently inert seed; arena handler substrate (B.5) lands later.
+Inert seed; arena handler substrate (B.5 AM-arena-multishot) populates
+this arm when the arena handler-swap lands per Hβ.emit.memory-arena-
+handler named follow-up.
 
 ### 2.4 Call family
 
@@ -511,8 +517,7 @@ bootstrap/src/emit/
                          ;;   LMakeRecord per §2.1
   emit_local.wat         ;; LLocal / LGlobal / LUpval / LStore / LStateGet /
                          ;;   LStateSet / LFieldLoad per §2.2
-  emit_control.wat       ;; LIf / LBlock / LMatch / LSwitch / LLoop / LBreak /
-                         ;;   LReturn / LRegion per §2.3
+  emit_control.wat       ;; LIf / LBlock / LMatch / LReturn / LRegion per §2.3
   emit_call.wat          ;; LCall / LTailCall / LBinOp / LUnaryOp / LSuspend /
                          ;;   LIndex per §2.4 — THE GRADIENT CASH-OUT SITE
   emit_handler.wat       ;; LHandleWith / LHandle / LPerform / LEvPerform /
@@ -660,7 +665,7 @@ fluency + per-handle walkthrough reading.
 | lookup.wat | Opus inline | type-driven dispatch; load-bearing for LConst/LCall |
 | emit_const.wat | Opus inline OR Sonnet | per-variant arms; mostly mechanical |
 | emit_local.wat | Sonnet | mechanical record-field reads |
-| emit_control.wat | Opus inline | LMatch/LSwitch pattern compile is subtle |
+| emit_control.wat | Opus inline | LMatch HB threshold-aware mixed-variant dispatch is subtle |
 | emit_call.wat | **Opus inline only** | LSuspend's H1.6 evidence dispatch is the gradient cash-out site |
 | emit_handler.wat | **Opus inline only** | LMakeContinuation + LDeclareFn + funcref table is H7 + H1.4 substrate composition |
 | emit_dispatcher.wat | Opus inline OR Sonnet | 35-arm if-chain; mechanical |

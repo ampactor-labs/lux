@@ -253,9 +253,6 @@ fn collect_strings_expr(expr, buf, count, next_offset) = match expr {
   LMakeVariant(_, _, fs)      => collect_strings_list(fs, buf, count, next_offset),
   LIndex(_, b, i, _)          => collect_strings_bin(b, i, buf, count, next_offset),
   LMatch(_, s, _arms)         => collect_strings_expr(s, buf, count, next_offset),
-  LLoop(_, body)              => collect_strings_list(body, buf, count, next_offset),
-  LBreak(_, v)                => collect_strings_expr(v, buf, count, next_offset),
-  LSwitch(_, s, _c)           => collect_strings_expr(s, buf, count, next_offset),
   LSuspend(_, _, f, args, ev) => {
     let (buf1, count1, o1) = collect_strings_bin_list(f, args, buf, count, next_offset)
     collect_strings_list(ev, buf1, count1, o1)
@@ -353,9 +350,6 @@ fn collect_slots_expr(expr, buf, count) = match expr {
   LMakeVariant(_, _, fs)     => collect_slots_list(fs, buf, count),
   LIndex(_, b, i, _)         => collect_slots_bin(b, i, buf, count),
   LMatch(_, s, _arms)        => collect_slots_expr(s, buf, count),
-  LLoop(_, body)             => collect_slots_list(body, buf, count),
-  LBreak(_, v)               => collect_slots_expr(v, buf, count),
-  LSwitch(_, s, _c)          => collect_slots_expr(s, buf, count),
   LSuspend(_, _, f, args, ev) => {
     let (buf1, count1) = collect_slots_bin_list(f, args, buf, count)
     collect_slots_list(ev, buf1, count1)
@@ -511,9 +505,6 @@ fn collect_fn_names_expr(expr, buf, count) = match expr {
     collect_fn_names_expr(i, b1, c1)
   },
   LMatch(_h, s, _arms)       => collect_fn_names_expr(s, buf, count),
-  LLoop(_h, body)            => collect_fn_names_list(body, buf, count),
-  LBreak(_h, v)              => collect_fn_names_expr(v, buf, count),
-  LSwitch(_h, s, _c)         => collect_fn_names_expr(s, buf, count),
   LSuspend(_h, _o, f, args, ev) => {
     let (b1, c1) = collect_fn_names_expr(f, buf, count)
     let (b2, c2) = collect_fn_names_list(args, b1, c1)
@@ -756,9 +747,6 @@ fn max_arity_expr(expr) = match expr {
   LMakeVariant(_, _, _)     => 0,
   LIndex(_, _, _, _)        => 0,
   LMatch(_, _, _)           => 0,
-  LLoop(_, _)               => 0,
-  LBreak(_, _)              => 0,
-  LSwitch(_, _, _)          => 0,
   LStateGet(_, _)           => 0,
   LStateSet(_, _, _)        => 0,
   LRegion(_, _)             => 0,
@@ -918,9 +906,6 @@ fn emit_fns_expr(expr) = match expr {
   LMakeVariant(_h, _t, fs)   => emit_fns_list(fs),
   LIndex(_h, b, i, _)        => { emit_fns_expr(b); emit_fns_expr(i) },
   LMatch(_h, s, _arms)       => emit_fns_expr(s),
-  LLoop(_h, body)            => emit_fns_list(body),
-  LBreak(_h, v)              => emit_fns_expr(v),
-  LSwitch(_h, s, _c)         => emit_fns_expr(s),
   LSuspend(_h, _o, f, args, ev) => {
     emit_fns_expr(f); emit_fns_list(args); emit_fns_list(ev)
   },
@@ -1004,7 +989,6 @@ fn emit_let_locals_expr(expr) = match expr {
     emit_let_locals_list(t)
     emit_let_locals_list(e)
   },
-  LLoop(_h, body)           => emit_let_locals_list(body),
   LBinOp(_h, _op, l, r)     => { emit_let_locals_expr(l); emit_let_locals_expr(r) },
   LUnaryOp(_h, _op, inner)  => emit_let_locals_expr(inner),
   LCall(_h, f, args)        => { emit_let_locals_expr(f); emit_let_locals_list(args) },
@@ -1020,8 +1004,6 @@ fn emit_let_locals_expr(expr) = match expr {
     emit_let_locals_expr(s)
     emit_let_locals_arms(arms)
   },
-  LBreak(_h, v)             => emit_let_locals_expr(v),
-  LSwitch(_h, s, _c)        => emit_let_locals_expr(s),
   LSuspend(_h, _o, f, args, ev) => {
     emit_let_locals_expr(f); emit_let_locals_list(args); emit_let_locals_list(ev)
   },
@@ -1409,22 +1391,6 @@ fn emit_expr(expr) = match expr {
     emit_expr(scrutinee)
     perform wat_emit("    (local.set $scrut_tmp)\n")
     emit_match_arms(arms)
-  },
-
-  LLoop(_h, body) => {
-    perform wat_emit("    (loop\n") // drift-audit: ignore
-    emit_body(body)
-    perform wat_emit("    )\n")
-  },
-
-  LBreak(_h, val) => {
-    emit_expr(val)
-    perform wat_emit("    (br 0)\n")
-  },
-
-  LSwitch(_h, scrutinee, _cases) => {
-    emit_expr(scrutinee)
-    perform wat_emit("    ;; switch\n")
   },
 
   LSuspend(_h, _op_h, func, args, ev_slots) => {

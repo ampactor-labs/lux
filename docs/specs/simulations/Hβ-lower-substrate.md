@@ -268,9 +268,6 @@ LMakeRecord(handle, fields)         tag=318  arity=2
 LMakeVariant(handle, tag_id, args)  tag=319  arity=3
 LIndex(handle, base, idx, is_str)   tag=320  arity=4
 LMatch(handle, scrut, arms)         tag=321  arity=3
-LLoop(handle, body)                 tag=322  arity=2
-LBreak(handle, value)               tag=323  arity=2
-LSwitch(handle, scrut, arms)        tag=324  arity=3
 LSuspend(handle, op, fn, args, evs) tag=325  arity=5
 LStateGet(handle, slot)             tag=326  arity=2
 LStateSet(handle, slot, value)      tag=327  arity=3

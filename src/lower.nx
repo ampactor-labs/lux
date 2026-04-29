@@ -126,9 +126,6 @@ type LowExpr
   | LMakeVariant(Int, TagId, List)             // handle, tag_id, field exprs
   | LIndex(Int, LowExpr, LowExpr, Bool)
   | LMatch(Int, LowExpr, List)
-  | LLoop(Int, List)
-  | LBreak(Int, LowExpr)
-  | LSwitch(Int, LowExpr, List)                // emitter lowers MATCH → SWITCH for ints
   | LSuspend(Int, Int, LowExpr, List, List)    // handle, op_h, fn_expr, args, ev_slots
   | LStateGet(Int, Int)
   | LStateSet(Int, Int, LowExpr)
@@ -193,9 +190,6 @@ fn lexpr_handle(e) with Pure = match e {
   LMakeVariant(h, _, _)   => h,
   LIndex(h, _, _, _)      => h,
   LMatch(h, _, _)         => h,
-  LLoop(h, _)             => h,
-  LBreak(h, _)            => h,
-  LSwitch(h, _, _)        => h,
   LSuspend(h, _, _, _, _) => h,
   LStateGet(h, _)         => h,
   LStateSet(h, _, _)      => h,

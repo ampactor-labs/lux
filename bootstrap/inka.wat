@@ -13466,9 +13466,6 @@
   ;;             $lexpr_make_lmakevariant $lexpr_lmakevariant_tag_id $lexpr_lmakevariant_args,
   ;;             $lexpr_make_lindex $lexpr_lindex_base $lexpr_lindex_idx $lexpr_lindex_is_str,
   ;;             $lexpr_make_lmatch $lexpr_lmatch_scrut $lexpr_lmatch_arms,
-  ;;             $lexpr_make_lloop $lexpr_lloop_body,
-  ;;             $lexpr_make_lbreak $lexpr_lbreak_value,
-  ;;             $lexpr_make_lswitch $lexpr_lswitch_scrut $lexpr_lswitch_arms,
   ;;             $lexpr_make_lsuspend $lexpr_lsuspend_op_h $lexpr_lsuspend_fn
   ;;               $lexpr_lsuspend_args $lexpr_lsuspend_evs,
   ;;             $lexpr_make_lstateget $lexpr_lstateget_slot,
@@ -13517,9 +13514,6 @@
   ;;   319 = LMakeVariant       arity 3  (handle, tag_id, args)
   ;;   320 = LIndex             arity 4  (handle, base, idx, is_str)
   ;;   321 = LMatch             arity 3  (handle, scrut, arms)
-  ;;   322 = LLoop              arity 2  (handle, body)
-  ;;   323 = LBreak             arity 2  (handle, value)
-  ;;   324 = LSwitch            arity 3  (handle, scrut, arms)
   ;;   325 = LSuspend           arity 5  (handle, op_h, fn, args, evs)  [op_h is graph handle, NOT string]
   ;;   326 = LStateGet          arity 2  (handle, slot)
   ;;   327 = LStateSet          arity 3  (handle, slot, value)
@@ -14001,47 +13995,6 @@
     (call $record_get (local.get $r) (i32.const 1)))
 
   (func $lexpr_lmatch_arms (param $r i32) (result i32)
-    (call $record_get (local.get $r) (i32.const 2)))
-
-  ;; ─── 322 = LLoop(handle, body) — arity 2 ───────────────────────────
-  ;; Per src/lower.nx:129 LLoop(Int, List).
-  (func $lexpr_make_lloop (param $h i32) (param $body i32) (result i32)
-    (local $r i32)
-    (local.set $r (call $make_record (i32.const 322) (i32.const 2)))
-    (call $record_set (local.get $r) (i32.const 0) (local.get $h))
-    (call $record_set (local.get $r) (i32.const 1) (local.get $body))
-    (local.get $r))
-
-  (func $lexpr_lloop_body (param $r i32) (result i32)
-    (call $record_get (local.get $r) (i32.const 1)))
-
-  ;; ─── 323 = LBreak(handle, value) — arity 2 ─────────────────────────
-  ;; Per src/lower.nx:130 LBreak(Int, LowExpr).
-  (func $lexpr_make_lbreak (param $h i32) (param $value i32) (result i32)
-    (local $r i32)
-    (local.set $r (call $make_record (i32.const 323) (i32.const 2)))
-    (call $record_set (local.get $r) (i32.const 0) (local.get $h))
-    (call $record_set (local.get $r) (i32.const 1) (local.get $value))
-    (local.get $r))
-
-  (func $lexpr_lbreak_value (param $r i32) (result i32)
-    (call $record_get (local.get $r) (i32.const 1)))
-
-  ;; ─── 324 = LSwitch(handle, scrut, arms) — arity 3 ──────────────────
-  ;; Per src/lower.nx:131 LSwitch(Int, LowExpr, List) — "emitter lowers
-  ;; MATCH → SWITCH for ints".
-  (func $lexpr_make_lswitch (param $h i32) (param $scrut i32) (param $arms i32) (result i32)
-    (local $r i32)
-    (local.set $r (call $make_record (i32.const 324) (i32.const 3)))
-    (call $record_set (local.get $r) (i32.const 0) (local.get $h))
-    (call $record_set (local.get $r) (i32.const 1) (local.get $scrut))
-    (call $record_set (local.get $r) (i32.const 2) (local.get $arms))
-    (local.get $r))
-
-  (func $lexpr_lswitch_scrut (param $r i32) (result i32)
-    (call $record_get (local.get $r) (i32.const 1)))
-
-  (func $lexpr_lswitch_arms (param $r i32) (result i32)
     (call $record_get (local.get $r) (i32.const 2)))
 
   ;; ─── 325 = LSuspend(handle, op_h, fn, args, evs) — arity 5 ─────────
