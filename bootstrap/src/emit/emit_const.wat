@@ -183,3 +183,348 @@
     ;; story" + γ §IX: every value at the seed layer IS an i32, so
     ;; emitting (i32.const N) round-trips for any ground value.
     (call $emit_i32_const (local.get $value)))
+
+  ;; ════════════════════════════════════════════════════════════════════
+  ;; ═══ Hβ.emit.const-make-arms (peer landing) ═════════════════════════
+  ;; ════════════════════════════════════════════════════════════════════
+  ;; Per Hβ-emit-substrate.md §2.1 closure of the 5-arm Const family:
+  ;; LMakeList tag 316 + LMakeTuple tag 317 + LMakeRecord tag 318 +
+  ;; LMakeVariant tag 319 emit arms + $emit_lexpr partial dispatcher
+  ;; (forward-decl bridge per Hβ.lower walk_call.wat:254-358 precedent;
+  ;; chunks #4-#7 retrofit via Edit per named follow-up
+  ;; Hβ.emit.lexpr-dispatch-extension) + $emit_alloc EmitMemory swap
+  ;; surface entry (§3.5 substrate-level handler reference; future
+  ;; arena/gc swaps replace fn body via Hβ.emit.memory-arena-handler /
+  ;; Hβ.emit.memory-gc-handler).
+  ;;
+  ;; HB drift-6 closure: LMakeVariant nullary path emits (i32.const tag_id)
+  ;; sentinel — Bool/Nothing/Up/Down/etc. ALL nullary ADTs compile to
+  ;; their tag_id. Fielded variants heap-allocate via $emit_alloc.
+
+  ;; ─── Chunk-private byte-emission helpers (no static data) ─────────
+  ;; Inline-byte design decision (data-offset audit re-check, 2026-04-29):
+  ;; the [0, 4096) sentinel/data region is densely packed by lexer/
+  ;; parser/runtime/infer/lower/emit_data static segments; the largest
+  ;; verified-free contiguous gap below HEAP_BASE is [1535, 1599) =
+  ;; 65 bytes — insufficient for the ~180 bytes of length-prefixed
+  ;; emit-tokens needed by $emit_alloc + LMake* arms. Inline byte
+  ;; emission via $emit_byte sequences is the substrate-honest path:
+  ;; the function body IS the swap surface (§3.5.1), so encoding the
+  ;; bump pattern as direct byte calls preserves the EmitMemory handler
+  ;; abstraction without requiring static-data infrastructure.
+
+  (func $ec_emit_global_get_heap_ptr
+    ;; emits: (global.get $heap_ptr)
+    (call $emit_byte (i32.const 40)) (call $emit_byte (i32.const 103))
+    (call $emit_byte (i32.const 108)) (call $emit_byte (i32.const 111))
+    (call $emit_byte (i32.const 98))  (call $emit_byte (i32.const 97))
+    (call $emit_byte (i32.const 108)) (call $emit_byte (i32.const 46))
+    (call $emit_byte (i32.const 103)) (call $emit_byte (i32.const 101))
+    (call $emit_byte (i32.const 116)) (call $emit_byte (i32.const 32))
+    (call $emit_byte (i32.const 36))  (call $emit_byte (i32.const 104))
+    (call $emit_byte (i32.const 101)) (call $emit_byte (i32.const 97))
+    (call $emit_byte (i32.const 112)) (call $emit_byte (i32.const 95))
+    (call $emit_byte (i32.const 112)) (call $emit_byte (i32.const 116))
+    (call $emit_byte (i32.const 114)) (call $emit_byte (i32.const 41)))
+
+  (func $ec_emit_global_set_heap_ptr
+    ;; emits: (global.set $heap_ptr)
+    (call $emit_byte (i32.const 40)) (call $emit_byte (i32.const 103))
+    (call $emit_byte (i32.const 108)) (call $emit_byte (i32.const 111))
+    (call $emit_byte (i32.const 98))  (call $emit_byte (i32.const 97))
+    (call $emit_byte (i32.const 108)) (call $emit_byte (i32.const 46))
+    (call $emit_byte (i32.const 115)) (call $emit_byte (i32.const 101))
+    (call $emit_byte (i32.const 116)) (call $emit_byte (i32.const 32))
+    (call $emit_byte (i32.const 36))  (call $emit_byte (i32.const 104))
+    (call $emit_byte (i32.const 101)) (call $emit_byte (i32.const 97))
+    (call $emit_byte (i32.const 112)) (call $emit_byte (i32.const 95))
+    (call $emit_byte (i32.const 112)) (call $emit_byte (i32.const 116))
+    (call $emit_byte (i32.const 114)) (call $emit_byte (i32.const 41)))
+
+  (func $ec_emit_local_set_dollar (param $name i32)
+    ;; emits: (local.set $<name>)  — name is length-prefixed str_ptr
+    (call $emit_byte (i32.const 40)) (call $emit_byte (i32.const 108))
+    (call $emit_byte (i32.const 111)) (call $emit_byte (i32.const 99))
+    (call $emit_byte (i32.const 97)) (call $emit_byte (i32.const 108))
+    (call $emit_byte (i32.const 46)) (call $emit_byte (i32.const 115))
+    (call $emit_byte (i32.const 101)) (call $emit_byte (i32.const 116))
+    (call $emit_byte (i32.const 32)) (call $emit_byte (i32.const 36))
+    (call $emit_str (local.get $name))
+    (call $emit_byte (i32.const 41)))
+
+  (func $ec_emit_local_get_dollar (param $name i32)
+    ;; emits: (local.get $<name>)
+    (call $emit_byte (i32.const 40)) (call $emit_byte (i32.const 108))
+    (call $emit_byte (i32.const 111)) (call $emit_byte (i32.const 99))
+    (call $emit_byte (i32.const 97)) (call $emit_byte (i32.const 108))
+    (call $emit_byte (i32.const 46)) (call $emit_byte (i32.const 103))
+    (call $emit_byte (i32.const 101)) (call $emit_byte (i32.const 116))
+    (call $emit_byte (i32.const 32)) (call $emit_byte (i32.const 36))
+    (call $emit_str (local.get $name))
+    (call $emit_byte (i32.const 41)))
+
+  (func $ec_emit_i32_add
+    ;; emits: (i32.add)
+    (call $emit_byte (i32.const 40)) (call $emit_byte (i32.const 105))
+    (call $emit_byte (i32.const 51)) (call $emit_byte (i32.const 50))
+    (call $emit_byte (i32.const 46)) (call $emit_byte (i32.const 97))
+    (call $emit_byte (i32.const 100)) (call $emit_byte (i32.const 100))
+    (call $emit_byte (i32.const 41)))
+
+  (func $ec_emit_i32_store_offset (param $off i32)
+    ;; emits: (i32.store offset=<off>)
+    (call $emit_byte (i32.const 40)) (call $emit_byte (i32.const 105))
+    (call $emit_byte (i32.const 51)) (call $emit_byte (i32.const 50))
+    (call $emit_byte (i32.const 46)) (call $emit_byte (i32.const 115))
+    (call $emit_byte (i32.const 116)) (call $emit_byte (i32.const 111))
+    (call $emit_byte (i32.const 114)) (call $emit_byte (i32.const 101))
+    (call $emit_byte (i32.const 32)) (call $emit_byte (i32.const 111))
+    (call $emit_byte (i32.const 102)) (call $emit_byte (i32.const 102))
+    (call $emit_byte (i32.const 115)) (call $emit_byte (i32.const 101))
+    (call $emit_byte (i32.const 116)) (call $emit_byte (i32.const 61))
+    (call $emit_int (local.get $off))
+    (call $emit_byte (i32.const 41)))
+
+  (func $ec_emit_call_make_list
+    ;; emits: (call $make_list)
+    (call $emit_byte (i32.const 40)) (call $emit_byte (i32.const 99))
+    (call $emit_byte (i32.const 97)) (call $emit_byte (i32.const 108))
+    (call $emit_byte (i32.const 108)) (call $emit_byte (i32.const 32))
+    (call $emit_byte (i32.const 36)) (call $emit_byte (i32.const 109))
+    (call $emit_byte (i32.const 97)) (call $emit_byte (i32.const 107))
+    (call $emit_byte (i32.const 101)) (call $emit_byte (i32.const 95))
+    (call $emit_byte (i32.const 108)) (call $emit_byte (i32.const 105))
+    (call $emit_byte (i32.const 115)) (call $emit_byte (i32.const 116))
+    (call $emit_byte (i32.const 41)))
+
+  (func $ec_emit_call_list_set
+    ;; emits: (call $list_set)
+    (call $emit_byte (i32.const 40)) (call $emit_byte (i32.const 99))
+    (call $emit_byte (i32.const 97)) (call $emit_byte (i32.const 108))
+    (call $emit_byte (i32.const 108)) (call $emit_byte (i32.const 32))
+    (call $emit_byte (i32.const 36)) (call $emit_byte (i32.const 108))
+    (call $emit_byte (i32.const 105)) (call $emit_byte (i32.const 115))
+    (call $emit_byte (i32.const 116)) (call $emit_byte (i32.const 95))
+    (call $emit_byte (i32.const 115)) (call $emit_byte (i32.const 101))
+    (call $emit_byte (i32.const 116)) (call $emit_byte (i32.const 41)))
+
+  ;; ─── Tmp-name length-prefixed strings (variable interpolation) ────
+  ;; Three local-name strings used as $emit_alloc's $target arg; live
+  ;; in [1535, 1599) verified-free zone. 4-byte aligned where possible.
+  ;;   1536 — "tuple_tmp"   (9 chars; 4+9=13 bytes; 1536-1548)
+  ;;   1552 — "record_tmp"  (10 chars; 4+10=14 bytes; 1552-1565)
+  ;;   1568 — "variant_tmp" (11 chars; 4+11=15 bytes; 1568-1582)
+
+  (data (i32.const 1536) "\09\00\00\00tuple_tmp")
+  (data (i32.const 1552) "\0a\00\00\00record_tmp")
+  (data (i32.const 1568) "\0b\00\00\00variant_tmp")
+
+  ;; ─── $emit_alloc — bump-pattern emitter (EmitMemory swap surface) ─
+  ;; Per Hβ-emit-substrate.md §3.5 + wheel canonical src/backends/wasm.nx:
+  ;; 71-84 emit_memory_bump body. Emits the 5-piece WAT sequence that
+  ;; allocates `$size` bytes at $heap_ptr and binds the resulting ptr to
+  ;; local `$<target>`. THIS IS the substrate-level handler reference
+  ;; per §3.5.1 — future arena/gc handlers swap this body without
+  ;; disturbing call sites (Anchor 5: every feature is a handler).
+  ;;
+  ;; Eight interrogations:
+  ;;   Graph?      Reads $size + $target str_ptr (no graph mutation).
+  ;;   Handler?    @resume=OneShot at wheel; direct call at seed.
+  ;;   Verb?       |> — emit globals-read |> emit-add |> emit-store.
+  ;;   Row?        EmitMemory at wheel; row-silent at seed.
+  ;;   Ownership?  $out_base buffer OWNed program-wide.
+  ;;   Refinement? N/A.
+  ;;   Gradient?   The handler-swap surface IS the gradient (post-L1
+  ;;               arena/gc).
+  ;;   Reason?     N/A — emission preserves source-handle Reason chain
+  ;;               via $lookup_ty reads upstream.
+  ;;
+  ;; Drift refusals:
+  ;;   - Drift 1 (vtable): NO global $emit_alloc_handler closure record;
+  ;;     direct fn body. Future swap is one fn-body Edit, not a vtable.
+  ;;   - Drift 5 (C calling conv): single (size, target) i32 pair; no
+  ;;     __closure/__ev split.
+  ;;   - Drift 9 (deferred-by-omission): full bump pattern bodied;
+  ;;     arena/gc swap NAMED follow-up Hβ.emit.memory-arena-handler /
+  ;;     Hβ.emit.memory-gc-handler.
+  (func $emit_alloc (param $size i32) (param $target i32)
+    (call $ec_emit_global_get_heap_ptr)
+    (call $ec_emit_local_set_dollar (local.get $target))
+    (call $ec_emit_global_get_heap_ptr)
+    (call $emit_i32_const (local.get $size))
+    (call $ec_emit_i32_add)
+    (call $ec_emit_global_set_heap_ptr))
+
+  ;; ─── $emit_lmakelist — LMakeList tag 316 emit arm per §2.1 ─────────
+  ;; Per src/backends/wasm.nx:2068-2098 emit_list_literal. Emits:
+  ;;   (i32.const N) (call $make_list) (i32.const 0) <elem 0> (call $list_set)
+  ;;   (i32.const 1) <elem 1> (call $list_set) ... etc.
+  ;; list_set returns the list ptr per runtime/list.wat — pointer threads
+  ;; on stack through successive stores; result is the list ptr (O(1)
+  ;; indexable via list_index@tag=0).
+  ;;
+  ;; Recursion via $emit_lexpr — at this peer landing, dispatcher knows
+  ;; LConst (300) + LMake* (316-319). Other elem-tags trap until
+  ;; chunks #4-#7 retrofit per Hβ.emit.lexpr-dispatch-extension.
+  ;;
+  ;; Drift 7 refusal: elems is ONE list ptr field (record-shaped); not
+  ;; parallel keys-ptr + counts-ptr arrays.
+  (func $emit_lmakelist (param $r i32)
+    (local $elems i32) (local $n i32) (local $i i32) (local $elem i32)
+    (local.set $elems (call $lexpr_lmakelist_elems (local.get $r)))
+    (local.set $n     (call $len (local.get $elems)))
+    (call $emit_i32_const (local.get $n))
+    (call $ec_emit_call_make_list)
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $store_loop
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $elem (call $list_index (local.get $elems) (local.get $i)))
+        (call $emit_i32_const (local.get $i))
+        (call $emit_lexpr (local.get $elem))
+        (call $ec_emit_call_list_set)
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $store_loop))))
+
+  ;; ─── $emit_lmaketuple — LMakeTuple tag 317 emit arm per §2.1 ───────
+  ;; Mirrors LMakeRecord shape (no tag word, fields at 4*i offset) per
+  ;; wheel emit_record_field_stores (src/backends/wasm.nx:1810-1823).
+  ;; Wheel's emit_tuple_literal uses $alloc_tuple call-style — seed
+  ;; transcription unifies with LMakeRecord pattern; named follow-up
+  ;; Hβ.emit.tuple-alloc-helper resolves wheel-vs-seed alignment if a
+  ;; downstream consumer needs the call-style.
+  ;;
+  ;; Emits: $emit_alloc(N*4, "tuple_tmp")
+  ;;        per i: (local.get $tuple_tmp) <elem_i> (i32.store offset=4*i)
+  ;;        (local.get $tuple_tmp)  ;; result on stack
+  (func $emit_lmaketuple (param $r i32)
+    (local $elems i32) (local $n i32) (local $i i32) (local $elem i32)
+    (local.set $elems (call $lexpr_lmaketuple_elems (local.get $r)))
+    (local.set $n     (call $len (local.get $elems)))
+    (call $emit_alloc (i32.mul (local.get $n) (i32.const 4))
+                      (i32.const 1536))                   ;; "tuple_tmp"
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $store_loop
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $elem (call $list_index (local.get $elems) (local.get $i)))
+        (call $ec_emit_local_get_dollar (i32.const 1536))
+        (call $emit_lexpr (local.get $elem))
+        (call $ec_emit_i32_store_offset (i32.mul (local.get $i) (i32.const 4)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $store_loop)))
+    (call $ec_emit_local_get_dollar (i32.const 1536)))
+
+  ;; ─── $emit_lmakerecord — LMakeRecord tag 318 emit arm per §2.1 ─────
+  ;; Per src/backends/wasm.nx:1343-1354 + 1810-1823 emit_record_field_stores.
+  ;; Mirror of $emit_lmaketuple; only delta is the local name. H2
+  ;; substrate: records carry identity in the type system, no runtime
+  ;; tag. Field i lands at byte 4*i — matches LFieldLoad's offset
+  ;; arithmetic in lower.nx.
+  (func $emit_lmakerecord (param $r i32)
+    (local $fields i32) (local $n i32) (local $i i32) (local $field i32)
+    (local.set $fields (call $lexpr_lmakerecord_fields (local.get $r)))
+    (local.set $n      (call $len (local.get $fields)))
+    (call $emit_alloc (i32.mul (local.get $n) (i32.const 4))
+                      (i32.const 1552))                   ;; "record_tmp"
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $store_loop
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $field (call $list_index (local.get $fields) (local.get $i)))
+        (call $ec_emit_local_get_dollar (i32.const 1552))
+        (call $emit_lexpr (local.get $field))
+        (call $ec_emit_i32_store_offset (i32.mul (local.get $i) (i32.const 4)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $store_loop)))
+    (call $ec_emit_local_get_dollar (i32.const 1552)))
+
+  ;; ─── $emit_lmakevariant — LMakeVariant tag 319 emit arm per §2.1 ───
+  ;; Per src/backends/wasm.nx:1356-1388 + HB drift-6 closure:
+  ;; - n == 0 → (i32.const tag_id) sentinel  (Bool/Nothing/Up/Down/etc.)
+  ;; - n >  0 → $emit_alloc(4 + 4*n, "variant_tmp")
+  ;;            (local.get $variant_tmp) (i32.const tag_id) (i32.store offset=0)
+  ;;            per i: (local.get $variant_tmp) <field_i> (i32.store offset=4+4*i)
+  ;;            (local.get $variant_tmp)   ;; result on stack
+  ;;
+  ;; THE GRADIENT CASH-OUT — Bool is not special. Every nullary ADT
+  ;; variant compiles to its tag_id sentinel; fielded variants heap-
+  ;; allocate via the EmitMemory swap surface. Drift 6 refusal: NO
+  ;; `if str_eq(name, "Bool")` Bool-narrow branch.
+  ;;
+  ;; HEAP_BASE invariant: nullary tag_ids ∈ [0, 4096) sit in sentinel
+  ;; region; fielded variants heap-allocate at $heap_ptr ≥ 1 MiB. The
+  ;; threshold check `(scrut < HEAP_BASE)` at LMatch (post-L1) cleanly
+  ;; discriminates without ambiguity per HB substrate.
+  (func $emit_lmakevariant (param $r i32)
+    (local $tag_id i32) (local $args i32) (local $n i32) (local $i i32)
+    (local $arg i32)
+    (local.set $tag_id (call $lexpr_lmakevariant_tag_id (local.get $r)))
+    (local.set $args   (call $lexpr_lmakevariant_args   (local.get $r)))
+    (local.set $n      (call $len (local.get $args)))
+    (if (i32.eqz (local.get $n))
+      (then (call $emit_i32_const (local.get $tag_id)) (return)))
+    (call $emit_alloc
+      (i32.add (i32.const 4) (i32.mul (local.get $n) (i32.const 4)))
+      (i32.const 1568))                                   ;; "variant_tmp"
+    (call $ec_emit_local_get_dollar (i32.const 1568))
+    (call $emit_i32_const (local.get $tag_id))
+    (call $ec_emit_i32_store_offset (i32.const 0))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $store_loop
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $arg (call $list_index (local.get $args) (local.get $i)))
+        (call $ec_emit_local_get_dollar (i32.const 1568))
+        (call $emit_lexpr (local.get $arg))
+        (call $ec_emit_i32_store_offset
+          (i32.add (i32.const 4) (i32.mul (local.get $i) (i32.const 4))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $store_loop)))
+    (call $ec_emit_local_get_dollar (i32.const 1568)))
+
+  ;; ─── $emit_lexpr — partial dispatcher (Hβ.emit cascade forward-decl) ─
+  ;; Per Hβ-emit-substrate.md §1 + §11.3 — $emit_lexpr is the canonical
+  ;; top-level dispatcher landing at chunk #8 emit_dispatcher.wat. But
+  ;; this peer landing introduces sub-LowExpr recursion (LMake* arms
+  ;; recurse on elems/fields/args). Mirror of Hβ.lower walk_call.wat:
+  ;; 254-358 — partial dispatcher in the FIRST chunk that needs
+  ;; recursion; subsequent chunks retrofit via Edit per named follow-up
+  ;; Hβ.emit.lexpr-dispatch-extension. Chunk #8 emit_dispatcher.wat owns
+  ;; the orchestrator $emit_program but DOES NOT redefine $emit_lexpr —
+  ;; by then this dispatcher is complete via cumulative retrofits.
+  ;;
+  ;; Drift-9-safe: every tag this dispatcher claims to know IS bodied;
+  ;; unknown tags trap via (unreachable) — the trap surfaces when a
+  ;; future emit chunk forgets to retrofit. Named follow-up makes the
+  ;; expansion visible.
+  ;;
+  ;; Currently dispatches:
+  ;;   300 LConst        → $emit_lconst         (chunk #3 first commit)
+  ;;   316 LMakeList     → $emit_lmakelist      (this peer)
+  ;;   317 LMakeTuple    → $emit_lmaketuple     (this peer)
+  ;;   318 LMakeRecord   → $emit_lmakerecord    (this peer)
+  ;;   319 LMakeVariant  → $emit_lmakevariant   (this peer)
+  ;;
+  ;; All other LowExpr tags trap (unreachable) until chunks #4-#7
+  ;; retrofit per Hβ.emit.lexpr-dispatch-extension.
+  ;;
+  ;; Drift 1 refusal: direct (i32.eq $tag N) dispatch; NO $emit_arm_table
+  ;; data segment, NO closure-record-of-fn-pointers. The word "vtable"
+  ;; appears nowhere.
+  ;; Drift 8 refusal: tag dispatch via integer constants (300, 316-319);
+  ;; NEVER `$str_eq($render_lowexpr, "LMakeList")`.
+  (func $emit_lexpr (export "emit_lexpr") (param $r i32)
+    (local $tag i32)
+    (local.set $tag (call $tag_of (local.get $r)))
+    (if (i32.eq (local.get $tag) (i32.const 300))
+      (then (call $emit_lconst       (local.get $r)) (return)))
+    (if (i32.eq (local.get $tag) (i32.const 316))
+      (then (call $emit_lmakelist    (local.get $r)) (return)))
+    (if (i32.eq (local.get $tag) (i32.const 317))
+      (then (call $emit_lmaketuple   (local.get $r)) (return)))
+    (if (i32.eq (local.get $tag) (i32.const 318))
+      (then (call $emit_lmakerecord  (local.get $r)) (return)))
+    (if (i32.eq (local.get $tag) (i32.const 319))
+      (then (call $emit_lmakevariant (local.get $r)) (return)))
+    (unreachable))
