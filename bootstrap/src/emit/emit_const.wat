@@ -525,17 +525,19 @@
   ;; future emit chunk forgets to retrofit. Named follow-up makes the
   ;; expansion visible.
   ;;
-  ;; Currently dispatches (post chunk #6 emit_call.wat retrofit):
+  ;; Currently dispatches (post chunk #7 emit_handler.wat retrofit):
   ;;   300 LConst        → $emit_lconst         (chunk #3 first commit)
   ;;   301 LLocal        → $emit_llocal         (chunk #4 retrofit)
   ;;   302 LGlobal       → $emit_lglobal        (chunk #4 retrofit)
   ;;   303 LStore        → $emit_lstore         (chunk #4 retrofit)
+  ;;   304 LLet          → $emit_llet          (chunk #7 retrofit)
   ;;   305 LUpval        → $emit_lupval         (chunk #4 retrofit)
   ;;   306 LBinOp        → $emit_lbinop         (chunk #6 retrofit)
   ;;   307 LUnaryOp      → $emit_lunaryop       (chunk #6 retrofit)
   ;;   308 LCall         → $emit_lcall          (chunk #6 retrofit)
   ;;   309 LTailCall     → $emit_ltailcall      (chunk #6 retrofit)
   ;;   310 LReturn       → $emit_lreturn        (chunk #5 retrofit)
+  ;;   313 LDeclareFn    → $emit_ldeclarefn     (chunk #7 retrofit)
   ;;   314 LIf           → $emit_lif            (chunk #5 retrofit)
   ;;   315 LBlock        → $emit_lblock         (chunk #5 retrofit)
   ;;   316 LMakeList     → $emit_lmakelist      (chunk #3 peer)
@@ -548,10 +550,17 @@
   ;;   326 LStateGet     → $emit_lstateget      (chunk #4 retrofit)
   ;;   327 LStateSet     → $emit_lstateset      (chunk #4 retrofit)
   ;;   328 LRegion       → $emit_lregion        (chunk #5 retrofit)
+  ;;   329 LHandleWith   → $emit_lhandlewith    (chunk #7 retrofit)
+  ;;   330 LFeedback     → $emit_lfeedback      (chunk #7 retrofit)
+  ;;   331 LPerform      → $emit_lperform       (chunk #7 retrofit)
+  ;;   332 LHandle       → $emit_lhandle        (chunk #7 retrofit)
+  ;;   333 LEvPerform    → $emit_levperform     (chunk #7 retrofit)
   ;;   334 LFieldLoad    → $emit_lfieldload     (chunk #4 retrofit)
   ;;
-  ;; All other LowExpr tags trap (unreachable) until chunk #7
-  ;; retrofits per Hβ.emit.lexpr-dispatch-extension.
+  ;; Tags 311 (LMakeClosure) + 312 (LMakeContinuation) trap
+  ;; (unreachable) — they require LowFn record substrate per named
+  ;; peer Hβ.lower.lowfn-substrate; the LFn-bearing emit arms land in
+  ;; named peer Hβ.emit.handler-fnref-substrate after that.
   ;;
   ;; Drift 1 refusal: direct (i32.eq $tag N) dispatch; NO $emit_arm_table
   ;; data segment, NO closure-record-of-fn-pointers. The word "vtable"
@@ -569,6 +578,8 @@
       (then (call $emit_lglobal      (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 303))
       (then (call $emit_lstore       (local.get $r)) (return)))
+    (if (i32.eq (local.get $tag) (i32.const 304))
+      (then (call $emit_llet         (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 305))
       (then (call $emit_lupval       (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 306))
@@ -581,6 +592,8 @@
       (then (call $emit_ltailcall    (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 310))
       (then (call $emit_lreturn      (local.get $r)) (return)))
+    (if (i32.eq (local.get $tag) (i32.const 313))
+      (then (call $emit_ldeclarefn   (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 314))
       (then (call $emit_lif          (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 315))
@@ -605,6 +618,16 @@
       (then (call $emit_lstateset    (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 328))
       (then (call $emit_lregion      (local.get $r)) (return)))
+    (if (i32.eq (local.get $tag) (i32.const 329))
+      (then (call $emit_lhandlewith  (local.get $r)) (return)))
+    (if (i32.eq (local.get $tag) (i32.const 330))
+      (then (call $emit_lfeedback    (local.get $r)) (return)))
+    (if (i32.eq (local.get $tag) (i32.const 331))
+      (then (call $emit_lperform     (local.get $r)) (return)))
+    (if (i32.eq (local.get $tag) (i32.const 332))
+      (then (call $emit_lhandle      (local.get $r)) (return)))
+    (if (i32.eq (local.get $tag) (i32.const 333))
+      (then (call $emit_levperform   (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 334))
       (then (call $emit_lfieldload   (local.get $r)) (return)))
     (unreachable))
