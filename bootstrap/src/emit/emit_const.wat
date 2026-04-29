@@ -557,10 +557,10 @@
   ;;   333 LEvPerform    → $emit_levperform     (chunk #7 retrofit)
   ;;   334 LFieldLoad    → $emit_lfieldload     (chunk #4 retrofit)
   ;;
-  ;; Tags 311 (LMakeClosure) + 312 (LMakeContinuation) trap
-  ;; (unreachable) — they require LowFn record substrate per named
-  ;; peer Hβ.lower.lowfn-substrate; the LFn-bearing emit arms land in
-  ;; named peer Hβ.emit.handler-fnref-substrate after that.
+  ;; Tags 311 (LMakeClosure) + 312 (LMakeContinuation) are now live:
+  ;; Hβ.lower.lowfn-substrate (Phase C) materialized LowFn record;
+  ;; Hβ.emit.handler-fnref-substrate (Phase D) closed here with
+  ;; $emit_lmakeclosure + $emit_lmakecontinuation in emit_handler.wat.
   ;;
   ;; Drift 1 refusal: direct (i32.eq $tag N) dispatch; NO $emit_arm_table
   ;; data segment, NO closure-record-of-fn-pointers. The word "vtable"
@@ -591,9 +591,13 @@
     (if (i32.eq (local.get $tag) (i32.const 309))
       (then (call $emit_ltailcall    (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 310))
-      (then (call $emit_lreturn      (local.get $r)) (return)))
+      (then (call $emit_lreturn          (local.get $r)) (return)))
+    (if (i32.eq (local.get $tag) (i32.const 311))
+      (then (call $emit_lmakeclosure     (local.get $r)) (return)))
+    (if (i32.eq (local.get $tag) (i32.const 312))
+      (then (call $emit_lmakecontinuation (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 313))
-      (then (call $emit_ldeclarefn   (local.get $r)) (return)))
+      (then (call $emit_ldeclarefn       (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 314))
       (then (call $emit_lif          (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 315))
