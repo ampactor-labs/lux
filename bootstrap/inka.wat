@@ -10948,10 +10948,10 @@
   ;;   Alloc surface matures.
   ;; - Hβ.infer.docstring-reason: Documented Stmt arm omitted (parser
   ;;   doesn't emit Documented today; landing pre-DS.3).
-  ;; - Hβ.infer.walk_pat: Pat dispatch (PVar / PCon / PTuple / etc. per
-  ;;   spec 03) called from MatchExpr arm; lands as peer chunk before
-  ;;   walk_stmt.wat (let-stmts use patterns). Until then MatchExpr arm
-  ;;   skips the per-arm pattern walk and just unifies arm-bodies.
+  ;; - Hβ.infer.walk_pat: LANDED (Phase B.5 commit). $infer_walk_pat
+  ;;   dispatches PVar/PWild/PLit/PCon/PTuple/PList per spec 03;
+  ;;   called from MatchExpr arm + LetStmt arm. PCon threads
+  ;;   constructor field types to sub-patterns via TFun param extraction.
   ;; - Hβ.infer.match-exhaustive: exhaustiveness check
   ;;   (src/infer.nx:1709-1718) omitted at the seed; MatchExpr arm
   ;;   delegates to $infer_emit_pattern_inexhaustive on demand only.
@@ -11541,11 +11541,242 @@
     (call $env_scope_exit)
     (local.get $handle))
 
+  ;; ─── $infer_walk_pat — Phase B.5 ultimate-form pattern walk ─────────
+  ;;
+  ;; Recursive constructor-aware pattern walker. Dispatches on Pat tag
+  ;; (130-136 per parser_pat.wat). Called from MatchExpr arms + LetStmt.
+  ;;
+  ;; Eight interrogations:
+  ;;   1. Graph:      PCon unifies ctor result type with scrut_h.
+  ;;   2. Handler:    Direct seed call, recursive.
+  ;;   3. Verb:       N/A — structural.
+  ;;   4. Row:        Opaque per Hβ.infer.row-normalize.
+  ;;   5. Ownership:  Patterns INTRODUCE names (env_extend). No Consume.
+  ;;   6. Refinement: PCon carries tag_id via ConstructorScheme.
+  ;;   7. Gradient:   PVar is Forall([], TVar(h)) — monomorphic pin.
+  ;;   8. Reason:     PVar: Located(span, LetBinding(name, Inferred("pattern"))).
+  ;;
+  ;; Drift-6 closure: Bool match through PLit(LVBool), not PCon.
+  ;; Same dispatch path as any other literal pattern.
+  ;;
+  ;; Exports: $infer_walk_pat (called from walk_stmt.wat LetStmt arm).
+  (func $infer_walk_pat
+        (export "infer_walk_pat")
+        (param $pat i32) (param $scrut_h i32) (param $span i32)
+    (local $tag i32) (local $name i32) (local $reason i32)
+    (local $ctor_name i32) (local $sub_pats i32)
+    (local $binding i32) (local $scheme i32)
+    (local $ctor_ty i32) (local $ctor_tag i32)
+    (local $params i32) (local $result_ty i32) (local $result_h i32)
+    (local $n_params i32) (local $n_subs i32) (local $min_n i32)
+    (local $i i32) (local $sub_pat i32) (local $sub_h i32)
+    (local $tparam i32) (local $tp_ty i32)
+    (local $lit_val i32) (local $lit_tag i32)
+    (local $elems i32) (local $n_elems i32) (local $elem_h i32)
+    ;; PWild sentinel (131) — no binding, no unification.
+    (if (i32.eq (local.get $pat) (i32.const 131))
+      (then (return)))
+    ;; Below HEAP_BASE and not PWild → unknown sentinel; no-op.
+    (if (i32.lt_u (local.get $pat) (global.get $heap_base))
+      (then (return)))
+    (local.set $tag (call $tag_of (local.get $pat)))
+    ;; ── PVar (130) ──────────────────────────────────────────────
+    (if (i32.eq (local.get $tag) (i32.const 130))
+      (then
+        (local.set $name (i32.load offset=4 (local.get $pat)))
+        (local.set $reason (call $reason_make_located
+          (local.get $span)
+          (call $reason_make_letbinding (local.get $name)
+            (call $reason_make_inferred (i32.const 4032)))))  ;; "pattern"
+        (call $env_extend
+          (local.get $name)
+          (call $scheme_make_forall
+            (call $make_list (i32.const 0))
+            (call $ty_make_tvar (local.get $scrut_h)))
+          (local.get $reason)
+          (call $schemekind_make_fn))
+        (return)))
+    ;; ── PLit (132) ──────────────────────────────────────────────
+    (if (i32.eq (local.get $tag) (i32.const 132))
+      (then
+        (local.set $lit_val (i32.load offset=4 (local.get $pat)))
+        (local.set $lit_tag (call $tag_of (local.get $lit_val)))
+        (local.set $reason (call $reason_make_located
+          (local.get $span)
+          (call $reason_make_inferred (i32.const 4032))))  ;; "pattern"
+        (if (i32.eq (local.get $lit_tag) (i32.const 180))  ;; LVInt
+          (then
+            (call $graph_bind (local.get $scrut_h)
+              (call $ty_make_tint) (local.get $reason))
+            (return)))
+        (if (i32.eq (local.get $lit_tag) (i32.const 181))  ;; LVFloat
+          (then
+            (call $graph_bind (local.get $scrut_h)
+              (call $ty_make_tfloat) (local.get $reason))
+            (return)))
+        (if (i32.eq (local.get $lit_tag) (i32.const 182))  ;; LVString
+          (then
+            (call $graph_bind (local.get $scrut_h)
+              (call $ty_make_tstring) (local.get $reason))
+            (return)))
+        (if (i32.eq (local.get $lit_tag) (i32.const 183))  ;; LVBool
+          (then
+            (call $graph_bind (local.get $scrut_h)
+              (call $ty_make_tname (i32.const 3504)
+                (call $make_list (i32.const 0)))
+              (local.get $reason))
+            (return)))
+        (return)))
+    ;; ── PCon (133) — constructor-aware pattern ──────────────────
+    (if (i32.eq (local.get $tag) (i32.const 133))
+      (then
+        (local.set $ctor_name (i32.load offset=4 (local.get $pat)))
+        (local.set $sub_pats (i32.load offset=8 (local.get $pat)))
+        (local.set $binding (call $env_lookup (local.get $ctor_name)))
+        (if (i32.eqz (local.get $binding))
+          (then
+            ;; Constructor not in env — walk sub_pats with fresh handles
+            ;; (productive-under-error: inner PVar bindings still land).
+            (local.set $n_subs (call $len (local.get $sub_pats)))
+            (local.set $i (i32.const 0))
+            (block $miss_done
+              (loop $miss_each
+                (br_if $miss_done
+                  (i32.ge_u (local.get $i) (local.get $n_subs)))
+                (local.set $sub_h (call $graph_fresh_ty
+                  (call $reason_make_inferred (i32.const 4032))))
+                (call $infer_walk_pat
+                  (call $list_index (local.get $sub_pats) (local.get $i))
+                  (local.get $sub_h) (local.get $span))
+                (local.set $i (i32.add (local.get $i) (i32.const 1)))
+                (br $miss_each)))
+            (return)))
+        ;; Found — instantiate constructor's scheme.
+        (local.set $scheme
+          (call $env_binding_scheme (local.get $binding)))
+        (local.set $ctor_ty (call $instantiate (local.get $scheme)))
+        (local.set $ctor_tag (call $ty_tag (local.get $ctor_ty)))
+        (local.set $reason (call $reason_make_located
+          (local.get $span)
+          (call $reason_make_declared (local.get $ctor_name))))
+        ;; N-ary constructor: TFun(params, result_ty, row)
+        (if (i32.eq (local.get $ctor_tag) (i32.const 107))
+          (then
+            ;; Unify result type with scrutinee.
+            (local.set $result_ty
+              (call $ty_tfun_return (local.get $ctor_ty)))
+            (local.set $result_h
+              (call $graph_fresh_ty (local.get $reason)))
+            (call $graph_bind (local.get $result_h)
+              (local.get $result_ty) (local.get $reason))
+            (call $unify (local.get $result_h) (local.get $scrut_h)
+              (local.get $span) (local.get $reason))
+            ;; Walk sub-patterns with constructor field types.
+            (local.set $params
+              (call $ty_tfun_params (local.get $ctor_ty)))
+            (local.set $n_params (call $len (local.get $params)))
+            (local.set $n_subs (call $len (local.get $sub_pats)))
+            (local.set $min_n (local.get $n_params))
+            (if (i32.lt_u (local.get $n_subs) (local.get $min_n))
+              (then (local.set $min_n (local.get $n_subs))))
+            (local.set $i (i32.const 0))
+            (block $con_done
+              (loop $con_each
+                (br_if $con_done
+                  (i32.ge_u (local.get $i) (local.get $min_n)))
+                (local.set $tparam
+                  (call $list_index (local.get $params) (local.get $i)))
+                (local.set $tp_ty
+                  (call $tparam_ty (local.get $tparam)))
+                (local.set $sub_h
+                  (call $graph_fresh_ty (local.get $reason)))
+                (call $graph_bind (local.get $sub_h)
+                  (local.get $tp_ty) (local.get $reason))
+                (call $infer_walk_pat
+                  (call $list_index
+                    (local.get $sub_pats) (local.get $i))
+                  (local.get $sub_h) (local.get $span))
+                (local.set $i
+                  (i32.add (local.get $i) (i32.const 1)))
+                (br $con_each)))
+            (return)))
+        ;; Nullary constructor: unify ctor_ty with scrutinee.
+        (local.set $result_h
+          (call $graph_fresh_ty (local.get $reason)))
+        (call $graph_bind (local.get $result_h)
+          (local.get $ctor_ty) (local.get $reason))
+        (call $unify (local.get $result_h) (local.get $scrut_h)
+          (local.get $span) (local.get $reason))
+        (return)))
+    ;; ── PTuple (134) ────────────────────────────────────────────
+    (if (i32.eq (local.get $tag) (i32.const 134))
+      (then
+        (local.set $elems (i32.load offset=4 (local.get $pat)))
+        (local.set $n_elems (call $len (local.get $elems)))
+        (local.set $params (call $make_list (i32.const 0)))
+        (local.set $params
+          (call $list_extend_to (local.get $params) (local.get $n_elems)))
+        (local.set $i (i32.const 0))
+        (block $tup_done
+          (loop $tup_each
+            (br_if $tup_done
+              (i32.ge_u (local.get $i) (local.get $n_elems)))
+            (local.set $elem_h (call $graph_fresh_ty
+              (call $reason_make_inferred (i32.const 4032))))
+            (call $infer_walk_pat
+              (call $list_index (local.get $elems) (local.get $i))
+              (local.get $elem_h) (local.get $span))
+            (drop (call $list_set (local.get $params) (local.get $i)
+              (call $ty_make_tvar (local.get $elem_h))))
+            (local.set $i (i32.add (local.get $i) (i32.const 1)))
+            (br $tup_each)))
+        (local.set $result_h (call $graph_fresh_ty
+          (call $reason_make_inferred (i32.const 4032))))
+        (call $graph_bind (local.get $result_h)
+          (call $ty_make_ttuple (local.get $params))
+          (call $reason_make_located (local.get $span)
+            (call $reason_make_inferred (i32.const 4032))))
+        (call $unify (local.get $result_h) (local.get $scrut_h)
+          (local.get $span)
+          (call $reason_make_located (local.get $span)
+            (call $reason_make_inferred (i32.const 4032))))
+        (return)))
+    ;; ── PList (135) ─────────────────────────────────────────────
+    (if (i32.eq (local.get $tag) (i32.const 135))
+      (then
+        (local.set $elems (i32.load offset=4 (local.get $pat)))
+        (local.set $n_elems (call $len (local.get $elems)))
+        (local.set $elem_h (call $graph_fresh_ty
+          (call $reason_make_inferred (i32.const 4032))))
+        (local.set $i (i32.const 0))
+        (block $list_done
+          (loop $list_each
+            (br_if $list_done
+              (i32.ge_u (local.get $i) (local.get $n_elems)))
+            (call $infer_walk_pat
+              (call $list_index (local.get $elems) (local.get $i))
+              (local.get $elem_h) (local.get $span))
+            (local.set $i (i32.add (local.get $i) (i32.const 1)))
+            (br $list_each)))
+        (local.set $result_h (call $graph_fresh_ty
+          (call $reason_make_inferred (i32.const 4032))))
+        (call $graph_bind (local.get $result_h)
+          (call $ty_make_tlist
+            (call $ty_make_tvar (local.get $elem_h)))
+          (call $reason_make_located (local.get $span)
+            (call $reason_make_inferred (i32.const 4032))))
+        (call $unify (local.get $result_h) (local.get $scrut_h)
+          (local.get $span)
+          (call $reason_make_located (local.get $span)
+            (call $reason_make_inferred (i32.const 4032))))
+        (return)))
+    ;; ── PRecord (136) — peer follow-up Hβ.infer.walk_pat.record ─
+    ;; Record pattern field-name matching deferred to peer cascade.
+    )
+
   ;; MatchExpr arm — src/infer.nx:550-553 + 1701-1733. Walks scrutinee +
-  ;; each arm-body; unifies arm-body handles together. Pattern walk
-  ;; (Hβ.infer.walk_pat) + exhaustiveness check (Hβ.infer.match-exhaustive)
-  ;; are named follow-ups; seed treats arm-pat as opaque + skips
-  ;; exhaustiveness.
+  ;; each arm-body; pattern walk via $infer_walk_pat (B.5 landed);
+  ;; exhaustiveness check (Hβ.infer.match-exhaustive) is a named follow-up.
   (func $infer_walk_expr_match
         (export "infer_walk_expr_match")
         (param $expr i32) (param $handle i32) (param $span i32)
@@ -11555,20 +11786,22 @@
     (local.set $scrut (i32.load offset=4 (local.get $expr)))
     (local.set $arms  (i32.load offset=8 (local.get $expr)))
     (local.set $sh (call $infer_walk_expr (local.get $scrut)))
-    (drop (local.get $sh))
     (call $infer_walk_expr_match_arms
-      (local.get $arms) (local.get $handle) (local.get $span))
+      (local.get $arms) (local.get $handle) (local.get $sh)
+      (local.get $span))
     (local.get $handle))
 
-  ;; MatchExpr arms iterator — for each arm: scope_enter, walk arm-body,
-  ;; unify body_h ↔ result_h, scope_exit. Mirrors src/infer.nx:1721-1731.
-  ;; The arm record's body field is at offset 8 ([tag][pat][body]) per
-  ;; parser's match-arm shape; verified at walk_stmt.wat landing.
+  ;; MatchExpr arms iterator — for each arm: scope_enter, walk pattern
+  ;; via $infer_walk_pat (B.5), walk arm-body, unify body_h ↔ result_h,
+  ;; scope_exit. Mirrors src/infer.nx:1721-1731.
+  ;; Arms are 2-tuple lists (pat, body) per parser_pat.wat:357-360.
   (func $infer_walk_expr_match_arms
         (export "infer_walk_expr_match_arms")
-        (param $arms i32) (param $result_h i32) (param $span i32)
+        (param $arms i32) (param $result_h i32) (param $scrut_h i32)
+        (param $span i32)
     (local $n i32) (local $i i32)
-    (local $arm i32) (local $body i32) (local $bh i32) (local $first i32)
+    (local $arm i32) (local $pat i32) (local $body i32)
+    (local $bh i32) (local $first i32)
     (local.set $n (call $len (local.get $arms)))
     (local.set $i (i32.const 0))
     (local.set $first (i32.const 1))
@@ -11577,8 +11810,14 @@
         (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
         (local.set $arm (call $list_index (local.get $arms) (local.get $i)))
         (call $env_scope_enter)
-        ;; Pattern walk lands per Hβ.infer.walk_pat (peer follow-up).
-        (local.set $body (i32.load offset=8 (local.get $arm)))
+        ;; Walk pattern — binds PVar names into this arm's scope.
+        (local.set $pat
+          (call $list_index (local.get $arm) (i32.const 0)))
+        (call $infer_walk_pat
+          (local.get $pat) (local.get $scrut_h) (local.get $span))
+        ;; Walk body.
+        (local.set $body
+          (call $list_index (local.get $arm) (i32.const 1)))
         (local.set $bh (call $infer_walk_expr (local.get $body)))
         ;; First arm: bind result_h ↔ TVar(first_arm_h). Subsequent: unify.
         (if (local.get $first)
@@ -11591,7 +11830,8 @@
                   (call $reason_make_inferred (i32.const 3584))))) ;; "result"
             (local.set $first (i32.const 0)))
           (else
-            (call $unify (local.get $bh) (local.get $result_h) (local.get $span)
+            (call $unify (local.get $bh) (local.get $result_h)
+              (local.get $span)
               (call $reason_make_matchbranch
                 (call $reason_make_inferred (i32.const 3864))
                 (call $reason_make_inferred (i32.const 3584))))))
@@ -12569,13 +12809,11 @@
 
   ;; ─── Per-Stmt-variant arms ───────────────────────────────────────────
 
-  ;; LetStmt arm (tag 120) — src/infer.nx:200-204 + 1588-1592 (PVar arm).
+  ;; LetStmt arm (tag 120) — src/infer.nx:200-204 + 1588-1592.
   ;; Layout: [tag=120][pat][val] per parser_infra.wat:163.
-  ;; Walk the value expression; if pat is PVar (130), env-extend the
-  ;; bound name with monomorphic Forall([], TVar(eh)). Other Pat tags
-  ;; (PWild=131, PLit=132, PCon=133, PTuple=134, PList=135, PRecord=136)
-  ;; gate on Hβ.infer.walk_pat (peer follow-up); seed treats them as
-  ;; no-op binding (drift 9 closure: named handle, not silent deferral).
+  ;; Walk the value expression; delegate to $infer_walk_pat (B.5 landed)
+  ;; for all Pat variants: PVar binding, PWild no-op, PLit constraint,
+  ;; PCon constructor destructure, PTuple, PList. PRecord deferred.
   ;;
   ;; Per walkthrough §12 + Damas-Milner + src/infer.nx:1588-1591: PVar
   ;; binds Forall([], TVar(eh)) — MONOMORPHIC. Generalization happens at
@@ -12584,8 +12822,6 @@
         (export "infer_walk_stmt_let")
         (param $stmt i32) (param $handle i32) (param $span i32)
     (local $pat i32) (local $val i32) (local $eh i32)
-    (local $pat_tag i32) (local $name i32)
-    (local $scheme i32) (local $reason i32)
     ;; Layout: [tag=120][pat][val]
     (local.set $pat (i32.load offset=4 (local.get $stmt)))
     (local.set $val (i32.load offset=8 (local.get $stmt)))
@@ -12594,28 +12830,12 @@
                                   ;; expr handle carry the type info.
     ;; Walk the value expression (mutates graph, returns expr's handle).
     (local.set $eh (call $infer_walk_expr (local.get $val)))
-    ;; Infer-pat: PVar arm only at the seed.
-    (local.set $pat_tag (call $tag_of (local.get $pat)))
-    (if (i32.eq (local.get $pat_tag) (i32.const 130))   ;; PVar
-      (then
-        (local.set $name (i32.load offset=4 (local.get $pat)))
-        ;; scheme = Forall([], TVar(eh)) — monomorphic.
-        (local.set $scheme (call $scheme_make_forall
-          (call $make_list (i32.const 0))
-          (call $ty_make_tvar (local.get $eh))))
-        ;; reason = Located(span, LetBinding(name, Inferred("pattern")))
-        (local.set $reason (call $reason_make_located
-          (local.get $span)
-          (call $reason_make_letbinding
-            (local.get $name)
-            (call $reason_make_inferred (i32.const 4032)))))   ;; "pattern"
-        (call $env_extend
-          (local.get $name) (local.get $scheme) (local.get $reason)
-          (call $schemekind_make_fn))))
-    ;; Other Pat tags (131-136): seed no-op per Hβ.infer.walk_pat named
-    ;; follow-up. Walk-pat recursion lands when that chunk does; until
-    ;; then PCon / PTuple / PList / PRecord destructures don't bind
-    ;; sub-pat names — degenerate but documented.
+    ;; Walk pattern via $infer_walk_pat (B.5 landed). Handles all Pat
+    ;; variants: PVar (binding), PWild (no-op), PLit (type constraint),
+    ;; PCon (constructor destructure), PTuple, PList. Per Damas-Milner:
+    ;; all bindings monomorphic Forall([], TVar(scrut_h)). Generalization
+    ;; happens ONLY at FnStmt exit — NEVER here.
+    (call $infer_walk_pat (local.get $pat) (local.get $eh) (local.get $span))
     )
 
   ;; FnStmt arm (tag 121) — src/infer.nx:206-210 + infer_fn 262-369.
@@ -13341,7 +13561,7 @@
   ;;             $lower_init + $ls_* helpers per §1.2 lines 204-223.
   ;; Exports:    $lower_init,
   ;;             $ls_bind_local, $ls_lookup_local, $ls_lookup_or_capture,
-  ;;             $ls_reset_function,
+  ;;             $ls_push_scope, $ls_pop_scope, $ls_reset_function,
   ;;             $lower_locals_len, $lower_captures_len
   ;; Uses:       $alloc (alloc.wat),
   ;;             $make_list / $list_set / $list_index / $list_extend_to /
@@ -13572,6 +13792,22 @@
                           (local.get $cap_entry)))
     (global.set $lower_captures_len_g (local.get $new_len))
     (local.get $cap_idx))
+
+  ;; ─── $ls_push_scope / $ls_pop_scope — lexical-scope checkpoints ───
+  ;; The seed's LowerCtx is still a flat locals ledger, but block / arm /
+  ;; pattern scopes need honest truncation rather than ambient leakage.
+  ;; Wheel parity uses a frame record's local_order length as the checkpoint;
+  ;; the seed projects that to the current logical locals length.
+  (func $ls_push_scope (result i32)
+    (call $lower_init)
+    (global.get $lower_locals_len_g))
+
+  (func $ls_pop_scope (param $checkpoint i32)
+    (call $lower_init)
+    (if (i32.le_u (local.get $checkpoint) (global.get $lower_locals_len_g))
+      (then
+        (global.set $lower_locals_len_g (local.get $checkpoint))
+        (global.set $lower_next_slot_g (local.get $checkpoint)))))
 
   ;; ─── $ls_reset_function — clear at FnStmt entry ────────────────────
   ;; Per Hβ-lower-substrate.md §1.2 lines 219-223 + wheel src/lower.nx:86-90
@@ -14012,12 +14248,14 @@
   ;;                                  walk_handle earns the abstraction
   ;;                                  per Anchor 7 "three instances".
   ;;   - Hβ.lower.lvalue-lowfn-lpat-substrate:
-  ;;                                  LowValue (LConst field 1) + LowFn
-  ;;                                  (LMakeClosure/LMakeContinuation/
-  ;;                                  LDeclareFn fn fields) + LowPat
-  ;;                                  (LMatch arms) are opaque i32 ptrs here.
-  ;;                                  Lands when first walker needs structural
-  ;;                                  access.
+  ;;                                  LowValue (LConst field 1) is opaque i32.
+  ;;                                  LowFn (LMakeClosure/LMakeContinuation/
+  ;;                                  LDeclareFn fn fields) = tag 350 record
+  ;;                                  per lowfn.wat (Phase C.1 landed).
+  ;;                                  LowPat (LMatch arms) = tags 360-369
+  ;;                                  per lowpat.wat (Phase C.2 landed).
+  ;;                                  LowValue substrate lands when first
+  ;;                                  walker needs structural access.
 
   ;; ─── $lexpr_handle — universal source-handle extractor ──────────────
   ;; Per Hβ-lower-substrate.md §2 lines 287-289 + the wheel
@@ -14227,6 +14465,7 @@
   ;; Per src/lower.nx:109 LMakeClosure(Int, LowFn, List, List) —
   ;; "handle, fn, captures, ev_slots". H1 evidence reification: closure
   ;; record IS the evidence record; ev_slots follow caps in field order.
+  ;; fn field is LowFn record (tag 350) per lowfn.wat Phase C.1.
   (func $lexpr_make_lmakeclosure (param $h i32) (param $fn i32)
                                   (param $caps i32) (param $evs i32)
                                   (result i32)
@@ -14423,8 +14662,7 @@
 
   ;; ─── 321 = LMatch(handle, scrut, arms) — arity 3 ───────────────────
   ;; Per src/lower.nx:128 LMatch(Int, LowExpr, List) — "body + arms".
-  ;; Arms is a list of LowPat-arm records (opaque i32 pending
-  ;; Hβ.lower.lvalue-lowfn-lpat-substrate follow-up).
+  ;; Arms is a list of LPArm records (tag 369) per lowpat.wat Phase C.2.
   (func $lexpr_make_lmatch (param $h i32) (param $scrut i32) (param $arms i32) (result i32)
     (local $r i32)
     (local.set $r (call $make_record (i32.const 321) (i32.const 3)))
@@ -14625,6 +14863,352 @@
 
   (func $lexpr_lfieldload_offset_bytes (param $r i32) (result i32)
     (call $record_get (local.get $r) (i32.const 2)))
+
+  ;; ═══ lowfn.wat — LowFn record substrate (Tier 4) ═══════════════════
+  ;; Hβ.lower Phase C.1 — LowFn ADT record at the WAT layer.
+  ;; Per src/lower.nx canonical: `LFn(name, arity, params, body, row)`.
+  ;; The lowering walk's fn-declaration product type. Each LowFn carries
+  ;; its source name (String), static arity (Int), parameter name list,
+  ;; lowered body (LowExpr), and effect row handle — the row IS the
+  ;; first-class effect-tracking field that Mentl's Why Engine walks.
+  ;;
+  ;; Implements: Hβ-lower-substrate.md §11 named follow-up
+  ;;             `Hβ.lower.lvalue-lowfn-lpat-substrate` (LowFn half);
+  ;;             deep-toasting-bachman.md Phase C.1.
+  ;; Exports:    $lowfn_make, $lowfn_name, $lowfn_arity, $lowfn_params,
+  ;;             $lowfn_body, $lowfn_row
+  ;; Uses:       $make_record / $record_get / $record_set (record.wat)
+  ;; Test:       bootstrap/test/lower/lowfn_smoke.wat
+  ;;
+  ;; ─── TAG REGION ────────────────────────────────────────────────────
+  ;;
+  ;; Tag 350 in the LowFn-private region (350-359 reserved).
+  ;; Extends lexpr.wat tag-uniqueness map:
+  ;;   300-334    LowExpr variants (lexpr.wat)
+  ;;   335-349    reserved future LowExpr
+  ;;   350        LowFn (this chunk)
+  ;;   351-359    reserved future LowFn
+  ;;   360-369    LowPat variants (lowpat.wat — Phase C.2 peer)
+  ;;
+  ;; ─── EIGHT INTERROGATIONS ──────────────────────────────────────────
+  ;;
+  ;; 1. Graph?      LowFn carries fn's source handle in body's
+  ;;                LReturn; row is graph-read via $lookup_ty.
+  ;; 2. Handler?    LDeclareFn handler-arm-as-fn projection; emit's
+  ;;                LMakeClosure/LMakeContinuation arms read LowFn.
+  ;;                @resume=N/A (LowFn is a record, not a handler op).
+  ;; 3. Verb?       `|>` lowering produces LDeclareFn(LowFn(...)).
+  ;; 4. Row?        LowFn carries the fn's effect row directly per
+  ;;                src/lower.nx:109 `LMakeClosure(Int, LowFn, ...)`.
+  ;; 5. Ownership?  `own` LowFn — passed-through-once into
+  ;;                LMakeClosure/LMakeContinuation/LDeclareFn.
+  ;; 6. Refinement? N/A at record level.
+  ;; 7. Gradient?   classify_handler reads `$lowfn_row` to drive
+  ;;                TailResumptive/Linear/MultiShot strategy.
+  ;; 8. Reason?     Source FnStmt's Reason chain unchanged; LowFn
+  ;;                does not add its own Reason.
+  ;;
+  ;; ─── FORBIDDEN PATTERNS ────────────────────────────────────────────
+  ;;
+  ;; - Drift 1:    No $lowfn_dispatch_table. One tag, one record shape.
+  ;; - Drift 5:    No threaded `__ctx` param. Five fields, all explicit.
+  ;; - Drift 6:    No special-case for "main" or nullary fns.
+  ;; - Drift 7:    Single record. No parallel arrays.
+  ;; - Drift 8:    Tag-int 350, not string "LowFn".
+  ;; - Drift 9:    All five fields land. No "row later" deferral.
+  ;;
+  ;; ─── SURPASS ───────────────────────────────────────────────────────
+  ;;
+  ;; LowFn carrying `row` AS A FIRST-CLASS FIELD surpasses:
+  ;;   - LLVM Function: no graph, no Reason, no compile-time arity check
+  ;;   - GHC Core Lambda: effect tracking via type but not on IR record
+  ;;   - OCaml Lambda: effects in 5.0 but not first-class on IR
+  ;;   - Rust MIR: no refinement, no Reasons
+  ;; The row field IS the seed for what refinement types discharge at
+  ;; compile time and what the Why Engine walks back through.
+
+  ;; ─── 350 = LowFn(name, arity, params, body, row) — arity 5 ────────
+  ;; Per src/lower.nx canonical LFn record shape.
+  ;;   field_0 = name (String — fn name for WAT $-prefix)
+  ;;   field_1 = arity (i32 — static param count)
+  ;;   field_2 = params (List of String — parameter names)
+  ;;   field_3 = body (LowExpr — lowered fn body)
+  ;;   field_4 = row (i32 — effect row handle; graph-read via $lookup_ty)
+  (func $lowfn_make (export "lowfn_make")
+        (param $name i32) (param $arity i32) (param $params i32)
+        (param $body i32) (param $row i32)
+        (result i32)
+    (local $r i32)
+    (local.set $r (call $make_record (i32.const 350) (i32.const 5)))
+    (call $record_set (local.get $r) (i32.const 0) (local.get $name))
+    (call $record_set (local.get $r) (i32.const 1) (local.get $arity))
+    (call $record_set (local.get $r) (i32.const 2) (local.get $params))
+    (call $record_set (local.get $r) (i32.const 3) (local.get $body))
+    (call $record_set (local.get $r) (i32.const 4) (local.get $row))
+    (local.get $r))
+
+  (func $lowfn_name (export "lowfn_name") (param $r i32) (result i32)
+    (call $record_get (local.get $r) (i32.const 0)))
+
+  (func $lowfn_arity (export "lowfn_arity") (param $r i32) (result i32)
+    (call $record_get (local.get $r) (i32.const 1)))
+
+  (func $lowfn_params (export "lowfn_params") (param $r i32) (result i32)
+    (call $record_get (local.get $r) (i32.const 2)))
+
+  (func $lowfn_body (export "lowfn_body") (param $r i32) (result i32)
+    (call $record_get (local.get $r) (i32.const 3)))
+
+  (func $lowfn_row (export "lowfn_row") (param $r i32) (result i32)
+    (call $record_get (local.get $r) (i32.const 4)))
+
+  ;; ═══ lowpat.wat — LowPat ADT substrate (Tier 4) ═════════════════════
+  ;; Hβ.lower Phase C.2 — LowPat ADT at the WAT layer.
+  ;; The lowering walk's pattern-match product type. 9 LowPat variants
+  ;; + LPArm wrapper. Each variant carries a source TypeHandle (field 0)
+  ;; for emit's match-pattern-compile pass to read back into the graph.
+  ;;
+  ;; Implements: Hβ-lower-substrate.md §11 named follow-up
+  ;;             `Hβ.lower.lvalue-lowfn-lpat-substrate` (LowPat half);
+  ;;             deep-toasting-bachman.md Phase C.2;
+  ;;             spec 03 (Pattern) + spec 05 (lowering) + SYNTAX.md
+  ;;             §"Pattern syntax" lines 894-963.
+  ;; Exports:    $lowpat_handle (universal),
+  ;;             $lowpat_make_lpvar $lowpat_lpvar_name,
+  ;;             $lowpat_make_lpwild,
+  ;;             $lowpat_make_lplit $lowpat_lplit_value,
+  ;;             $lowpat_make_lpcon $lowpat_lpcon_tag_id $lowpat_lpcon_args,
+  ;;             $lowpat_make_lptuple $lowpat_lptuple_elems,
+  ;;             $lowpat_make_lplist $lowpat_lplist_elems $lowpat_lplist_rest,
+  ;;             $lowpat_make_lprecord $lowpat_lprecord_fields $lowpat_lprecord_rest,
+  ;;             $lowpat_make_lpalt $lowpat_lpalt_branches,
+  ;;             $lowpat_make_lpas $lowpat_lpas_name $lowpat_lpas_pat,
+  ;;             $lowpat_make_lparm $lowpat_lparm_pat $lowpat_lparm_body
+  ;; Uses:       $make_record / $record_get / $record_set / $tag_of
+  ;;               (record.wat)
+  ;; Test:       bootstrap/test/lower/lowpat_arms.wat
+  ;;
+  ;; ─── TAG REGION ────────────────────────────────────────────────────
+  ;;
+  ;; Tags 360-369 in the LowPat-private region.
+  ;; Extends tag-uniqueness map from lowfn.wat:
+  ;;   300-334    LowExpr variants (lexpr.wat)
+  ;;   335-349    reserved future LowExpr
+  ;;   350-359    LowFn (lowfn.wat)
+  ;;   360        LPVar
+  ;;   361        LPWild
+  ;;   362        LPLit
+  ;;   363        LPCon
+  ;;   364        LPTuple
+  ;;   365        LPList
+  ;;   366        LPRecord
+  ;;   367        LPAlt
+  ;;   368        LPAs
+  ;;   369        LPArm
+  ;;
+  ;; ─── EIGHT INTERROGATIONS ──────────────────────────────────────────
+  ;;
+  ;; 1. Graph?      LPVar binds at handle; LPCon's tag_id is graph-read.
+  ;; 2. Handler?    Pattern-match arm projection (emit's match-pattern-
+  ;;                compile reads).
+  ;; 3. Verb?       Match expression desugars to nested LIf chain at
+  ;;                emit time; LowPat IS the input shape.
+  ;; 4. Row?        N/A at LowPat layer.
+  ;; 5. Ownership?  Scrutinee `ref`-borrowed across arms (no consume in
+  ;;                pattern-test phase).
+  ;; 6. Refinement? Refined types unwrap transparently in LPLit.
+  ;; 7. Gradient?   Tag-int dispatch is the H6 cash-out (every nullary
+  ;;                ADT is tagged — Bool included).
+  ;; 8. Reason?     Arm-body's Reason chain composes with pattern's
+  ;;                discrimination edge.
+  ;;
+  ;; ─── FORBIDDEN PATTERNS ────────────────────────────────────────────
+  ;;
+  ;; - Drift 1:    No $lowpat_dispatch_table. Tag-int dispatch via
+  ;;               if-chain or br_table.
+  ;; - Drift 6:    No Bool special-case for boolean LPLit. Bool literal
+  ;;               IS LPCon(LBool sentinel) per HB drift-6 closure.
+  ;; - Drift 7:    No parallel arrays for LPRecord fields. One record-
+  ;;               list of (name, pat) entries.
+  ;; - Drift 8:    LPCon tag_id is i32 sentinel, not string. LPLit
+  ;;               value is LowValue, not raw string.
+  ;; - Drift 9:    All 9 LowPat variants + LPArm land this commit. No
+  ;;               "LPGuard later" hedge.
+
+  ;; ─── $lowpat_handle — universal source-handle extractor ────────────
+  ;; Field 0 is the source TypeHandle for all 9 LowPat variants.
+  ;; LPArm (tag 369) has NO handle — its field 0 is the pat. Callers
+  ;; access LPArm via $lowpat_lparm_pat / $lowpat_lparm_body, not via
+  ;; $lowpat_handle. Returns 0 for LPArm (same sentinel as lexpr.wat's
+  ;; $lexpr_handle on LDeclareFn).
+  (func $lowpat_handle (export "lowpat_handle") (param $r i32) (result i32)
+    (if (i32.eq (call $tag_of (local.get $r)) (i32.const 369))
+      (then (return (i32.const 0))))
+    (call $record_get (local.get $r) (i32.const 0)))
+
+  ;; ─── 360 = LPVar(handle, name) — arity 2 ──────────────────────────
+  ;; Binds the matched value to `name` in the arm body's scope.
+  (func $lowpat_make_lpvar (export "lowpat_make_lpvar")
+        (param $h i32) (param $name i32) (result i32)
+    (local $r i32)
+    (local.set $r (call $make_record (i32.const 360) (i32.const 2)))
+    (call $record_set (local.get $r) (i32.const 0) (local.get $h))
+    (call $record_set (local.get $r) (i32.const 1) (local.get $name))
+    (local.get $r))
+
+  (func $lowpat_lpvar_name (export "lowpat_lpvar_name") (param $r i32) (result i32)
+    (call $record_get (local.get $r) (i32.const 1)))
+
+  ;; ─── 361 = LPWild(handle) — arity 1 ───────────────────────────────
+  ;; Matches anything, binds nothing. The `_` pattern.
+  (func $lowpat_make_lpwild (export "lowpat_make_lpwild")
+        (param $h i32) (result i32)
+    (local $r i32)
+    (local.set $r (call $make_record (i32.const 361) (i32.const 1)))
+    (call $record_set (local.get $r) (i32.const 0) (local.get $h))
+    (local.get $r))
+
+  ;; ─── 362 = LPLit(handle, value) — arity 2 ─────────────────────────
+  ;; Matches a literal value. INT / FLOAT / STRING / UNIT only.
+  ;; NOT Bool — Bool true/false are LPCon(tag_id=True_sentinel, [])
+  ;; per HB drift-6 closure. `value` is LowValue (opaque i32 pending
+  ;; lvalue.wat chunk).
+  (func $lowpat_make_lplit (export "lowpat_make_lplit")
+        (param $h i32) (param $value i32) (result i32)
+    (local $r i32)
+    (local.set $r (call $make_record (i32.const 362) (i32.const 2)))
+    (call $record_set (local.get $r) (i32.const 0) (local.get $h))
+    (call $record_set (local.get $r) (i32.const 1) (local.get $value))
+    (local.get $r))
+
+  (func $lowpat_lplit_value (export "lowpat_lplit_value") (param $r i32) (result i32)
+    (call $record_get (local.get $r) (i32.const 1)))
+
+  ;; ─── 363 = LPCon(handle, tag_id, args) — arity 3 ──────────────────
+  ;; Constructor pattern. tag_id is i32 sentinel from
+  ;; ConstructorScheme. Covers Bool variants AND user-defined
+  ;; nullary/N-ary variants under one substrate. `args` is a list
+  ;; of LowPat (sub-patterns for constructor fields).
+  (func $lowpat_make_lpcon (export "lowpat_make_lpcon")
+        (param $h i32) (param $tag_id i32) (param $args i32)
+        (result i32)
+    (local $r i32)
+    (local.set $r (call $make_record (i32.const 363) (i32.const 3)))
+    (call $record_set (local.get $r) (i32.const 0) (local.get $h))
+    (call $record_set (local.get $r) (i32.const 1) (local.get $tag_id))
+    (call $record_set (local.get $r) (i32.const 2) (local.get $args))
+    (local.get $r))
+
+  (func $lowpat_lpcon_tag_id (export "lowpat_lpcon_tag_id") (param $r i32) (result i32)
+    (call $record_get (local.get $r) (i32.const 1)))
+
+  (func $lowpat_lpcon_args (export "lowpat_lpcon_args") (param $r i32) (result i32)
+    (call $record_get (local.get $r) (i32.const 2)))
+
+  ;; ─── 364 = LPTuple(handle, elems) — arity 2 ───────────────────────
+  ;; Tuple destructuring pattern. `elems` is list of LowPat.
+  (func $lowpat_make_lptuple (export "lowpat_make_lptuple")
+        (param $h i32) (param $elems i32) (result i32)
+    (local $r i32)
+    (local.set $r (call $make_record (i32.const 364) (i32.const 2)))
+    (call $record_set (local.get $r) (i32.const 0) (local.get $h))
+    (call $record_set (local.get $r) (i32.const 1) (local.get $elems))
+    (local.get $r))
+
+  (func $lowpat_lptuple_elems (export "lowpat_lptuple_elems") (param $r i32) (result i32)
+    (call $record_get (local.get $r) (i32.const 1)))
+
+  ;; ─── 365 = LPList(handle, elems, rest_var) — arity 3 ──────────────
+  ;; List destructuring. `elems` is list of LowPat for head elements.
+  ;; `rest_var` is 0 if no `...rest` tail; otherwise the name string ptr.
+  (func $lowpat_make_lplist (export "lowpat_make_lplist")
+        (param $h i32) (param $elems i32) (param $rest i32)
+        (result i32)
+    (local $r i32)
+    (local.set $r (call $make_record (i32.const 365) (i32.const 3)))
+    (call $record_set (local.get $r) (i32.const 0) (local.get $h))
+    (call $record_set (local.get $r) (i32.const 1) (local.get $elems))
+    (call $record_set (local.get $r) (i32.const 2) (local.get $rest))
+    (local.get $r))
+
+  (func $lowpat_lplist_elems (export "lowpat_lplist_elems") (param $r i32) (result i32)
+    (call $record_get (local.get $r) (i32.const 1)))
+
+  (func $lowpat_lplist_rest (export "lowpat_lplist_rest") (param $r i32) (result i32)
+    (call $record_get (local.get $r) (i32.const 2)))
+
+  ;; ─── 366 = LPRecord(handle, fields, rest_var) — arity 3 ───────────
+  ;; Record destructuring. `fields` is list of (name, LowPat) pairs.
+  ;; `rest_var` is 0 if no `...rest`; otherwise the name string ptr.
+  (func $lowpat_make_lprecord (export "lowpat_make_lprecord")
+        (param $h i32) (param $fields i32) (param $rest i32)
+        (result i32)
+    (local $r i32)
+    (local.set $r (call $make_record (i32.const 366) (i32.const 3)))
+    (call $record_set (local.get $r) (i32.const 0) (local.get $h))
+    (call $record_set (local.get $r) (i32.const 1) (local.get $fields))
+    (call $record_set (local.get $r) (i32.const 2) (local.get $rest))
+    (local.get $r))
+
+  (func $lowpat_lprecord_fields (export "lowpat_lprecord_fields") (param $r i32) (result i32)
+    (call $record_get (local.get $r) (i32.const 1)))
+
+  (func $lowpat_lprecord_rest (export "lowpat_lprecord_rest") (param $r i32) (result i32)
+    (call $record_get (local.get $r) (i32.const 2)))
+
+  ;; ─── 367 = LPAlt(handle, branches) — arity 2 ──────────────────────
+  ;; Alternation pattern per SYNTAX.md line 908. `branches` is a list
+  ;; of LowPat. "No variable bindings inside alternatives" per SYNTAX.md
+  ;; line 956 — enforced at lower-time.
+  (func $lowpat_make_lpalt (export "lowpat_make_lpalt")
+        (param $h i32) (param $branches i32) (result i32)
+    (local $r i32)
+    (local.set $r (call $make_record (i32.const 367) (i32.const 2)))
+    (call $record_set (local.get $r) (i32.const 0) (local.get $h))
+    (call $record_set (local.get $r) (i32.const 1) (local.get $branches))
+    (local.get $r))
+
+  (func $lowpat_lpalt_branches (export "lowpat_lpalt_branches") (param $r i32) (result i32)
+    (call $record_get (local.get $r) (i32.const 1)))
+
+  ;; ─── 368 = LPAs(handle, name, pat) — arity 3 ──────────────────────
+  ;; As-pattern per SYNTAX.md line 909. Binds whole value AND
+  ;; destructures via inner `pat`.
+  (func $lowpat_make_lpas (export "lowpat_make_lpas")
+        (param $h i32) (param $name i32) (param $pat i32)
+        (result i32)
+    (local $r i32)
+    (local.set $r (call $make_record (i32.const 368) (i32.const 3)))
+    (call $record_set (local.get $r) (i32.const 0) (local.get $h))
+    (call $record_set (local.get $r) (i32.const 1) (local.get $name))
+    (call $record_set (local.get $r) (i32.const 2) (local.get $pat))
+    (local.get $r))
+
+  (func $lowpat_lpas_name (export "lowpat_lpas_name") (param $r i32) (result i32)
+    (call $record_get (local.get $r) (i32.const 1)))
+
+  (func $lowpat_lpas_pat (export "lowpat_lpas_pat") (param $r i32) (result i32)
+    (call $record_get (local.get $r) (i32.const 2)))
+
+  ;; ─── 369 = LPArm(pat, body) — arity 2 ─────────────────────────────
+  ;; Match arm wrapper. `pat` is LowPat, `body` is LowExpr.
+  ;; NO guard field per SYNTAX.md — match arms are `pattern => body`,
+  ;; not `pat where guard => body`. Guards-via-`if`-inside-arm-body
+  ;; suffices; adding a guard field would be Haskell/Rust drift.
+  ;; NO handle field — LPArm is structural, not expression-position.
+  (func $lowpat_make_lparm (export "lowpat_make_lparm")
+        (param $pat i32) (param $body i32) (result i32)
+    (local $r i32)
+    (local.set $r (call $make_record (i32.const 369) (i32.const 2)))
+    (call $record_set (local.get $r) (i32.const 0) (local.get $pat))
+    (call $record_set (local.get $r) (i32.const 1) (local.get $body))
+    (local.get $r))
+
+  (func $lowpat_lparm_pat (export "lowpat_lparm_pat") (param $r i32) (result i32)
+    (call $record_get (local.get $r) (i32.const 0)))
+
+  (func $lowpat_lparm_body (export "lowpat_lparm_body") (param $r i32) (result i32)
+    (call $record_get (local.get $r) (i32.const 1)))
 
   ;; ═══ emit_diag.wat — Hβ.lower private diagnostic emission (Tier 6) ═══
   ;; Hβ.lower cascade chunk #4 of 11 — closes named follow-up
@@ -16146,11 +16730,11 @@
   ;;
   ;; Lock #7: $lower_handler_arms_as_decls earns the abstraction this
   ;;          commit (third caller per Anchor 7 — chunks #5 + #7 cited
-  ;;          it; chunk #8 invokes it). For the seed, returns empty list
-  ;;          (LFn ADT not yet landed via Hβ.lower.lvalue-lowfn-lpat-
-  ;;          substrate); arm_records list (the {args, body, op_name}
-  ;;          form) IS populated this commit. Named follow-up
-  ;;          Hβ.lower.handler-arm-decls-substrate covers when LFn lands.
+  ;;          it; chunk #8 invokes it). With LowFn now substrate-live
+  ;;          (tag 350), handler arms lower as real
+  ;;          LDeclareFn(LowFn("op_" + op_name, ...)) entries per
+  ;;          src/lower.nx:745-755. arm_records list (the {args, body,
+  ;;          op_name} form) remains the paired metadata list for LHandle.
   ;;
   ;; Lock #8: arm-record shape {args, body, op_name} per src/lower.nx:742.
   ;;          Sorted-by-name discipline (Ω.5) → record offsets:
@@ -16198,11 +16782,10 @@
   ;;
   ;; 6. Refinement?  Transparent.
   ;;
-  ;; 7. Gradient?    LDeclareFn-per-arm IS the gradient substrate (deferred
-  ;;                 per Lock #7). Conservative empty-list seed; future
-  ;;                 enrichment cashes the >85% OneShot win to direct call
-  ;;                 when handler-arm-decls-substrate + tail-resumptive-
-  ;;                 discrimination land.
+  ;; 7. Gradient?    LDeclareFn-per-arm IS the gradient substrate made
+  ;;                 physical here. Each arm body becomes a named LowFn
+  ;;                 `op_<name>` declaration, which is exactly the shape
+  ;;                 emit reads to cash the OneShot direct-call path.
   ;;
   ;; 8. Reason?      Read-only. GNode at carried handle preserves Reason
   ;;                 chain. Emit walks back when surfacing handler-
@@ -16214,7 +16797,8 @@
   ;;                                  (if (i32.eq kind N) ...) chain — direct
   ;;                                  sentinel comparison; no table indirection.
   ;;                                  Handler arm dispatch via LDeclareFn list
-  ;;                                  + emit-time call_indirect at H1.4. NO
+  ;;                                  + emit-time direct call / call_indirect
+  ;;                                  split at H1.4. NO
   ;;                                  $op_table / $pipe_kind_table data segment.
   ;;                                  NO _lookup_pipe_kind_for_tag function.
   ;;                                  Word "vtable" appears NOWHERE except in
@@ -16242,11 +16826,9 @@
   ;;                                  if str_eq(pipe_kind_name, "PForward").
   ;;
   ;; - Drift 9 (deferred-by-omission): All 8 exports land FULLY BODIED.
-  ;;                                  $lower_handler_arms_as_decls returns
-  ;;                                  empty list per Lock #7 (LFn substrate
-  ;;                                  pending) — bodied with reasoning, not
-  ;;                                  silent stub. Named follow-ups make
-  ;;                                  deferred work visible.
+  ;;                                  $lower_handler_arms_as_decls returns a
+  ;;                                  fully populated LDeclareFn list per
+  ;;                                  Lock #7; no inert placeholder path.
   ;;
   ;; - Foreign fluency JS async/await: NEVER "promise" / "async" / "future"
   ;;                                  / "await". Vocabulary: LHandleWith /
@@ -16268,10 +16850,6 @@
   ;;             $mk_HandleExpr + $mk_PipeExpr in parser_infra.wat enable
   ;;             structured harness construction.
   ;;
-  ;;   - Hβ.lower.handler-arm-decls-substrate:
-  ;;             $lower_handler_arms_as_decls returns LDeclareFn list when
-  ;;             LFn ADT lands via Hβ.lower.lvalue-lowfn-lpat-substrate.
-  ;;
   ;;   - Hβ.lower.feedback-state-slot-allocation:
   ;;             Per LF §1.12 — when emit grows lower-time state-slot
   ;;             pre-allocation (currently emit-time per Lock #5).
@@ -16291,21 +16869,86 @@
   ;;             Wheel src/lower.nx:760 hardcodes EfPure on LFn for handler
   ;;             arms; row-on-arm propagation lands when wheel grows.
 
-  ;; ─── $lower_handler_arms_as_decls — Lock #7 third-caller (empty seed) ──
-  ;; Per src/lower.nx:751-762. Conservative seed default: returns empty
-  ;; list. The full LDeclareFn-per-arm substrate requires LFn ADT
-  ;; (named follow-up Hβ.lower.handler-arm-decls-substrate +
-  ;; Hβ.lower.lvalue-lowfn-lpat-substrate). This is NOT drift-9: the
-  ;; function exists at the named symbol; arm-records list (the
-  ;; {args, body, op_name} form) IS populated below; the LDeclareFn
-  ;; module-level decl substrate awaits LFn.
+  ;; Static data — lower-private string literals within the pre-heap
+  ;; region. 504-510 is free between emit/lookup.wat's 496 "op_" peer
+  ;; and lexer_data.wat's 512 " tokens, " string; we duplicate the
+  ;; literal locally so lowering stays self-contained and does not
+  ;; depend on emit-private offsets.
+  (data (i32.const 504) "\03\00\00\00op_")
+
+  ;; ─── $bind_handler_arg_names — bind each arm arg with sentinel 0 ───
+  ;; Per src/lower.nx:758-766. Handler-arm args do not currently thread
+  ;; per-param type handles into lower-time scope; the op signature
+  ;; carries them inferentially, so 0 stands as the seed's sentinel.
+  (func $bind_handler_arg_names (param $names i32)
+    (local $n i32) (local $i i32)
+    (call $lower_init)
+    (local.set $n (call $len (local.get $names)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (drop (call $ls_bind_local
+                (call $list_index (local.get $names) (local.get $i))
+                (i32.const 0)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each))))
+
+  ;; ─── $lower_handler_arm_body — scoped lowering shared by both paths ──
+  ;; Handler-arm args bind into the arm body's scope and MUST be popped
+  ;; after lowering so names do not leak into sibling arms.
+  (func $lower_handler_arm_body (param $args i32) (param $body_node i32) (result i32)
+    (local $cp i32) (local $lo_body i32)
+    (local.set $cp (call $ls_push_scope))
+    (call $bind_handler_arg_names (local.get $args))
+    (local.set $lo_body (call $lower_expr (local.get $body_node)))
+    (call $ls_pop_scope (local.get $cp))
+    (local.get $lo_body))
+
+  ;; ─── $lower_handler_arms_as_decls — Lock #7 real LDeclareFn list ───
+  ;; Per src/lower.nx:745-755. Each arm becomes
+  ;; LDeclareFn(LowFn("op_" + op_name, len(args), args, [lo_body], Pure)).
   (func $lower_handler_arms_as_decls (export "lower_handler_arms_as_decls")
         (param $arms i32) (result i32)
-    (call $make_list (i32.const 0)))
+    (local $n i32) (local $i i32) (local $buf i32)
+    (local $arm i32) (local $args i32) (local $body_node i32)
+    (local $op_name i32) (local $lo_body i32) (local $fn_name i32)
+    (local $fn_body i32) (local $fn_ir i32)
+    (local.set $n   (call $len (local.get $arms)))
+    (local.set $buf (call $make_list (i32.const 0)))
+    (local.set $buf (call $list_extend_to (local.get $buf) (local.get $n)))
+    (local.set $i   (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $arm       (call $list_index (local.get $arms) (local.get $i)))
+        (local.set $args      (call $record_get (local.get $arm) (i32.const 0)))
+        (local.set $body_node (call $record_get (local.get $arm) (i32.const 1)))
+        (local.set $op_name   (call $record_get (local.get $arm) (i32.const 2)))
+        (local.set $lo_body   (call $lower_handler_arm_body
+                                (local.get $args)
+                                (local.get $body_node)))
+        (local.set $fn_name   (call $str_concat (i32.const 504) (local.get $op_name)))
+        (local.set $fn_body   (call $make_list (i32.const 0)))
+        (local.set $fn_body   (call $list_extend_to (local.get $fn_body) (i32.const 1)))
+        (drop (call $list_set (local.get $fn_body) (i32.const 0) (local.get $lo_body)))
+        (local.set $fn_ir (call $lowfn_make
+                            (local.get $fn_name)
+                            (call $len (local.get $args))
+                            (local.get $args)
+                            (local.get $fn_body)
+                            (call $row_make_pure)))
+        (drop (call $list_set (local.get $buf) (local.get $i)
+                (call $lexpr_make_ldeclarefn (local.get $fn_ir))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each)))
+    (local.get $buf))
 
   ;; ─── $lower_handler_arms_records — chunk-private arm-record list ──
   ;; Per src/lower.nx:732-744 wheel canonical. Returns list of
   ;; {args, body, op_name} records (Lock #8) — alphabetical offsets 0/4/8.
+  ;; The body is lowered under the same scoped arg-bind discipline as
+  ;; the decl path so sibling arms stay lexically isolated.
   ;; Buffer-counter (Ω.3) — same discipline as walk_call's $lower_args.
   (func $lower_handler_arms_records (param $arms i32) (result i32)
     (local $n i32) (local $i i32) (local $buf i32)
@@ -16322,7 +16965,9 @@
         (local.set $args      (call $record_get (local.get $arm) (i32.const 0)))
         (local.set $body_node (call $record_get (local.get $arm) (i32.const 1)))
         (local.set $op_name   (call $record_get (local.get $arm) (i32.const 2)))
-        (local.set $lo_body   (call $lower_expr (local.get $body_node)))
+        (local.set $lo_body   (call $lower_handler_arm_body
+                                (local.get $args)
+                                (local.get $body_node)))
         ;; arm_rec = {args, body: lo_body, op_name} per Lock #8 alphabetical.
         ;; Tag 0 — chunk-private record (no $tag_of dispatch on arm-records;
         ;; only structural field access).
@@ -16864,6 +17509,245 @@
         (br $each)))
     (local.get $buf))
 
+  ;; ─── Parameter + pattern helpers ───────────────────────────────────
+
+  (func $lower_param_names (param $params i32) (result i32)
+    (local $n i32) (local $i i32) (local $buf i32) (local $param i32)
+    (local.set $n   (call $len (local.get $params)))
+    (local.set $buf (call $make_list (i32.const 0)))
+    (local.set $buf (call $list_extend_to (local.get $buf) (local.get $n)))
+    (local.set $i   (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $param (call $list_index (local.get $params) (local.get $i)))
+        (drop (call $list_set (local.get $buf) (local.get $i)
+                (i32.load offset=4 (local.get $param))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each)))
+    (local.get $buf))
+
+  (func $lower_param_handles (param $params i32) (result i32)
+    (local $n i32) (local $i i32) (local $buf i32)
+    (local $param i32) (local $ty i32) (local $h i32)
+    (local.set $n   (call $len (local.get $params)))
+    (local.set $buf (call $make_list (i32.const 0)))
+    (local.set $buf (call $list_extend_to (local.get $buf) (local.get $n)))
+    (local.set $i   (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $param (call $list_index (local.get $params) (local.get $i)))
+        (local.set $ty    (i32.load offset=8 (local.get $param)))
+        (local.set $h     (i32.const 0))
+        (if (i32.eq (call $ty_tag (local.get $ty)) (i32.const 104))
+          (then
+            (local.set $h (call $ty_tvar_handle (local.get $ty)))))
+        (drop (call $list_set (local.get $buf) (local.get $i) (local.get $h)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each)))
+    (local.get $buf))
+
+  (func $bind_names_as_locals (param $names i32) (param $handles i32)
+    (local $n i32) (local $i i32)
+    (local.set $n (call $len (local.get $names)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (drop (call $ls_bind_local
+                (call $list_index (local.get $names) (local.get $i))
+                (call $list_index (local.get $handles) (local.get $i))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each))))
+
+  (func $bind_pat_locals_fields (param $fields i32)
+    (local $n i32) (local $i i32) (local $entry i32)
+    (local.set $n (call $len (local.get $fields)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $entry (call $list_index (local.get $fields) (local.get $i)))
+        (call $bind_pat_locals (call $record_get (local.get $entry) (i32.const 1)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each))))
+
+  (func $bind_pat_locals_list (param $pats i32)
+    (local $n i32) (local $i i32)
+    (local.set $n (call $len (local.get $pats)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (call $bind_pat_locals (call $list_index (local.get $pats) (local.get $i)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each))))
+
+  (func $bind_pat_locals (param $pat i32)
+    (local $tag i32)
+    (if (i32.eq (local.get $pat) (i32.const 131))
+      (then (return)))
+    (if (i32.lt_u (local.get $pat) (global.get $heap_base))
+      (then (unreachable)))
+    (local.set $tag (call $tag_of (local.get $pat)))
+    (if (i32.eq (local.get $tag) (i32.const 130))
+      (then
+        (drop (call $ls_bind_local (i32.load offset=4 (local.get $pat)) (i32.const 0)))
+        (return)))
+    (if (i32.eq (local.get $tag) (i32.const 133))
+      (then
+        (call $bind_pat_locals_list (i32.load offset=8 (local.get $pat)))
+        (return)))
+    (if (i32.eq (local.get $tag) (i32.const 134))
+      (then
+        (call $bind_pat_locals_list (i32.load offset=4 (local.get $pat)))
+        (return)))
+    (if (i32.eq (local.get $tag) (i32.const 135))
+      (then
+        (call $bind_pat_locals_list (i32.load offset=4 (local.get $pat)))
+        (return)))
+    (if (i32.eq (local.get $tag) (i32.const 136))
+      (then
+        (call $bind_pat_locals_fields (i32.load offset=4 (local.get $pat)))
+        (return))))
+
+  (func $lower_pat_record_fields (param $fields i32) (param $field_idx i32) (param $scrut_h i32) (result i32)
+    (local $n i32) (local $i i32) (local $buf i32)
+    (local $entry i32) (local $name i32) (local $sub_pat i32)
+    (local $lo_pat i32) (local $triple i32)
+    (local.set $n   (call $len (local.get $fields)))
+    (local.set $buf (call $make_list (i32.const 0)))
+    (local.set $buf (call $list_extend_to (local.get $buf) (local.get $n)))
+    (local.set $i   (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $entry   (call $list_index (local.get $fields) (local.get $i)))
+        (local.set $name    (call $record_get (local.get $entry) (i32.const 0)))
+        (local.set $sub_pat (call $record_get (local.get $entry) (i32.const 1)))
+        (local.set $lo_pat  (call $lower_pat (local.get $sub_pat) (local.get $scrut_h)))
+        (local.set $triple  (call $make_record (i32.const 0) (i32.const 3)))
+        (call $record_set (local.get $triple) (i32.const 0) (local.get $name))
+        (call $record_set (local.get $triple) (i32.const 1)
+          (i32.mul (i32.add (local.get $field_idx) (local.get $i)) (i32.const 4)))
+        (call $record_set (local.get $triple) (i32.const 2) (local.get $lo_pat))
+        (drop (call $list_set (local.get $buf) (local.get $i) (local.get $triple)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each)))
+    (local.get $buf))
+
+  (func $lower_pats (param $pats i32) (param $scrut_h i32) (result i32)
+    (local $n i32) (local $i i32) (local $buf i32)
+    (local $pat i32) (local $lo_pat i32)
+    (local.set $n   (call $len (local.get $pats)))
+    (local.set $buf (call $make_list (i32.const 0)))
+    (local.set $buf (call $list_extend_to (local.get $buf) (local.get $n)))
+    (local.set $i   (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $pat    (call $list_index (local.get $pats) (local.get $i)))
+        (local.set $lo_pat (call $lower_pat (local.get $pat) (local.get $scrut_h)))
+        (drop (call $list_set (local.get $buf) (local.get $i) (local.get $lo_pat)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each)))
+    (local.get $buf))
+
+  (func $lower_pat (param $pat i32) (param $scrut_h i32) (result i32)
+    (local $tag i32) (local $lit i32) (local $lit_tag i32)
+    (local $name i32) (local $subs i32)
+    (local $binding i32) (local $kind i32) (local $ctor_tag_id i32)
+    (if (i32.eq (local.get $pat) (i32.const 131))
+      (then (return (call $lowpat_make_lpwild (local.get $scrut_h)))))
+    (if (i32.lt_u (local.get $pat) (global.get $heap_base))
+      (then (unreachable)))
+    (local.set $tag (call $tag_of (local.get $pat)))
+    (if (i32.eq (local.get $tag) (i32.const 130))
+      (then
+        (return (call $lowpat_make_lpvar
+                  (local.get $scrut_h)
+                  (i32.load offset=4 (local.get $pat))))))
+    (if (i32.eq (local.get $tag) (i32.const 132))
+      (then
+        (local.set $lit     (i32.load offset=4 (local.get $pat)))
+        (local.set $lit_tag (call $tag_of (local.get $lit)))
+        (if (i32.eq (local.get $lit_tag) (i32.const 183))
+          (then
+            (return (call $lowpat_make_lpcon
+                      (local.get $scrut_h)
+                      (i32.load offset=4 (local.get $lit))
+                      (call $make_list (i32.const 0))))))
+        (return (call $lowpat_make_lplit (local.get $scrut_h) (local.get $lit)))))
+    (if (i32.eq (local.get $tag) (i32.const 133))
+      (then
+        (local.set $name (i32.load offset=4 (local.get $pat)))
+        (local.set $subs (i32.load offset=8 (local.get $pat)))
+        (local.set $ctor_tag_id (i32.const -1))
+        (local.set $binding (call $env_lookup (local.get $name)))
+        (if (i32.ne (local.get $binding) (i32.const 0))
+          (then
+            (local.set $kind (call $env_binding_kind (local.get $binding)))
+            (if (i32.eq (call $schemekind_tag (local.get $kind)) (i32.const 132))
+              (then
+                (local.set $ctor_tag_id
+                  (call $schemekind_ctor_tag_id (local.get $kind)))))))
+        (return (call $lowpat_make_lpcon
+                  (local.get $scrut_h)
+                  (local.get $ctor_tag_id)
+                  (call $lower_pats (local.get $subs) (local.get $scrut_h))))))
+    (if (i32.eq (local.get $tag) (i32.const 134))
+      (then
+        (return (call $lowpat_make_lptuple
+                  (local.get $scrut_h)
+                  (call $lower_pats
+                    (i32.load offset=4 (local.get $pat))
+                    (local.get $scrut_h))))))
+    (if (i32.eq (local.get $tag) (i32.const 135))
+      (then
+        (return (call $lowpat_make_lplist
+                  (local.get $scrut_h)
+                  (call $lower_pats
+                    (i32.load offset=4 (local.get $pat))
+                    (local.get $scrut_h))
+                  (i32.const 0)))))
+    (if (i32.eq (local.get $tag) (i32.const 136))
+      (then
+        (return (call $lowpat_make_lprecord
+                  (local.get $scrut_h)
+                  (call $lower_pat_record_fields
+                    (i32.load offset=4 (local.get $pat))
+                    (i32.const 0)
+                    (local.get $scrut_h))
+                  (i32.const 0)))))
+    (unreachable))
+
+  (func $lower_match_arms (param $arms i32) (param $scrut_h i32) (result i32)
+    (local $n i32) (local $i i32) (local $buf i32)
+    (local $arm i32) (local $pat i32) (local $body_node i32)
+    (local $cp i32) (local $lo_body i32) (local $lo_pat i32)
+    (local $lparm i32)
+    (local.set $n   (call $len (local.get $arms)))
+    (local.set $buf (call $make_list (i32.const 0)))
+    (local.set $buf (call $list_extend_to (local.get $buf) (local.get $n)))
+    (local.set $i   (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $arm      (call $list_index (local.get $arms) (local.get $i)))
+        (local.set $pat      (call $list_index (local.get $arm) (i32.const 0)))
+        (local.set $body_node(call $list_index (local.get $arm) (i32.const 1)))
+        (local.set $cp       (call $ls_push_scope))
+        (call $bind_pat_locals (local.get $pat))
+        (local.set $lo_body  (call $lower_expr (local.get $body_node)))
+        (call $ls_pop_scope (local.get $cp))
+        (local.set $lo_pat   (call $lower_pat (local.get $pat) (local.get $scrut_h)))
+        (local.set $lparm    (call $lowpat_make_lparm (local.get $lo_pat) (local.get $lo_body)))
+        (drop (call $list_set (local.get $buf) (local.get $i) (local.get $lparm)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each)))
+    (local.get $buf))
+
   ;; ─── $lower_binop — BinOpExpr arm (parser tag 86) ──────────────────
   ;; Per src/lower.nx:341-342: BinOpExpr(op, left, right) =>
   ;;   LBinOp(handle, op, lower_expr(left), lower_expr(right)).
@@ -16954,18 +17838,31 @@
   ;;   [tag=91][stmts_list][final_expr_node] offsets 0/4/8.
   (func $lower_block (export "lower_block") (param $node i32) (result i32)
     (local $h i32) (local $body i32) (local $block_struct i32)
-    (local $final_node i32) (local $lo_final i32) (local $stmts i32)
+    (local $stmt_nodes i32) (local $final_node i32)
+    (local $cp i32) (local $lo_stmts i32) (local $lo_final i32)
+    (local $stmts i32) (local $n i32) (local $i i32)
     (local.set $h            (call $walk_expr_node_handle (local.get $node)))
     (local.set $body         (i32.load offset=4 (local.get $node)))
     (local.set $block_struct (i32.load offset=4 (local.get $body)))
-    ;; Lock #2: stmts list IGNORED at seed (deferred to chunk #10);
-    ;; final_expr at offset 8.
+    (local.set $stmt_nodes   (i32.load offset=4 (local.get $block_struct)))
     (local.set $final_node   (i32.load offset=8 (local.get $block_struct)))
+    (local.set $cp           (call $ls_push_scope))
+    (local.set $lo_stmts     (call $lower_stmt_list (local.get $stmt_nodes)))
     (local.set $lo_final     (call $lower_expr (local.get $final_node)))
-    ;; Build single-element stmts list [lo_final] per Lock #2.
+    (call $ls_pop_scope (local.get $cp))
+    (local.set $n     (call $len (local.get $lo_stmts)))
     (local.set $stmts (call $make_list (i32.const 0)))
-    (local.set $stmts (call $list_extend_to (local.get $stmts) (i32.const 1)))
-    (drop (call $list_set (local.get $stmts) (i32.const 0) (local.get $lo_final)))
+    (local.set $stmts (call $list_extend_to (local.get $stmts)
+                        (i32.add (local.get $n) (i32.const 1))))
+    (local.set $i (i32.const 0))
+    (block $copy_done
+      (loop $copy
+        (br_if $copy_done (i32.ge_u (local.get $i) (local.get $n)))
+        (drop (call $list_set (local.get $stmts) (local.get $i)
+                (call $list_index (local.get $lo_stmts) (local.get $i))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $copy)))
+    (drop (call $list_set (local.get $stmts) (local.get $n) (local.get $lo_final)))
     (call $lexpr_make_lblock
       (local.get $h)
       (local.get $stmts)))
@@ -16976,14 +17873,16 @@
   ;;   [tag=92][scrut_node][arms_list] offsets 0/4/8.
   (func $lower_match (export "lower_match") (param $node i32) (result i32)
     (local $h i32) (local $body i32) (local $match_struct i32)
-    (local $scrut_node i32) (local $lo_scrut i32) (local $arms i32)
+    (local $scrut_node i32) (local $arms_list i32)
+    (local $scrut_h i32) (local $lo_scrut i32) (local $arms i32)
     (local.set $h            (call $walk_expr_node_handle (local.get $node)))
     (local.set $body         (i32.load offset=4 (local.get $node)))
     (local.set $match_struct (i32.load offset=4 (local.get $body)))
     (local.set $scrut_node   (i32.load offset=4 (local.get $match_struct)))
+    (local.set $arms_list    (i32.load offset=8 (local.get $match_struct)))
+    (local.set $scrut_h      (call $walk_expr_node_handle (local.get $scrut_node)))
     (local.set $lo_scrut     (call $lower_expr (local.get $scrut_node)))
-    ;; Lock #3: arms empty seed; pattern substrate deferred.
-    (local.set $arms (call $make_list (i32.const 0)))
+    (local.set $arms         (call $lower_match_arms (local.get $arms_list) (local.get $scrut_h)))
     (call $lexpr_make_lmatch
       (local.get $h)
       (local.get $lo_scrut)
@@ -17084,21 +17983,35 @@
   ;; AST per Lock #9: [tag=89][params_list][body_node] offsets 0/4/8.
   (func $lower_lambda (export "lower_lambda") (param $node i32) (result i32)
     (local $h i32) (local $body i32) (local $lambda_struct i32)
-    (local $body_node i32) (local $caps i32) (local $evs i32)
+    (local $params i32) (local $body_node i32)
+    (local $param_names i32) (local $param_handles i32)
+    (local $cp i32) (local $lo_body i32) (local $body_list i32)
+    (local $fn_ir i32) (local $caps i32) (local $evs i32)
     (local.set $h             (call $walk_expr_node_handle (local.get $node)))
     (local.set $body          (i32.load offset=4 (local.get $node)))
     (local.set $lambda_struct (i32.load offset=4 (local.get $body)))
-    ;; params_list at offset 4 — Lock #1 ignored (LFn not landed; param
-    ;; threading lands with Hβ.lower.lambda-capture-substrate).
+    (local.set $params        (i32.load offset=4 (local.get $lambda_struct)))
     (local.set $body_node     (i32.load offset=8 (local.get $lambda_struct)))
-    ;; Lock #11: recursively lower body for graph reads; DROP result.
-    (drop (call $lower_expr (local.get $body_node)))
-    ;; Lock #1: caps + evs empty; fn sentinel 0.
+    (local.set $param_names   (call $lower_param_names (local.get $params)))
+    (local.set $param_handles (call $lower_param_handles (local.get $params)))
+    (local.set $cp            (call $ls_push_scope))
+    (call $bind_names_as_locals (local.get $param_names) (local.get $param_handles))
+    (local.set $lo_body       (call $lower_expr (local.get $body_node)))
+    (call $ls_pop_scope (local.get $cp))
+    (local.set $body_list (call $make_list (i32.const 0)))
+    (local.set $body_list (call $list_extend_to (local.get $body_list) (i32.const 1)))
+    (drop (call $list_set (local.get $body_list) (i32.const 0) (local.get $lo_body)))
+    (local.set $fn_ir (call $lowfn_make
+                        (call $int_to_str (local.get $h))
+                        (call $len (local.get $params))
+                        (local.get $param_names)
+                        (local.get $body_list)
+                        (call $row_make_pure)))
     (local.set $caps (call $make_list (i32.const 0)))
     (local.set $evs  (call $make_list (i32.const 0)))
     (call $lexpr_make_lmakeclosure
       (local.get $h)
-      (i32.const 0)
+      (local.get $fn_ir)
       (local.get $caps)
       (local.get $evs)))
 
@@ -17165,12 +18078,10 @@
   ;;          wheel emits LLet wrapping LMakeClosure. LDeclareFn (tag 313)
   ;;          is reserved for handler-arm-only module-level form per chunk #8.
   ;;
-  ;; Lock #2: FnStmt seed defaults — caps=empty, evs=empty, fn_ir=0.
-  ;;          The wheel calls collect_free_vars + resolve_captures_outer +
-  ;;          ls_enter_frame/ls_exit_frame + LFn ADT — none of which exist
-  ;;          at the seed. Named follow-up Hβ.lower.fn-stmt-closure-substrate
-  ;;          covers wheel parity when LFn + collect_free_vars + resolve_
-  ;;          captures_outer all converge.
+  ;; Lock #2: FnStmt now constructs a real LowFn record (name, arity,
+  ;;          params, body, row) and still leaves captures/evidence empty.
+  ;;          The remaining peer handle is closure-capture/frame discipline,
+  ;;          not fn-record absence.
   ;;
   ;; Lock #3: FnStmt's $ls_bind_local(name, handle) fires BEFORE body lower.
   ;;          Per src/lower.nx:593. Recursive references resolve via locals
@@ -17374,21 +18285,35 @@
   ;;   [tag=121][name][params][ret][effs][body] offsets 0/4/8/12/16/20.
   (func $lower_walk_stmt_fn (export "lower_walk_stmt_fn")
         (param $stmt i32) (param $handle i32) (result i32)
-    (local $name i32) (local $body_node i32)
-    (local $caps i32) (local $evs i32) (local $closure i32)
+    (local $name i32) (local $params i32) (local $body_node i32)
+    (local $param_names i32) (local $param_handles i32)
+    (local $cp i32) (local $lo_body i32) (local $body_list i32)
+    (local $fn_ir i32) (local $caps i32) (local $evs i32) (local $closure i32)
     (local.set $name      (i32.load offset=4  (local.get $stmt)))
+    (local.set $params    (i32.load offset=8  (local.get $stmt)))
     (local.set $body_node (i32.load offset=20 (local.get $stmt)))
     ;; Lock #3: pre-bind so recursive refs resolve at chunk #6 $lower_var_ref.
     (drop (call $ls_bind_local (local.get $name) (local.get $handle)))
-    ;; Lock #2: recursively lower body for graph reads + state updates;
-    ;; result DROPPED (LFn ADT not yet seed-substrate).
-    (drop (call $lower_expr (local.get $body_node)))
-    ;; Lock #2: caps + evs empty; fn_ir sentinel 0.
+    (local.set $param_names   (call $lower_param_names   (local.get $params)))
+    (local.set $param_handles (call $lower_param_handles (local.get $params)))
+    (local.set $cp (call $ls_push_scope))
+    (call $bind_names_as_locals (local.get $param_names) (local.get $param_handles))
+    (local.set $lo_body (call $lower_expr (local.get $body_node)))
+    (call $ls_pop_scope (local.get $cp))
+    (local.set $body_list (call $make_list (i32.const 0)))
+    (local.set $body_list (call $list_extend_to (local.get $body_list) (i32.const 1)))
+    (drop (call $list_set (local.get $body_list) (i32.const 0) (local.get $lo_body)))
+    (local.set $fn_ir (call $lowfn_make
+                        (local.get $name)
+                        (call $len (local.get $params))
+                        (local.get $param_names)
+                        (local.get $body_list)
+                        (call $row_make_pure)))
     (local.set $caps (call $make_list (i32.const 0)))
     (local.set $evs  (call $make_list (i32.const 0)))
     (local.set $closure (call $lexpr_make_lmakeclosure
                           (local.get $handle)
-                          (i32.const 0)
+                          (local.get $fn_ir)
                           (local.get $caps)
                           (local.get $evs)))
     ;; Lock #1: wrap in LLet(handle, name, closure).

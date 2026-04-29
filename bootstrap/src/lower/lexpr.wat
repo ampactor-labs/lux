@@ -152,12 +152,14 @@
   ;;                                  walk_handle earns the abstraction
   ;;                                  per Anchor 7 "three instances".
   ;;   - Hβ.lower.lvalue-lowfn-lpat-substrate:
-  ;;                                  LowValue (LConst field 1) + LowFn
-  ;;                                  (LMakeClosure/LMakeContinuation/
-  ;;                                  LDeclareFn fn fields) + LowPat
-  ;;                                  (LMatch arms) are opaque i32 ptrs here.
-  ;;                                  Lands when first walker needs structural
-  ;;                                  access.
+  ;;                                  LowValue (LConst field 1) is opaque i32.
+  ;;                                  LowFn (LMakeClosure/LMakeContinuation/
+  ;;                                  LDeclareFn fn fields) = tag 350 record
+  ;;                                  per lowfn.wat (Phase C.1 landed).
+  ;;                                  LowPat (LMatch arms) = tags 360-369
+  ;;                                  per lowpat.wat (Phase C.2 landed).
+  ;;                                  LowValue substrate lands when first
+  ;;                                  walker needs structural access.
 
   ;; ─── $lexpr_handle — universal source-handle extractor ──────────────
   ;; Per Hβ-lower-substrate.md §2 lines 287-289 + the wheel
@@ -367,6 +369,7 @@
   ;; Per src/lower.nx:109 LMakeClosure(Int, LowFn, List, List) —
   ;; "handle, fn, captures, ev_slots". H1 evidence reification: closure
   ;; record IS the evidence record; ev_slots follow caps in field order.
+  ;; fn field is LowFn record (tag 350) per lowfn.wat Phase C.1.
   (func $lexpr_make_lmakeclosure (param $h i32) (param $fn i32)
                                   (param $caps i32) (param $evs i32)
                                   (result i32)
@@ -563,8 +566,7 @@
 
   ;; ─── 321 = LMatch(handle, scrut, arms) — arity 3 ───────────────────
   ;; Per src/lower.nx:128 LMatch(Int, LowExpr, List) — "body + arms".
-  ;; Arms is a list of LowPat-arm records (opaque i32 pending
-  ;; Hβ.lower.lvalue-lowfn-lpat-substrate follow-up).
+  ;; Arms is a list of LPArm records (tag 369) per lowpat.wat Phase C.2.
   (func $lexpr_make_lmatch (param $h i32) (param $scrut i32) (param $arms i32) (result i32)
     (local $r i32)
     (local.set $r (call $make_record (i32.const 321) (i32.const 3)))

@@ -335,13 +335,11 @@
 
   ;; ─── Per-Stmt-variant arms ───────────────────────────────────────────
 
-  ;; LetStmt arm (tag 120) — src/infer.nx:200-204 + 1588-1592 (PVar arm).
+  ;; LetStmt arm (tag 120) — src/infer.nx:200-204 + 1588-1592.
   ;; Layout: [tag=120][pat][val] per parser_infra.wat:163.
-  ;; Walk the value expression; if pat is PVar (130), env-extend the
-  ;; bound name with monomorphic Forall([], TVar(eh)). Other Pat tags
-  ;; (PWild=131, PLit=132, PCon=133, PTuple=134, PList=135, PRecord=136)
-  ;; gate on Hβ.infer.walk_pat (peer follow-up); seed treats them as
-  ;; no-op binding (drift 9 closure: named handle, not silent deferral).
+  ;; Walk the value expression; delegate to $infer_walk_pat (B.5 landed)
+  ;; for all Pat variants: PVar binding, PWild no-op, PLit constraint,
+  ;; PCon constructor destructure, PTuple, PList. PRecord deferred.
   ;;
   ;; Per walkthrough §12 + Damas-Milner + src/infer.nx:1588-1591: PVar
   ;; binds Forall([], TVar(eh)) — MONOMORPHIC. Generalization happens at
@@ -350,8 +348,6 @@
         (export "infer_walk_stmt_let")
         (param $stmt i32) (param $handle i32) (param $span i32)
     (local $pat i32) (local $val i32) (local $eh i32)
-    (local $pat_tag i32) (local $name i32)
-    (local $scheme i32) (local $reason i32)
     ;; Layout: [tag=120][pat][val]
     (local.set $pat (i32.load offset=4 (local.get $stmt)))
     (local.set $val (i32.load offset=8 (local.get $stmt)))
@@ -360,28 +356,12 @@
                                   ;; expr handle carry the type info.
     ;; Walk the value expression (mutates graph, returns expr's handle).
     (local.set $eh (call $infer_walk_expr (local.get $val)))
-    ;; Infer-pat: PVar arm only at the seed.
-    (local.set $pat_tag (call $tag_of (local.get $pat)))
-    (if (i32.eq (local.get $pat_tag) (i32.const 130))   ;; PVar
-      (then
-        (local.set $name (i32.load offset=4 (local.get $pat)))
-        ;; scheme = Forall([], TVar(eh)) — monomorphic.
-        (local.set $scheme (call $scheme_make_forall
-          (call $make_list (i32.const 0))
-          (call $ty_make_tvar (local.get $eh))))
-        ;; reason = Located(span, LetBinding(name, Inferred("pattern")))
-        (local.set $reason (call $reason_make_located
-          (local.get $span)
-          (call $reason_make_letbinding
-            (local.get $name)
-            (call $reason_make_inferred (i32.const 4032)))))   ;; "pattern"
-        (call $env_extend
-          (local.get $name) (local.get $scheme) (local.get $reason)
-          (call $schemekind_make_fn))))
-    ;; Other Pat tags (131-136): seed no-op per Hβ.infer.walk_pat named
-    ;; follow-up. Walk-pat recursion lands when that chunk does; until
-    ;; then PCon / PTuple / PList / PRecord destructures don't bind
-    ;; sub-pat names — degenerate but documented.
+    ;; Walk pattern via $infer_walk_pat (B.5 landed). Handles all Pat
+    ;; variants: PVar (binding), PWild (no-op), PLit (type constraint),
+    ;; PCon (constructor destructure), PTuple, PList. Per Damas-Milner:
+    ;; all bindings monomorphic Forall([], TVar(scrut_h)). Generalization
+    ;; happens ONLY at FnStmt exit — NEVER here.
+    (call $infer_walk_pat (local.get $pat) (local.get $eh) (local.get $span))
     )
 
   ;; FnStmt arm (tag 121) — src/infer.nx:206-210 + infer_fn 262-369.

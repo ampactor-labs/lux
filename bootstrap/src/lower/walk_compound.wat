@@ -353,6 +353,245 @@
         (br $each)))
     (local.get $buf))
 
+  ;; ─── Parameter + pattern helpers ───────────────────────────────────
+
+  (func $lower_param_names (param $params i32) (result i32)
+    (local $n i32) (local $i i32) (local $buf i32) (local $param i32)
+    (local.set $n   (call $len (local.get $params)))
+    (local.set $buf (call $make_list (i32.const 0)))
+    (local.set $buf (call $list_extend_to (local.get $buf) (local.get $n)))
+    (local.set $i   (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $param (call $list_index (local.get $params) (local.get $i)))
+        (drop (call $list_set (local.get $buf) (local.get $i)
+                (i32.load offset=4 (local.get $param))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each)))
+    (local.get $buf))
+
+  (func $lower_param_handles (param $params i32) (result i32)
+    (local $n i32) (local $i i32) (local $buf i32)
+    (local $param i32) (local $ty i32) (local $h i32)
+    (local.set $n   (call $len (local.get $params)))
+    (local.set $buf (call $make_list (i32.const 0)))
+    (local.set $buf (call $list_extend_to (local.get $buf) (local.get $n)))
+    (local.set $i   (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $param (call $list_index (local.get $params) (local.get $i)))
+        (local.set $ty    (i32.load offset=8 (local.get $param)))
+        (local.set $h     (i32.const 0))
+        (if (i32.eq (call $ty_tag (local.get $ty)) (i32.const 104))
+          (then
+            (local.set $h (call $ty_tvar_handle (local.get $ty)))))
+        (drop (call $list_set (local.get $buf) (local.get $i) (local.get $h)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each)))
+    (local.get $buf))
+
+  (func $bind_names_as_locals (param $names i32) (param $handles i32)
+    (local $n i32) (local $i i32)
+    (local.set $n (call $len (local.get $names)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (drop (call $ls_bind_local
+                (call $list_index (local.get $names) (local.get $i))
+                (call $list_index (local.get $handles) (local.get $i))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each))))
+
+  (func $bind_pat_locals_fields (param $fields i32)
+    (local $n i32) (local $i i32) (local $entry i32)
+    (local.set $n (call $len (local.get $fields)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $entry (call $list_index (local.get $fields) (local.get $i)))
+        (call $bind_pat_locals (call $record_get (local.get $entry) (i32.const 1)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each))))
+
+  (func $bind_pat_locals_list (param $pats i32)
+    (local $n i32) (local $i i32)
+    (local.set $n (call $len (local.get $pats)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (call $bind_pat_locals (call $list_index (local.get $pats) (local.get $i)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each))))
+
+  (func $bind_pat_locals (param $pat i32)
+    (local $tag i32)
+    (if (i32.eq (local.get $pat) (i32.const 131))
+      (then (return)))
+    (if (i32.lt_u (local.get $pat) (global.get $heap_base))
+      (then (unreachable)))
+    (local.set $tag (call $tag_of (local.get $pat)))
+    (if (i32.eq (local.get $tag) (i32.const 130))
+      (then
+        (drop (call $ls_bind_local (i32.load offset=4 (local.get $pat)) (i32.const 0)))
+        (return)))
+    (if (i32.eq (local.get $tag) (i32.const 133))
+      (then
+        (call $bind_pat_locals_list (i32.load offset=8 (local.get $pat)))
+        (return)))
+    (if (i32.eq (local.get $tag) (i32.const 134))
+      (then
+        (call $bind_pat_locals_list (i32.load offset=4 (local.get $pat)))
+        (return)))
+    (if (i32.eq (local.get $tag) (i32.const 135))
+      (then
+        (call $bind_pat_locals_list (i32.load offset=4 (local.get $pat)))
+        (return)))
+    (if (i32.eq (local.get $tag) (i32.const 136))
+      (then
+        (call $bind_pat_locals_fields (i32.load offset=4 (local.get $pat)))
+        (return))))
+
+  (func $lower_pat_record_fields (param $fields i32) (param $field_idx i32) (param $scrut_h i32) (result i32)
+    (local $n i32) (local $i i32) (local $buf i32)
+    (local $entry i32) (local $name i32) (local $sub_pat i32)
+    (local $lo_pat i32) (local $triple i32)
+    (local.set $n   (call $len (local.get $fields)))
+    (local.set $buf (call $make_list (i32.const 0)))
+    (local.set $buf (call $list_extend_to (local.get $buf) (local.get $n)))
+    (local.set $i   (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $entry   (call $list_index (local.get $fields) (local.get $i)))
+        (local.set $name    (call $record_get (local.get $entry) (i32.const 0)))
+        (local.set $sub_pat (call $record_get (local.get $entry) (i32.const 1)))
+        (local.set $lo_pat  (call $lower_pat (local.get $sub_pat) (local.get $scrut_h)))
+        (local.set $triple  (call $make_record (i32.const 0) (i32.const 3)))
+        (call $record_set (local.get $triple) (i32.const 0) (local.get $name))
+        (call $record_set (local.get $triple) (i32.const 1)
+          (i32.mul (i32.add (local.get $field_idx) (local.get $i)) (i32.const 4)))
+        (call $record_set (local.get $triple) (i32.const 2) (local.get $lo_pat))
+        (drop (call $list_set (local.get $buf) (local.get $i) (local.get $triple)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each)))
+    (local.get $buf))
+
+  (func $lower_pats (param $pats i32) (param $scrut_h i32) (result i32)
+    (local $n i32) (local $i i32) (local $buf i32)
+    (local $pat i32) (local $lo_pat i32)
+    (local.set $n   (call $len (local.get $pats)))
+    (local.set $buf (call $make_list (i32.const 0)))
+    (local.set $buf (call $list_extend_to (local.get $buf) (local.get $n)))
+    (local.set $i   (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $pat    (call $list_index (local.get $pats) (local.get $i)))
+        (local.set $lo_pat (call $lower_pat (local.get $pat) (local.get $scrut_h)))
+        (drop (call $list_set (local.get $buf) (local.get $i) (local.get $lo_pat)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each)))
+    (local.get $buf))
+
+  (func $lower_pat (param $pat i32) (param $scrut_h i32) (result i32)
+    (local $tag i32) (local $lit i32) (local $lit_tag i32)
+    (local $name i32) (local $subs i32)
+    (local $binding i32) (local $kind i32) (local $ctor_tag_id i32)
+    (if (i32.eq (local.get $pat) (i32.const 131))
+      (then (return (call $lowpat_make_lpwild (local.get $scrut_h)))))
+    (if (i32.lt_u (local.get $pat) (global.get $heap_base))
+      (then (unreachable)))
+    (local.set $tag (call $tag_of (local.get $pat)))
+    (if (i32.eq (local.get $tag) (i32.const 130))
+      (then
+        (return (call $lowpat_make_lpvar
+                  (local.get $scrut_h)
+                  (i32.load offset=4 (local.get $pat))))))
+    (if (i32.eq (local.get $tag) (i32.const 132))
+      (then
+        (local.set $lit     (i32.load offset=4 (local.get $pat)))
+        (local.set $lit_tag (call $tag_of (local.get $lit)))
+        (if (i32.eq (local.get $lit_tag) (i32.const 183))
+          (then
+            (return (call $lowpat_make_lpcon
+                      (local.get $scrut_h)
+                      (i32.load offset=4 (local.get $lit))
+                      (call $make_list (i32.const 0))))))
+        (return (call $lowpat_make_lplit (local.get $scrut_h) (local.get $lit)))))
+    (if (i32.eq (local.get $tag) (i32.const 133))
+      (then
+        (local.set $name (i32.load offset=4 (local.get $pat)))
+        (local.set $subs (i32.load offset=8 (local.get $pat)))
+        (local.set $ctor_tag_id (i32.const -1))
+        (local.set $binding (call $env_lookup (local.get $name)))
+        (if (i32.ne (local.get $binding) (i32.const 0))
+          (then
+            (local.set $kind (call $env_binding_kind (local.get $binding)))
+            (if (i32.eq (call $schemekind_tag (local.get $kind)) (i32.const 132))
+              (then
+                (local.set $ctor_tag_id
+                  (call $schemekind_ctor_tag_id (local.get $kind)))))))
+        (return (call $lowpat_make_lpcon
+                  (local.get $scrut_h)
+                  (local.get $ctor_tag_id)
+                  (call $lower_pats (local.get $subs) (local.get $scrut_h))))))
+    (if (i32.eq (local.get $tag) (i32.const 134))
+      (then
+        (return (call $lowpat_make_lptuple
+                  (local.get $scrut_h)
+                  (call $lower_pats
+                    (i32.load offset=4 (local.get $pat))
+                    (local.get $scrut_h))))))
+    (if (i32.eq (local.get $tag) (i32.const 135))
+      (then
+        (return (call $lowpat_make_lplist
+                  (local.get $scrut_h)
+                  (call $lower_pats
+                    (i32.load offset=4 (local.get $pat))
+                    (local.get $scrut_h))
+                  (i32.const 0)))))
+    (if (i32.eq (local.get $tag) (i32.const 136))
+      (then
+        (return (call $lowpat_make_lprecord
+                  (local.get $scrut_h)
+                  (call $lower_pat_record_fields
+                    (i32.load offset=4 (local.get $pat))
+                    (i32.const 0)
+                    (local.get $scrut_h))
+                  (i32.const 0)))))
+    (unreachable))
+
+  (func $lower_match_arms (param $arms i32) (param $scrut_h i32) (result i32)
+    (local $n i32) (local $i i32) (local $buf i32)
+    (local $arm i32) (local $pat i32) (local $body_node i32)
+    (local $cp i32) (local $lo_body i32) (local $lo_pat i32)
+    (local $lparm i32)
+    (local.set $n   (call $len (local.get $arms)))
+    (local.set $buf (call $make_list (i32.const 0)))
+    (local.set $buf (call $list_extend_to (local.get $buf) (local.get $n)))
+    (local.set $i   (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $arm      (call $list_index (local.get $arms) (local.get $i)))
+        (local.set $pat      (call $list_index (local.get $arm) (i32.const 0)))
+        (local.set $body_node(call $list_index (local.get $arm) (i32.const 1)))
+        (local.set $cp       (call $ls_push_scope))
+        (call $bind_pat_locals (local.get $pat))
+        (local.set $lo_body  (call $lower_expr (local.get $body_node)))
+        (call $ls_pop_scope (local.get $cp))
+        (local.set $lo_pat   (call $lower_pat (local.get $pat) (local.get $scrut_h)))
+        (local.set $lparm    (call $lowpat_make_lparm (local.get $lo_pat) (local.get $lo_body)))
+        (drop (call $list_set (local.get $buf) (local.get $i) (local.get $lparm)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each)))
+    (local.get $buf))
+
   ;; ─── $lower_binop — BinOpExpr arm (parser tag 86) ──────────────────
   ;; Per src/lower.nx:341-342: BinOpExpr(op, left, right) =>
   ;;   LBinOp(handle, op, lower_expr(left), lower_expr(right)).
@@ -443,18 +682,31 @@
   ;;   [tag=91][stmts_list][final_expr_node] offsets 0/4/8.
   (func $lower_block (export "lower_block") (param $node i32) (result i32)
     (local $h i32) (local $body i32) (local $block_struct i32)
-    (local $final_node i32) (local $lo_final i32) (local $stmts i32)
+    (local $stmt_nodes i32) (local $final_node i32)
+    (local $cp i32) (local $lo_stmts i32) (local $lo_final i32)
+    (local $stmts i32) (local $n i32) (local $i i32)
     (local.set $h            (call $walk_expr_node_handle (local.get $node)))
     (local.set $body         (i32.load offset=4 (local.get $node)))
     (local.set $block_struct (i32.load offset=4 (local.get $body)))
-    ;; Lock #2: stmts list IGNORED at seed (deferred to chunk #10);
-    ;; final_expr at offset 8.
+    (local.set $stmt_nodes   (i32.load offset=4 (local.get $block_struct)))
     (local.set $final_node   (i32.load offset=8 (local.get $block_struct)))
+    (local.set $cp           (call $ls_push_scope))
+    (local.set $lo_stmts     (call $lower_stmt_list (local.get $stmt_nodes)))
     (local.set $lo_final     (call $lower_expr (local.get $final_node)))
-    ;; Build single-element stmts list [lo_final] per Lock #2.
+    (call $ls_pop_scope (local.get $cp))
+    (local.set $n     (call $len (local.get $lo_stmts)))
     (local.set $stmts (call $make_list (i32.const 0)))
-    (local.set $stmts (call $list_extend_to (local.get $stmts) (i32.const 1)))
-    (drop (call $list_set (local.get $stmts) (i32.const 0) (local.get $lo_final)))
+    (local.set $stmts (call $list_extend_to (local.get $stmts)
+                        (i32.add (local.get $n) (i32.const 1))))
+    (local.set $i (i32.const 0))
+    (block $copy_done
+      (loop $copy
+        (br_if $copy_done (i32.ge_u (local.get $i) (local.get $n)))
+        (drop (call $list_set (local.get $stmts) (local.get $i)
+                (call $list_index (local.get $lo_stmts) (local.get $i))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $copy)))
+    (drop (call $list_set (local.get $stmts) (local.get $n) (local.get $lo_final)))
     (call $lexpr_make_lblock
       (local.get $h)
       (local.get $stmts)))
@@ -465,14 +717,16 @@
   ;;   [tag=92][scrut_node][arms_list] offsets 0/4/8.
   (func $lower_match (export "lower_match") (param $node i32) (result i32)
     (local $h i32) (local $body i32) (local $match_struct i32)
-    (local $scrut_node i32) (local $lo_scrut i32) (local $arms i32)
+    (local $scrut_node i32) (local $arms_list i32)
+    (local $scrut_h i32) (local $lo_scrut i32) (local $arms i32)
     (local.set $h            (call $walk_expr_node_handle (local.get $node)))
     (local.set $body         (i32.load offset=4 (local.get $node)))
     (local.set $match_struct (i32.load offset=4 (local.get $body)))
     (local.set $scrut_node   (i32.load offset=4 (local.get $match_struct)))
+    (local.set $arms_list    (i32.load offset=8 (local.get $match_struct)))
+    (local.set $scrut_h      (call $walk_expr_node_handle (local.get $scrut_node)))
     (local.set $lo_scrut     (call $lower_expr (local.get $scrut_node)))
-    ;; Lock #3: arms empty seed; pattern substrate deferred.
-    (local.set $arms (call $make_list (i32.const 0)))
+    (local.set $arms         (call $lower_match_arms (local.get $arms_list) (local.get $scrut_h)))
     (call $lexpr_make_lmatch
       (local.get $h)
       (local.get $lo_scrut)
@@ -573,20 +827,34 @@
   ;; AST per Lock #9: [tag=89][params_list][body_node] offsets 0/4/8.
   (func $lower_lambda (export "lower_lambda") (param $node i32) (result i32)
     (local $h i32) (local $body i32) (local $lambda_struct i32)
-    (local $body_node i32) (local $caps i32) (local $evs i32)
+    (local $params i32) (local $body_node i32)
+    (local $param_names i32) (local $param_handles i32)
+    (local $cp i32) (local $lo_body i32) (local $body_list i32)
+    (local $fn_ir i32) (local $caps i32) (local $evs i32)
     (local.set $h             (call $walk_expr_node_handle (local.get $node)))
     (local.set $body          (i32.load offset=4 (local.get $node)))
     (local.set $lambda_struct (i32.load offset=4 (local.get $body)))
-    ;; params_list at offset 4 — Lock #1 ignored (LFn not landed; param
-    ;; threading lands with Hβ.lower.lambda-capture-substrate).
+    (local.set $params        (i32.load offset=4 (local.get $lambda_struct)))
     (local.set $body_node     (i32.load offset=8 (local.get $lambda_struct)))
-    ;; Lock #11: recursively lower body for graph reads; DROP result.
-    (drop (call $lower_expr (local.get $body_node)))
-    ;; Lock #1: caps + evs empty; fn sentinel 0.
+    (local.set $param_names   (call $lower_param_names (local.get $params)))
+    (local.set $param_handles (call $lower_param_handles (local.get $params)))
+    (local.set $cp            (call $ls_push_scope))
+    (call $bind_names_as_locals (local.get $param_names) (local.get $param_handles))
+    (local.set $lo_body       (call $lower_expr (local.get $body_node)))
+    (call $ls_pop_scope (local.get $cp))
+    (local.set $body_list (call $make_list (i32.const 0)))
+    (local.set $body_list (call $list_extend_to (local.get $body_list) (i32.const 1)))
+    (drop (call $list_set (local.get $body_list) (i32.const 0) (local.get $lo_body)))
+    (local.set $fn_ir (call $lowfn_make
+                        (call $int_to_str (local.get $h))
+                        (call $len (local.get $params))
+                        (local.get $param_names)
+                        (local.get $body_list)
+                        (call $row_make_pure)))
     (local.set $caps (call $make_list (i32.const 0)))
     (local.set $evs  (call $make_list (i32.const 0)))
     (call $lexpr_make_lmakeclosure
       (local.get $h)
-      (i32.const 0)
+      (local.get $fn_ir)
       (local.get $caps)
       (local.get $evs)))

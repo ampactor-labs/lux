@@ -61,12 +61,10 @@
   ;;          wheel emits LLet wrapping LMakeClosure. LDeclareFn (tag 313)
   ;;          is reserved for handler-arm-only module-level form per chunk #8.
   ;;
-  ;; Lock #2: FnStmt seed defaults — caps=empty, evs=empty, fn_ir=0.
-  ;;          The wheel calls collect_free_vars + resolve_captures_outer +
-  ;;          ls_enter_frame/ls_exit_frame + LFn ADT — none of which exist
-  ;;          at the seed. Named follow-up Hβ.lower.fn-stmt-closure-substrate
-  ;;          covers wheel parity when LFn + collect_free_vars + resolve_
-  ;;          captures_outer all converge.
+  ;; Lock #2: FnStmt now constructs a real LowFn record (name, arity,
+  ;;          params, body, row) and still leaves captures/evidence empty.
+  ;;          The remaining peer handle is closure-capture/frame discipline,
+  ;;          not fn-record absence.
   ;;
   ;; Lock #3: FnStmt's $ls_bind_local(name, handle) fires BEFORE body lower.
   ;;          Per src/lower.nx:593. Recursive references resolve via locals
@@ -270,21 +268,35 @@
   ;;   [tag=121][name][params][ret][effs][body] offsets 0/4/8/12/16/20.
   (func $lower_walk_stmt_fn (export "lower_walk_stmt_fn")
         (param $stmt i32) (param $handle i32) (result i32)
-    (local $name i32) (local $body_node i32)
-    (local $caps i32) (local $evs i32) (local $closure i32)
+    (local $name i32) (local $params i32) (local $body_node i32)
+    (local $param_names i32) (local $param_handles i32)
+    (local $cp i32) (local $lo_body i32) (local $body_list i32)
+    (local $fn_ir i32) (local $caps i32) (local $evs i32) (local $closure i32)
     (local.set $name      (i32.load offset=4  (local.get $stmt)))
+    (local.set $params    (i32.load offset=8  (local.get $stmt)))
     (local.set $body_node (i32.load offset=20 (local.get $stmt)))
     ;; Lock #3: pre-bind so recursive refs resolve at chunk #6 $lower_var_ref.
     (drop (call $ls_bind_local (local.get $name) (local.get $handle)))
-    ;; Lock #2: recursively lower body for graph reads + state updates;
-    ;; result DROPPED (LFn ADT not yet seed-substrate).
-    (drop (call $lower_expr (local.get $body_node)))
-    ;; Lock #2: caps + evs empty; fn_ir sentinel 0.
+    (local.set $param_names   (call $lower_param_names   (local.get $params)))
+    (local.set $param_handles (call $lower_param_handles (local.get $params)))
+    (local.set $cp (call $ls_push_scope))
+    (call $bind_names_as_locals (local.get $param_names) (local.get $param_handles))
+    (local.set $lo_body (call $lower_expr (local.get $body_node)))
+    (call $ls_pop_scope (local.get $cp))
+    (local.set $body_list (call $make_list (i32.const 0)))
+    (local.set $body_list (call $list_extend_to (local.get $body_list) (i32.const 1)))
+    (drop (call $list_set (local.get $body_list) (i32.const 0) (local.get $lo_body)))
+    (local.set $fn_ir (call $lowfn_make
+                        (local.get $name)
+                        (call $len (local.get $params))
+                        (local.get $param_names)
+                        (local.get $body_list)
+                        (call $row_make_pure)))
     (local.set $caps (call $make_list (i32.const 0)))
     (local.set $evs  (call $make_list (i32.const 0)))
     (local.set $closure (call $lexpr_make_lmakeclosure
                           (local.get $handle)
-                          (i32.const 0)
+                          (local.get $fn_ir)
                           (local.get $caps)
                           (local.get $evs)))
     ;; Lock #1: wrap in LLet(handle, name, closure).

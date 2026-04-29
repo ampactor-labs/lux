@@ -1,14 +1,19 @@
   ;; ═══ walk_stmt_fn.wat — Hβ.lower trace-harness ═══════════════════
   ;; Executes: §4.3 + Lock #1/#2/#3 — FnStmt("double", [], _, _, LitInt(0))
-  ;;           → LLet tag 304 wrapping LMakeClosure tag 311 with caps/evs/fn=0.
+  ;;           → LLet tag 304 wrapping LMakeClosure tag 311 whose fn
+  ;;           field is LowFn("double", 0, [], [0], Pure).
 
   (data (i32.const 3072) "\05\00\00\00PASS:")
   (data (i32.const 3084) "\05\00\00\00FAIL:")
   (data (i32.const 3096) "\01\00\00\00 ")
   (data (i32.const 3104) "\01\00\00\00\0a")
   (data (i32.const 3120) "\0f\00\00\00walk_stmt_fn   ")
-  (data (i32.const 3152) "\11\00\00\00fn-not-LLET-304 ")
-  (data (i32.const 3192) "\1d\00\00\00fn-inner-not-LMAKECLOSURE-311 ")
+  (data (i32.const 3152) "\07\00\00\00bad-tag")
+  (data (i32.const 3164) "\08\00\00\00bad-name")
+  (data (i32.const 3176) "\0b\00\00\00bad-closure")
+  (data (i32.const 3192) "\09\00\00\00bad-lowfn")
+  (data (i32.const 3208) "\08\00\00\00bad-body")
+  (data (i32.const 3224) "\07\00\00\00bad-row")
   (data (i32.const 3232) "\06\00\00\00double")
 
   (func $_start (export "_start")
@@ -17,7 +22,8 @@
     (local $ret_lit i32) (local $ret_node i32)
     (local $body_lit i32) (local $body_node i32)
     (local $stmt_struct i32) (local $stmt_node i32)
-    (local $r i32) (local $closure i32)
+    (local $r i32) (local $closure i32) (local $fn_ir i32)
+    (local $body_list i32) (local $body_expr i32)
     (local.set $failed (i32.const 0))
     (call $graph_init)
     (call $env_init)
@@ -54,22 +60,87 @@
       (then
         (call $eprint_string (i32.const 3152))
         (call $eprint_string (i32.const 3104))
-        (local.set $failed (i32.const 1))))
+        (local.set $failed (i32.const 1)))
+      (else
+        (if (i32.eqz (call $str_eq
+                       (call $lexpr_llet_name (local.get $r))
+                       (i32.const 3232)))
+          (then
+            (call $eprint_string (i32.const 3164))
+            (call $eprint_string (i32.const 3104))
+            (local.set $failed (i32.const 1))))
 
-    ;; Verify inner is LMakeClosure (tag 311).
-    (local.set $closure (call $lexpr_llet_value (local.get $r)))
-    (if (i32.ne (call $tag_of (local.get $closure)) (i32.const 311))
-      (then
-        (call $eprint_string (i32.const 3192))
-        (call $eprint_string (i32.const 3104))
-        (local.set $failed (i32.const 1))))
+        ;; Verify inner is LMakeClosure (tag 311).
+        (local.set $closure (call $lexpr_llet_value (local.get $r)))
+        (if (i32.ne (call $tag_of (local.get $closure)) (i32.const 311))
+          (then
+            (call $eprint_string (i32.const 3176))
+            (call $eprint_string (i32.const 3104))
+            (local.set $failed (i32.const 1)))
+          (else
+            (if (i32.ne (call $len (call $lexpr_lmakeclosure_caps (local.get $closure))) (i32.const 0))
+              (then
+                (call $eprint_string (i32.const 3176))
+                (call $eprint_string (i32.const 3104))
+                (local.set $failed (i32.const 1))))
+            (if (i32.ne (call $len (call $lexpr_lmakeclosure_evs (local.get $closure))) (i32.const 0))
+              (then
+                (call $eprint_string (i32.const 3176))
+                (call $eprint_string (i32.const 3104))
+                (local.set $failed (i32.const 1))))
 
-    ;; Verify Lock #2 fn_ir=0.
-    (if (i32.ne (call $lexpr_lmakeclosure_fn (local.get $closure)) (i32.const 0))
-      (then
-        (call $eprint_string (i32.const 3192))
-        (call $eprint_string (i32.const 3104))
-        (local.set $failed (i32.const 1))))
+            ;; Verify the real LowFn payload.
+            (local.set $fn_ir (call $lexpr_lmakeclosure_fn (local.get $closure)))
+            (if (i32.ne (call $tag_of (local.get $fn_ir)) (i32.const 350))
+              (then
+                (call $eprint_string (i32.const 3192))
+                (call $eprint_string (i32.const 3104))
+                (local.set $failed (i32.const 1))))
+            (if (i32.eq (call $tag_of (local.get $fn_ir)) (i32.const 350))
+              (then
+                (if (i32.eqz (call $str_eq (call $lowfn_name (local.get $fn_ir)) (i32.const 3232)))
+                  (then
+                    (call $eprint_string (i32.const 3192))
+                    (call $eprint_string (i32.const 3104))
+                    (local.set $failed (i32.const 1))))
+                (if (i32.ne (call $lowfn_arity (local.get $fn_ir)) (i32.const 0))
+                  (then
+                    (call $eprint_string (i32.const 3192))
+                    (call $eprint_string (i32.const 3104))
+                    (local.set $failed (i32.const 1))))
+                (if (i32.ne (call $len (call $lowfn_params (local.get $fn_ir))) (i32.const 0))
+                  (then
+                    (call $eprint_string (i32.const 3192))
+                    (call $eprint_string (i32.const 3104))
+                    (local.set $failed (i32.const 1))))
+
+                (local.set $body_list (call $lowfn_body (local.get $fn_ir)))
+                (if (i32.ne (call $len (local.get $body_list)) (i32.const 1))
+                  (then
+                    (call $eprint_string (i32.const 3208))
+                    (call $eprint_string (i32.const 3104))
+                    (local.set $failed (i32.const 1))))
+                (if (i32.eq (call $len (local.get $body_list)) (i32.const 1))
+                  (then
+                    (local.set $body_expr (call $list_index (local.get $body_list) (i32.const 0)))
+                    (if (i32.ne (call $tag_of (local.get $body_expr)) (i32.const 300))
+                      (then
+                        (call $eprint_string (i32.const 3208))
+                        (call $eprint_string (i32.const 3104))
+                        (local.set $failed (i32.const 1))))
+                    (if (i32.eq (call $tag_of (local.get $body_expr)) (i32.const 300))
+                      (then
+                        (if (i32.ne (call $lexpr_lconst_value (local.get $body_expr)) (i32.const 0))
+                          (then
+                            (call $eprint_string (i32.const 3208))
+                            (call $eprint_string (i32.const 3104))
+                            (local.set $failed (i32.const 1))))))))
+
+                (if (i32.eqz (call $row_is_pure (call $lowfn_row (local.get $fn_ir))))
+                  (then
+                    (call $eprint_string (i32.const 3224))
+                    (call $eprint_string (i32.const 3104))
+                    (local.set $failed (i32.const 1))))))))))
 
     (if (local.get $failed)
       (then

@@ -5,7 +5,7 @@
   ;;             $lower_init + $ls_* helpers per §1.2 lines 204-223.
   ;; Exports:    $lower_init,
   ;;             $ls_bind_local, $ls_lookup_local, $ls_lookup_or_capture,
-  ;;             $ls_reset_function,
+  ;;             $ls_push_scope, $ls_pop_scope, $ls_reset_function,
   ;;             $lower_locals_len, $lower_captures_len
   ;; Uses:       $alloc (alloc.wat),
   ;;             $make_list / $list_set / $list_index / $list_extend_to /
@@ -236,6 +236,22 @@
                           (local.get $cap_entry)))
     (global.set $lower_captures_len_g (local.get $new_len))
     (local.get $cap_idx))
+
+  ;; ─── $ls_push_scope / $ls_pop_scope — lexical-scope checkpoints ───
+  ;; The seed's LowerCtx is still a flat locals ledger, but block / arm /
+  ;; pattern scopes need honest truncation rather than ambient leakage.
+  ;; Wheel parity uses a frame record's local_order length as the checkpoint;
+  ;; the seed projects that to the current logical locals length.
+  (func $ls_push_scope (result i32)
+    (call $lower_init)
+    (global.get $lower_locals_len_g))
+
+  (func $ls_pop_scope (param $checkpoint i32)
+    (call $lower_init)
+    (if (i32.le_u (local.get $checkpoint) (global.get $lower_locals_len_g))
+      (then
+        (global.set $lower_locals_len_g (local.get $checkpoint))
+        (global.set $lower_next_slot_g (local.get $checkpoint)))))
 
   ;; ─── $ls_reset_function — clear at FnStmt entry ────────────────────
   ;; Per Hβ-lower-substrate.md §1.2 lines 219-223 + wheel src/lower.nx:86-90

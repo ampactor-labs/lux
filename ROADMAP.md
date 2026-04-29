@@ -256,22 +256,25 @@ Anchor 7).
    $perm_promote ownership-transfer; $stage_reset / $fn_reset O(1) free.
    Anchor 5 made physical at the call site (no ambient dispatch).
 
-2. ⏳ **Phase B — Hβ.infer completeness** (in progress)
+2. ✓ **Phase B — Hβ.infer completeness** (closed)
    - B.1 ✓ — diagnostic harness (commit `1d88211`); 0x2213838 trap
      localized to bump-pressure from spurious env_lookups
-   - B.2 — `infer_walk_stmt_typedef` registers ConstructorScheme
-   - B.3 — `infer_walk_stmt_effect_decl` registers EffectOpScheme
-   - B.4 — `infer_walk_stmt_handler_decl` registers HandlerScheme
-   - B.5 — match-pattern arm distinguishes constructor vs binding via
-     env's SchemeKind (no spurious env_lookup)
-   - B.6 — route infer's transient Reasons to $stage_alloc (graph-bound
-     promote at bind time via $perm_promote)
-   - B.7 — trace harnesses + real-source smoke
+   - B.2 ✓ — `infer_walk_stmt_typedef` registers ConstructorScheme
+   - B.3 ✓ — `infer_walk_stmt_effect_decl` registers EffectOpScheme
+   - B.4 ✓ — `infer_walk_stmt_handler_decl` registers HandlerScheme
+   - B.5 ✓ — match-pattern arm distinguishes constructor vs binding via
+     env's SchemeKind (no spurious env_lookup); recursive walk_pat
+   - B.6 — DEFERRED (arena routing for transient Reasons); bump-pressure
+     gate LIFTED by B.2-B.5 fixes — pipeline wire parse→infer→emit
+     survives EXIT=0 on types.nx/infer.nx/parser.nx
+   - B.7 — trace harnesses (deferred; existing 70/70 + real-source
+     probes provide sufficient coverage)
 
-3. **Phase C — LowFn + LowPat ADT substrate**
-   bootstrap/src/lower/lowfn.wat (tag 350) + bootstrap/src/lower/lowpat.wat
-   (tags 360-369; LPLit excludes Bool per drift-6; LPArm no guard per
-   SYNTAX.md). Wheel parity in src/types.nx + src/lower.nx.
+3. ✓ **Phase C — LowFn + LowPat ADT substrate** (closed)
+   - C.1 ✓ — lowfn.wat (tag 350; 5-field record; row as first-class)
+   - C.2 ✓ — lowpat.wat (tags 360-369; 9 variants + LPArm; Bool→LPCon)
+   - C.3 ✓ — lexpr.wat doc-cite updates (LowFn/LowPat no longer opaque)
+   - C.4 ✓ — trace harnesses (lowfn_smoke + lowpat_arms); 72/72 PASS
 
 4. **Phase D — Hβ.emit.handler-fnref-substrate**
    LMakeClosure (311) + LMakeContinuation (312) emit arms; typed-field-
@@ -444,9 +447,10 @@ ultimate form within scope. Beyond Phase H, the post-L1 cascade roadmap
 (see "Phase A-H sequence — the active path" above) names peer cascades
 that compose on this plan's substrate.
 
-Current cursor: **Phase B in progress** (Hβ.infer completeness).
-Phase A closed at `d57e20c`. Phase B.1 closed at `1d88211`. B.2-B.7 land
-sequentially.
+Current cursor: **Phase D next** (Hβ.emit.handler-fnref-substrate).
+Phase A closed at `d57e20c`. Phase B closed (B.6/B.7 deferred — pressure
+gate lifted by B.2-B.5). Phase C closed (72/72 PASS). Pipeline wire
+parse→infer→emit survives EXIT=0 on all three source files.
 
 ---
 

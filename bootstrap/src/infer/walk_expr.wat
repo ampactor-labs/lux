@@ -242,10 +242,10 @@
   ;;   Alloc surface matures.
   ;; - Hβ.infer.docstring-reason: Documented Stmt arm omitted (parser
   ;;   doesn't emit Documented today; landing pre-DS.3).
-  ;; - Hβ.infer.walk_pat: Pat dispatch (PVar / PCon / PTuple / etc. per
-  ;;   spec 03) called from MatchExpr arm; lands as peer chunk before
-  ;;   walk_stmt.wat (let-stmts use patterns). Until then MatchExpr arm
-  ;;   skips the per-arm pattern walk and just unifies arm-bodies.
+  ;; - Hβ.infer.walk_pat: LANDED (Phase B.5 commit). $infer_walk_pat
+  ;;   dispatches PVar/PWild/PLit/PCon/PTuple/PList per spec 03;
+  ;;   called from MatchExpr arm + LetStmt arm. PCon threads
+  ;;   constructor field types to sub-patterns via TFun param extraction.
   ;; - Hβ.infer.match-exhaustive: exhaustiveness check
   ;;   (src/infer.nx:1709-1718) omitted at the seed; MatchExpr arm
   ;;   delegates to $infer_emit_pattern_inexhaustive on demand only.
@@ -835,11 +835,242 @@
     (call $env_scope_exit)
     (local.get $handle))
 
+  ;; ─── $infer_walk_pat — Phase B.5 ultimate-form pattern walk ─────────
+  ;;
+  ;; Recursive constructor-aware pattern walker. Dispatches on Pat tag
+  ;; (130-136 per parser_pat.wat). Called from MatchExpr arms + LetStmt.
+  ;;
+  ;; Eight interrogations:
+  ;;   1. Graph:      PCon unifies ctor result type with scrut_h.
+  ;;   2. Handler:    Direct seed call, recursive.
+  ;;   3. Verb:       N/A — structural.
+  ;;   4. Row:        Opaque per Hβ.infer.row-normalize.
+  ;;   5. Ownership:  Patterns INTRODUCE names (env_extend). No Consume.
+  ;;   6. Refinement: PCon carries tag_id via ConstructorScheme.
+  ;;   7. Gradient:   PVar is Forall([], TVar(h)) — monomorphic pin.
+  ;;   8. Reason:     PVar: Located(span, LetBinding(name, Inferred("pattern"))).
+  ;;
+  ;; Drift-6 closure: Bool match through PLit(LVBool), not PCon.
+  ;; Same dispatch path as any other literal pattern.
+  ;;
+  ;; Exports: $infer_walk_pat (called from walk_stmt.wat LetStmt arm).
+  (func $infer_walk_pat
+        (export "infer_walk_pat")
+        (param $pat i32) (param $scrut_h i32) (param $span i32)
+    (local $tag i32) (local $name i32) (local $reason i32)
+    (local $ctor_name i32) (local $sub_pats i32)
+    (local $binding i32) (local $scheme i32)
+    (local $ctor_ty i32) (local $ctor_tag i32)
+    (local $params i32) (local $result_ty i32) (local $result_h i32)
+    (local $n_params i32) (local $n_subs i32) (local $min_n i32)
+    (local $i i32) (local $sub_pat i32) (local $sub_h i32)
+    (local $tparam i32) (local $tp_ty i32)
+    (local $lit_val i32) (local $lit_tag i32)
+    (local $elems i32) (local $n_elems i32) (local $elem_h i32)
+    ;; PWild sentinel (131) — no binding, no unification.
+    (if (i32.eq (local.get $pat) (i32.const 131))
+      (then (return)))
+    ;; Below HEAP_BASE and not PWild → unknown sentinel; no-op.
+    (if (i32.lt_u (local.get $pat) (global.get $heap_base))
+      (then (return)))
+    (local.set $tag (call $tag_of (local.get $pat)))
+    ;; ── PVar (130) ──────────────────────────────────────────────
+    (if (i32.eq (local.get $tag) (i32.const 130))
+      (then
+        (local.set $name (i32.load offset=4 (local.get $pat)))
+        (local.set $reason (call $reason_make_located
+          (local.get $span)
+          (call $reason_make_letbinding (local.get $name)
+            (call $reason_make_inferred (i32.const 4032)))))  ;; "pattern"
+        (call $env_extend
+          (local.get $name)
+          (call $scheme_make_forall
+            (call $make_list (i32.const 0))
+            (call $ty_make_tvar (local.get $scrut_h)))
+          (local.get $reason)
+          (call $schemekind_make_fn))
+        (return)))
+    ;; ── PLit (132) ──────────────────────────────────────────────
+    (if (i32.eq (local.get $tag) (i32.const 132))
+      (then
+        (local.set $lit_val (i32.load offset=4 (local.get $pat)))
+        (local.set $lit_tag (call $tag_of (local.get $lit_val)))
+        (local.set $reason (call $reason_make_located
+          (local.get $span)
+          (call $reason_make_inferred (i32.const 4032))))  ;; "pattern"
+        (if (i32.eq (local.get $lit_tag) (i32.const 180))  ;; LVInt
+          (then
+            (call $graph_bind (local.get $scrut_h)
+              (call $ty_make_tint) (local.get $reason))
+            (return)))
+        (if (i32.eq (local.get $lit_tag) (i32.const 181))  ;; LVFloat
+          (then
+            (call $graph_bind (local.get $scrut_h)
+              (call $ty_make_tfloat) (local.get $reason))
+            (return)))
+        (if (i32.eq (local.get $lit_tag) (i32.const 182))  ;; LVString
+          (then
+            (call $graph_bind (local.get $scrut_h)
+              (call $ty_make_tstring) (local.get $reason))
+            (return)))
+        (if (i32.eq (local.get $lit_tag) (i32.const 183))  ;; LVBool
+          (then
+            (call $graph_bind (local.get $scrut_h)
+              (call $ty_make_tname (i32.const 3504)
+                (call $make_list (i32.const 0)))
+              (local.get $reason))
+            (return)))
+        (return)))
+    ;; ── PCon (133) — constructor-aware pattern ──────────────────
+    (if (i32.eq (local.get $tag) (i32.const 133))
+      (then
+        (local.set $ctor_name (i32.load offset=4 (local.get $pat)))
+        (local.set $sub_pats (i32.load offset=8 (local.get $pat)))
+        (local.set $binding (call $env_lookup (local.get $ctor_name)))
+        (if (i32.eqz (local.get $binding))
+          (then
+            ;; Constructor not in env — walk sub_pats with fresh handles
+            ;; (productive-under-error: inner PVar bindings still land).
+            (local.set $n_subs (call $len (local.get $sub_pats)))
+            (local.set $i (i32.const 0))
+            (block $miss_done
+              (loop $miss_each
+                (br_if $miss_done
+                  (i32.ge_u (local.get $i) (local.get $n_subs)))
+                (local.set $sub_h (call $graph_fresh_ty
+                  (call $reason_make_inferred (i32.const 4032))))
+                (call $infer_walk_pat
+                  (call $list_index (local.get $sub_pats) (local.get $i))
+                  (local.get $sub_h) (local.get $span))
+                (local.set $i (i32.add (local.get $i) (i32.const 1)))
+                (br $miss_each)))
+            (return)))
+        ;; Found — instantiate constructor's scheme.
+        (local.set $scheme
+          (call $env_binding_scheme (local.get $binding)))
+        (local.set $ctor_ty (call $instantiate (local.get $scheme)))
+        (local.set $ctor_tag (call $ty_tag (local.get $ctor_ty)))
+        (local.set $reason (call $reason_make_located
+          (local.get $span)
+          (call $reason_make_declared (local.get $ctor_name))))
+        ;; N-ary constructor: TFun(params, result_ty, row)
+        (if (i32.eq (local.get $ctor_tag) (i32.const 107))
+          (then
+            ;; Unify result type with scrutinee.
+            (local.set $result_ty
+              (call $ty_tfun_return (local.get $ctor_ty)))
+            (local.set $result_h
+              (call $graph_fresh_ty (local.get $reason)))
+            (call $graph_bind (local.get $result_h)
+              (local.get $result_ty) (local.get $reason))
+            (call $unify (local.get $result_h) (local.get $scrut_h)
+              (local.get $span) (local.get $reason))
+            ;; Walk sub-patterns with constructor field types.
+            (local.set $params
+              (call $ty_tfun_params (local.get $ctor_ty)))
+            (local.set $n_params (call $len (local.get $params)))
+            (local.set $n_subs (call $len (local.get $sub_pats)))
+            (local.set $min_n (local.get $n_params))
+            (if (i32.lt_u (local.get $n_subs) (local.get $min_n))
+              (then (local.set $min_n (local.get $n_subs))))
+            (local.set $i (i32.const 0))
+            (block $con_done
+              (loop $con_each
+                (br_if $con_done
+                  (i32.ge_u (local.get $i) (local.get $min_n)))
+                (local.set $tparam
+                  (call $list_index (local.get $params) (local.get $i)))
+                (local.set $tp_ty
+                  (call $tparam_ty (local.get $tparam)))
+                (local.set $sub_h
+                  (call $graph_fresh_ty (local.get $reason)))
+                (call $graph_bind (local.get $sub_h)
+                  (local.get $tp_ty) (local.get $reason))
+                (call $infer_walk_pat
+                  (call $list_index
+                    (local.get $sub_pats) (local.get $i))
+                  (local.get $sub_h) (local.get $span))
+                (local.set $i
+                  (i32.add (local.get $i) (i32.const 1)))
+                (br $con_each)))
+            (return)))
+        ;; Nullary constructor: unify ctor_ty with scrutinee.
+        (local.set $result_h
+          (call $graph_fresh_ty (local.get $reason)))
+        (call $graph_bind (local.get $result_h)
+          (local.get $ctor_ty) (local.get $reason))
+        (call $unify (local.get $result_h) (local.get $scrut_h)
+          (local.get $span) (local.get $reason))
+        (return)))
+    ;; ── PTuple (134) ────────────────────────────────────────────
+    (if (i32.eq (local.get $tag) (i32.const 134))
+      (then
+        (local.set $elems (i32.load offset=4 (local.get $pat)))
+        (local.set $n_elems (call $len (local.get $elems)))
+        (local.set $params (call $make_list (i32.const 0)))
+        (local.set $params
+          (call $list_extend_to (local.get $params) (local.get $n_elems)))
+        (local.set $i (i32.const 0))
+        (block $tup_done
+          (loop $tup_each
+            (br_if $tup_done
+              (i32.ge_u (local.get $i) (local.get $n_elems)))
+            (local.set $elem_h (call $graph_fresh_ty
+              (call $reason_make_inferred (i32.const 4032))))
+            (call $infer_walk_pat
+              (call $list_index (local.get $elems) (local.get $i))
+              (local.get $elem_h) (local.get $span))
+            (drop (call $list_set (local.get $params) (local.get $i)
+              (call $ty_make_tvar (local.get $elem_h))))
+            (local.set $i (i32.add (local.get $i) (i32.const 1)))
+            (br $tup_each)))
+        (local.set $result_h (call $graph_fresh_ty
+          (call $reason_make_inferred (i32.const 4032))))
+        (call $graph_bind (local.get $result_h)
+          (call $ty_make_ttuple (local.get $params))
+          (call $reason_make_located (local.get $span)
+            (call $reason_make_inferred (i32.const 4032))))
+        (call $unify (local.get $result_h) (local.get $scrut_h)
+          (local.get $span)
+          (call $reason_make_located (local.get $span)
+            (call $reason_make_inferred (i32.const 4032))))
+        (return)))
+    ;; ── PList (135) ─────────────────────────────────────────────
+    (if (i32.eq (local.get $tag) (i32.const 135))
+      (then
+        (local.set $elems (i32.load offset=4 (local.get $pat)))
+        (local.set $n_elems (call $len (local.get $elems)))
+        (local.set $elem_h (call $graph_fresh_ty
+          (call $reason_make_inferred (i32.const 4032))))
+        (local.set $i (i32.const 0))
+        (block $list_done
+          (loop $list_each
+            (br_if $list_done
+              (i32.ge_u (local.get $i) (local.get $n_elems)))
+            (call $infer_walk_pat
+              (call $list_index (local.get $elems) (local.get $i))
+              (local.get $elem_h) (local.get $span))
+            (local.set $i (i32.add (local.get $i) (i32.const 1)))
+            (br $list_each)))
+        (local.set $result_h (call $graph_fresh_ty
+          (call $reason_make_inferred (i32.const 4032))))
+        (call $graph_bind (local.get $result_h)
+          (call $ty_make_tlist
+            (call $ty_make_tvar (local.get $elem_h)))
+          (call $reason_make_located (local.get $span)
+            (call $reason_make_inferred (i32.const 4032))))
+        (call $unify (local.get $result_h) (local.get $scrut_h)
+          (local.get $span)
+          (call $reason_make_located (local.get $span)
+            (call $reason_make_inferred (i32.const 4032))))
+        (return)))
+    ;; ── PRecord (136) — peer follow-up Hβ.infer.walk_pat.record ─
+    ;; Record pattern field-name matching deferred to peer cascade.
+    )
+
   ;; MatchExpr arm — src/infer.nx:550-553 + 1701-1733. Walks scrutinee +
-  ;; each arm-body; unifies arm-body handles together. Pattern walk
-  ;; (Hβ.infer.walk_pat) + exhaustiveness check (Hβ.infer.match-exhaustive)
-  ;; are named follow-ups; seed treats arm-pat as opaque + skips
-  ;; exhaustiveness.
+  ;; each arm-body; pattern walk via $infer_walk_pat (B.5 landed);
+  ;; exhaustiveness check (Hβ.infer.match-exhaustive) is a named follow-up.
   (func $infer_walk_expr_match
         (export "infer_walk_expr_match")
         (param $expr i32) (param $handle i32) (param $span i32)
@@ -849,20 +1080,22 @@
     (local.set $scrut (i32.load offset=4 (local.get $expr)))
     (local.set $arms  (i32.load offset=8 (local.get $expr)))
     (local.set $sh (call $infer_walk_expr (local.get $scrut)))
-    (drop (local.get $sh))
     (call $infer_walk_expr_match_arms
-      (local.get $arms) (local.get $handle) (local.get $span))
+      (local.get $arms) (local.get $handle) (local.get $sh)
+      (local.get $span))
     (local.get $handle))
 
-  ;; MatchExpr arms iterator — for each arm: scope_enter, walk arm-body,
-  ;; unify body_h ↔ result_h, scope_exit. Mirrors src/infer.nx:1721-1731.
-  ;; The arm record's body field is at offset 8 ([tag][pat][body]) per
-  ;; parser's match-arm shape; verified at walk_stmt.wat landing.
+  ;; MatchExpr arms iterator — for each arm: scope_enter, walk pattern
+  ;; via $infer_walk_pat (B.5), walk arm-body, unify body_h ↔ result_h,
+  ;; scope_exit. Mirrors src/infer.nx:1721-1731.
+  ;; Arms are 2-tuple lists (pat, body) per parser_pat.wat:357-360.
   (func $infer_walk_expr_match_arms
         (export "infer_walk_expr_match_arms")
-        (param $arms i32) (param $result_h i32) (param $span i32)
+        (param $arms i32) (param $result_h i32) (param $scrut_h i32)
+        (param $span i32)
     (local $n i32) (local $i i32)
-    (local $arm i32) (local $body i32) (local $bh i32) (local $first i32)
+    (local $arm i32) (local $pat i32) (local $body i32)
+    (local $bh i32) (local $first i32)
     (local.set $n (call $len (local.get $arms)))
     (local.set $i (i32.const 0))
     (local.set $first (i32.const 1))
@@ -871,8 +1104,14 @@
         (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
         (local.set $arm (call $list_index (local.get $arms) (local.get $i)))
         (call $env_scope_enter)
-        ;; Pattern walk lands per Hβ.infer.walk_pat (peer follow-up).
-        (local.set $body (i32.load offset=8 (local.get $arm)))
+        ;; Walk pattern — binds PVar names into this arm's scope.
+        (local.set $pat
+          (call $list_index (local.get $arm) (i32.const 0)))
+        (call $infer_walk_pat
+          (local.get $pat) (local.get $scrut_h) (local.get $span))
+        ;; Walk body.
+        (local.set $body
+          (call $list_index (local.get $arm) (i32.const 1)))
         (local.set $bh (call $infer_walk_expr (local.get $body)))
         ;; First arm: bind result_h ↔ TVar(first_arm_h). Subsequent: unify.
         (if (local.get $first)
@@ -885,7 +1124,8 @@
                   (call $reason_make_inferred (i32.const 3584))))) ;; "result"
             (local.set $first (i32.const 0)))
           (else
-            (call $unify (local.get $bh) (local.get $result_h) (local.get $span)
+            (call $unify (local.get $bh) (local.get $result_h)
+              (local.get $span)
               (call $reason_make_matchbranch
                 (call $reason_make_inferred (i32.const 3864))
                 (call $reason_make_inferred (i32.const 3584))))))

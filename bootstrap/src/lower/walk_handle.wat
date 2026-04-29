@@ -82,11 +82,11 @@
   ;;
   ;; Lock #7: $lower_handler_arms_as_decls earns the abstraction this
   ;;          commit (third caller per Anchor 7 — chunks #5 + #7 cited
-  ;;          it; chunk #8 invokes it). For the seed, returns empty list
-  ;;          (LFn ADT not yet landed via Hβ.lower.lvalue-lowfn-lpat-
-  ;;          substrate); arm_records list (the {args, body, op_name}
-  ;;          form) IS populated this commit. Named follow-up
-  ;;          Hβ.lower.handler-arm-decls-substrate covers when LFn lands.
+  ;;          it; chunk #8 invokes it). With LowFn now substrate-live
+  ;;          (tag 350), handler arms lower as real
+  ;;          LDeclareFn(LowFn("op_" + op_name, ...)) entries per
+  ;;          src/lower.nx:745-755. arm_records list (the {args, body,
+  ;;          op_name} form) remains the paired metadata list for LHandle.
   ;;
   ;; Lock #8: arm-record shape {args, body, op_name} per src/lower.nx:742.
   ;;          Sorted-by-name discipline (Ω.5) → record offsets:
@@ -134,11 +134,10 @@
   ;;
   ;; 6. Refinement?  Transparent.
   ;;
-  ;; 7. Gradient?    LDeclareFn-per-arm IS the gradient substrate (deferred
-  ;;                 per Lock #7). Conservative empty-list seed; future
-  ;;                 enrichment cashes the >85% OneShot win to direct call
-  ;;                 when handler-arm-decls-substrate + tail-resumptive-
-  ;;                 discrimination land.
+  ;; 7. Gradient?    LDeclareFn-per-arm IS the gradient substrate made
+  ;;                 physical here. Each arm body becomes a named LowFn
+  ;;                 `op_<name>` declaration, which is exactly the shape
+  ;;                 emit reads to cash the OneShot direct-call path.
   ;;
   ;; 8. Reason?      Read-only. GNode at carried handle preserves Reason
   ;;                 chain. Emit walks back when surfacing handler-
@@ -150,7 +149,8 @@
   ;;                                  (if (i32.eq kind N) ...) chain — direct
   ;;                                  sentinel comparison; no table indirection.
   ;;                                  Handler arm dispatch via LDeclareFn list
-  ;;                                  + emit-time call_indirect at H1.4. NO
+  ;;                                  + emit-time direct call / call_indirect
+  ;;                                  split at H1.4. NO
   ;;                                  $op_table / $pipe_kind_table data segment.
   ;;                                  NO _lookup_pipe_kind_for_tag function.
   ;;                                  Word "vtable" appears NOWHERE except in
@@ -178,11 +178,9 @@
   ;;                                  if str_eq(pipe_kind_name, "PForward").
   ;;
   ;; - Drift 9 (deferred-by-omission): All 8 exports land FULLY BODIED.
-  ;;                                  $lower_handler_arms_as_decls returns
-  ;;                                  empty list per Lock #7 (LFn substrate
-  ;;                                  pending) — bodied with reasoning, not
-  ;;                                  silent stub. Named follow-ups make
-  ;;                                  deferred work visible.
+  ;;                                  $lower_handler_arms_as_decls returns a
+  ;;                                  fully populated LDeclareFn list per
+  ;;                                  Lock #7; no inert placeholder path.
   ;;
   ;; - Foreign fluency JS async/await: NEVER "promise" / "async" / "future"
   ;;                                  / "await". Vocabulary: LHandleWith /
@@ -204,10 +202,6 @@
   ;;             $mk_HandleExpr + $mk_PipeExpr in parser_infra.wat enable
   ;;             structured harness construction.
   ;;
-  ;;   - Hβ.lower.handler-arm-decls-substrate:
-  ;;             $lower_handler_arms_as_decls returns LDeclareFn list when
-  ;;             LFn ADT lands via Hβ.lower.lvalue-lowfn-lpat-substrate.
-  ;;
   ;;   - Hβ.lower.feedback-state-slot-allocation:
   ;;             Per LF §1.12 — when emit grows lower-time state-slot
   ;;             pre-allocation (currently emit-time per Lock #5).
@@ -227,21 +221,86 @@
   ;;             Wheel src/lower.nx:760 hardcodes EfPure on LFn for handler
   ;;             arms; row-on-arm propagation lands when wheel grows.
 
-  ;; ─── $lower_handler_arms_as_decls — Lock #7 third-caller (empty seed) ──
-  ;; Per src/lower.nx:751-762. Conservative seed default: returns empty
-  ;; list. The full LDeclareFn-per-arm substrate requires LFn ADT
-  ;; (named follow-up Hβ.lower.handler-arm-decls-substrate +
-  ;; Hβ.lower.lvalue-lowfn-lpat-substrate). This is NOT drift-9: the
-  ;; function exists at the named symbol; arm-records list (the
-  ;; {args, body, op_name} form) IS populated below; the LDeclareFn
-  ;; module-level decl substrate awaits LFn.
+  ;; Static data — lower-private string literals within the pre-heap
+  ;; region. 504-510 is free between emit/lookup.wat's 496 "op_" peer
+  ;; and lexer_data.wat's 512 " tokens, " string; we duplicate the
+  ;; literal locally so lowering stays self-contained and does not
+  ;; depend on emit-private offsets.
+  (data (i32.const 504) "\03\00\00\00op_")
+
+  ;; ─── $bind_handler_arg_names — bind each arm arg with sentinel 0 ───
+  ;; Per src/lower.nx:758-766. Handler-arm args do not currently thread
+  ;; per-param type handles into lower-time scope; the op signature
+  ;; carries them inferentially, so 0 stands as the seed's sentinel.
+  (func $bind_handler_arg_names (param $names i32)
+    (local $n i32) (local $i i32)
+    (call $lower_init)
+    (local.set $n (call $len (local.get $names)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (drop (call $ls_bind_local
+                (call $list_index (local.get $names) (local.get $i))
+                (i32.const 0)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each))))
+
+  ;; ─── $lower_handler_arm_body — scoped lowering shared by both paths ──
+  ;; Handler-arm args bind into the arm body's scope and MUST be popped
+  ;; after lowering so names do not leak into sibling arms.
+  (func $lower_handler_arm_body (param $args i32) (param $body_node i32) (result i32)
+    (local $cp i32) (local $lo_body i32)
+    (local.set $cp (call $ls_push_scope))
+    (call $bind_handler_arg_names (local.get $args))
+    (local.set $lo_body (call $lower_expr (local.get $body_node)))
+    (call $ls_pop_scope (local.get $cp))
+    (local.get $lo_body))
+
+  ;; ─── $lower_handler_arms_as_decls — Lock #7 real LDeclareFn list ───
+  ;; Per src/lower.nx:745-755. Each arm becomes
+  ;; LDeclareFn(LowFn("op_" + op_name, len(args), args, [lo_body], Pure)).
   (func $lower_handler_arms_as_decls (export "lower_handler_arms_as_decls")
         (param $arms i32) (result i32)
-    (call $make_list (i32.const 0)))
+    (local $n i32) (local $i i32) (local $buf i32)
+    (local $arm i32) (local $args i32) (local $body_node i32)
+    (local $op_name i32) (local $lo_body i32) (local $fn_name i32)
+    (local $fn_body i32) (local $fn_ir i32)
+    (local.set $n   (call $len (local.get $arms)))
+    (local.set $buf (call $make_list (i32.const 0)))
+    (local.set $buf (call $list_extend_to (local.get $buf) (local.get $n)))
+    (local.set $i   (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $arm       (call $list_index (local.get $arms) (local.get $i)))
+        (local.set $args      (call $record_get (local.get $arm) (i32.const 0)))
+        (local.set $body_node (call $record_get (local.get $arm) (i32.const 1)))
+        (local.set $op_name   (call $record_get (local.get $arm) (i32.const 2)))
+        (local.set $lo_body   (call $lower_handler_arm_body
+                                (local.get $args)
+                                (local.get $body_node)))
+        (local.set $fn_name   (call $str_concat (i32.const 504) (local.get $op_name)))
+        (local.set $fn_body   (call $make_list (i32.const 0)))
+        (local.set $fn_body   (call $list_extend_to (local.get $fn_body) (i32.const 1)))
+        (drop (call $list_set (local.get $fn_body) (i32.const 0) (local.get $lo_body)))
+        (local.set $fn_ir (call $lowfn_make
+                            (local.get $fn_name)
+                            (call $len (local.get $args))
+                            (local.get $args)
+                            (local.get $fn_body)
+                            (call $row_make_pure)))
+        (drop (call $list_set (local.get $buf) (local.get $i)
+                (call $lexpr_make_ldeclarefn (local.get $fn_ir))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each)))
+    (local.get $buf))
 
   ;; ─── $lower_handler_arms_records — chunk-private arm-record list ──
   ;; Per src/lower.nx:732-744 wheel canonical. Returns list of
   ;; {args, body, op_name} records (Lock #8) — alphabetical offsets 0/4/8.
+  ;; The body is lowered under the same scoped arg-bind discipline as
+  ;; the decl path so sibling arms stay lexically isolated.
   ;; Buffer-counter (Ω.3) — same discipline as walk_call's $lower_args.
   (func $lower_handler_arms_records (param $arms i32) (result i32)
     (local $n i32) (local $i i32) (local $buf i32)
@@ -258,7 +317,9 @@
         (local.set $args      (call $record_get (local.get $arm) (i32.const 0)))
         (local.set $body_node (call $record_get (local.get $arm) (i32.const 1)))
         (local.set $op_name   (call $record_get (local.get $arm) (i32.const 2)))
-        (local.set $lo_body   (call $lower_expr (local.get $body_node)))
+        (local.set $lo_body   (call $lower_handler_arm_body
+                                (local.get $args)
+                                (local.get $body_node)))
         ;; arm_rec = {args, body: lo_body, op_name} per Lock #8 alphabetical.
         ;; Tag 0 — chunk-private record (no $tag_of dispatch on arm-records;
         ;; only structural field access).
