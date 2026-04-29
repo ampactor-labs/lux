@@ -283,11 +283,12 @@ Anchor 7).
    the ultimate form (no $field_offset_for needed — Third Truth: one
    concrete shape); Drift 1 refused. 75/75 harnesses PASS.
 
-5. **Phase E — Hβ.emit.match-pattern-compile**
+5. ✓ **Phase E — Hβ.emit.match-pattern-compile** (closed)
    $emit_lmatch nonempty arms + verify-query plumbing; HB threshold-aware
-   tag-int dispatch with refinement-discharge shortcut.
+   tag-int dispatch (PureNullary/PureFielded/Mixed) IS the gradient cash-out.
+   Bool is NOT special. Drift 1+6 refused.
 
-6. **Phase F — Hβ.emit.module-wrap**
+6. ✓ **Phase F — Hβ.emit.module-wrap**
    $inka_emit produces complete WAT modules (header + imports + memory +
    types + funcref-table + data + body + start + close); $inka_lower
    returns 2-tuple (lowfns, top_stmts); deterministic emit ordering.

@@ -19799,10 +19799,10 @@
   ;;   333 LEvPerform    → $emit_levperform     (chunk #7 retrofit)
   ;;   334 LFieldLoad    → $emit_lfieldload     (chunk #4 retrofit)
   ;;
-  ;; Tags 311 (LMakeClosure) + 312 (LMakeContinuation) trap
-  ;; (unreachable) — they require LowFn record substrate per named
-  ;; peer Hβ.lower.lowfn-substrate; the LFn-bearing emit arms land in
-  ;; named peer Hβ.emit.handler-fnref-substrate after that.
+  ;; Tags 311 (LMakeClosure) + 312 (LMakeContinuation) are now live:
+  ;; Hβ.lower.lowfn-substrate (Phase C) materialized LowFn record;
+  ;; Hβ.emit.handler-fnref-substrate (Phase D) closed here with
+  ;; $emit_lmakeclosure + $emit_lmakecontinuation in emit_handler.wat.
   ;;
   ;; Drift 1 refusal: direct (i32.eq $tag N) dispatch; NO $emit_arm_table
   ;; data segment, NO closure-record-of-fn-pointers. The word "vtable"
@@ -19833,9 +19833,13 @@
     (if (i32.eq (local.get $tag) (i32.const 309))
       (then (call $emit_ltailcall    (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 310))
-      (then (call $emit_lreturn      (local.get $r)) (return)))
+      (then (call $emit_lreturn          (local.get $r)) (return)))
+    (if (i32.eq (local.get $tag) (i32.const 311))
+      (then (call $emit_lmakeclosure     (local.get $r)) (return)))
+    (if (i32.eq (local.get $tag) (i32.const 312))
+      (then (call $emit_lmakecontinuation (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 313))
-      (then (call $emit_ldeclarefn   (local.get $r)) (return)))
+      (then (call $emit_ldeclarefn       (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 314))
       (then (call $emit_lif          (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 315))
@@ -21624,6 +21628,50 @@
     (call $emit_int  (local.get $h))
     (call $emit_byte (i32.const 41)))
 
+  ;; ─── ec8: helpers for LMakeClosure / LMakeContinuation ─────────────
+  ;; These helpers materialize because Phase D lands here — the two
+  ;; LFn-bearing arms (tags 311-312) now have a truthful LowFn substrate
+  ;; to read from (Hβ.lower.lowfn-substrate, Phase C). Drift-1-safe:
+  ;; fn_ptr is an i32 field in the closure record at offset 0, emitted
+  ;; as (global.get $<name>_idx). NO vtable; NO op_table.
+
+  (func $ec8_emit_global_get_name_idx (param $name i32)
+    ;; emits: (global.get $<name>_idx)
+    ;; The i32 table-index slot for the closure's target fn.
+    (call $emit_byte (i32.const 40)) (call $emit_byte (i32.const 103))
+    (call $emit_byte (i32.const 108)) (call $emit_byte (i32.const 111))
+    (call $emit_byte (i32.const 98))  (call $emit_byte (i32.const 97))
+    (call $emit_byte (i32.const 108)) (call $emit_byte (i32.const 46))
+    (call $emit_byte (i32.const 103)) (call $emit_byte (i32.const 101))
+    (call $emit_byte (i32.const 116)) (call $emit_byte (i32.const 32))
+    (call $emit_byte (i32.const 36))
+    (call $emit_str (local.get $name))
+    (call $emit_byte (i32.const 95))  (call $emit_byte (i32.const 105))
+    (call $emit_byte (i32.const 100)) (call $emit_byte (i32.const 120))
+    (call $emit_byte (i32.const 41)))
+
+  (func $ec8_emit_local_get_state_tmp
+    ;; emits: (local.get $state_tmp)
+    ;; Reuses emit_call.wat's data segment at 2244 (length-prefix "state_tmp").
+    (call $ec_emit_local_get_dollar (i32.const 2244)))
+
+  (func $ec8_emit_cap_stores (param $caps i32) (param $base_off i32)
+    ;; Emit one (local.get $state_tmp) + <elem> + (i32.store offset=N)
+    ;; triple per element, at consecutive offsets from base_off.
+    ;; Each elem is a LowExpr — emitted via $emit_lexpr.
+    (local $n i32) (local $i i32)
+    (local.set $n (call $len (local.get $caps)))
+    (local.set $i (i32.const 0))
+    (block $done (loop $loop
+      (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+      (call $ec8_emit_local_get_state_tmp)
+      (call $emit_lexpr (call $list_index (local.get $caps) (local.get $i)))
+      (call $ec_emit_i32_store_offset
+        (i32.add (local.get $base_off)
+                 (i32.mul (local.get $i) (i32.const 4))))
+      (local.set $i (i32.add (local.get $i) (i32.const 1)))
+      (br $loop))))
+
   ;; ─── $emit_llet — LLet tag 304 emit arm per §2.5 ───────────────────
   ;; Per src/backends/wasm.nx:1147-1152: sub-emit value + "(local.set
   ;; $<name>)". Lock #6 separation: ResumeExpr→LReturn (not LLet);
@@ -21736,6 +21784,108 @@
     (call $el_emit_local_get_state)
     (call $el_emit_i32_load_offset (local.get $offset))
     (call $ec6_emit_call_indirect_ftN (call $len (local.get $args))))
+
+  ;; ─── $emit_lmakeclosure — LMakeClosure tag 311 emit arm ─────────────
+  ;; Hβ.emit.handler-fnref-substrate — Phase D closed here.
+  ;; Per src/backends/wasm.nx:1207-1244 + H1 evidence reification.
+  ;;
+  ;; LMakeClosure(_h, LFn(fn_name,...), captures, ev_slots):
+  ;;   closure record — __state IS this record:
+  ;;     offset 0:           fn_ptr (i32) — $<fn_name>_idx table entry
+  ;;     offset 4:           capture_count (i32) — nc, the evidence fence
+  ;;     offset 8+4*i:       capture_i
+  ;;     offset 8+4*nc+4*j:  ev_slot_j (handler arm fn table index)
+  ;;
+  ;; Handler IS state. Evidence slots ARE fields. One record, one story.
+  ;; Drift 1 refusal: fn_ptr is an i32 field — NOT a vtable entry.
+  (func $emit_lmakeclosure (param $r i32)
+    (local $fn_r i32) (local $fn_name i32)
+    (local $caps i32) (local $evs i32)
+    (local $nc i32)   (local $ne i32)
+    (local.set $fn_r    (call $lexpr_lmakeclosure_fn   (local.get $r)))
+    (local.set $fn_name (call $lowfn_name (local.get $fn_r)))
+    (local.set $caps    (call $lexpr_lmakeclosure_caps (local.get $r)))
+    (local.set $evs     (call $lexpr_lmakeclosure_evs  (local.get $r)))
+    (local.set $nc (call $len (local.get $caps)))
+    (local.set $ne (call $len (local.get $evs)))
+    ;; Alloc 8 + 4*(nc+ne) bytes → $state_tmp.
+    (call $emit_alloc
+      (i32.add (i32.const 8)
+               (i32.mul (i32.const 4) (i32.add (local.get $nc) (local.get $ne))))
+      (i32.const 2244))
+    ;; Store fn_ptr at offset 0.
+    (call $ec8_emit_local_get_state_tmp)
+    (call $ec8_emit_global_get_name_idx (local.get $fn_name))
+    (call $ec_emit_i32_store_offset (i32.const 0))
+    ;; Store capture_count at offset 4 — the evidence fence.
+    (call $ec8_emit_local_get_state_tmp)
+    (call $emit_i32_const (local.get $nc))
+    (call $ec_emit_i32_store_offset (i32.const 4))
+    ;; Store captures at offsets 8, 12, 16, ...
+    (call $ec8_emit_cap_stores (local.get $caps) (i32.const 8))
+    ;; Store ev_slots at offsets 8+4*nc, 8+4*nc+4, ...
+    (call $ec8_emit_cap_stores (local.get $evs)
+      (i32.add (i32.const 8) (i32.mul (local.get $nc) (i32.const 4))))
+    ;; Result: closure pointer on stack.
+    (call $ec8_emit_local_get_state_tmp))
+
+  ;; ─── $emit_lmakecontinuation — LMakeContinuation tag 312 emit arm ───
+  ;; Per src/backends/wasm.nx:1247-1308 + H7 §4.2 multi-shot layout.
+  ;;
+  ;; LMakeContinuation(_h, LFn(resume_name,...), caps, evs, state_idx, ret_slot):
+  ;;   continuation record — THE MENTL ORACLE SUBSTRATE at WAT:
+  ;;     offset 0:             fn_ptr — resume_fn table index
+  ;;     offset 4:             state_index — perform-site discriminator
+  ;;     offset 8:             capture_count — nc, evidence fence
+  ;;     offset 12+4*i:        capture_i
+  ;;     offset 12+4*nc+4*j:   ev_slot_j
+  ;;     offset 12+4*(nc+ne):  ret_slot — landing slot for resumed value
+  ;;
+  ;; Multi-shot: same record resumed multiple times. Mentl's exploration
+  ;; forks here. Evidence-safe: ev_slots are fields, read at call_indirect.
+  (func $emit_lmakecontinuation (param $r i32)
+    (local $fn_r i32) (local $fn_name i32)
+    (local $caps i32) (local $evs i32)
+    (local $nc i32)   (local $ne i32)
+    (local $state_idx i32) (local $ret_slot i32)
+    (local.set $fn_r      (call $lexpr_lmakecontinuation_fn        (local.get $r)))
+    (local.set $fn_name   (call $lowfn_name (local.get $fn_r)))
+    (local.set $caps      (call $lexpr_lmakecontinuation_caps      (local.get $r)))
+    (local.set $evs       (call $lexpr_lmakecontinuation_evs       (local.get $r)))
+    (local.set $state_idx (call $lexpr_lmakecontinuation_state_idx (local.get $r)))
+    (local.set $ret_slot  (call $lexpr_lmakecontinuation_ret_slot  (local.get $r)))
+    (local.set $nc (call $len (local.get $caps)))
+    (local.set $ne (call $len (local.get $evs)))
+    ;; Alloc 16 + 4*(nc+ne) bytes (12 header + ret_slot = 16 base).
+    (call $emit_alloc
+      (i32.add (i32.const 16)
+               (i32.mul (i32.const 4) (i32.add (local.get $nc) (local.get $ne))))
+      (i32.const 2244))
+    ;; Store fn_ptr at offset 0.
+    (call $ec8_emit_local_get_state_tmp)
+    (call $ec8_emit_global_get_name_idx (local.get $fn_name))
+    (call $ec_emit_i32_store_offset (i32.const 0))
+    ;; Store state_index at offset 4 (perform-site discriminator per H7 §4.2).
+    (call $ec8_emit_local_get_state_tmp)
+    (call $emit_i32_const (local.get $state_idx))
+    (call $ec_emit_i32_store_offset (i32.const 4))
+    ;; Store capture_count at offset 8.
+    (call $ec8_emit_local_get_state_tmp)
+    (call $emit_i32_const (local.get $nc))
+    (call $ec_emit_i32_store_offset (i32.const 8))
+    ;; Store captures at offsets 12, 16, 20, ...
+    (call $ec8_emit_cap_stores (local.get $caps) (i32.const 12))
+    ;; Store ev_slots at offsets 12+4*nc, ...
+    (call $ec8_emit_cap_stores (local.get $evs)
+      (i32.add (i32.const 12) (i32.mul (local.get $nc) (i32.const 4))))
+    ;; Store ret_slot at offset 12+4*(nc+ne).
+    (call $ec8_emit_local_get_state_tmp)
+    (call $emit_i32_const (local.get $ret_slot))
+    (call $ec_emit_i32_store_offset
+      (i32.add (i32.const 12)
+               (i32.mul (i32.const 4) (i32.add (local.get $nc) (local.get $ne)))))
+    ;; Result: continuation pointer on stack.
+    (call $ec8_emit_local_get_state_tmp))
 
   ;; ═══ main.wat — Hβ.emit pipeline-stage boundary (Tier 9) ═══════════════
   ;; Hβ.emit cascade chunk #8 of 8 per Hβ-emit-substrate.md §7.1
