@@ -15,7 +15,8 @@
 
 CHUNKS=(
   # ── Layer 1: Runtime substrate (Wave 2.A factored) ──
-  "bootstrap/src/runtime/alloc.wat"      # Tier 0
+  "bootstrap/src/runtime/arena.wat"      # Tier 0 (Hβ-arena §6.3 — perm/stage/fn arenas + reset; alloc.wat dispatches through $current_arena_stage)
+  "bootstrap/src/runtime/alloc.wat"      # Tier 0 (dispatches to arena allocators via $current_arena_stage)
   "bootstrap/src/runtime/str.wat"        # Tier 1 (uses $alloc)
   "bootstrap/src/runtime/wasi.wat"       # Tier 1 (uses $alloc + $str_*)
   "bootstrap/src/runtime/int.wat"        # Tier 1 (uses $alloc + $str_*)

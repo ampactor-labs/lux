@@ -31,7 +31,8 @@
 # verify ordering is consistent + imports resolve in priors.
 
 chunk	tier	status	hβ_section	exports	uses
-alloc.wat	0	✓	§1.1	$alloc	$heap_ptr (shell)
+arena.wat	0	✓	Hβ-arena §1 + §1.2 + §1.3 + §4 — three EXPLICIT allocators (perm/stage/fn) + reset primitives + $perm_promote ownership-transfer; NO ambient state, NO dispatch (Anchor 0 ultimate form per call-site explicit lifetime)	$perm_alloc $stage_alloc $fn_alloc $stage_reset $fn_reset $perm_promote	$heap_ptr (shell)
+alloc.wat	0	✓	§1.1 — stable public name $alloc as a thin alias for $perm_alloc (long-lived default lifetime)	$alloc	$perm_alloc (arena.wat)
 wasi.wat	1	✓	§1.15	$print_string $eprint_string $read_all_stdin	$alloc $str_alloc $str_len $str_concat $wasi_fd_read $wasi_fd_write
 str.wat	1	✓	§1.6	$str_alloc $str_len $byte_at $byte_len $str_eq $str_concat $str_slice $str_compare	$alloc
 int.wat	1	✓	§1.6	$str_of_byte $str_from_mem $int_to_str $parse_int	$alloc $str_alloc $str_len $byte_at
