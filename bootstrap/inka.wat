@@ -17372,6 +17372,737 @@
         (param $stmts i32) (result i32)
     (call $lower_program (local.get $stmts)))
 
+  ;; ═══ state.wat — Hβ.emit emit-time state ledger (Tier 4) ════════════
+  ;; Implements: Hβ-emit-substrate.md §0.6 (emit IS one handler-on-graph)
+  ;;             + §3 lines 400-413 (H1.4 single-handler-per-op naming +
+  ;;             funcref-table layout) + §3.5 lines 324-396 (EmitMemory
+  ;;             swap surface — seed defaults to bump strategy structurally)
+  ;;             + §5.1 lines 444-454 (eight interrogations at dispatcher)
+  ;;             + §7.1 lines 502-524 (chunk file layout — first chunk).
+  ;; Exports:    $emit_init,
+  ;;             $emit_funcref_register, $emit_funcref_lookup,
+  ;;             $emit_funcref_count, $emit_funcref_at,
+  ;;             $emit_set_body_context, $emit_body_captures_count,
+  ;;             $emit_body_evidence, $emit_body_evidence_len,
+  ;;             $emit_string_intern, $emit_string_lookup,
+  ;;             $emit_string_table_count, $emit_string_table_at,
+  ;;             $emit_fn_reset
+  ;; Uses:       $alloc (alloc.wat),
+  ;;             $make_list / $list_set / $list_index / $list_extend_to /
+  ;;             $len (list.wat),
+  ;;             $make_record / $record_get / $record_set (record.wat),
+  ;;             $str_eq / $str_len (str.wat)
+  ;; Test:       bootstrap/test/emit/state_init.wat (this commit)
+  ;;
+  ;; What this scratchpad IS (per Hβ-emit-substrate.md §0.6 + §3 + §3.5
+  ;; + wheel canonical src/backends/wasm.nx:117-128 + 945-978):
+  ;;   The emit walk needs THREE pieces of context across recursive
+  ;;   emit_lexpr calls. Per spec 05 §Emitter handoff + Anchor 4 wheel
+  ;;   parity (src/backends/wasm.nx 87 functions): emit-time state is
+  ;;   the seed projection of the wheel's `body_context` +
+  ;;   `string_table` handlers-with-state plus the implicit
+  ;;   `collect_fn_names` pre-pass result.
+  ;;
+  ;;   1. Funcref-table accumulator (per §3 H1.4) — flat list of fn
+  ;;      name str_ptrs. Append-only across the whole emit pass; emit
+  ;;      reads at table-section emission via $emit_funcref_at(idx).
+  ;;      Mirror of wheel's collect_fn_names sweep (lines 444-475)
+  ;;      flattened across emit_handler.wat / emit_call.wat append
+  ;;      sites. NOT a vtable (Drift 1 refusal); the table IS the
+  ;;      dispatch substrate per kernel primitive #2 Handlers — closure
+  ;;      record's fn_idx field + call_indirect IS the dispatch.
+  ;;
+  ;;   2. Body-context (per §5.2 + wheel src/backends/wasm.nx:960-961
+  ;;      set_body_captures + set_body_evidence) — current fn's
+  ;;      captures_count (the H1 fence between captures and evidence
+  ;;      in __state) + evidence list (H1.6 LEvPerform offset
+  ;;      arithmetic; list of fn_idx ints per evidence slot). Reset
+  ;;      at fn-emit boundary via $emit_fn_reset.
+  ;;
+  ;;   3. String-intern table (per W5 + wheel src/backends/wasm.nx:
+  ;;      117-128 string_table handler + 194-198 collect_string_literals
+  ;;      pre-pass) — flat list of STRING_INTERN_ENTRY records (tag
+  ;;      360, arity 2: str_ptr + offset_int). Append-on-miss via
+  ;;      $emit_string_intern; lookup-or-fail via $emit_string_lookup.
+  ;;      Persists program-wide; $emit_fn_reset does NOT clear it.
+  ;;
+  ;; Eight interrogations (per Hβ-emit-substrate.md §5.1 + §3.1-§3.5
+  ;; of this commit's plan):
+  ;;   1. Graph?       state.wat does not chase. Funcref-table holds
+  ;;                   name strings (downstream emit reads via
+  ;;                   $emit_funcref_at); body-context evidence holds
+  ;;                   fn_idx ints; string-intern holds (str, offset)
+  ;;                   pairs — none chase the graph.
+  ;;   2. Handler?     Wheel's body_context (set_body_captures /
+  ;;                   set_body_evidence at src/backends/wasm.nx:960-
+  ;;                   961, @resume=OneShot) + string_table (lines
+  ;;                   117-128, @resume=OneShot). Seed projection: direct
+  ;;                   $emit_* functions; the wheel compiles handler-
+  ;;                   shape from src/backends/wasm.nx.
+  ;;   3. Verb?        N/A at substrate level.
+  ;;   4. Row?         EfPure — state.wat performs no effect ops.
+  ;;                   Wheel's body_context composes with WasmOut +
+  ;;                   Diagnostic per spec 05; seed elides row machinery.
+  ;;   5. Ownership?   Funcref-table OWNS by emit pass; body-context
+  ;;                   replaced per fn at $emit_set_body_context;
+  ;;                   string-intern OWNS by emit pass. Length-only
+  ;;                   reset at $emit_fn_reset for body-context only;
+  ;;                   funcref + string tables persist program-wide
+  ;;                   per wheel canonical (emit_module builds them
+  ;;                   once at lines 162-185).
+  ;;   6. Refinement?  N/A — refinements verify-ledger-side, not emit.
+  ;;   7. Gradient?    Funcref-table IS where H1.4 single-handler-per-op
+  ;;                   becomes physical at WAT — each registered fn is
+  ;;                   one direct-call-eligible entry; LSuspend's
+  ;;                   call_indirect reads from this same table. The
+  ;;                   row inference's monomorphic-vs-polymorphic
+  ;;                   gradient cashes out at chunk #6 emit_call.wat
+  ;;                   reading these.
+  ;;   8. Reason?      Read-only via graph; state.wat carries no Reason
+  ;;                   data. Mentl's Why-Engine (Arc F.6) walks GNode
+  ;;                   chains at handles downstream chunks receive —
+  ;;                   emit-state is invisible to Why.
+  ;;
+  ;; Forbidden patterns audited (per Hβ-emit-substrate.md §6 + project
+  ;; drift modes):
+  ;;   - Drift 1 (Rust vtable):           NO closure-record-of-functions;
+  ;;                                      $emit_* are direct fns. Funcref-
+  ;;                                      table IS the dispatch substrate
+  ;;                                      per primitive #2 Handlers; the
+  ;;                                      word "vtable" appears nowhere.
+  ;;   - Drift 5 (C calling convention):  NO separate __closure/__ev split;
+  ;;                                      body-context's evidence list is
+  ;;                                      stored as a single list ptr +
+  ;;                                      length, mirroring how the wheel
+  ;;                                      passes it as one List parameter.
+  ;;   - Drift 7 (parallel-arrays):       String-intern uses STRING_INTERN_
+  ;;                                      ENTRY records (tag 360, arity 2)
+  ;;                                      — NOT parallel keys-ptr + offsets-
+  ;;                                      ptr arrays. Funcref-table stores
+  ;;                                      raw str_ptrs in one list (single-
+  ;;                                      field; no record wrap ceremony per
+  ;;                                      wheel collect_fn_names shape).
+  ;;   - Drift 8 (string-keyed-as-flag):  Tag region 360-379 is integer
+  ;;                                      constants reserved emit-private;
+  ;;                                      idempotent flag is i32 0/1 boolean.
+  ;;   - Drift 9 (deferred-by-omission):  Every $emit_* helper has its body;
+  ;;                                      no silent stubs. The string-intern
+  ;;                                      handler-shape that the wheel uses
+  ;;                                      composes structurally identical
+  ;;                                      with seed's direct fn — no peer
+  ;;                                      handle deferred.
+  ;;   - Foreign fluency:                 Vocabulary stays Inka — "table"
+  ;;                                      (WAT-native), "intern table"
+  ;;                                      (W5-native), "body context"
+  ;;                                      (wheel-native). NOT "registry" /
+  ;;                                      "cache" / "manager."
+  ;;
+  ;; Tag region: emit-private 360-379.
+  ;;   360   STRING_INTERN_ENTRY_TAG  — (str_ptr, offset_int) 2-field
+  ;;   361-379 reserved for future emit-substrate records
+  ;;
+  ;; Named follow-ups (per Drift 9 + Hβ-emit-substrate.md §10):
+  ;;   - Hβ.emit.evidence-slot-naming:  full op_<name>_idx naming
+  ;;                                    convention per H1.4; ties to
+  ;;                                    emit_handler.wat funcref-table
+  ;;                                    layout. body-context evidence
+  ;;                                    list currently holds raw fn_idx
+  ;;                                    ints; named-follow-up resolves
+  ;;                                    the per-op naming.
+  ;;   - Hβ.emit.string-intern-pre-pass: wheel does
+  ;;                                    collect_string_literals as a
+  ;;                                    SEPARATE pre-pass (src/backends/
+  ;;                                    wasm.nx:194-198) before
+  ;;                                    emit_string_data emits all data
+  ;;                                    segments. Seed currently runs
+  ;;                                    intern lazily per LConst(LString)
+  ;;                                    arm; chunk #9 main.wat closes
+  ;;                                    via call $emit_string_data
+  ;;                                    flushing the table — substrate
+  ;;                                    matches wheel structurally.
+
+  ;; ─── Module-level globals (per §2.6 of plan + wheel canonical) ──────
+
+  ;; $emit_initialized — idempotent init flag.
+  (global $emit_initialized              (mut i32) (i32.const 0))
+
+  ;; Funcref-table accumulator. Flat list of fn name str_ptrs registered
+  ;; via $emit_funcref_register (one per LDeclareFn / LMakeClosure /
+  ;; LMakeContinuation emit per H1.4 single-handler-per-op naming).
+  ;; Length tracked separately per buffer-counter substrate (Ω.3); buffer
+  ;; grows via $list_extend_to as length crosses capacity. Mirror of
+  ;; wheel collect_fn_names result shape (src/backends/wasm.nx:444-475).
+  (global $emit_funcref_table_ptr        (mut i32) (i32.const 0))
+  (global $emit_funcref_table_len_g      (mut i32) (i32.const 0))
+
+  ;; Body-context: captures_count + evidence list. Per wheel
+  ;; src/backends/wasm.nx:960-961 set_body_captures + set_body_evidence
+  ;; perform sites + H1 closure-record fence (offset 8 + 4*nc + 4*j) +
+  ;; H1.6 LEvPerform offset arithmetic. Replaced per fn at
+  ;; $emit_set_body_context; cleared at $emit_fn_reset.
+  (global $emit_body_captures_count_g    (mut i32) (i32.const 0))
+  (global $emit_body_evidence_ptr        (mut i32) (i32.const 0))
+  (global $emit_body_evidence_len_g      (mut i32) (i32.const 0))
+
+  ;; String-intern table. Flat list of STRING_INTERN_ENTRY records
+  ;; (tag 360, arity 2: str_ptr + offset_int). Per W5 + wheel
+  ;; src/backends/wasm.nx:117-128 string_table handler + 194-198
+  ;; collect_string_literals pre-pass. Persists program-wide;
+  ;; $emit_fn_reset does NOT clear it. Initial offset 65536 per wheel
+  ;; comment (line 191) — sits above static-closure region at 0x100
+  ;; and below bump heap at 1MB.
+  (global $emit_string_table_ptr         (mut i32) (i32.const 0))
+  (global $emit_string_table_len_g       (mut i32) (i32.const 0))
+  (global $emit_strings_next_offset_g    (mut i32) (i32.const 65536))
+
+  ;; ─── Idempotent initializer (mirrors $lower_init / $infer_init) ────
+  ;; Per the seed's discipline for module-level state chunks: every
+  ;; public entry calls $emit_init first; subsequent calls no-op.
+  ;; Initial capacity 8 per buffer; $list_extend_to grows on demand.
+  ;; Initial body-context evidence list is also size-8 — empty fns
+  ;; (top-level body-less functions) install (0, empty_list, 0) via
+  ;; $emit_set_body_context per Hβ-emit §3 H1 closure-record discipline.
+  (func $emit_init
+    (if (i32.eqz (global.get $emit_initialized))
+      (then
+        (global.set $emit_funcref_table_ptr     (call $make_list (i32.const 8)))
+        (global.set $emit_funcref_table_len_g   (i32.const 0))
+        (global.set $emit_body_captures_count_g (i32.const 0))
+        (global.set $emit_body_evidence_ptr     (call $make_list (i32.const 8)))
+        (global.set $emit_body_evidence_len_g   (i32.const 0))
+        (global.set $emit_string_table_ptr      (call $make_list (i32.const 8)))
+        (global.set $emit_string_table_len_g    (i32.const 0))
+        (global.set $emit_strings_next_offset_g (i32.const 65536))
+        (global.set $emit_initialized           (i32.const 1)))))
+
+  ;; ─── $emit_funcref_register — append name; return assigned index ───
+  ;; Per Hβ-emit-substrate.md §3 H1.4 + wheel src/backends/wasm.nx:444-475
+  ;; collect_fn_names + 583-619 emit_fn_table + emit_fn_index_globals.
+  ;; De-dup via $str_eq scan; if name already present return its existing
+  ;; index. Otherwise append and return new index. Seed convention: the
+  ;; index assigned here matches the slot in the eventual (elem $fns ...)
+  ;; emission and the i32 value of (global $<name>_idx).
+  (func $emit_funcref_register (param $name i32) (result i32)
+    (local $existing i32) (local $new_idx i32) (local $new_len i32)
+    (call $emit_init)
+    (local.set $existing (call $emit_funcref_lookup (local.get $name)))
+    (if (i32.ge_s (local.get $existing) (i32.const 0))
+      (then (return (local.get $existing))))
+    (local.set $new_idx (global.get $emit_funcref_table_len_g))
+    (local.set $new_len (i32.add (local.get $new_idx) (i32.const 1)))
+    (global.set $emit_funcref_table_ptr
+      (call $list_extend_to (global.get $emit_funcref_table_ptr) (local.get $new_len)))
+    (drop (call $list_set (global.get $emit_funcref_table_ptr)
+                          (local.get $new_idx)
+                          (local.get $name)))
+    (global.set $emit_funcref_table_len_g (local.get $new_len))
+    (local.get $new_idx))
+
+  ;; ─── $emit_funcref_lookup — index if name registered; -1 otherwise ─
+  ;; Walks start-to-end (insertion order matches funcref-table emission
+  ;; order). Returns -1 (i32 -1 = 0xFFFFFFFF tested via i32.lt_s by
+  ;; callers) when not found.
+  (func $emit_funcref_lookup (param $name i32) (result i32)
+    (local $i i32) (local $n i32) (local $entry_name i32)
+    (call $emit_init)
+    (local.set $i (i32.const 0))
+    (local.set $n (global.get $emit_funcref_table_len_g))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $entry_name
+          (call $list_index (global.get $emit_funcref_table_ptr) (local.get $i)))
+        (if (call $str_eq (local.get $entry_name) (local.get $name))
+          (then (return (local.get $i))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter)))
+    (i32.const -1))
+
+  ;; ─── $emit_funcref_count — current registered-fn count ─────────────
+  (func $emit_funcref_count (result i32)
+    (call $emit_init)
+    (global.get $emit_funcref_table_len_g))
+
+  ;; ─── $emit_funcref_at — name str_ptr at registered index ───────────
+  ;; Per wheel emit_fn_refs (src/backends/wasm.nx:599-605) — iterated
+  ;; at (elem $fns ...) emission to write each $<name> reference.
+  (func $emit_funcref_at (param $idx i32) (result i32)
+    (call $emit_init)
+    (call $list_index (global.get $emit_funcref_table_ptr) (local.get $idx)))
+
+  ;; ─── $emit_set_body_context — install per-fn captures + evidence ───
+  ;; Per Hβ-emit-substrate.md §5.2 + wheel src/backends/wasm.nx:960-961.
+  ;; Called at fn-emit entry by chunk #7 emit_handler.wat at every
+  ;; LMakeClosure / LMakeContinuation / LDeclareFn arm. ev_list_ptr
+  ;; is `ref` from caller (LowExpr's evidence list per H1.6); state.wat
+  ;; stores the pointer + length without copying.
+  (func $emit_set_body_context (param $captures_count i32)
+                                (param $ev_list_ptr i32)
+                                (param $ev_list_len i32)
+    (call $emit_init)
+    (global.set $emit_body_captures_count_g (local.get $captures_count))
+    (global.set $emit_body_evidence_ptr     (local.get $ev_list_ptr))
+    (global.set $emit_body_evidence_len_g   (local.get $ev_list_len)))
+
+  ;; ─── $emit_body_captures_count — current fn's captures count ───────
+  (func $emit_body_captures_count (result i32)
+    (call $emit_init)
+    (global.get $emit_body_captures_count_g))
+
+  ;; ─── $emit_body_evidence — current fn's evidence list ptr ──────────
+  (func $emit_body_evidence (result i32)
+    (call $emit_init)
+    (global.get $emit_body_evidence_ptr))
+
+  ;; ─── $emit_body_evidence_len — current fn's evidence list length ──
+  (func $emit_body_evidence_len (result i32)
+    (call $emit_init)
+    (global.get $emit_body_evidence_len_g))
+
+  ;; ─── $emit_string_intern — assign offset; de-dup via $str_eq ───────
+  ;; Per W5 + wheel src/backends/wasm.nx:117-128 string_table handler +
+  ;; 194-198 collect_string_literals. On miss: append STRING_INTERN_ENTRY
+  ;; (tag 360, arity 2) with current $emit_strings_next_offset_g; bump
+  ;; next_offset by aligned (4 + str_len) per wheel byte_len discipline
+  ;; (line 211: aligned_size = (size + 3) / 4 * 4). Returns assigned
+  ;; offset.
+  (func $emit_string_intern (param $s i32) (result i32)
+    (local $existing i32) (local $offset i32) (local $entry i32)
+    (local $size i32) (local $aligned i32) (local $new_len i32)
+    (call $emit_init)
+    (local.set $existing (call $emit_string_lookup (local.get $s)))
+    (if (i32.ge_s (local.get $existing) (i32.const 0))
+      (then (return (local.get $existing))))
+    (local.set $offset (global.get $emit_strings_next_offset_g))
+    (local.set $entry (call $make_record (i32.const 360) (i32.const 2)))
+    (call $record_set (local.get $entry) (i32.const 0) (local.get $s))
+    (call $record_set (local.get $entry) (i32.const 1) (local.get $offset))
+    (local.set $new_len
+      (i32.add (global.get $emit_string_table_len_g) (i32.const 1)))
+    (global.set $emit_string_table_ptr
+      (call $list_extend_to (global.get $emit_string_table_ptr) (local.get $new_len)))
+    (drop (call $list_set (global.get $emit_string_table_ptr)
+                          (global.get $emit_string_table_len_g)
+                          (local.get $entry)))
+    (global.set $emit_string_table_len_g (local.get $new_len))
+    ;; Bump next_offset by aligned (4 + str_len). Per wheel line 212
+    ;; aligned_size = (size + 3) / 4 * 4.
+    (local.set $size (i32.add (i32.const 4) (call $str_len (local.get $s))))
+    (local.set $aligned
+      (i32.mul (i32.div_u (i32.add (local.get $size) (i32.const 3))
+                          (i32.const 4))
+               (i32.const 4)))
+    (global.set $emit_strings_next_offset_g
+      (i32.add (local.get $offset) (local.get $aligned)))
+    (local.get $offset))
+
+  ;; ─── $emit_string_lookup — offset if interned; -1 otherwise ────────
+  ;; Walks start-to-end (insertion order); $str_eq compares.
+  (func $emit_string_lookup (param $s i32) (result i32)
+    (local $i i32) (local $n i32) (local $entry i32) (local $entry_str i32)
+    (call $emit_init)
+    (local.set $i (i32.const 0))
+    (local.set $n (global.get $emit_string_table_len_g))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $entry
+          (call $list_index (global.get $emit_string_table_ptr) (local.get $i)))
+        (local.set $entry_str (call $record_get (local.get $entry) (i32.const 0)))
+        (if (call $str_eq (local.get $entry_str) (local.get $s))
+          (then (return (call $record_get (local.get $entry) (i32.const 1)))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter)))
+    (i32.const -1))
+
+  ;; ─── $emit_string_table_count — interned-string count ──────────────
+  (func $emit_string_table_count (result i32)
+    (call $emit_init)
+    (global.get $emit_string_table_len_g))
+
+  ;; ─── $emit_string_table_at — STRING_INTERN_ENTRY at index ──────────
+  ;; Per wheel emit_string_data_loop (src/backends/wasm.nx:423-434) —
+  ;; iterated at (data ...) segment emission to write each string body.
+  ;; Returns the record (caller does record_get(0) for str + record_get(1)
+  ;; for offset).
+  (func $emit_string_table_at (param $idx i32) (result i32)
+    (call $emit_init)
+    (call $list_index (global.get $emit_string_table_ptr) (local.get $idx)))
+
+  ;; ─── $emit_fn_reset — clear body-context at fn-emit boundary ───────
+  ;; Per Hβ-emit-substrate.md §5.2 + wheel src/backends/wasm.nx:945-978
+  ;; emit_fn_body invocation pattern (perform set_body_captures /
+  ;; set_body_evidence each fn). Length-only-reset semantics for
+  ;; evidence; does NOT clear funcref-table or string-intern (program-
+  ;; wide per wheel emit_module sequence at lines 162-185). Mirror of
+  ;; $ls_reset_function discipline at lower/state.wat:240-249.
+  (func $emit_fn_reset
+    (call $emit_init)
+    (global.set $emit_body_captures_count_g (i32.const 0))
+    (global.set $emit_body_evidence_len_g   (i32.const 0)))
+
+  ;; ═══ lookup.wat — Hβ.emit type-driven dispatch primitives (Tier 5) ═══
+  ;; Implements: Hβ-emit-substrate.md §2.1 (LConst dispatch on Ty —
+  ;;             TInt/TBool/TUnit/TError-hole arms reading $lookup_ty) +
+  ;;             §2.4 (LCall reads TFun arity for $ftN signature; LSuspend
+  ;;             same shape) + §3 (H1.4 single-handler-per-op naming —
+  ;;             $emit_op_symbol concatenates "op_<name>") + §5.1 row
+  ;;             (Type-driven dispatch IS the gradient cash-out site —
+  ;;             this chunk provides the per-Ty primitives chunks #3-#7
+  ;;             call before emitting WAT) + §11.3 dep order (this
+  ;;             chunk follows #1 state.wat).
+  ;; Exports:    $emit_wat_type_for, $emit_arity_of_tfun,
+  ;;             $emit_is_terror_hole, $emit_op_symbol.
+  ;; Uses:       $ty_tag + $ty_tfun_params (infer/ty.wat),
+  ;;             $len (runtime/list.wat), $str_concat (runtime/str.wat).
+  ;;
+  ;; What this chunk IS (per Hβ-emit-substrate.md §2.1 + §2.4 + §3 +
+  ;; wheel canonical src/backends/wasm.nx:773-789 emit_type_decls +
+  ;; lines 444-475 collect_fn_names + per-Ty-tag dispatch shape per
+  ;; emit_diag.wat:540-655 render_ty):
+  ;;
+  ;;   1. $emit_wat_type_for(ty) — UNIFORM i32 representation per
+  ;;      DESIGN.md §0.5 "the heap has one story" + γ §IX. Closures,
+  ;;      ADT variants, nominal records, strings, lists, tuples,
+  ;;      refined types — ALL emit as i32 (pointers OR sentinels).
+  ;;      The 14 Ty tags collapse to ONE WAT type at the seed layer.
+  ;;      Future TFloat substrate gets per-tag-arm via the named
+  ;;      follow-up Hβ.emit.float-substrate; not V1.
+  ;;
+  ;;   2. $emit_arity_of_tfun(ty) — read TFun's params list length via
+  ;;      $ty_tfun_params + $len. Returns -1 if not TFun (caller
+  ;;      treats as polymorphic / call_indirect $ftN unknown — the
+  ;;      LSuspend H1.6 polymorphic-minority path). Used by chunk #6
+  ;;      emit_call.wat to pick $ftN signature for direct call vs
+  ;;      LSuspend's call_indirect.
+  ;;
+  ;;   3. $emit_is_terror_hole(ty) — i32.eq($ty_tag, 114) — the
+  ;;      sentinel ty.wat reserves for unresolved/error types per
+  ;;      Hβ-lower-substrate.md §1.1 + lower/lookup.wat:177-180. Used
+  ;;      by every emit arm to short-circuit emission to (unreachable)
+  ;;      preserving Hazel productive-under-error: the LowExpr lowered
+  ;;      fine but its type is unresolved — emit a trap so downstream
+  ;;      tools can flag, instead of silently emitting wrong WAT.
+  ;;
+  ;;   4. $emit_op_symbol(op_name) — concatenate "op_" + name per H1.4
+  ;;      single-handler-per-op naming (Hβ-emit §3 + wheel
+  ;;      src/backends/wasm.nx:583-619 emit_fn_table). Each handler arm
+  ;;      becomes (func $op_<op_name> ...) at module level; this
+  ;;      symbol IS the WAT identifier. Caller passes it to
+  ;;      $emit_funcref_register (state.wat) for the funcref-table.
+  ;;
+  ;; Eight interrogations (per Hβ-emit-substrate.md §5.1 second pass):
+  ;;
+  ;;   1. Graph?       $emit_arity_of_tfun + $emit_is_terror_hole read
+  ;;                   the Ty record/sentinel directly via $ty_tag —
+  ;;                   the live-graph result of $lookup_ty (lower/
+  ;;                   lookup.wat) the caller already chased. Per
+  ;;                   Anchor 1 "ask the graph": these helpers ARE
+  ;;                   that ask, projected onto Ty's record shape.
+  ;;                   $emit_op_symbol does not touch graph; pure
+  ;;                   string concatenation.
+  ;;   2. Handler?     At wheel: $emit_wat_type_for is one arm of
+  ;;                   render_ty-like dispatch; the wheel's
+  ;;                   emit_type_decls (src/backends/wasm.nx:773-789)
+  ;;                   composes via WasmOut effect (perform wat_emit).
+  ;;                   At seed: direct fns; dispatch on $ty_tag.
+  ;;                   @resume=OneShot at the wheel (read-only lookup).
+  ;;   3. Verb?        N/A — type-driven dispatch is verb-silent; the
+  ;;                   verb topology emerges in chunks #6 (emit_call)
+  ;;                   + #7 (emit_handler) where these helpers are
+  ;;                   composed into per-verb WAT-shape decisions.
+  ;;   4. Row?         TFun's row is RETURNED via $ty_tfun_row but
+  ;;                   THIS chunk doesn't read it — chunk #6
+  ;;                   emit_call.wat reads it for the monomorphic-vs-
+  ;;                   polymorphic gate. lookup.wat is row-traversal-
+  ;;                   silent.
+  ;;   5. Ownership?   $emit_op_symbol allocates new string via
+  ;;                   $str_concat (bump heap); caller OWNs the result.
+  ;;                   $emit_wat_type_for returns static data-segment
+  ;;                   string ptr (no allocation). Other helpers
+  ;;                   return raw i32 (no ownership transfer).
+  ;;   6. Refinement?  TRefined transparent — chunk #6's monomorphic
+  ;;                   gate would unwrap if needed. lookup currently
+  ;;                   treats TRefined opaque (returns "i32" which is
+  ;;                   correct for both base and refined, and -1 for
+  ;;                   $emit_arity_of_tfun unless explicitly TFun).
+  ;;   7. Gradient?    THIS IS THE TYPE-DRIVEN DISPATCH SUBSTRATE.
+  ;;                   $emit_arity_of_tfun's TFun→arity gate IS the
+  ;;                   gradient site: TFun → direct-call $ftN
+  ;;                   (compile-time-known arity); non-TFun → -1 →
+  ;;                   call_indirect (runtime-resolved). Per row
+  ;;                   inference's >95% monomorphic claim — the
+  ;;                   gradient cashes out at chunk #6 emit_call.wat
+  ;;                   reading these helpers.
+  ;;   8. Reason?      Read-only — caller's $lookup_ty preserves
+  ;;                   Reason chain on the handle. lookup.wat does
+  ;;                   not write Reasons; downstream Mentl-Why
+  ;;                   (Arc F.6) walks back via $gnode_reason on the
+  ;;                   handle the LowExpr carries.
+  ;;
+  ;; Forbidden patterns audited (per Hβ-emit-substrate.md §6 + project
+  ;; drift modes):
+  ;;
+  ;;   - Drift 1 (Rust vtable):     $emit_arity_of_tfun is direct ty-
+  ;;                                tag dispatch (i32.eq + return); NO
+  ;;                                $arity_table data segment / NO
+  ;;                                _lookup_arity_handler function.
+  ;;                                Word "vtable" appears nowhere.
+  ;;   - Drift 5 (C calling conv):  No threaded __closure or __ev
+  ;;                                params; helpers take Ty/handle/
+  ;;                                str_ptr directly.
+  ;;   - Drift 8 (string-keyed):    Tag dispatch via i32.eq on integer
+  ;;                                tag constants (107 = TFun, 114 =
+  ;;                                TError-hole). NEVER `str_eq(name,
+  ;;                                "TFun")` ADT-as-string fluency.
+  ;;   - Drift 9 (deferred-by-     Every export bodied; no stubs.
+  ;;                  omission):    Max-arity-precise-walk is the
+  ;;                                NAMED follow-up Hβ.emit.max-arity-
+  ;;                                precise-walk (lands with chunk #9
+  ;;                                main.wat or as separate helper) —
+  ;;                                NAMED, not silently omitted from
+  ;;                                this chunk.
+  ;;   - Foreign fluency:           Vocabulary stays Inka — "type",
+  ;;                                "arity", "symbol", "tag dispatch".
+  ;;                                NEVER "type-of" / "lookup-table" /
+  ;;                                "name-mangle."
+  ;;
+  ;; Named follow-ups (per Drift 9 + Hβ-emit-substrate.md §10):
+  ;;   - Hβ.emit.float-substrate: $emit_wat_type_for grows per-tag arm
+  ;;                              for TFloat (101) → "f64" string ptr;
+  ;;                              gates DSP / ML / numerical crucibles.
+  ;;   - Hβ.emit.max-arity-precise-walk: max_arity_in(stmts) + 35-arm
+  ;;                              max_arity_expr per wheel src/backends/
+  ;;                              wasm.nx:730-769; lands with chunk #9
+  ;;                              main.wat or separate helper.
+  ;;
+  ;; Static data — WAT type tokens (offsets 488-503; emit-private
+  ;; region within [481, 512) free zone after lexer_data.wat keywords;
+  ;; HEAP_BASE=4096 keeps these <HEAP_BASE; pointers stay disambiguable
+  ;; from sentinels [0, HEAP_BASE)):
+  ;;   488 — "i32" (3 bytes; the uniform WAT type for the seed)
+  ;;   496 — "op_" (3 bytes; H1.4 prefix per wheel emit_fn_table)
+
+  (data (i32.const 488) "\03\00\00\00i32")
+  (data (i32.const 496) "\03\00\00\00op_")
+
+  ;; ─── $emit_wat_type_for — UNIFORM i32 for any Ty (seed default) ───
+  ;; Per DESIGN.md §0.5 "the heap has one story" + γ §IX. The 14 Ty
+  ;; tags (100-113) all return "i32" string ptr (offset 488). Future
+  ;; TFloat substrate gets per-tag-arm via Hβ.emit.float-substrate
+  ;; follow-up; not V1.
+  (func $emit_wat_type_for (param $ty i32) (result i32)
+    (i32.const 488))
+
+  ;; ─── $emit_arity_of_tfun — TFun's params list length, or -1 ──────
+  ;; Per Hβ-emit-substrate.md §2.4 + wheel src/backends/wasm.nx:773-789.
+  ;; Used by chunk #6 emit_call.wat to pick $ftN signature for LCall
+  ;; (monomorphic) vs LSuspend's call_indirect (polymorphic).
+  (func $emit_arity_of_tfun (param $ty i32) (result i32)
+    (if (i32.ne (call $ty_tag (local.get $ty)) (i32.const 107))
+      (then (return (i32.const -1))))
+    (call $len (call $ty_tfun_params (local.get $ty))))
+
+  ;; ─── $emit_is_terror_hole — sentinel for unresolved type ──────────
+  ;; Per Hβ-lower-substrate.md §1.1 + lower/lookup.wat:177-180. Used
+  ;; by every emit arm to short-circuit emission to (unreachable) per
+  ;; Hazel productive-under-error.
+  (func $emit_is_terror_hole (param $ty i32) (result i32)
+    (i32.eq (call $ty_tag (local.get $ty)) (i32.const 114)))
+
+  ;; ─── $emit_op_symbol — "op_" + name per H1.4 single-handler-per-op ─
+  ;; Per Hβ-emit-substrate.md §3 + wheel src/backends/wasm.nx:583-619.
+  ;; Caller passes result to $emit_funcref_register (state.wat) for the
+  ;; funcref-table.
+  (func $emit_op_symbol (param $op_name i32) (result i32)
+    (call $str_concat (i32.const 496) (local.get $op_name)))
+
+  ;; ═══ emit_const.wat — Hβ.emit const-family literal arm (Tier 6) ═══
+  ;; Implements: Hβ-emit-substrate.md §2.1 (LConst tag 300 — Ty-tag
+  ;;             dispatch on $lookup_ty($lexpr_handle(r))) + §3.5
+  ;;             (EmitMemory swap surface — emission routes through
+  ;;             emit_infra; substrate-level reference) + §5.1 (eight
+  ;;             interrogations at dispatcher) + §7.1 (chunk file
+  ;;             layout — chunk #3) + §11.3 dep order (chunk #3
+  ;;             follows lookup.wat).
+  ;; Exports:    $emit_lconst.
+  ;; Uses:       $lexpr_handle + $lexpr_lconst_value (lower/lexpr.wat),
+  ;;             $lookup_ty (lower/lookup.wat),
+  ;;             $emit_is_terror_hole (emit/lookup.wat),
+  ;;             $emit_string_intern (emit/state.wat),
+  ;;             $ty_tag (infer/ty.wat),
+  ;;             $emit_byte + $emit_str + $emit_i32_const +
+  ;;             $emit_open + $emit_close (emit_infra.wat).
+  ;;
+  ;; What this chunk IS (per Hβ-emit-substrate.md §2.1 + wheel canonical
+  ;; src/backends/wasm.nx LConst arm shape):
+  ;;
+  ;;   $emit_lconst(r) reads:
+  ;;     - value via $lexpr_lconst_value(r)              [opaque i32]
+  ;;     - handle via $lexpr_handle(r)                   [graph node]
+  ;;     - ty via $lookup_ty(handle)                     [live read]
+  ;;
+  ;;   then dispatches on $ty_tag(ty):
+  ;;     - 100 (TInt)            → "(i32.const <value>)"
+  ;;     - 102 (TString)         → "(i32.const <intern_offset>)"
+  ;;                               where intern_offset =
+  ;;                               $emit_string_intern(value_as_str_ptr)
+  ;;     - 103 (TUnit)           → "(i32.const 0)" (sentinel)
+  ;;     - 114 (TError-hole)     → "(unreachable)"  (Hazel productive-
+  ;;                               under-error: type unresolved → trap)
+  ;;     - other tags            → "(i32.const <value>)" (uniform i32
+  ;;                               fall-through; works for TBool ADT
+  ;;                               variant tag_id 0/1 + nullary variant
+  ;;                               sentinels per HB drift-6 closure;
+  ;;                               TFloat handled per Hβ.emit.float-
+  ;;                               substrate follow-up — value is opaque
+  ;;                               i32 currently per LowValue pass-
+  ;;                               through chunk #6 walk_const Lock #4)
+  ;;
+  ;; This chunk's first commit lands $emit_lconst ONLY. The LMake*
+  ;; arms ($emit_lmakevariant / $emit_lmaketuple / $emit_lmakelist /
+  ;; $emit_lmakerecord) + the introduction of $emit_lexpr partial
+  ;; dispatcher land in named peer commit Hβ.emit.const-make-arms,
+  ;; mirroring Hβ.lower's walk_call.wat (chunk #7) precedent where
+  ;; the dispatcher arrives with the FIRST chunk that needs to recurse.
+  ;; LConst has no sub-LowExprs (just opaque-value + handle), so it
+  ;; lands cleanly without the dispatcher.
+  ;;
+  ;; Eight interrogations (per Hβ-emit-substrate.md §5.1 second pass):
+  ;;
+  ;;   1. Graph?       $lookup_ty(handle) IS the live graph read per
+  ;;                   Anchor 1 — chunk #2 lookup.wat's primitives
+  ;;                   compose here. The graph populated by $inka_infer
+  ;;                   carries the Ty bindings; emit-time chunk reads
+  ;;                   them at-emission to drive dispatch.
+  ;;   2. Handler?     At wheel: emit_lconst is one arm of an Emit
+  ;;                   effect-projection (perform wat_emit) per
+  ;;                   src/backends/wasm.nx. At seed: direct call to
+  ;;                   emit_infra primitives. @resume=OneShot at the
+  ;;                   wheel (single-pass emission).
+  ;;   3. Verb?        N/A at expression level — LConst draws no verb
+  ;;                   topology; verbs emerge in the LCall (`|>`) /
+  ;;                   LMakeTuple-of-LCalls (`<|`) / LHandleWith (`~>`)
+  ;;                   chunks #6-#7.
+  ;;   4. Row?         EfPure for the type read via $lookup_ty (it
+  ;;                   reads-only; row not consulted). Side-effect on
+  ;;                   the emit output buffer through $emit_byte's
+  ;;                   global $out_pos/$out_base.
+  ;;   5. Ownership?   $emit_string_intern allocates STRING_INTERN_ENTRY
+  ;;                   per first-occurrence per state.wat:295-323; OWN
+  ;;                   by emit pass program-wide. Buffer bytes OWNed by
+  ;;                   the emit pass; flushed at end of emit_program.
+  ;;   6. Refinement?  TRefined transparent — $ty_tag would return
+  ;;                   refined-ty's tag (113 in seed); fall-through arm
+  ;;                   emits uniform "(i32.const value)" which is
+  ;;                   correct for any pointer/sentinel value.
+  ;;   7. Gradient?    Compile-time-known type → compile-time-known
+  ;;                   emission shape. The gradient cashes out HERE per
+  ;;                   row inference's monomorphic claim: every LConst
+  ;;                   handle has a resolved type at emit time (inferer
+  ;;                   bound it), so $ty_tag dispatch is direct, no
+  ;;                   runtime branching.
+  ;;   8. Reason?      $lookup_ty preserves Reason via $graph_chase;
+  ;;                   downstream Mentl-Why walks back via
+  ;;                   $gnode_reason on the LowExpr's handle. This
+  ;;                   chunk does not write Reasons.
+  ;;
+  ;; Forbidden patterns audited (per Hβ-emit-substrate.md §6 + project
+  ;; drift modes):
+  ;;
+  ;;   - Drift 1 (Rust vtable):     Direct ty-tag dispatch via i32.eq
+  ;;                                + per-arm body. NO $ty_emit_table
+  ;;                                data segment / NO _lookup_emit_for_ty
+  ;;                                fn. Word "vtable" appears nowhere.
+  ;;   - Drift 5 (C calling conv):  $emit_lconst takes a single LowExpr
+  ;;                                ref (i32 ptr); no separate __closure
+  ;;                                /__ev params.
+  ;;   - Drift 6 (Bool special):    No special-case for TBool — Bool is
+  ;;                                an ADT variant per HB substrate
+  ;;                                (drift-6 closure); LMakeVariant
+  ;;                                handles its emission. Fall-through
+  ;;                                here covers nullary-variant tag_id
+  ;;                                values (0/1 for true/false) via the
+  ;;                                uniform-i32 path.
+  ;;   - Drift 8 (string-keyed):    Tag dispatch via i32.eq on integer
+  ;;                                tag constants (100/102/103/114).
+  ;;                                NEVER `str_eq($render_ty(ty), "TInt")`
+  ;;                                fluency.
+  ;;   - Drift 9 (deferred-by-     LConst arm fully bodied. LMake* arms
+  ;;                  omission):    NAMED in peer follow-up Hβ.emit.
+  ;;                                const-make-arms (drift-9 closure
+  ;;                                via explicit naming, not silent
+  ;;                                omission).
+  ;;   - Foreign fluency:           Vocabulary stays Inka — "tag",
+  ;;                                "dispatch", "intern", "sentinel".
+  ;;                                NEVER "switch-statement" / "lookup-
+  ;;                                table" / "emit-strategy."
+  ;;
+  ;; Named follow-ups (per Drift 9):
+  ;;   - Hβ.emit.const-make-arms: $emit_lmakevariant / $emit_lmaketuple
+  ;;                              / $emit_lmakelist / $emit_lmakerecord
+  ;;                              + introduction of $emit_lexpr partial
+  ;;                              dispatcher (Hβ.lower walk_call.wat
+  ;;                              precedent — dispatcher arrives with
+  ;;                              first recursion-needing chunk).
+  ;;                              Subsequent emit chunks #4-#7 RETROFIT
+  ;;                              the dispatcher via Edit.
+  ;;   - Hβ.emit.float-substrate: TFloat→"(f64.const ...)" per-tag arm;
+  ;;                              gates DSP/ML/numerical crucibles.
+  ;;
+  ;; Static data — emitted-WAT tokens (offset 1520; in [1518, 1600) free
+  ;; gap surfaced by data-offset audit — sits after emit_data.wat's
+  ;; " (export \"_start\")" at 1500-1517 + before infer/emit_diag's
+  ;; "ERROR_DEEP_CHASE" at 1600). Length-prefixed for $emit_open via
+  ;; $emit_str; emit-private to this chunk:
+  ;;   1520 — "unreachable" (4-byte length prefix + 11-byte body = 15
+  ;;          bytes; emitted with parens via $emit_open + $emit_close
+  ;;          for TError-hole arm)
+
+  (data (i32.const 1520) "\0b\00\00\00unreachable")
+
+  ;; ─── $ec_emit_unreachable — chunk-private helper ──────────────────
+  ;; Emits "(unreachable)" via $emit_open on the static string +
+  ;; $emit_close per H1.4 emission discipline. Used by $emit_lconst's
+  ;; TError-hole arm.
+  (func $ec_emit_unreachable
+    (call $emit_open (i32.const 1520))
+    (call $emit_close))
+
+  ;; ─── $emit_lconst — LConst tag 300 emit arm per Hβ-emit §2.1 ─────
+  ;; Reads value + handle from LowExpr; reads ty via $lookup_ty;
+  ;; dispatches per ty tag → emits canonical WAT literal expression
+  ;; via emit_infra primitives.
+  (func $emit_lconst (param $r i32)
+    (local $value i32) (local $h i32) (local $ty i32) (local $ty_tag_v i32)
+    (local.set $value (call $lexpr_lconst_value (local.get $r)))
+    (local.set $h     (call $lexpr_handle      (local.get $r)))
+    (local.set $ty    (call $lookup_ty         (local.get $h)))
+
+    ;; TError-hole (114) → "(unreachable)" — Hazel productive-under-error.
+    (if (call $emit_is_terror_hole (local.get $ty))
+      (then (call $ec_emit_unreachable) (return)))
+
+    (local.set $ty_tag_v (call $ty_tag (local.get $ty)))
+
+    ;; TString (102) → intern + emit "(i32.const <offset>)".
+    (if (i32.eq (local.get $ty_tag_v) (i32.const 102))
+      (then
+        (call $emit_i32_const
+          (call $emit_string_intern (local.get $value)))
+        (return)))
+
+    ;; TUnit (103) → "(i32.const 0)" sentinel per uniform-i32 discipline.
+    (if (i32.eq (local.get $ty_tag_v) (i32.const 103))
+      (then (call $emit_i32_const (i32.const 0)) (return)))
+
+    ;; TInt (100) AND fall-through (TBool variant tag_id, nullary
+    ;; variants, TFloat-as-int per follow-up, etc.) → "(i32.const <value>)".
+    ;; The uniform-i32 emission per DESIGN.md §0.5 "the heap has one
+    ;; story" + γ §IX: every value at the seed layer IS an i32, so
+    ;; emitting (i32.const N) round-trips for any ground value.
+    (call $emit_i32_const (local.get $value)))
+
   ;; ═══ WAT Fragment Data Segments ═════════════════════════════════════
   ;; Raw byte strings for WAT syntax emission. No length prefix —
   ;; these are used with emit_cstr(addr, len).
