@@ -355,6 +355,32 @@
     (call $ec_emit_i32_add)
     (call $ec_emit_global_set_heap_ptr))
 
+  ;; ─── $emit_alloc_dyn — bump-pattern with runtime-computed size ────
+  ;; Per Hβ-emit-substrate.md §3.5 + wheel canonical "emit_alloc with
+  ;; dynamic size: route through emit_alloc_dyn (variant of emit_alloc
+  ;; taking i32 from local.get $<size_local>)" (src/backends/wasm.nx:
+  ;; 1423-1424). Emits the 5-piece bump-pattern reading $size from a
+  ;; named local instead of a static-int constant. Used at LSuspend
+  ;; (chunk #6 emit_call.wat) where the transient closure record's
+  ;; size is `8 + 4*nc + 4*ne` and `nc` (callee_closure capture count)
+  ;; is only knowable at runtime via i32.load offset=4 of the callee
+  ;; closure ptr.
+  ;;
+  ;; Same EmitMemory swap surface — future arena/gc handlers swap this
+  ;; fn body alongside $emit_alloc.
+  ;;
+  ;; Drift 1 refusal: NO global $emit_alloc_dyn_handler closure record;
+  ;; direct fn body. Drift 9 refusal: bump pattern fully bodied; arena/
+  ;; gc swap is named follow-up Hβ.emit.memory-arena-handler /
+  ;; Hβ.emit.memory-gc-handler at the same swap surface.
+  (func $emit_alloc_dyn (param $size_local i32) (param $target i32)
+    (call $ec_emit_global_get_heap_ptr)
+    (call $ec_emit_local_set_dollar (local.get $target))
+    (call $ec_emit_global_get_heap_ptr)
+    (call $ec_emit_local_get_dollar (local.get $size_local))
+    (call $ec_emit_i32_add)
+    (call $ec_emit_global_set_heap_ptr))
+
   ;; ─── $emit_lmakelist — LMakeList tag 316 emit arm per §2.1 ─────────
   ;; Per src/backends/wasm.nx:2068-2098 emit_list_literal. Emits:
   ;;   (i32.const N) (call $make_list) (i32.const 0) <elem 0> (call $list_set)
@@ -499,12 +525,16 @@
   ;; future emit chunk forgets to retrofit. Named follow-up makes the
   ;; expansion visible.
   ;;
-  ;; Currently dispatches (post chunk #5 emit_control.wat retrofit):
+  ;; Currently dispatches (post chunk #6 emit_call.wat retrofit):
   ;;   300 LConst        → $emit_lconst         (chunk #3 first commit)
   ;;   301 LLocal        → $emit_llocal         (chunk #4 retrofit)
   ;;   302 LGlobal       → $emit_lglobal        (chunk #4 retrofit)
   ;;   303 LStore        → $emit_lstore         (chunk #4 retrofit)
   ;;   305 LUpval        → $emit_lupval         (chunk #4 retrofit)
+  ;;   306 LBinOp        → $emit_lbinop         (chunk #6 retrofit)
+  ;;   307 LUnaryOp      → $emit_lunaryop       (chunk #6 retrofit)
+  ;;   308 LCall         → $emit_lcall          (chunk #6 retrofit)
+  ;;   309 LTailCall     → $emit_ltailcall      (chunk #6 retrofit)
   ;;   310 LReturn       → $emit_lreturn        (chunk #5 retrofit)
   ;;   314 LIf           → $emit_lif            (chunk #5 retrofit)
   ;;   315 LBlock        → $emit_lblock         (chunk #5 retrofit)
@@ -512,14 +542,16 @@
   ;;   317 LMakeTuple    → $emit_lmaketuple     (chunk #3 peer)
   ;;   318 LMakeRecord   → $emit_lmakerecord    (chunk #3 peer)
   ;;   319 LMakeVariant  → $emit_lmakevariant   (chunk #3 peer)
+  ;;   320 LIndex        → $emit_lindex         (chunk #6 retrofit)
   ;;   321 LMatch        → $emit_lmatch         (chunk #5 retrofit)
+  ;;   325 LSuspend      → $emit_lsuspend       (chunk #6 retrofit)
   ;;   326 LStateGet     → $emit_lstateget      (chunk #4 retrofit)
   ;;   327 LStateSet     → $emit_lstateset      (chunk #4 retrofit)
   ;;   328 LRegion       → $emit_lregion        (chunk #5 retrofit)
   ;;   334 LFieldLoad    → $emit_lfieldload     (chunk #4 retrofit)
   ;;
-  ;; All other LowExpr tags trap (unreachable) until chunks #6-#7
-  ;; retrofit per Hβ.emit.lexpr-dispatch-extension.
+  ;; All other LowExpr tags trap (unreachable) until chunk #7
+  ;; retrofits per Hβ.emit.lexpr-dispatch-extension.
   ;;
   ;; Drift 1 refusal: direct (i32.eq $tag N) dispatch; NO $emit_arm_table
   ;; data segment, NO closure-record-of-fn-pointers. The word "vtable"
@@ -539,6 +571,14 @@
       (then (call $emit_lstore       (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 305))
       (then (call $emit_lupval       (local.get $r)) (return)))
+    (if (i32.eq (local.get $tag) (i32.const 306))
+      (then (call $emit_lbinop       (local.get $r)) (return)))
+    (if (i32.eq (local.get $tag) (i32.const 307))
+      (then (call $emit_lunaryop     (local.get $r)) (return)))
+    (if (i32.eq (local.get $tag) (i32.const 308))
+      (then (call $emit_lcall        (local.get $r)) (return)))
+    (if (i32.eq (local.get $tag) (i32.const 309))
+      (then (call $emit_ltailcall    (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 310))
       (then (call $emit_lreturn      (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 314))
@@ -553,8 +593,12 @@
       (then (call $emit_lmakerecord  (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 319))
       (then (call $emit_lmakevariant (local.get $r)) (return)))
+    (if (i32.eq (local.get $tag) (i32.const 320))
+      (then (call $emit_lindex       (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 321))
       (then (call $emit_lmatch       (local.get $r)) (return)))
+    (if (i32.eq (local.get $tag) (i32.const 325))
+      (then (call $emit_lsuspend     (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 326))
       (then (call $emit_lstateget    (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 327))

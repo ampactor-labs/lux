@@ -78,7 +78,7 @@
   ;;   304 = LLet               arity 3  (handle, name, value)
   ;;   305 = LUpval             arity 2  (handle, slot)
   ;;   306 = LBinOp             arity 4  (handle, op_tag, l, r) [op_tag is BinOp i32 sentinel 140-153]
-  ;;   307 = LUnaryOp           arity 3  (handle, op_name, x)   [op_name string per wheel]
+  ;;   307 = LUnaryOp           arity 3  (handle, op, x)         [op is UnaryOp ADT i32 sentinel; UNeg=160 UNot=161 in 160-179 region — mirror of BinOp 140-153 region]
   ;;   308 = LCall              arity 3  (handle, fn, args)
   ;;   309 = LTailCall          arity 3  (handle, fn, args)
   ;;   310 = LReturn            arity 2  (handle, x)
@@ -296,15 +296,18 @@
   (func $lexpr_lbinop_r (param $r i32) (result i32)
     (call $record_get (local.get $r) (i32.const 3)))
 
-  ;; ─── 307 = LUnaryOp(handle, op_name, x) — arity 3 ─────────────────
-  ;; Per src/lower.nx:105 LUnaryOp(Int, String, LowExpr) — op_name is a
-  ;; string ptr (i32) per the wheel (NOT a sentinel; unary ops are not
-  ;; enumerated in BinOp region; the name is stored as string).
-  (func $lexpr_make_lunaryop (param $h i32) (param $op_name i32) (param $x i32) (result i32)
+  ;; ─── 307 = LUnaryOp(handle, op, x) — arity 3 ─────────────────────
+  ;; Per src/lower.nx:105 LUnaryOp(Int, UnaryOp, LowExpr) — op is the
+  ;; UnaryOp ADT's i32 sentinel: UNeg=160 / UNot=161 in 160-179 region
+  ;; (mirror of BinOp 140-153 region per src/types.nx). HB drift-6
+  ;; closure: nullary UnaryOp variants compile to sentinels per "the
+  ;; heap has one story." Drift 8 refusal: the op slot is i32 sentinel
+  ;; tag, NOT string-keyed.
+  (func $lexpr_make_lunaryop (param $h i32) (param $op i32) (param $x i32) (result i32)
     (local $r i32)
     (local.set $r (call $make_record (i32.const 307) (i32.const 3)))
     (call $record_set (local.get $r) (i32.const 0) (local.get $h))
-    (call $record_set (local.get $r) (i32.const 1) (local.get $op_name))
+    (call $record_set (local.get $r) (i32.const 1) (local.get $op))
     (call $record_set (local.get $r) (i32.const 2) (local.get $x))
     (local.get $r))
 

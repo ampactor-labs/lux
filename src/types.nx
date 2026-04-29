@@ -193,6 +193,16 @@ type BinOp
   | BAnd | BOr                                 // boolean (2)
   | BConcat                                    // string/list concat (1)
 
+// UnaryOp — the two unary operators per SYNTAX.md operator table
+// (line 1119): unary `-` and unary `!`. Mirrors BinOp's ADT discipline;
+// the value-level tag is the discriminant (HB drift-6 closure: every
+// nullary variant compiles to sentinel via "the heap has one story").
+// Seed transcription maps to integer sentinels in the 160-179 reserved
+// region (mirror of BinOp's 140-153 region).
+type UnaryOp
+  = UNeg                                       // unary `-` per SYNTAX.md
+  | UNot                                       // unary `!` per SYNTAX.md
+
 type BinOpKind
   = BKArith    // +, -, *, /, %
   | BKCmp      // ==, !=, <, >, <=, >=
@@ -387,7 +397,7 @@ type Expr
   | LitUnit
   | VarRef(String)
   | BinOpExpr(BinOp, Node, Node)
-  | UnaryOpExpr(String, Node)
+  | UnaryOpExpr(UnaryOp, Node)
   | CallExpr(Node, List)
   | LambdaExpr(List, Node)         // params: List[TParam], body
   | IfExpr(Node, Node, Node)

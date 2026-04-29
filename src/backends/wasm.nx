@@ -1661,15 +1661,8 @@ fn emit_binop(op) = match op {
 }
 
 fn emit_unaryop(op) = match op {
-  "Neg" => {
-    perform wat_emit("    (i32.const 0) (i32.sub)\n")
-  },
-  "Not" => perform wat_emit("    (i32.eqz)\n"),
-  _     => {
-    perform wat_emit("    ;; unknown unaryop: ")
-    perform wat_emit(op)
-    perform wat_emit("\n")
-  }
+  UNeg => perform wat_emit("    (i32.const 0) (i32.sub)\n"),
+  UNot => perform wat_emit("    (i32.eqz)\n")
 }
 
 

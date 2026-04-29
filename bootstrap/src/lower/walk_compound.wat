@@ -388,19 +388,22 @@
   ;; ─── $lower_unary_op — UnaryOpExpr arm (parser tag 87) ──────────────
   ;; Per src/lower.nx:344-345: UnaryOpExpr(op, inner) =>
   ;;   LUnaryOp(handle, op, lower_expr(inner)).
-  ;; AST per Lock #9: [tag=87][op_name_str][inner_node] offsets 0/4/8.
+  ;; AST per Lock #9: [tag=87][op][inner_node] offsets 0/4/8 — op is
+  ;; UnaryOp ADT i32 sentinel (UNeg=160 / UNot=161) per src/types.nx
+  ;; UnaryOp ADT in 160-179 region. Drift 8 refusal: integer-tag
+  ;; sentinel, NOT string-keyed.
   (func $lower_unary_op (export "lower_unary_op") (param $node i32) (result i32)
     (local $h i32) (local $body i32) (local $unary_struct i32)
-    (local $op_name i32) (local $inner_node i32) (local $lo_inner i32)
+    (local $op i32) (local $inner_node i32) (local $lo_inner i32)
     (local.set $h            (call $walk_expr_node_handle (local.get $node)))
     (local.set $body         (i32.load offset=4 (local.get $node)))
     (local.set $unary_struct (i32.load offset=4 (local.get $body)))
-    (local.set $op_name      (i32.load offset=4 (local.get $unary_struct)))
+    (local.set $op           (i32.load offset=4 (local.get $unary_struct)))
     (local.set $inner_node   (i32.load offset=8 (local.get $unary_struct)))
     (local.set $lo_inner     (call $lower_expr (local.get $inner_node)))
     (call $lexpr_make_lunaryop
       (local.get $h)
-      (local.get $op_name)
+      (local.get $op)
       (local.get $lo_inner)))
 
   ;; ─── $lower_if — IfExpr arm (parser tag 90) ──────────────────────────

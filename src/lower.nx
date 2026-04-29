@@ -102,7 +102,7 @@ type LowExpr
   | LLet(Int, String, LowExpr)
   | LUpval(Int, Int)
   | LBinOp(Int, BinOp, LowExpr, LowExpr)
-  | LUnaryOp(Int, String, LowExpr)
+  | LUnaryOp(Int, UnaryOp, LowExpr)
   | LCall(Int, LowExpr, List)                  // monomorphic direct call
   | LTailCall(Int, LowExpr, List)
   | LReturn(Int, LowExpr)
