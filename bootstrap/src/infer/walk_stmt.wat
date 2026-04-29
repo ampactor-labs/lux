@@ -534,35 +534,266 @@
     ;; Pop fn handle from inference stack.
     (call $infer_fn_stack_pop))
 
-  ;; TypeDefStmt arm (tag 122) — src/infer.nx:212-213 +
-  ;; register_type_constructors 2028-2066. Inert seed-stub per
-  ;; Hβ.infer.constructors named follow-up.
+  ;; ─── parser-Ty → infer-Ty translator ────────────────────────────
+  ;; Per parser_fn.wat:36-37 + parser_decl.wat the parser emits one of:
+  ;;   sentinel 200 TyInt    → $ty_make_tint
+  ;;   sentinel 201 TyFloat  → $ty_make_tfloat
+  ;;   sentinel 202 TyString → $ty_make_tstring
+  ;;   sentinel 204 TyUnit   → $ty_make_tunit
+  ;;   tag-205 record TyName(name)  → $ty_make_tname(name, [])
+  ;;   tag-206 record TyVar(handle) → $ty_make_tvar(fresh handle)
+  ;;
+  ;; Seed handles monomorphic types directly. Polymorphic generics
+  ;; (Tree<A>, List<A>, Option<A>) defer to peer cascade
+  ;; `Hβ-infer-constructors-generics.md` post-L1 — when first src/*.nx
+  ;; site exercises generic constructor instantiation that needs proper
+  ;; TVar handling beyond the productive-under-error fallback below.
+  (func $walk_stmt_parser_ty_to_ty (param $pty i32) (result i32)
+    (local $tag i32)
+    (if (i32.eq (local.get $pty) (i32.const 200))
+      (then (return (call $ty_make_tint))))
+    (if (i32.eq (local.get $pty) (i32.const 201))
+      (then (return (call $ty_make_tfloat))))
+    (if (i32.eq (local.get $pty) (i32.const 202))
+      (then (return (call $ty_make_tstring))))
+    (if (i32.eq (local.get $pty) (i32.const 204))
+      (then (return (call $ty_make_tunit))))
+    ;; Heap-allocated record — read tag from offset 0.
+    (local.set $tag (i32.load (local.get $pty)))
+    ;; tag=205 TyName(name) — extract name + build TName(name, [])
+    (if (i32.eq (local.get $tag) (i32.const 205))
+      (then (return (call $ty_make_tname
+        (i32.load offset=4 (local.get $pty))
+        (call $make_list (i32.const 0))))))
+    ;; tag=206 TyVar — fresh TVar via graph (productive-under-error
+    ;; ignores the parser's variable name; future generics work will
+    ;; thread the name through tparam.wat substrate).
+    (if (i32.eq (local.get $tag) (i32.const 206))
+      (then (return (call $ty_make_tvar
+        (call $graph_fresh_ty
+          (call $reason_make_inferred (i32.const 4056)))))))   ;; "param"
+    ;; Unknown shape — productive-under-error: fresh TVar.
+    (call $ty_make_tvar
+      (call $graph_fresh_ty
+        (call $reason_make_inferred (i32.const 4056)))))
+
+  ;; ─── $walk_stmt_build_field_tparams — parser field-tys → List<TParam> ──
+  ;; Per parser_decl.wat:60-63 each variant 2-tuple is (vname,
+  ;; field_types). field_types is a List<parser-Ty>; convert each
+  ;; into a TParam record per spec 02:55-58 + ty.wat:305 — TFun's
+  ;; params field MUST be List<TParam>, not List<Ty>. Constructor
+  ;; field params have no name (positional) and Inferred ownership;
+  ;; the name slot becomes empty-string per str_alloc(0).
+  (func $walk_stmt_build_field_tparams (param $field_tys i32) (result i32)
+    (local $n i32) (local $i i32) (local $out i32)
+    (local $pty i32) (local $ty i32) (local $tp i32) (local $empty_name i32)
+    (local.set $n (call $len (local.get $field_tys)))
+    (local.set $out (call $list_extend_to
+      (call $make_list (local.get $n))
+      (local.get $n)))
+    (local.set $empty_name (call $str_alloc (i32.const 0)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $pty
+          (call $list_index (local.get $field_tys) (local.get $i)))
+        (local.set $ty (call $walk_stmt_parser_ty_to_ty (local.get $pty)))
+        (local.set $tp (call $tparam_make
+          (local.get $empty_name)
+          (local.get $ty)
+          (call $ownership_make_inferred)
+          (call $ownership_make_inferred)))
+        (drop (call $list_set (local.get $out) (local.get $i) (local.get $tp)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter)))
+    (local.get $out))
+
+  ;; ─── TypeDefStmt arm (tag 122) — Phase B.2 ultimate-form substrate ──
+  ;;
+  ;; Per src/infer.nx:212-213 + register_type_constructors 2028-2066 +
+  ;; deep-toasting-bachman plan Phase B.2.
+  ;;
+  ;; For each variant in TypeDefStmt(name, targs, variants) the arm
+  ;; registers a ConstructorScheme(tag_id, total) entry in env via
+  ;; $env_extend. Constructor's type:
+  ;;   nullary variant (no fields) → TName(typename, [])
+  ;;   N-ary variant (1+ fields)   → TFun(field_tys, TName(typename, []),
+  ;;                                       EfPure_row)
+  ;;
+  ;; The tag_id is the variant's INDEX in the variants list (0-based);
+  ;; the total is the number of variants. This satisfies the refinement
+  ;; `0 <= tag_id < total` which Verify discharges for exhaustiveness
+  ;; (post-L2 substrate composition; the predicate IS in scope at the
+  ;; SchemeKind level today).
+  ;;
+  ;; Drift-6 closure: nullary AND N-ary variants pass through the SAME
+  ;; ConstructorScheme registration. No Bool special-case. Bool's True/
+  ;; False are nullary variants under `type Bool = False | True` per
+  ;; types.nx:32 — they get ConstructorScheme(0, 2) and (1, 2) just like
+  ;; any other ADT's nullary variants.
   (func $infer_walk_stmt_typedef
         (export "infer_walk_stmt_typedef")
         (param $stmt i32) (param $handle i32) (param $span i32)
-    (drop (local.get $stmt))
+    (local $type_name i32) (local $variants i32) (local $total i32)
+    (local $tag_id i32) (local $variant i32)
+    (local $vname i32) (local $field_tys_parser i32)
+    (local $field_tys i32) (local $field_count i32)
+    (local $result_ty i32) (local $ctor_ty i32)
+    (local $row_h i32) (local $scheme i32) (local $reason i32)
     (drop (local.get $handle))
-    (drop (local.get $span)))
+    ;; TypeDefStmt: [tag=122][name][targs][variants]
+    (local.set $type_name (i32.load offset=4  (local.get $stmt)))
+    (local.set $variants  (i32.load offset=12 (local.get $stmt)))
+    (local.set $total (call $len (local.get $variants)))
+    ;; Build the result type once: TName(type_name, []) — every variant
+    ;; constructor returns this.
+    (local.set $result_ty (call $ty_make_tname
+      (local.get $type_name)
+      (call $make_list (i32.const 0))))
+    (local.set $tag_id (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $tag_id) (local.get $total)))
+        (local.set $variant
+          (call $list_index (local.get $variants) (local.get $tag_id)))
+        ;; Each variant is a 2-tuple (vname, field_tys_parser) per
+        ;; parser_decl.wat:60-63.
+        (local.set $vname
+          (call $list_index (local.get $variant) (i32.const 0)))
+        (local.set $field_tys_parser
+          (call $list_index (local.get $variant) (i32.const 1)))
+        (local.set $field_count (call $len (local.get $field_tys_parser)))
+        ;; Build ctor type — nullary uses result_ty directly; N-ary
+        ;; wraps in TFun(field_tys, result_ty, EfPure_row).
+        (if (i32.eqz (local.get $field_count))
+          (then (local.set $ctor_ty (local.get $result_ty)))
+          (else
+            (local.set $field_tys
+              (call $walk_stmt_build_field_tparams
+                (local.get $field_tys_parser)))
+            (local.set $row_h (call $graph_fresh_row
+              (call $reason_make_located (local.get $span)
+                (call $reason_make_inferred (i32.const 4080)))))   ;; "effects"
+            (local.set $ctor_ty (call $ty_make_tfun
+              (local.get $field_tys)
+              (local.get $result_ty)
+              (local.get $row_h)))))
+        (local.set $scheme (call $scheme_make_forall
+          (call $make_list (i32.const 0))
+          (local.get $ctor_ty)))
+        (local.set $reason (call $reason_make_located
+          (local.get $span)
+          (call $reason_make_declared (local.get $vname))))
+        (call $env_extend
+          (local.get $vname)
+          (local.get $scheme)
+          (local.get $reason)
+          (call $schemekind_make_ctor
+            (local.get $tag_id) (local.get $total)))
+        (local.set $tag_id (i32.add (local.get $tag_id) (i32.const 1)))
+        (br $each))))
 
-  ;; EffectDeclStmt arm (tag 123) — src/infer.nx:215-216 +
-  ;; register_effect_ops 2081-2098. Inert seed-stub per
-  ;; Hβ.infer.effect-ops named follow-up.
+  ;; ─── EffectDeclStmt arm (tag 123) — Phase B.3 ultimate-form ──────
+  ;;
+  ;; Per src/infer.nx:215-216 + register_effect_ops 2081-2098.
+  ;;
+  ;; For each op in EffectDeclStmt(name, ops) where each op is a
+  ;; 3-tuple (op_name, param_types, ret_ty): build TFun(param_tys,
+  ;; ret_ty, EfPure_row) — the seed's row composition is row-silent
+  ;; here per the H1.4 separation (effect names appear in the env-
+  ;; entry's name field, not in dispatch). env_extend with op_name +
+  ;; EffectOpScheme(effect_name).
+  ;;
+  ;; The effect-name field on EffectOpScheme is the surface for
+  ;; handler-arm matching at handler installation; the wheel's
+  ;; row.wat substrate composes on this.
   (func $infer_walk_stmt_effect_decl
         (export "infer_walk_stmt_effect_decl")
         (param $stmt i32) (param $handle i32) (param $span i32)
-    (drop (local.get $stmt))
+    (local $eff_name i32) (local $ops i32) (local $n_ops i32) (local $i i32)
+    (local $op i32) (local $op_name i32) (local $param_tys_parser i32)
+    (local $ret_ty_parser i32) (local $param_tys i32) (local $ret_ty i32)
+    (local $row_h i32) (local $op_ty i32) (local $scheme i32) (local $reason i32)
     (drop (local.get $handle))
-    (drop (local.get $span)))
+    ;; EffectDeclStmt: [tag=123][name][ops]
+    (local.set $eff_name (i32.load offset=4 (local.get $stmt)))
+    (local.set $ops      (i32.load offset=8 (local.get $stmt)))
+    (local.set $n_ops (call $len (local.get $ops)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n_ops)))
+        (local.set $op (call $list_index (local.get $ops) (local.get $i)))
+        ;; Each op is a 3-tuple (op_name, param_tys_parser, ret_ty_parser)
+        ;; per parser_decl.wat:186-190.
+        (local.set $op_name (call $list_index (local.get $op) (i32.const 0)))
+        (local.set $param_tys_parser
+          (call $list_index (local.get $op) (i32.const 1)))
+        (local.set $ret_ty_parser
+          (call $list_index (local.get $op) (i32.const 2)))
+        (local.set $param_tys
+          (call $walk_stmt_build_field_tparams (local.get $param_tys_parser)))
+        (local.set $ret_ty
+          (call $walk_stmt_parser_ty_to_ty (local.get $ret_ty_parser)))
+        (local.set $row_h (call $graph_fresh_row
+          (call $reason_make_located (local.get $span)
+            (call $reason_make_inferred (i32.const 4080)))))   ;; "effects"
+        (local.set $op_ty (call $ty_make_tfun
+          (local.get $param_tys) (local.get $ret_ty) (local.get $row_h)))
+        (local.set $scheme (call $scheme_make_forall
+          (call $make_list (i32.const 0))
+          (local.get $op_ty)))
+        (local.set $reason (call $reason_make_located
+          (local.get $span)
+          (call $reason_make_declared (local.get $op_name))))
+        (call $env_extend
+          (local.get $op_name)
+          (local.get $scheme)
+          (local.get $reason)
+          (call $schemekind_make_effectop (local.get $eff_name)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each))))
 
-  ;; HandlerDeclStmt arm (tag 124) — src/infer.nx:222-223 +
-  ;; register_handler 2100-2109. Inert seed-stub per
-  ;; Hβ.infer.handler-decls named follow-up.
+  ;; ─── HandlerDeclStmt arm (tag 124) — Phase B.4 ultimate-form ─────
+  ;;
+  ;; Per src/infer.nx:222-223 + register_handler 2100-2109.
+  ;;
+  ;; The seed's parser emits HandlerDeclStmt as [tag=124][name][effect=
+  ;; ""][arms=[]] (parser_toplevel.wat:65-72) — a stub shape until
+  ;; parser_handler.wat lands the full handler-arm parsing. With this
+  ;; minimal shape the seed's discipline is: env-extend with the
+  ;; handler name bound to TVar(fresh) under FnScheme so subsequent
+  ;; references to the handler name don't miss env_lookup.
+  ;;
+  ;; When parser_handler.wat surfaces the full handler shape (effect-
+  ;; intercepted + per-arm bodies + resume disciplines), this arm
+  ;; expands to the full register_handler logic. That expansion is the
+  ;; named peer cascade `Hβ-infer-handler-decls-full.md` (requires
+  ;; walkthrough).
   (func $infer_walk_stmt_handler_decl
         (export "infer_walk_stmt_handler_decl")
         (param $stmt i32) (param $handle i32) (param $span i32)
-    (drop (local.get $stmt))
+    (local $handler_name i32) (local $tvar_h i32) (local $tvar_ty i32)
+    (local $scheme i32) (local $reason i32)
     (drop (local.get $handle))
-    (drop (local.get $span)))
+    ;; HandlerDeclStmt: [tag=124][name][effect][arms]
+    (local.set $handler_name (i32.load offset=4 (local.get $stmt)))
+    (local.set $tvar_h (call $graph_fresh_ty
+      (call $reason_make_located (local.get $span)
+        (call $reason_make_declared (local.get $handler_name)))))
+    (local.set $tvar_ty (call $ty_make_tvar (local.get $tvar_h)))
+    (local.set $scheme (call $scheme_make_forall
+      (call $make_list (i32.const 0))
+      (local.get $tvar_ty)))
+    (local.set $reason (call $reason_make_located
+      (local.get $span)
+      (call $reason_make_declared (local.get $handler_name))))
+    (call $env_extend
+      (local.get $handler_name)
+      (local.get $scheme)
+      (local.get $reason)
+      (call $schemekind_make_fn)))
 
   ;; ExprStmt arm (tag 125) — src/infer.nx:225-226. Wraps a bare
   ;; expression at statement position. Layout: [tag=125][node]. Walk the

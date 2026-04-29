@@ -106,6 +106,37 @@
   (global $env_scope_count_g   (mut i32) (i32.const 0))
   (global $env_initialized     (mut i32) (i32.const 0))
 
+  ;; ─── Frame discipline (substrate-honest buffer-counter pattern) ─
+  ;; Each scope-frame is a 2-element record (tag=137):
+  ;;   field 0 = buf      (List of bindings; count field treated as cap)
+  ;;   field 1 = len      (logical count of bindings — i32 sentinel)
+  ;;
+  ;; Per CLAUDE.md feedback_antidrift Ω.3 buffer-counter substrate:
+  ;; the underlying list maintains capacity (via list_extend_to's
+  ;; doubling); the SEPARATE len field is the source of truth for
+  ;; logical length. env_extend uses len (not $len(buf)) to compute
+  ;; the next slot. The bug class "list_extend_to count-vs-capacity
+  ;; conflation" cannot fire because env never reads $len(buf) for
+  ;; logical-length purposes.
+  ;;
+  ;; Why a record (not a pair): records have a stable shape under
+  ;; future schema evolution (e.g., adding a frame-id, lifetime tag,
+  ;; or arena pointer per Hβ.arena handler-swap-promotion). Tag 137
+  ;; is the next free slot in env's tag space ([130, 140) ENV).
+
+  (func $env_frame_make (param $buf i32) (param $len i32) (result i32)
+    (local $r i32)
+    (local.set $r (call $make_record (i32.const 137) (i32.const 2)))
+    (call $record_set (local.get $r) (i32.const 0) (local.get $buf))
+    (call $record_set (local.get $r) (i32.const 1) (local.get $len))
+    (local.get $r))
+
+  (func $env_frame_buf (param $f i32) (result i32)
+    (call $record_get (local.get $f) (i32.const 0)))
+
+  (func $env_frame_len (param $f i32) (result i32)
+    (call $record_get (local.get $f) (i32.const 1)))
+
   ;; ─── Initialization ──────────────────────────────────────────────
   ;; $env_init: idempotent. Allocates initial scope-stack with one
   ;; outermost scope (for top-level / global bindings).
@@ -214,8 +245,15 @@
   ;; $env_scope_enter — push a new empty scope frame onto the stack.
   ;; New scope is now the "current" scope; subsequent $env_extend
   ;; pushes to it.
+  ;;
+  ;; The fresh frame is an $env_frame_make wrapping an empty buf
+  ;; (logical len = 0; underlying list cap = 4 for initial growth).
+  ;; env_extend grows the buf via list_extend_to and updates the
+  ;; frame's len field — the count-vs-capacity conflation in
+  ;; list.wat does NOT propagate because env_extend never reads
+  ;; $len(buf) for logical-length purposes.
   (func $env_scope_enter
-    (local $count i32) (local $fresh_frame i32)
+    (local $count i32) (local $fresh_buf i32) (local $fresh_frame i32)
     (if (i32.eqz (global.get $env_initialized))
       (then
         ;; Bootstrap-init path during $env_init: don't recurse.
@@ -223,7 +261,9 @@
         (global.set $env_scope_count_g (i32.const 0))
         (global.set $env_initialized (i32.const 1))))
     (local.set $count (global.get $env_scope_count_g))
-    (local.set $fresh_frame (call $make_list (i32.const 4)))   ;; small initial; grows on demand
+    (local.set $fresh_buf (call $make_list (i32.const 4)))
+    (local.set $fresh_frame (call $env_frame_make
+      (local.get $fresh_buf) (i32.const 0)))
     (global.set $env_scopes_ptr
       (call $list_set
         (call $list_extend_to (global.get $env_scopes_ptr)
@@ -252,10 +292,17 @@
   ;; binding to the current (topmost) scope frame. Mirrors canonical
   ;; src/infer.nx perform env_extend at lines 219, 233, 251, 279, 368,
   ;; 1589-1591, 2009, 2051, 2057, 2061, 2094, 2105.
+  ;;
+  ;; Substrate-honest discipline (Anchor 0 + Ω.3 buffer-counter): the
+  ;; current frame's logical length lives in $env_frame_len, NOT
+  ;; $len(buf). list_extend_to grows capacity; env_extend builds a
+  ;; new $env_frame_make wrapping the grown buf + (old_len + 1).
   (func $env_extend
         (param $name i32) (param $scheme i32)
         (param $reason i32) (param $kind i32)
-    (local $current_idx i32) (local $frame i32) (local $frame_len i32) (local $binding i32)
+    (local $current_idx i32) (local $frame i32)
+    (local $buf i32) (local $frame_len i32)
+    (local $binding i32) (local $new_buf i32) (local $new_frame i32)
     (call $env_init)
     (if (i32.eqz (global.get $env_scope_count_g))
       (then (return)))
@@ -263,21 +310,26 @@
       (i32.sub (global.get $env_scope_count_g) (i32.const 1)))
     (local.set $frame (call $list_index (global.get $env_scopes_ptr)
                                         (local.get $current_idx)))
-    (local.set $frame_len (call $len (local.get $frame)))
+    (local.set $buf (call $env_frame_buf (local.get $frame)))
+    (local.set $frame_len (call $env_frame_len (local.get $frame)))
     (local.set $binding
       (call $env_binding_make
         (local.get $name) (local.get $scheme)
         (local.get $reason) (local.get $kind)))
-    (local.set $frame
+    (local.set $new_buf
       (call $list_set
-        (call $list_extend_to (local.get $frame)
+        (call $list_extend_to (local.get $buf)
                               (i32.add (local.get $frame_len) (i32.const 1)))
         (local.get $frame_len)
         (local.get $binding)))
+    (local.set $new_frame
+      (call $env_frame_make
+        (local.get $new_buf)
+        (i32.add (local.get $frame_len) (i32.const 1))))
     (global.set $env_scopes_ptr
       (call $list_set (global.get $env_scopes_ptr)
                       (local.get $current_idx)
-                      (local.get $frame))))
+                      (local.get $new_frame))))
 
   ;; ─── Lookup ──────────────────────────────────────────────────────
   ;; $env_lookup(name) — returns matching BINDING RECORD (4-field
@@ -288,7 +340,7 @@
     (call $env_lookup_or (local.get $name) (i32.const 0)))
 
   (func $env_lookup_or (param $name i32) (param $default i32) (result i32)
-    (local $scope_idx i32) (local $frame i32)
+    (local $scope_idx i32) (local $frame i32) (local $buf i32)
     (local $binding_idx i32) (local $binding i32)
     (call $env_init)
     (local.set $scope_idx (global.get $env_scope_count_g))
@@ -298,13 +350,14 @@
         (local.set $scope_idx (i32.sub (local.get $scope_idx) (i32.const 1)))
         (local.set $frame
           (call $list_index (global.get $env_scopes_ptr) (local.get $scope_idx)))
-        (local.set $binding_idx (call $len (local.get $frame)))
+        (local.set $buf (call $env_frame_buf (local.get $frame)))
+        (local.set $binding_idx (call $env_frame_len (local.get $frame)))
         (block $inner_done
           (loop $binding_loop
             (br_if $inner_done (i32.eqz (local.get $binding_idx)))
             (local.set $binding_idx (i32.sub (local.get $binding_idx) (i32.const 1)))
             (local.set $binding
-              (call $list_index (local.get $frame) (local.get $binding_idx)))
+              (call $list_index (local.get $buf) (local.get $binding_idx)))
             (if (call $str_eq (call $env_binding_name (local.get $binding))
                               (local.get $name))
               (then (return (local.get $binding))))
@@ -317,7 +370,7 @@
   ;; for handle == 0 when 0 might be a legitimate fresh-allocated
   ;; handle.
   (func $env_contains (param $name i32) (result i32)
-    (local $scope_idx i32) (local $frame i32)
+    (local $scope_idx i32) (local $frame i32) (local $buf i32)
     (local $binding_idx i32) (local $binding i32)
     (call $env_init)
     (local.set $scope_idx (global.get $env_scope_count_g))
@@ -327,13 +380,14 @@
         (local.set $scope_idx (i32.sub (local.get $scope_idx) (i32.const 1)))
         (local.set $frame
           (call $list_index (global.get $env_scopes_ptr) (local.get $scope_idx)))
-        (local.set $binding_idx (call $len (local.get $frame)))
+        (local.set $buf (call $env_frame_buf (local.get $frame)))
+        (local.set $binding_idx (call $env_frame_len (local.get $frame)))
         (block $inner_done
           (loop $binding_loop
             (br_if $inner_done (i32.eqz (local.get $binding_idx)))
             (local.set $binding_idx (i32.sub (local.get $binding_idx) (i32.const 1)))
             (local.set $binding
-              (call $list_index (local.get $frame) (local.get $binding_idx)))
+              (call $list_index (local.get $buf) (local.get $binding_idx)))
             (if (call $str_eq (call $env_binding_name (local.get $binding))
                               (local.get $name))
               (then (return (i32.const 1))))
