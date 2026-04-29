@@ -133,6 +133,7 @@ CHUNKS=(
 
   # ── Layer 6: Emitter (LowExpr-consuming substrate per Hβ-emit-substrate.md §7.2 alongside legacy emit_*.wat) ──
   "bootstrap/src/emit/state.wat"          # Tier 4 (uses $alloc + list + record + str_eq + str_len; Hβ-emit §3 + §3.5 + §5.1 + §7.1 + §11.3 — emit-time funcref-table accumulator + body-context captures+evidence pair + string-intern table; mirror of wheel src/backends/wasm.nx:117-128 string_table + 444-475 collect_fn_names + 945-978 emit_fn_body + 960-961 set_body_captures/_evidence; 14 exports — $emit_init $emit_funcref_register/_lookup/_count/_at $emit_set_body_context $emit_body_captures_count $emit_body_evidence/_len $emit_string_intern/_lookup $emit_string_table_count/_at $emit_fn_reset; named follow-ups: evidence-slot-naming, string-intern-pre-pass)
+  "bootstrap/src/emit/lookup.wat"         # Tier 5 (uses $ty_tag + $ty_tfun_params from infer/ty.wat + $len from runtime/list.wat + $str_concat from runtime/str.wat; Hβ-emit §2.1 + §2.4 + §3 + §5.1 + §7.1 + §11.3 — type-driven dispatch primitives; 4 exports — $emit_wat_type_for (uniform i32 per "heap has one story") + $emit_arity_of_tfun (TFun→arity gradient cash-out site, -1 otherwise) + $emit_is_terror_hole (Hazel productive-under-error sentinel check) + $emit_op_symbol ("op_<name>" concat per H1.4 single-handler-per-op naming); static data 488 "i32" + 496 "op_" in [481,512) free zone after lexer_data; named follow-ups: float-substrate, max-arity-precise-walk)
   "bootstrap/src/emit_data.wat"
   "bootstrap/src/emit_infra.wat"
   "bootstrap/src/emit_expr.wat"
