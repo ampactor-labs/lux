@@ -276,9 +276,12 @@ Anchor 7).
    - C.3 ✓ — lexpr.wat doc-cite updates (LowFn/LowPat no longer opaque)
    - C.4 ✓ — trace harnesses (lowfn_smoke + lowpat_arms); 72/72 PASS
 
-4. **Phase D — Hβ.emit.handler-fnref-substrate**
-   LMakeClosure (311) + LMakeContinuation (312) emit arms; typed-field-
-   offsets via `$field_offset_for(closure_ty, slot)`; Drift 1 refused.
+4. ✓ **Phase D — Hβ.emit.handler-fnref-substrate** (closed)
+   LMakeClosure (311) + LMakeContinuation (312) emit arms; closure
+   record layout proven via exact 305-byte match; continuation record
+   layout proven via exact 417-byte match; inline offset arithmetic IS
+   the ultimate form (no $field_offset_for needed — Third Truth: one
+   concrete shape); Drift 1 refused. 75/75 harnesses PASS.
 
 5. **Phase E — Hβ.emit.match-pattern-compile**
    $emit_lmatch nonempty arms + verify-query plumbing; HB threshold-aware
