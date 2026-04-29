@@ -523,13 +523,16 @@ bootstrap/src/emit/
   emit_handler.wat       ;; LHandleWith / LHandle / LPerform / LEvPerform /
                          ;;   LMakeClosure / LMakeContinuation / LFeedback /
                          ;;   LDeclareFn / LLet per §2.5
-  emit_dispatcher.wat    ;; $emit_lexpr 35-arm dispatch
   main.wat               ;; $emit_lowir_program orchestrator + $inka_emit
                          ;;   pipeline-stage boundary
 ```
 
-**~9 chunks** total. ~3000-4500 lines projected (similar scope to
-Hβ.lower per the 1.2× cascade-discipline factor).
+**~8 chunks** total (no separate emit_dispatcher.wat — `$emit_lexpr`
+is absorbed into emit_const.wat per the Hβ.lower walk_call.wat
+precedent: the FIRST chunk that needs sub-LowExpr recursion introduces
+the partial dispatcher; subsequent chunks retrofit via Edit).
+~3000-4500 lines projected (similar scope to Hβ.lower per the 1.2×
+cascade-discipline factor).
 
 ### 7.2 Layer extension
 
