@@ -115,13 +115,30 @@ done
 # `_start` per WASI. Pipeline: stdin → lex → parse → emit → stdout.
 # Closes the (module ...) wrapper.
 #
-# Pipeline-wire status: Hβ.infer.pipeline-wire follow-up is GATED on
-# Hβ.lower.emit-extension AND on Hβ.infer's bump-allocator-pressure
-# substrate (a real parse_program AST blows the bump allocator
-# during $inka_infer's walk — the trace-harnesses use synthetic
-# small inputs that don't exercise it). Both are post-L1 substrate
-# growth; first-light Tier 1 stays clean by leaving emit consuming
-# raw AST.
+# Pipeline-wire status: Hβ.infer.pipeline-wire follow-up depends on
+# four substrate landings to ship cleanly:
+#   - Hβ.emit.module-wrap                       — $inka_emit produces
+#                                                 complete WAT modules
+#   - Hβ.lower.lowfn-substrate                  — module-wrap's fn
+#                                                 emission needs LowFn
+#                                                 record
+#   - Hβ.infer.bump-allocator-pressure-substrate — real parse_program
+#                                                 AST consumes the
+#                                                 bump heap during
+#                                                 $inka_infer's walk
+#                                                 on production inputs
+#   - Hβ.infer.parser-ast-shape-substrate       — synthetic-AST
+#                                                 harnesses pass but
+#                                                 real parser-output
+#                                                 AST traps in
+#                                                 $infer_program (out-
+#                                                 of-bounds memory
+#                                                 fault at first-light
+#                                                 — diagnosed 2026-04-29)
+#
+# All four are post-L1 substrate growth; first-light Tier 1 stays
+# clean by leaving emit consuming raw AST without any infer/lower
+# pre-pass.
 
 cat >> "$OUT" <<'EOF'
 
