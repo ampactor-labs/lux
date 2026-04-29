@@ -499,27 +499,32 @@
   ;; future emit chunk forgets to retrofit. Named follow-up makes the
   ;; expansion visible.
   ;;
-  ;; Currently dispatches (post chunk #4 emit_local.wat retrofit):
+  ;; Currently dispatches (post chunk #5 emit_control.wat retrofit):
   ;;   300 LConst        → $emit_lconst         (chunk #3 first commit)
   ;;   301 LLocal        → $emit_llocal         (chunk #4 retrofit)
   ;;   302 LGlobal       → $emit_lglobal        (chunk #4 retrofit)
   ;;   303 LStore        → $emit_lstore         (chunk #4 retrofit)
   ;;   305 LUpval        → $emit_lupval         (chunk #4 retrofit)
+  ;;   310 LReturn       → $emit_lreturn        (chunk #5 retrofit)
+  ;;   314 LIf           → $emit_lif            (chunk #5 retrofit)
+  ;;   315 LBlock        → $emit_lblock         (chunk #5 retrofit)
   ;;   316 LMakeList     → $emit_lmakelist      (chunk #3 peer)
   ;;   317 LMakeTuple    → $emit_lmaketuple     (chunk #3 peer)
   ;;   318 LMakeRecord   → $emit_lmakerecord    (chunk #3 peer)
   ;;   319 LMakeVariant  → $emit_lmakevariant   (chunk #3 peer)
+  ;;   321 LMatch        → $emit_lmatch         (chunk #5 retrofit)
   ;;   326 LStateGet     → $emit_lstateget      (chunk #4 retrofit)
   ;;   327 LStateSet     → $emit_lstateset      (chunk #4 retrofit)
+  ;;   328 LRegion       → $emit_lregion        (chunk #5 retrofit)
   ;;   334 LFieldLoad    → $emit_lfieldload     (chunk #4 retrofit)
   ;;
-  ;; All other LowExpr tags trap (unreachable) until chunks #5-#7
+  ;; All other LowExpr tags trap (unreachable) until chunks #6-#7
   ;; retrofit per Hβ.emit.lexpr-dispatch-extension.
   ;;
   ;; Drift 1 refusal: direct (i32.eq $tag N) dispatch; NO $emit_arm_table
   ;; data segment, NO closure-record-of-fn-pointers. The word "vtable"
   ;; appears nowhere.
-  ;; Drift 8 refusal: tag dispatch via integer constants (300-319, 326-334);
+  ;; Drift 8 refusal: tag dispatch via integer constants;
   ;; NEVER `$str_eq($render_lowexpr, "LMakeList")`.
   (func $emit_lexpr (export "emit_lexpr") (param $r i32)
     (local $tag i32)
@@ -534,6 +539,12 @@
       (then (call $emit_lstore       (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 305))
       (then (call $emit_lupval       (local.get $r)) (return)))
+    (if (i32.eq (local.get $tag) (i32.const 310))
+      (then (call $emit_lreturn      (local.get $r)) (return)))
+    (if (i32.eq (local.get $tag) (i32.const 314))
+      (then (call $emit_lif          (local.get $r)) (return)))
+    (if (i32.eq (local.get $tag) (i32.const 315))
+      (then (call $emit_lblock       (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 316))
       (then (call $emit_lmakelist    (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 317))
@@ -542,10 +553,14 @@
       (then (call $emit_lmakerecord  (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 319))
       (then (call $emit_lmakevariant (local.get $r)) (return)))
+    (if (i32.eq (local.get $tag) (i32.const 321))
+      (then (call $emit_lmatch       (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 326))
       (then (call $emit_lstateget    (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 327))
       (then (call $emit_lstateset    (local.get $r)) (return)))
+    (if (i32.eq (local.get $tag) (i32.const 328))
+      (then (call $emit_lregion      (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 334))
       (then (call $emit_lfieldload   (local.get $r)) (return)))
     (unreachable))
