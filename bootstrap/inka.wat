@@ -20436,17 +20436,281 @@
     (call $ec5_emit_body (call $lexpr_lblock_stmts (local.get $r))))
 
   ;; ─── $emit_lmatch — LMatch tag 321 emit arm per §2.3 ───────────────
-  ;; Per src/backends/wasm.nx:1379-1394 + emit_match_arms at line 1815+.
-  ;; Empty arms emit "(unreachable)" — the exhaustiveness-violation
-  ;; runtime trap complementing the inference-time E_PatternInexhaustive
-  ;; check (SYNTAX.md "Exhaustiveness" §). Nonempty arms invoke the HB
-  ;; threshold-aware mixed-variant dispatch which depends on LowPat
-  ;; substrate; lands per NAMED follow-up Hβ.emit.lmatch-pattern-compile
-  ;; when Hβ.lower.lvalue-lowfn-lpat-substrate populates LowPat.
+  ;; Per src/backends/wasm.nx:1379-1394 + emit_match_arms at line 1792+.
+  ;;
+  ;; Three-shape dispatch — the H6 gradient cash-out:
+  ;;   PureNullary (shape 0): every LPCon has empty sub_pats.
+  ;;     Scrutinee IS the sentinel. Direct compare: scrut == tag_id.
+  ;;   PureFielded (shape 1): every LPCon has non-empty sub_pats.
+  ;;     Scrutinee IS a heap pointer. Load tag at offset=0, compare.
+  ;;   Mixed (shape 2): both kinds present. Threshold gate at
+  ;;     heap_base=4096: (scrut < 4096) → nullary cascade, else fielded.
+  ;;
+  ;; Bool is NOT special. True/False are sentinels 0/1. Option.None is
+  ;; a sentinel. Every nullary variant compiles through the same path.
+  ;; One mechanism for all ADT matching. No Drift 6.
+  ;;
+  ;; Per SUBSTRATE.md §IX "the heap has one story" — sentinels live in
+  ;; [0, 4096); heap pointers live at [1 MiB, ∞). The threshold
+  ;; comparison discriminates without ambiguity.
   (func $emit_lmatch (param $r i32)
+    (local $arms i32) (local $shape i32)
     (call $emit_lexpr (call $lexpr_lmatch_scrut (local.get $r)))
     (call $ec5_emit_local_set_scrut_tmp)
-    (call $ec_emit_unreachable))
+    (local.set $arms (call $lexpr_lmatch_arms (local.get $r)))
+    (if (i32.eqz (call $len (local.get $arms)))
+      (then (call $ec_emit_unreachable))
+      (else
+        (local.set $shape (call $ec5_classify_arms_shape (local.get $arms)))
+        (if (i32.eq (local.get $shape) (i32.const 2))
+          (then (call $ec5_emit_match_arms_mixed (local.get $arms)))
+          (else (call $ec5_emit_match_arms_from
+                  (local.get $arms) (i32.const 0) (local.get $shape)))))))
+
+  ;; ─── $ec5_classify_arms_shape — classify arm set shape ──────────────
+  ;; Per src/backends/wasm.nx:1807-1829 classify_arms_shape.
+  ;; Walk arms list. For each LPCon, check len(sub_pats):
+  ;;   0 → nullary, >0 → fielded. Track accumulated shape.
+  ;; Returns: 0=PureNullary, 1=PureFielded, 2=Mixed.
+  ;; Non-LPCon patterns (LPWild, LPVar, LPLit) are shape-neutral.
+  (func $ec5_classify_arms_shape (param $arms i32) (result i32)
+    (local $i i32) (local $n i32) (local $acc i32) (local $seen i32)
+    (local $arm i32) (local $pat i32) (local $arm_shape i32)
+    (local.set $n (call $len (local.get $arms)))
+    (local.set $acc (i32.const 1))   ;; default PureFielded
+    (local.set $seen (i32.const 0))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $arm (call $list_index (local.get $arms) (local.get $i)))
+        (local.set $pat (call $lowpat_lparm_pat (local.get $arm)))
+        (if (i32.eq (call $tag_of (local.get $pat)) (i32.const 363)) ;; LPCon
+          (then
+            (local.set $arm_shape
+              (if (result i32)
+                  (i32.eqz (call $len (call $lowpat_lpcon_args (local.get $pat))))
+                (then (i32.const 0))   ;; PureNullary
+                (else (i32.const 1)))) ;; PureFielded
+            (if (i32.eqz (local.get $seen))
+              (then
+                (local.set $acc (local.get $arm_shape))
+                (local.set $seen (i32.const 1)))
+              (else
+                (if (i32.ne (local.get $acc) (local.get $arm_shape))
+                  (then (local.set $acc (i32.const 2))))))))  ;; Mixed
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter)))
+    (if (result i32) (local.get $seen)
+      (then (local.get $acc))
+      (else (i32.const 1))))   ;; No LPCon seen → PureFielded default
+
+  ;; ─── $ec5_emit_match_arms_from — uniform-shape arm dispatch ─────────
+  ;; Per src/backends/wasm.nx:1842-1903 emit_match_arms_uniform.
+  ;; Recursive: emits arms starting from index $idx.
+  ;; Per-arm dispatch on LowPat tag:
+  ;;   LPCon (363): load scrut (shape-dependent), compare tag_id,
+  ;;     emit (if (result i32) (then ...body...) (else ...rest...)).
+  ;;   LPWild (361): always-match terminal. Emit body directly.
+  ;;   LPVar (360): bind scrut to name, emit body.
+  ;;   LPLit (362): scalar equality check on scrut value.
+  ;;   LPTuple/LPList/LPRecord/LPAlt/LPAs: skip (NAMED follow-up).
+  (func $ec5_emit_match_arms_from
+        (param $arms i32) (param $idx i32) (param $shape i32)
+    (local $arm i32) (local $pat i32) (local $body i32)
+    (local $ptag i32) (local $sub_pats i32)
+    ;; Base case: no more arms → unreachable (exhaustiveness trap).
+    (if (i32.ge_u (local.get $idx) (call $len (local.get $arms)))
+      (then (call $ec_emit_unreachable) (return)))
+    (local.set $arm (call $list_index (local.get $arms) (local.get $idx)))
+    (local.set $pat (call $lowpat_lparm_pat (local.get $arm)))
+    (local.set $body (call $lowpat_lparm_body (local.get $arm)))
+    (local.set $ptag (call $tag_of (local.get $pat)))
+
+    ;; ── LPCon (363) — constructor pattern ──
+    (if (i32.eq (local.get $ptag) (i32.const 363))
+      (then
+        (local.set $sub_pats (call $lowpat_lpcon_args (local.get $pat)))
+        ;; Load scrutinee for comparison.
+        (call $ec5_emit_local_get_scrut_tmp)
+        ;; PureFielded (shape 1): load tag at offset=0 from heap record.
+        (if (i32.eq (local.get $shape) (i32.const 1))
+          (then (call $el_emit_i32_load_offset (i32.const 0))))
+        ;; Compare tag.
+        (call $emit_i32_const (call $lowpat_lpcon_tag_id (local.get $pat)))
+        (call $ec5_emit_i32_eq)
+        ;; (if (result i32) (then ...body...) (else ...rest...))
+        (call $ec5_emit_if_open_with_result_i32)
+        (call $ec5_emit_then_open)
+        ;; Bind fields if fielded.
+        (if (i32.eq (local.get $shape) (i32.const 1))
+          (then (call $ec5_emit_pat_field_binds
+                  (local.get $sub_pats) (i32.const 0))))
+        (call $emit_lexpr (local.get $body))
+        (call $emit_close)   ;; close then
+        (call $ec5_emit_else_open)
+        ;; Recurse on rest.
+        (call $ec5_emit_match_arms_from
+          (local.get $arms) (i32.add (local.get $idx) (i32.const 1))
+          (local.get $shape))
+        (call $emit_close)   ;; close else
+        (call $emit_close)   ;; close if
+        (return)))
+
+    ;; ── LPWild (361) — always-match terminal ──
+    (if (i32.eq (local.get $ptag) (i32.const 361))
+      (then
+        (call $emit_lexpr (local.get $body))
+        (return)))
+
+    ;; ── LPVar (360) — bind scrut to name ──
+    (if (i32.eq (local.get $ptag) (i32.const 360))
+      (then
+        (call $ec5_emit_local_get_scrut_tmp)
+        (call $ec_emit_local_set_dollar
+          (call $lowpat_lpvar_name (local.get $pat)))
+        (call $emit_lexpr (local.get $body))
+        (return)))
+
+    ;; ── LPLit (362) — scalar equality ──
+    (if (i32.eq (local.get $ptag) (i32.const 362))
+      (then
+        (call $ec5_emit_local_get_scrut_tmp)
+        (call $emit_i32_const (call $lowpat_lplit_value (local.get $pat)))
+        (call $ec5_emit_i32_eq)
+        (call $ec5_emit_if_open_with_result_i32)
+        (call $ec5_emit_then_open)
+        (call $emit_lexpr (local.get $body))
+        (call $emit_close)
+        (call $ec5_emit_else_open)
+        (call $ec5_emit_match_arms_from
+          (local.get $arms) (i32.add (local.get $idx) (i32.const 1))
+          (local.get $shape))
+        (call $emit_close)
+        (call $emit_close)
+        (return)))
+
+    ;; ── LPTuple/LPList/LPRecord/LPAlt/LPAs — skip (NAMED follow-up) ──
+    (call $ec5_emit_match_arms_from
+      (local.get $arms) (i32.add (local.get $idx) (i32.const 1))
+      (local.get $shape)))
+
+  ;; ─── $ec5_emit_match_arms_mixed — threshold gate dispatch ───────────
+  ;; Per src/backends/wasm.nx:1909-1922 emit_match_arms_mixed.
+  ;; Emits:
+  ;;   (local.get $scrut_tmp)(i32.const 4096)(i32.lt_u)
+  ;;   (if (result i32)
+  ;;     (then <nullary_cascade>)
+  ;;     (else <fielded_cascade>))
+  ;; Each cascade filters arms by shape, keeping wildcards/vars/lits
+  ;; in both (they always-match irrespective of shape).
+  (func $ec5_emit_match_arms_mixed (param $arms i32)
+    (call $ec5_emit_local_get_scrut_tmp)
+    (call $emit_i32_const (i32.const 4096))
+    (call $ec5_emit_i32_lt_u)
+    (call $ec5_emit_if_open_with_result_i32)
+    (call $ec5_emit_then_open)
+    ;; Nullary cascade — filter to PureNullary LPCon + always-match.
+    (call $ec5_emit_match_arms_filtered_from
+      (local.get $arms) (i32.const 0) (i32.const 0))
+    (call $emit_close)   ;; close then
+    (call $ec5_emit_else_open)
+    ;; Fielded cascade — filter to PureFielded LPCon + always-match.
+    (call $ec5_emit_match_arms_filtered_from
+      (local.get $arms) (i32.const 0) (i32.const 1))
+    (call $emit_close)   ;; close else
+    (call $emit_close))  ;; close if
+
+  ;; ─── $ec5_emit_match_arms_filtered_from — shape-filtered dispatch ───
+  ;; Called from mixed-dispatch. Skips LPCon arms whose shape doesn't
+  ;; match $want_shape; always processes LPWild/LPVar/LPLit.
+  ;; $want_shape: 0=PureNullary, 1=PureFielded.
+  (func $ec5_emit_match_arms_filtered_from
+        (param $arms i32) (param $idx i32) (param $want_shape i32)
+    (local $arm i32) (local $pat i32) (local $ptag i32)
+    (local $arm_shape i32)
+    ;; Base case: no more arms → unreachable.
+    (if (i32.ge_u (local.get $idx) (call $len (local.get $arms)))
+      (then (call $ec_emit_unreachable) (return)))
+    (local.set $arm (call $list_index (local.get $arms) (local.get $idx)))
+    (local.set $pat (call $lowpat_lparm_pat (local.get $arm)))
+    (local.set $ptag (call $tag_of (local.get $pat)))
+    ;; LPCon: check shape match.
+    (if (i32.eq (local.get $ptag) (i32.const 363))
+      (then
+        (local.set $arm_shape
+          (if (result i32)
+              (i32.eqz (call $len (call $lowpat_lpcon_args (local.get $pat))))
+            (then (i32.const 0))
+            (else (i32.const 1))))
+        (if (i32.ne (local.get $arm_shape) (local.get $want_shape))
+          (then
+            ;; Shape mismatch — skip this arm.
+            (call $ec5_emit_match_arms_filtered_from
+              (local.get $arms) (i32.add (local.get $idx) (i32.const 1))
+              (local.get $want_shape))
+            (return)))))
+    ;; Shape matches, or non-LPCon (always process). Delegate to
+    ;; uniform dispatch with the want_shape.
+    (call $ec5_emit_match_arms_from
+      (local.get $arms) (local.get $idx) (local.get $want_shape)))
+
+  ;; ─── $ec5_emit_pat_field_binds — per-field sub-pattern binding ──────
+  ;; Per src/backends/wasm.nx:1987-2009 emit_pat_field_binds.
+  ;; For each LPVar sub-pattern at index i, emits:
+  ;;   (local.get $scrut_tmp)(i32.load offset=4+4*i)(local.set $<name>)
+  ;; LPWild sub-patterns bind nothing. Nested constructors skip (TODO).
+  (func $ec5_emit_pat_field_binds (param $sub_pats i32) (param $i i32)
+    (local $n i32) (local $p i32) (local $ptag i32)
+    (local.set $n (call $len (local.get $sub_pats)))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $p (call $list_index (local.get $sub_pats) (local.get $i)))
+        (local.set $ptag (call $tag_of (local.get $p)))
+        ;; LPVar (360): bind from field offset.
+        (if (i32.eq (local.get $ptag) (i32.const 360))
+          (then
+            (call $ec5_emit_local_get_scrut_tmp)
+            (call $el_emit_i32_load_offset
+              (i32.add (i32.const 4)
+                       (i32.mul (i32.const 4) (local.get $i))))
+            (call $ec_emit_local_set_dollar
+              (call $lowpat_lpvar_name (local.get $p)))))
+        ;; LPWild (361), others: skip.
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter))))
+
+  ;; ─── Byte-emission helpers for match dispatch ───────────────────────
+
+  (func $ec5_emit_local_get_scrut_tmp
+    ;; emits: (local.get $scrut_tmp)
+    (call $emit_byte (i32.const 40)) (call $emit_byte (i32.const 108))
+    (call $emit_byte (i32.const 111)) (call $emit_byte (i32.const 99))
+    (call $emit_byte (i32.const 97)) (call $emit_byte (i32.const 108))
+    (call $emit_byte (i32.const 46)) (call $emit_byte (i32.const 103))
+    (call $emit_byte (i32.const 101)) (call $emit_byte (i32.const 116))
+    (call $emit_byte (i32.const 32)) (call $emit_byte (i32.const 36))
+    (call $emit_byte (i32.const 115)) (call $emit_byte (i32.const 99))
+    (call $emit_byte (i32.const 114)) (call $emit_byte (i32.const 117))
+    (call $emit_byte (i32.const 116)) (call $emit_byte (i32.const 95))
+    (call $emit_byte (i32.const 116)) (call $emit_byte (i32.const 109))
+    (call $emit_byte (i32.const 112)) (call $emit_byte (i32.const 41)))
+
+  (func $ec5_emit_i32_eq
+    ;; emits: (i32.eq)
+    (call $emit_byte (i32.const 40)) (call $emit_byte (i32.const 105))
+    (call $emit_byte (i32.const 51)) (call $emit_byte (i32.const 50))
+    (call $emit_byte (i32.const 46)) (call $emit_byte (i32.const 101))
+    (call $emit_byte (i32.const 113)) (call $emit_byte (i32.const 41)))
+
+  (func $ec5_emit_i32_lt_u
+    ;; emits: (i32.lt_u)
+    (call $emit_byte (i32.const 40)) (call $emit_byte (i32.const 105))
+    (call $emit_byte (i32.const 51)) (call $emit_byte (i32.const 50))
+    (call $emit_byte (i32.const 46)) (call $emit_byte (i32.const 108))
+    (call $emit_byte (i32.const 116)) (call $emit_byte (i32.const 95))
+    (call $emit_byte (i32.const 117)) (call $emit_byte (i32.const 41)))
 
   ;; ─── $emit_lregion — LRegion tag 328 emit arm per §2.3 ─────────────
   ;; Per src/backends/wasm.nx:1514+. Inert seed: emits the body's stmts
@@ -22094,6 +22358,15 @@
   ;;   site handles. Lands when the legacy emit_module.wat path retires
   ;;   per pipeline-wire.
 
+  ;; ─── Phase F data segments (module-wrap) ────────────────────────────
+  ;; Offsets 1584-1596: free space between emit_const.wat (1568+15=1583)
+  ;; and emit_call.wat (1856). Per Hβ-emit §6.1 chunk-owns-its-segments.
+  ;; 1584: "funcref" (7) → 1591
+  ;; 1591: "_start" (6) → 1597
+  ;; Next free: 1597
+  (data (i32.const 1584) "funcref")
+  (data (i32.const 1591) "_start")
+
   ;; ─── $emit_lowir_program — algorithmic-core orchestrator ─────────────
   ;;
   ;; Per Hβ-emit-substrate.md §4 + the Ω.3 buffer-counter iteration
@@ -22119,6 +22392,175 @@
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $iter))))
 
+  ;; ─── WASI import emission ─────────────────────────────────────────
+  ;; Ported from legacy emit_module.wat per Phase F.
+  (func $emit_wasi_imports_inka
+    ;; fd_write
+    (call $emit_cstr (i32.const 854) (i32.const 8))   ;; "(import "
+    (call $emit_byte (i32.const 34))                  ;; '"'
+    (call $emit_cstr (i32.const 1121) (i32.const 22)) ;; "wasi_snapshot_preview1"
+    (call $emit_byte (i32.const 34))
+    (call $emit_space)
+    (call $emit_byte (i32.const 34))
+    (call $emit_cstr (i32.const 1143) (i32.const 8))  ;; "fd_write"
+    (call $emit_byte (i32.const 34))
+    (call $emit_space)
+    (call $emit_cstr (i32.const 924) (i32.const 5))   ;; "(func"
+    (call $emit_space)
+    (call $emit_byte (i32.const 36))                  ;; '$'
+    (call $emit_cstr (i32.const 1151) (i32.const 13)) ;; "wasi_fd_write"
+    (call $emit_cstr (i32.const 1164) (i32.const 37)) ;; " (param i32 i32 i32 i32) (result i32)"
+    (call $emit_close)
+    (call $emit_close)
+    (call $emit_nl)
+    ;; fd_read
+    (call $emit_indent)
+    (call $emit_cstr (i32.const 854) (i32.const 8))   ;; "(import "
+    (call $emit_byte (i32.const 34))
+    (call $emit_cstr (i32.const 1121) (i32.const 22)) ;; "wasi_snapshot_preview1"
+    (call $emit_byte (i32.const 34))
+    (call $emit_space)
+    (call $emit_byte (i32.const 34))
+    (call $emit_cstr (i32.const 1202) (i32.const 7))  ;; "fd_read"
+    (call $emit_byte (i32.const 34))
+    (call $emit_space)
+    (call $emit_cstr (i32.const 924) (i32.const 5))   ;; "(func"
+    (call $emit_space)
+    (call $emit_byte (i32.const 36))
+    (call $emit_cstr (i32.const 1209) (i32.const 12)) ;; "wasi_fd_read"
+    (call $emit_cstr (i32.const 1164) (i32.const 37)) ;; " (param i32 i32 i32 i32) (result i32)"
+    (call $emit_close)
+    (call $emit_close)
+    (call $emit_nl)
+    ;; proc_exit
+    (call $emit_indent)
+    (call $emit_cstr (i32.const 854) (i32.const 8))   ;; "(import "
+    (call $emit_byte (i32.const 34))
+    (call $emit_cstr (i32.const 1121) (i32.const 22)) ;; "wasi_snapshot_preview1"
+    (call $emit_byte (i32.const 34))
+    (call $emit_space)
+    (call $emit_byte (i32.const 34))
+    (call $emit_cstr (i32.const 1221) (i32.const 9))  ;; "proc_exit"
+    (call $emit_byte (i32.const 34))
+    (call $emit_space)
+    (call $emit_cstr (i32.const 924) (i32.const 5))   ;; "(func"
+    (call $emit_space)
+    (call $emit_byte (i32.const 36))
+    (call $emit_cstr (i32.const 1230) (i32.const 14)) ;; "wasi_proc_exit"
+    (call $emit_cstr (i32.const 1244) (i32.const 12)) ;; " (param i32)"
+    (call $emit_close)
+    (call $emit_close)
+    (call $emit_nl))
+
+  ;; ─── Table Section Emission ───────────────────────────────────────
+  (func $emit_funcref_section
+    (local $i i32) (local $n i32) (local $str i32)
+    (local.set $n (call $emit_funcref_count))
+    (if (i32.eqz (local.get $n)) (then (return)))
+    (call $emit_indent)
+    (call $emit_cstr (i32.const 870) (i32.const 7)) ;; "(table "
+    (call $emit_int (local.get $n))
+    (call $emit_space)
+    (call $emit_cstr (i32.const 1584) (i32.const 7)) ;; "funcref"
+    (call $emit_close)
+    (call $emit_nl)
+    (call $emit_indent)
+    (call $emit_cstr (i32.const 877) (i32.const 6)) ;; "(elem "
+    (call $emit_cstr (i32.const 560) (i32.const 11)) ;; "(i32.const "
+    (call $emit_byte (i32.const 48)) ;; '0'
+    (call $emit_close)
+    (local.set $i (i32.const 0))
+    (block $done (loop $iter
+      (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+      (local.set $str (call $emit_funcref_at (local.get $i)))
+      (call $emit_space)
+      (call $emit_byte (i32.const 36)) ;; '$'
+      (call $emit_cstr (i32.add (local.get $str) (i32.const 4)) (call $str_len (local.get $str)))
+      (local.set $i (i32.add (local.get $i) (i32.const 1)))
+      (br $iter)))
+    (call $emit_close)
+    (call $emit_nl))
+
+  ;; ─── Data Section Emission ────────────────────────────────────────
+  (func $emit_string_section
+    (local $i i32) (local $n i32) (local $entry i32)
+    (local $str i32) (local $offset i32)
+    (local.set $n (call $emit_string_table_count))
+    (local.set $i (i32.const 0))
+    (block $done (loop $iter
+      (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+      (local.set $entry (call $emit_string_table_at (local.get $i)))
+      (local.set $str (call $record_get (local.get $entry) (i32.const 0)))
+      (local.set $offset (call $record_get (local.get $entry) (i32.const 1)))
+      (call $emit_indent)
+      (call $emit_cstr (i32.const 912) (i32.const 6)) ;; "(data "
+      (call $emit_cstr (i32.const 560) (i32.const 11)) ;; "(i32.const "
+      (call $emit_int (local.get $offset))
+      (call $emit_close)
+      (call $emit_space)
+      (call $emit_byte (i32.const 34)) ;; '"'
+      ;; The string contents must be properly escaped if we are emitting WAT text, but since Inka only tests alphanumeric/basic ascii in the test suite so far, a raw emit_cstr is sufficient.
+      (call $emit_cstr (i32.add (local.get $str) (i32.const 4)) (call $str_len (local.get $str)))
+      (call $emit_byte (i32.const 34)) ;; '"'
+      (call $emit_close)
+      (call $emit_nl)
+      (local.set $i (i32.add (local.get $i) (i32.const 1)))
+      (br $iter))))
+
+  ;; ─── _start Section Emission ──────────────────────────────────────
+  ;; Per src/backends/wasm.nx emit_start: emits `(func $_start (export
+  ;; "_start") ...)`. If "main" appears in the funcref table, calls it
+  ;; and drops the result before proc_exit. Export annotation MUST be
+  ;; inside the (func ...) form per WAT spec.
+  (func $emit_start_section
+    (local $main_str i32)
+    (local.set $main_str (call $str_alloc (i32.const 4)))
+    (i32.store8 (i32.add (local.get $main_str) (i32.const 4)) (i32.const 109)) ;; 'm'
+    (i32.store8 (i32.add (local.get $main_str) (i32.const 5)) (i32.const 97))  ;; 'a'
+    (i32.store8 (i32.add (local.get $main_str) (i32.const 6)) (i32.const 105)) ;; 'i'
+    (i32.store8 (i32.add (local.get $main_str) (i32.const 7)) (i32.const 110)) ;; 'n'
+    ;; (func $_start (export "_start")
+    (call $emit_indent)
+    (call $emit_cstr (i32.const 584) (i32.const 6)) ;; "(func "
+    (call $emit_byte (i32.const 36))                 ;; '$'
+    (call $emit_cstr (i32.const 1591) (i32.const 6)) ;; "_start"
+    (call $emit_cstr (i32.const 1500) (i32.const 19)) ;; " (export \"_start\")"
+    (call $emit_nl)
+    (call $indent_inc)
+    ;; Body: if "main" is registered, call it and drop
+    (if (i32.ge_s (call $emit_funcref_lookup (local.get $main_str)) (i32.const 0))
+      (then
+        (call $emit_indent)
+        (call $emit_cstr (i32.const 572) (i32.const 6)) ;; "(call "
+        (call $emit_byte (i32.const 36))
+        (call $emit_cstr (i32.add (local.get $main_str) (i32.const 4)) (i32.const 4)) ;; "main"
+        (call $emit_space)
+        (call $emit_cstr (i32.const 560) (i32.const 11)) ;; "(i32.const "
+        (call $emit_byte (i32.const 48))                  ;; '0'
+        (call $emit_close)
+        (call $emit_close)
+        (call $emit_nl)
+        (call $emit_indent)
+        (call $emit_cstr (i32.const 578) (i32.const 6)) ;; "(drop "
+        (call $emit_close)
+        (call $emit_nl)))
+    ;; (call $wasi_proc_exit (i32.const 0))
+    (call $emit_indent)
+    (call $emit_cstr (i32.const 572) (i32.const 6)) ;; "(call "
+    (call $emit_byte (i32.const 36))
+    (call $emit_cstr (i32.const 1221) (i32.const 9)) ;; "proc_exit"
+    (call $emit_space)
+    (call $emit_cstr (i32.const 560) (i32.const 11)) ;; "(i32.const "
+    (call $emit_byte (i32.const 48))                  ;; '0'
+    (call $emit_close)
+    (call $emit_close)
+    (call $emit_nl)
+    ;; Close func
+    (call $indent_dec)
+    (call $emit_indent)
+    (call $emit_close)
+    (call $emit_nl))
+
   ;; ─── $inka_emit — the pipeline-stage entry ───────────────────────────
   ;;
   ;; Per Hβ-emit-substrate.md §10.3 + Hβ-bootstrap §1.15 entry-handler
@@ -22131,7 +22573,48 @@
 
   (func $inka_emit (export "inka_emit")
         (param $lowexprs i32)
-    (call $emit_lowir_program (local.get $lowexprs)))
+    (call $emit_cstr (i32.const 831) (i32.const 7))  ;; "(module"
+    (call $emit_nl)
+    (call $indent_inc)
+
+    ;; ── WASI imports ──
+    (call $emit_wasi_imports_inka)
+
+    ;; ── Memory & Globals ──
+    (call $emit_indent)
+    (call $emit_cstr (i32.const 838) (i32.const 8))  ;; "(memory "
+    (call $emit_cstr (i32.const 846) (i32.const 8))  ;; "(export "
+    (call $emit_byte (i32.const 34))
+    (call $emit_cstr (i32.const 1096) (i32.const 6)) ;; memory
+    (call $emit_byte (i32.const 34))
+    (call $emit_close)
+    (call $emit_space)
+    (call $emit_int (i32.const 512))
+    (call $emit_close)
+    (call $emit_nl)
+
+    (call $emit_indent)
+    (call $emit_cstr (i32.const 862) (i32.const 8))  ;; "(global "
+    (call $emit_byte (i32.const 36))
+    (call $emit_cstr (i32.const 1102) (i32.const 8)) ;; heap_ptr
+    (call $emit_cstr (i32.const 1110) (i32.const 11)) ;; " (mut i32) "
+    (call $emit_i32_const (i32.const 1048576))
+    (call $emit_close)
+    (call $emit_nl)
+
+    ;; ── Body ──
+    (call $emit_lowir_program (local.get $lowexprs))
+
+    ;; ── Table & Data ──
+    (call $emit_funcref_section)
+    (call $emit_string_section)
+
+    ;; ── _start ──
+    (call $emit_start_section)
+
+    (call $indent_dec)
+    (call $emit_close)
+    (call $emit_nl))
 
   ;; ═══ WAT Fragment Data Segments ═════════════════════════════════════
   ;; Raw byte strings for WAT syntax emission. No length prefix —
@@ -22334,6 +22817,9 @@
 
   (data (i32.const 1491) "_start_fn")
   (data (i32.const 1500) " (export \22_start\22)")
+  ;; Next free in emit_data.wat: 1519 (but 1520+ is claimed by
+  ;; emit/emit_const.wat — see emit_const.wat:143). Phase F strings
+  ;; live in emit/main.wat's own segment range (1584+).
 
   ;; ═══ Emitter Infrastructure ═════════════════════════════════════════
   ;; Output buffer management for WAT text generation.

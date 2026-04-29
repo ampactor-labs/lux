@@ -205,6 +205,15 @@
   ;;   site handles. Lands when the legacy emit_module.wat path retires
   ;;   per pipeline-wire.
 
+  ;; ─── Phase F data segments (module-wrap) ────────────────────────────
+  ;; Offsets 1584-1596: free space between emit_const.wat (1568+15=1583)
+  ;; and emit_call.wat (1856). Per Hβ-emit §6.1 chunk-owns-its-segments.
+  ;; 1584: "funcref" (7) → 1591
+  ;; 1591: "_start" (6) → 1597
+  ;; Next free: 1597
+  (data (i32.const 1584) "funcref")
+  (data (i32.const 1591) "_start")
+
   ;; ─── $emit_lowir_program — algorithmic-core orchestrator ─────────────
   ;;
   ;; Per Hβ-emit-substrate.md §4 + the Ω.3 buffer-counter iteration
@@ -299,15 +308,7 @@
     (call $emit_cstr (i32.const 870) (i32.const 7)) ;; "(table "
     (call $emit_int (local.get $n))
     (call $emit_space)
-    (call $emit_cstr (i32.const 1060) (i32.const 7)) ;; "funcref" (actually 1060 is "str_len". We need "funcref" string. Let's just emit byte by byte or use a known offset.)
-    ;; Actually, "funcref" is not in emit_data.wat. I will emit it byte-by-byte.
-    (call $emit_byte (i32.const 102)) ;; 'f'
-    (call $emit_byte (i32.const 117)) ;; 'u'
-    (call $emit_byte (i32.const 110)) ;; 'n'
-    (call $emit_byte (i32.const 99))  ;; 'c'
-    (call $emit_byte (i32.const 114)) ;; 'r'
-    (call $emit_byte (i32.const 101)) ;; 'e'
-    (call $emit_byte (i32.const 102)) ;; 'f'
+    (call $emit_cstr (i32.const 1584) (i32.const 7)) ;; "funcref"
     (call $emit_close)
     (call $emit_nl)
     (call $emit_indent)
@@ -354,6 +355,10 @@
       (br $iter))))
 
   ;; ─── _start Section Emission ──────────────────────────────────────
+  ;; Per src/backends/wasm.nx emit_start: emits `(func $_start (export
+  ;; "_start") ...)`. If "main" appears in the funcref table, calls it
+  ;; and drops the result before proc_exit. Export annotation MUST be
+  ;; inside the (func ...) form per WAT spec.
   (func $emit_start_section
     (local $main_str i32)
     (local.set $main_str (call $str_alloc (i32.const 4)))
@@ -361,12 +366,15 @@
     (i32.store8 (i32.add (local.get $main_str) (i32.const 5)) (i32.const 97))  ;; 'a'
     (i32.store8 (i32.add (local.get $main_str) (i32.const 6)) (i32.const 105)) ;; 'i'
     (i32.store8 (i32.add (local.get $main_str) (i32.const 7)) (i32.const 110)) ;; 'n'
+    ;; (func $_start (export "_start")
     (call $emit_indent)
     (call $emit_cstr (i32.const 584) (i32.const 6)) ;; "(func "
-    (call $emit_byte (i32.const 36))
-    (call $emit_cstr (i32.const 1491) (i32.const 6)) ;; "_start"
+    (call $emit_byte (i32.const 36))                 ;; '$'
+    (call $emit_cstr (i32.const 1591) (i32.const 6)) ;; "_start"
+    (call $emit_cstr (i32.const 1500) (i32.const 19)) ;; " (export \"_start\")"
     (call $emit_nl)
     (call $indent_inc)
+    ;; Body: if "main" is registered, call it and drop
     (if (i32.ge_s (call $emit_funcref_lookup (local.get $main_str)) (i32.const 0))
       (then
         (call $emit_indent)
@@ -375,7 +383,7 @@
         (call $emit_cstr (i32.add (local.get $main_str) (i32.const 4)) (i32.const 4)) ;; "main"
         (call $emit_space)
         (call $emit_cstr (i32.const 560) (i32.const 11)) ;; "(i32.const "
-        (call $emit_byte (i32.const 48)) ;; '0'
+        (call $emit_byte (i32.const 48))                  ;; '0'
         (call $emit_close)
         (call $emit_close)
         (call $emit_nl)
@@ -383,22 +391,21 @@
         (call $emit_cstr (i32.const 578) (i32.const 6)) ;; "(drop "
         (call $emit_close)
         (call $emit_nl)))
+    ;; (call $wasi_proc_exit (i32.const 0))
     (call $emit_indent)
     (call $emit_cstr (i32.const 572) (i32.const 6)) ;; "(call "
     (call $emit_byte (i32.const 36))
     (call $emit_cstr (i32.const 1221) (i32.const 9)) ;; "proc_exit"
     (call $emit_space)
     (call $emit_cstr (i32.const 560) (i32.const 11)) ;; "(i32.const "
-    (call $emit_byte (i32.const 48)) ;; '0'
+    (call $emit_byte (i32.const 48))                  ;; '0'
     (call $emit_close)
     (call $emit_close)
     (call $emit_nl)
+    ;; Close func
     (call $indent_dec)
     (call $emit_indent)
     (call $emit_close)
-    (call $emit_nl)
-    (call $emit_indent)
-    (call $emit_cstr (i32.const 1500) (i32.const 19)) ;; " (export \"_start\")"
     (call $emit_nl))
 
   ;; ─── $inka_emit — the pipeline-stage entry ───────────────────────────
