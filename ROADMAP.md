@@ -163,6 +163,31 @@ Current Hβ.lower bootstrap state — **CASCADE CLOSED (11/11 chunks live)**:
     blockexpr-stmts-substrate, match-arm-pattern-substrate,
     field-offset-resolution, synth.
 
+Current Hβ.emit + Hβ.arena cascade state — **WALKTHROUGHS LANDED, CHUNKS PENDING**:
+
+- Hβ-emit-substrate.md authored 2026-04-28: `e8aa29d` (initial draft)
+  → `4c876bc` (eight-interrogations re-audit per SYNTAX/SUBSTRATE
+  alignment; surfaced EmitMemory effect substrate per wheel canonical
+  src/backends/wasm.nx:55-110) → `4c8a22a` (second-pass riffle-back,
+  parallel-cascade design). Four-axis pre-audited per
+  `protocol_walkthrough_pre_audit.md`.
+- Hβ-arena-substrate.md authored 2026-04-28: `4c8a22a` in parallel with
+  Hβ-emit's second-pass audit. Solves build-time bump-allocator-pressure
+  per `ba327c9` substrate-honesty audit. Single-chunk landing target
+  `bootstrap/src/runtime/arena.wat`.
+- `bootstrap/src/emit/` directory currently git-untracked. Chunk #1
+  `state.wat` is **drafted** (368 lines; eight-interrogations cited;
+  exports `$emit_init` / `$emit_funcref_register` / `$emit_string_intern`
+  / etc.; per-fn `$emit_fn_reset`) — pending trace harness at
+  `bootstrap/test/emit/state_init.wat`, INDEX.tsv, build.sh integration,
+  and commit per Hβ.lower cascade landing precedent.
+- Cascade chunk dispatch order:
+  - **Hβ.arena**: single chunk `bootstrap/src/runtime/arena.wat` + per-
+    cascade-boundary retrofits. Not yet drafted.
+  - **Hβ.emit**: 9 chunks per Hβ-emit §7.1 (state ✎, lookup, emit_const,
+    emit_local, emit_control, emit_call, emit_handler, emit_dispatcher,
+    main). Dependency order at Hβ-emit §11.3. State drafted; rest pending.
+
 Current branch tip:
 
 - `b6e1f23` — `substrate: bootstrap/src/infer/main.wat — Hβ.infer cascade closure`
@@ -193,49 +218,71 @@ The Hβ.infer + Hβ.lower cascades are both **closed** (11/11 + 11/11 chunks
 live, 22 total cascade chunks). Stage-A pipeline-wire (commit ba327c9 audit)
 discovered a substrate-honest dual-gate: chaining `$inka_infer` alone trapped
 first-light Tier 1 with bump-allocator pressure on real parse_program ASTs.
-The cursor advances to the **next cascade — Hβ.emit** — which unlocks both
-gates simultaneously.
+Both walkthroughs that lift the dual-gate are **landed** — Hβ-emit-substrate.md
+(`e8aa29d` → `4c876bc`) + Hβ-arena-substrate.md (`4c8a22a`), four-axis
+pre-audited per `protocol_walkthrough_pre_audit.md`. The cursor advances
+to per-chunk WAT transcription.
 
-### Hβ.emit cascade — the next walkthrough
+### Hβ.emit + Hβ.arena cascades — the active residue
 
-Authoring `docs/specs/simulations/Hβ-emit-substrate.md` is the immediate
-priority. It's the per-handle design contract for extending the existing
-`bootstrap/src/emit_*.wat` chunks (~1728 lines) to consume LowExpr (35
-variants over tag region 300-334) instead of templating WAT directly from
-AST. Per Hβ-lower §9.2: emit reads LowExpr via `$lexpr_handle + $tag_of`
-dispatch; calls `$lookup_ty` for type info.
+The walkthroughs are the design contracts; the next residue is per-chunk
+WAT transcription against them.
 
-After Hβ.emit cascade lands (~6-8 chunks, mirror of Hβ.lower):
+- **Hβ.arena**: single chunk `bootstrap/src/runtime/arena.wat` (~250–350
+  lines; Layer 1 runtime substrate) + per-cascade-boundary retrofits
+  (`$inka_infer/_lower/_emit` set `$current_arena_stage` at entry, reset
+  on transition; per-fn reset hook in `$ls_reset_function` /
+  `$infer_fn_reset`). Independent of Hβ.emit — dispatchable first or in
+  parallel.
+- **Hβ.emit**: ~9 chunks under `bootstrap/src/emit/` per Hβ-emit §7.1;
+  dependency order at §11.3 (state → lookup → per-variant emit arms →
+  emit_dispatcher → main); per-chunk dispatch matrix at §11.2 names
+  Opus-only vs Opus-OR-Sonnet (emit_call.wat + emit_handler.wat are
+  Opus-only — gradient cash-out + H7/H1.4 substrate composition).
+- `bootstrap/src/emit/` directory currently staged (git-untracked) as
+  the cascade target.
+
+After both cascades close:
 - `Hβ.lower.emit-extension` follow-up closes
 - `Hβ.infer.pipeline-wire` second gate (bump-allocator-pressure substrate)
-  surfaces; lands as either arena handler (B.5 AM-arena-multishot) or
-  per-fn scoped-arena-reset substrate
+  closes via Hβ.arena
 - Pipeline-wire `$sys_main` retrofit becomes trivial:
   ```
   stdin |> read_all_stdin |> lex |> parse_program
-        |> $inka_infer |> $inka_lower |> $emit_program |> proc_exit
+        |> $inka_infer |> $inka_lower |> $inka_emit |> proc_exit
   ```
 - first-light-L1 unlocks (`inka2.wat == inka3.wat` self-compile fixed point)
 
 ### Path order
 
-1. **Hβ-emit-substrate.md walkthrough** — AUTHORED 2026-04-28 commits
-   `e8aa29d` + `4c876bc` + `4c8a22a`. Four-axis pre-audited per
-   `protocol_walkthrough_pre_audit.md`. Includes EmitMemory effect
-   substrate transcription per wheel canonical.
-2. **Hβ-arena-substrate.md walkthrough** — AUTHORED 2026-04-28 commit
-   `4c8a22a` IN PARALLEL with Hβ-emit. Solves build-time
-   bump-allocator-pressure (Hβ.infer.pipeline-wire's second gate).
-3. **Hβ.emit cascade chunks** (~9 chunks per Hβ-emit §7.1)
-4. **Hβ.arena chunk** (single chunk: `bootstrap/src/runtime/arena.wat`)
-5. **Per-cascade-boundary retrofits** — `$inka_infer/_lower/_emit`
-   set arena stage tag at entry; reset on transition.
-6. **Hβ.infer.pipeline-wire** (`$sys_main` retrofit; trivial after
-   gates lift)
-7. **first-light-L1** (`inka2.wat == inka3.wat` self-compile fixed point)
-8. `verify_smt` witness path / first-light-L2
-9. Mentl substrate composition (oracle = IC + cached value)
-10. `inka edit` web playground (Mentl V1 surface; LSP one transport)
+**Landed (cascade design contracts):**
+
+- Hβ-emit-substrate.md walkthrough — `e8aa29d` (initial draft) →
+  `4c876bc` (eight-interrogations re-audit per SYNTAX/SUBSTRATE
+  alignment; added EmitMemory effect substrate per wheel canonical)
+  → `4c8a22a` (second-pass riffle-back, parallel-cascade design).
+  Four-axis pre-audited per `protocol_walkthrough_pre_audit.md`.
+- Hβ-arena-substrate.md walkthrough — `4c8a22a`, parallel to Hβ-emit's
+  second-pass audit. Solves build-time bump-allocator-pressure
+  (the second pipeline-wire gate per `ba327c9` substrate-honesty audit).
+
+**Active path (per-chunk transcription residue):**
+
+1. **Hβ.arena chunk** — single chunk `bootstrap/src/runtime/arena.wat`
+   (~250–350 lines; Layer 1 runtime substrate; independent of Hβ.emit
+   so dispatchable first or in parallel).
+2. **Hβ.emit cascade chunks** — ~9 chunks per Hβ-emit §7.1; dependency
+   order at §11.3 starts with state.wat, lookup.wat, then per-variant
+   emit arms; closes with main.wat naming `$inka_emit`.
+3. **Per-cascade-boundary retrofits** — `$inka_infer/_lower/_emit` set
+   `$current_arena_stage` at entry; reset on transition. Per-fn reset
+   call from `$ls_reset_function` / `$infer_fn_reset`.
+4. **Hβ.infer.pipeline-wire** — `$sys_main` retrofit; trivial after
+   both gates lift.
+5. **first-light-L1** — `inka2.wat == inka3.wat` self-compile fixed point.
+6. `verify_smt` witness path / first-light-L2.
+7. Mentl substrate composition (oracle = IC + cached value).
+8. `inka edit` web playground (Mentl V1 surface; LSP one transport).
 
 ---
 
@@ -350,13 +397,15 @@ Goals:
 
 Use this order unless a walkthrough explicitly forces a different one:
 
-1. **Hβ-emit-substrate.md walkthrough** (next cascade design contract;
-   single-session Opus authoring)
-2. **Hβ.emit cascade** (~6-8 chunks; mirror of Hβ.lower; extends existing
-   `bootstrap/src/emit_*.wat` to consume LowExpr per Hβ-lower §9.2)
-3. **Bump-allocator-pressure substrate** (arena handler B.5 OR per-fn
-   scoped-arena-reset; closes Hβ.infer.pipeline-wire's second gate)
-4. **Hβ.infer.pipeline-wire** ($sys_main retrofit; trivial after gates lift)
+1. **Hβ.arena chunk** (`bootstrap/src/runtime/arena.wat`; single chunk;
+   Layer 1; independent of Hβ.emit — dispatchable first or in parallel)
+2. **Hβ.emit cascade** (~9 chunks per Hβ-emit §7.1; per-chunk dispatch
+   matrix at §11.2 names Opus-only vs Opus-OR-Sonnet; dependency order
+   at §11.3)
+3. **Per-cascade-boundary retrofits** ($inka_infer/_lower/_emit set
+   $current_arena_stage; per-fn reset hooks)
+4. **Hβ.infer.pipeline-wire** ($sys_main retrofit; trivial after both
+   gates lift)
 5. **first-light-L1** (`inka2.wat == inka3.wat` self-compile fixed point)
 6. `verify_smt` witness path / first-light-L2
 7. Mentl substrate composition (oracle = IC + cached value)
