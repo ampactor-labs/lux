@@ -333,6 +333,99 @@
         (br $each)))
     (local.get $buf))
 
+  ;; ─── Toplevel FnStmt pre-registration ─────────────────────────────
+  ;;
+  ;; Before statement inference walks bodies, every top-level function
+  ;; name is visible in env with a placeholder TFun. Forward calls then
+  ;; unify against the declaration handle instead of emitting
+  ;; E_MissingVariable. The later FnStmt arm unifies this placeholder
+  ;; with the body-derived type before re-binding the handle.
+  (func $infer_pre_register_fn_sig
+        (param $stmt i32) (param $handle i32) (param $span i32)
+    (local $name i32) (local $params i32)
+    (local $n_params i32) (local $i i32)
+    (local $param_h i32) (local $param_handles i32)
+    (local $ret_h i32) (local $row_h i32)
+    (local $tparam_list i32) (local $fn_ty i32)
+    (local $reason i32)
+    ;; FnStmt: [tag=121][name][params][ret][effs][body]
+    (local.set $name   (i32.load offset=4 (local.get $stmt)))
+    (local.set $params (i32.load offset=8 (local.get $stmt)))
+
+    (local.set $param_handles (call $make_list (i32.const 0)))
+    (local.set $n_params (call $len (local.get $params)))
+    (local.set $param_handles
+      (call $list_extend_to (local.get $param_handles) (local.get $n_params)))
+    (local.set $i (i32.const 0))
+    (block $params_done
+      (loop $each_param
+        (br_if $params_done (i32.ge_u (local.get $i) (local.get $n_params)))
+        (local.set $param_h (call $graph_fresh_ty
+          (call $reason_make_located (local.get $span)
+            (call $reason_make_inferred (i32.const 4056)))))   ;; "param"
+        (drop (call $list_set (local.get $param_handles) (local.get $i)
+                              (local.get $param_h)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each_param)))
+
+    (local.set $ret_h (call $graph_fresh_ty
+      (call $reason_make_located (local.get $span)
+        (call $reason_make_inferred (i32.const 4064)))))   ;; "return"
+    (local.set $row_h (call $graph_fresh_row
+      (call $reason_make_located (local.get $span)
+        (call $reason_make_inferred (i32.const 4080)))))   ;; "effects"
+    (local.set $tparam_list
+      (call $walk_stmt_build_inferred_params (local.get $param_handles)))
+    (local.set $fn_ty (call $ty_make_tfun
+      (local.get $tparam_list)
+      (call $ty_make_tvar (local.get $ret_h))
+      (local.get $row_h)))
+    (local.set $reason (call $reason_make_located
+      (local.get $span)
+      (call $reason_make_declared (local.get $name))))
+    (call $graph_bind (local.get $handle) (local.get $fn_ty)
+                      (local.get $reason))
+    (call $env_extend
+      (local.get $name)
+      (call $scheme_make_forall
+        (call $make_list (i32.const 0))
+        (local.get $fn_ty))
+      (local.get $reason)
+      (call $schemekind_make_fn)))
+
+  (func $infer_pre_register_stmt (param $node i32)
+    (local $body i32) (local $stmt i32) (local $tag i32)
+    (local $handle i32) (local $span i32) (local $inner_node i32)
+    (local.set $body   (call $walk_stmt_node_body   (local.get $node)))
+    (local.set $span   (call $walk_stmt_node_span   (local.get $node)))
+    (local.set $handle (call $walk_stmt_node_handle (local.get $node)))
+    (if (i32.ne (i32.load (local.get $body)) (i32.const 111))
+      (then (return)))
+    (local.set $stmt (i32.load offset=4 (local.get $body)))
+    (local.set $tag (call $walk_stmt_stmt_tag (local.get $stmt)))
+    (if (i32.eq (local.get $tag) (i32.const 121))
+      (then
+        (call $infer_pre_register_fn_sig
+          (local.get $stmt) (local.get $handle) (local.get $span))
+        (return)))
+    (if (i32.eq (local.get $tag) (i32.const 128))
+      (then
+        ;; Documented(doc, inner_node): inner Node at offset 8.
+        (local.set $inner_node (i32.load offset=8 (local.get $stmt)))
+        (call $infer_pre_register_stmt (local.get $inner_node)))))
+
+  (func $infer_pre_register_fn_sigs (param $stmts i32)
+    (local $n i32) (local $i i32) (local $stmt_node i32)
+    (local.set $n (call $len (local.get $stmts)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $stmt_node (call $list_index (local.get $stmts) (local.get $i)))
+        (call $infer_pre_register_stmt (local.get $stmt_node))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each))))
+
   ;; ─── Per-Stmt-variant arms ───────────────────────────────────────────
 
   ;; LetStmt arm (tag 120) — src/infer.nx:200-204 + 1588-1592.
@@ -392,8 +485,11 @@
     (local $n_params i32) (local $i i32) (local $param i32) (local $param_name i32)
     (local $param_h i32) (local $param_handles i32)
     (local $ret_h i32) (local $row_h i32)
+    (local $tparam i32) (local $param_ty i32)
     (local $tparam_list i32) (local $fn_ty i32) (local $placeholder_scheme i32)
     (local $declared_reason i32)
+    (local $existing_g i32) (local $existing_kind i32)
+    (local $existing_tag i32) (local $existing_ty i32)
     (local $body_h i32)
     (local $generalized_scheme i32)
     ;; Layout: [tag=121][name][params][ret][effs][body]
@@ -415,83 +511,96 @@
     ;; in this scope; on exit they all go out.
     (call $env_scope_enter)
 
-    ;; ─── Mint per-param fresh handle + env-extend each name ──────────
-    ;; mint_params (src/infer.nx:2001-2011): for each parser TParam
-    ;; (tag 190, layout [tag][name][ty][own][own]), mint a fresh handle,
-    ;; env_extend(param_name, Forall([], TVar(h)), Located(span,
-    ;; Declared(name)), FnScheme).
-    ;;
-    ;; CRITICAL: parser TParam offset layout per parser_fn.wat:11-19:
-    ;;   offset 0  = tag (190)
-    ;;   offset 4  = name (string ptr)
-    ;;   offset 8  = ty   (parser TyName / TyVar — opaque at seed)
-    ;;   offset 12 = own  (raw int 170/171/172)
-    ;;   offset 16 = own  (raw int 170/171/172)
-    (local.set $param_handles (call $make_list (i32.const 0)))
-    (local.set $n_params (call $len (local.get $params)))
-    (local.set $param_handles
-      (call $list_extend_to (local.get $param_handles) (local.get $n_params)))
-    (local.set $i (i32.const 0))
-    (block $params_done
-      (loop $each_param
-        (br_if $params_done (i32.ge_u (local.get $i) (local.get $n_params)))
-        (local.set $param (call $list_index (local.get $params) (local.get $i)))
-        (local.set $param_name (i32.load offset=4 (local.get $param)))
-        ;; Mint fresh handle with Located(span, Inferred("param")) Reason.
-        ;; Wheel uses richer FnParam(owner_name, idx, Inferred("param of
-        ;; '" |> ...)) (src/infer.nx:2008); seed simpler form lands per
-        ;; Hβ.infer.fnparam-reason-rich follow-up.
-        (local.set $param_h (call $graph_fresh_ty
+    ;; If pre-registered, extract existing. Otherwise mint.
+    (local.set $existing_g (call $graph_chase (local.get $handle)))
+    (local.set $existing_kind (call $gnode_kind (local.get $existing_g)))
+    (local.set $existing_tag (call $node_kind_tag (local.get $existing_kind)))
+    (if (i32.eq (local.get $existing_tag) (i32.const 60))   ;; NBOUND
+      (then
+        (local.set $fn_ty (call $node_kind_payload (local.get $existing_kind)))
+        (local.set $tparam_list (call $ty_tfun_params (local.get $fn_ty)))
+        (local.set $ret_h (call $ty_tvar_handle (call $ty_tfun_return (local.get $fn_ty))))
+        (local.set $row_h (call $ty_tfun_row (local.get $fn_ty)))
+        
+        ;; Extend env with extracted params
+        (local.set $n_params (call $len (local.get $params)))
+        (local.set $i (i32.const 0))
+        (block $params_done_ex
+          (loop $each_param_ex
+            (br_if $params_done_ex (i32.ge_u (local.get $i) (local.get $n_params)))
+            (local.set $param (call $list_index (local.get $params) (local.get $i)))
+            (local.set $param_name (i32.load offset=4 (local.get $param)))
+            (local.set $tparam (call $list_index (local.get $tparam_list) (local.get $i)))
+            (call $env_extend
+              (local.get $param_name)
+              (call $scheme_make_forall
+                (call $make_list (i32.const 0))
+                (call $tparam_ty (local.get $tparam)))
+              (call $reason_make_located
+                (local.get $span)
+                (call $reason_make_declared (local.get $param_name)))
+              (call $schemekind_make_fn))
+            (local.set $i (i32.add (local.get $i) (i32.const 1)))
+            (br $each_param_ex)))
+      )
+      (else
+        ;; Not pre-registered (e.g. nested). Mint fresh.
+        (local.set $param_handles (call $make_list (i32.const 0)))
+        (local.set $n_params (call $len (local.get $params)))
+        (local.set $param_handles
+          (call $list_extend_to (local.get $param_handles) (local.get $n_params)))
+        (local.set $i (i32.const 0))
+        (block $params_done_mint
+          (loop $each_param_mint
+            (br_if $params_done_mint (i32.ge_u (local.get $i) (local.get $n_params)))
+            (local.set $param (call $list_index (local.get $params) (local.get $i)))
+            (local.set $param_name (i32.load offset=4 (local.get $param)))
+            (local.set $param_h (call $graph_fresh_ty
+              (call $reason_make_located (local.get $span)
+                (call $reason_make_inferred (i32.const 4056)))))   ;; "param"
+            (drop (call $list_set (local.get $param_handles) (local.get $i)
+                                  (local.get $param_h)))
+            (call $env_extend
+              (local.get $param_name)
+              (call $scheme_make_forall
+                (call $make_list (i32.const 0))
+                (call $ty_make_tvar (local.get $param_h)))
+              (call $reason_make_located
+                (local.get $span)
+                (call $reason_make_declared (local.get $param_name)))
+              (call $schemekind_make_fn))
+            (local.set $i (i32.add (local.get $i) (i32.const 1)))
+            (br $each_param_mint)))
+
+        (local.set $ret_h (call $graph_fresh_ty
           (call $reason_make_located (local.get $span)
-            (call $reason_make_inferred (i32.const 4056)))))   ;; "param"
-        (drop (call $list_set (local.get $param_handles) (local.get $i)
-                              (local.get $param_h)))
-        ;; env_extend(param_name, Forall([], TVar(param_h)),
-        ;;             Located(span, Declared(param_name)), FnScheme)
+            (call $reason_make_inferred (i32.const 4064)))))   ;; "return"
+        (local.set $row_h (call $graph_fresh_row
+          (call $reason_make_located (local.get $span)
+            (call $reason_make_inferred (i32.const 4080)))))   ;; "effects"
+
+        (local.set $tparam_list
+          (call $walk_stmt_build_inferred_params (local.get $param_handles)))
+        (local.set $fn_ty (call $ty_make_tfun
+          (local.get $tparam_list)
+          (call $ty_make_tvar (local.get $ret_h))
+          (local.get $row_h)))
+        (local.set $declared_reason (call $reason_make_located
+          (local.get $span)
+          (call $reason_make_declared (local.get $name))))
+        (call $graph_bind (local.get $handle) (local.get $fn_ty)
+                          (local.get $declared_reason))
+
+        ;; Pre-extend env with placeholder Forall
+        (local.set $placeholder_scheme (call $scheme_make_forall
+          (call $make_list (i32.const 0))
+          (local.get $fn_ty)))
         (call $env_extend
-          (local.get $param_name)
-          (call $scheme_make_forall
-            (call $make_list (i32.const 0))
-            (call $ty_make_tvar (local.get $param_h)))
-          (call $reason_make_located
-            (local.get $span)
-            (call $reason_make_declared (local.get $param_name)))
+          (local.get $name) (local.get $placeholder_scheme)
+          (local.get $declared_reason)
           (call $schemekind_make_fn))
-        (local.set $i (i32.add (local.get $i) (i32.const 1)))
-        (br $each_param)))
-
-    ;; ─── Mint return + row handles ───────────────────────────────────
-    (local.set $ret_h (call $graph_fresh_ty
-      (call $reason_make_located (local.get $span)
-        (call $reason_make_inferred (i32.const 4064)))))   ;; "return"
-    (local.set $row_h (call $graph_fresh_row
-      (call $reason_make_located (local.get $span)
-        (call $reason_make_inferred (i32.const 4080)))))   ;; "effects"
-
-    ;; ─── Build placeholder TFun + bind fn handle + pre-extend env ────
-    ;; Pre-bind the fn name BEFORE walking body so recursive calls
-    ;; resolve. Per src/infer.nx:279-280.
-    (local.set $tparam_list
-      (call $walk_stmt_build_inferred_params (local.get $param_handles)))
-    (local.set $fn_ty (call $ty_make_tfun
-      (local.get $tparam_list)
-      (call $ty_make_tvar (local.get $ret_h))
-      (local.get $row_h)))
-    (local.set $declared_reason (call $reason_make_located
-      (local.get $span)
-      (call $reason_make_declared (local.get $name))))
-    ;; Bind fn handle to the placeholder TFun.
-    (call $graph_bind (local.get $handle) (local.get $fn_ty)
-                      (local.get $declared_reason))
-    ;; Pre-extend env with placeholder Forall — recursive-call resolution
-    ;; surface.
-    (local.set $placeholder_scheme (call $scheme_make_forall
-      (call $make_list (i32.const 0))
-      (local.get $fn_ty)))
-    (call $env_extend
-      (local.get $name) (local.get $placeholder_scheme)
-      (local.get $declared_reason)
-      (call $schemekind_make_fn))
+      )
+    )
 
     ;; ─── Walk fn body ────────────────────────────────────────────────
     (local.set $body_h (call $infer_walk_expr (local.get $body_node)))
@@ -529,7 +638,7 @@
   ;; site exercises generic constructor instantiation that needs proper
   ;; TVar handling beyond the productive-under-error fallback below.
   (func $walk_stmt_parser_ty_to_ty (param $pty i32) (result i32)
-    (local $tag i32)
+    (local $tag i32) (local $fields i32)
     (if (i32.eq (local.get $pty) (i32.const 200))
       (then (return (call $ty_make_tint))))
     (if (i32.eq (local.get $pty) (i32.const 201))
@@ -552,10 +661,48 @@
       (then (return (call $ty_make_tvar
         (call $graph_fresh_ty
           (call $reason_make_inferred (i32.const 4056)))))))   ;; "param"
+    ;; tag=207 TyRecord(fields) — convert each (name, parser-Ty)
+    ;; field pair into the canonical TRecord field-list shape.
+    (if (i32.eq (local.get $tag) (i32.const 207))
+      (then
+        (local.set $fields
+          (call $walk_stmt_parser_record_fields_to_ty_fields
+            (i32.load offset=4 (local.get $pty))))
+        (return (call $ty_make_trecord (local.get $fields)))))
     ;; Unknown shape — productive-under-error: fresh TVar.
     (call $ty_make_tvar
       (call $graph_fresh_ty
         (call $reason_make_inferred (i32.const 4056)))))
+
+  ;; ─── parser record fields → canonical Ty field pairs ─────────────
+  ;; Parser record fields are list entries shaped as 2-tuples
+  ;; (name, parser-Ty). Convert only the Ty slot; preserve the field
+  ;; name as the graph-visible record label.
+  (func $walk_stmt_parser_record_fields_to_ty_fields
+        (param $fields i32) (result i32)
+    (local $n i32) (local $i i32) (local $out i32)
+    (local $field i32) (local $name i32) (local $pty i32)
+    (local $ty i32) (local $pair i32)
+    (local.set $n (call $len (local.get $fields)))
+    (local.set $out (call $list_extend_to
+      (call $make_list (local.get $n))
+      (local.get $n)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $field
+          (call $list_index (local.get $fields) (local.get $i)))
+        (local.set $name (call $list_index (local.get $field) (i32.const 0)))
+        (local.set $pty  (call $list_index (local.get $field) (i32.const 1)))
+        (local.set $ty (call $walk_stmt_parser_ty_to_ty (local.get $pty)))
+        (local.set $pair (call $make_list (i32.const 2)))
+        (drop (call $list_set (local.get $pair) (i32.const 0) (local.get $name)))
+        (drop (call $list_set (local.get $pair) (i32.const 1) (local.get $ty)))
+        (drop (call $list_set (local.get $out) (local.get $i) (local.get $pair)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter)))
+    (local.get $out))
 
   ;; ─── $walk_stmt_build_field_tparams — parser field-tys → List<TParam> ──
   ;; Per parser_decl.wat:60-63 each variant 2-tuple is (vname,
@@ -921,4 +1068,5 @@
     (call $graph_init)
     (call $env_init)
     (call $infer_init)
+    (call $infer_pre_register_fn_sigs (local.get $stmts))
     (call $infer_stmt_list (local.get $stmts)))

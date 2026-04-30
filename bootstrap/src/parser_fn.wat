@@ -32,6 +32,14 @@
     (i32.store offset=4 (local.get $p) (local.get $h))
     (local.get $p))
 
+  ;; TyRecord(fields) → [tag=207][fields]
+  ;; Fields are a list of 2-tuples (name, parser-Ty).
+  (func $mk_TyRecord (param $fields i32) (result i32)
+    (local $p i32) (local.set $p (call $alloc (i32.const 8)))
+    (i32.store (local.get $p) (i32.const 207))
+    (i32.store offset=4 (local.get $p) (local.get $fields))
+    (local.get $p))
+
   ;; ─── parse_type_ty: type expression parser ────────────────────────
   ;; Int → 200, Float → 201, String → 202, Bool → TyName("Bool"),
   ;; Unit → 204, other ident → TyName(v), () → TyUnit

@@ -182,8 +182,39 @@ fn find_handler_for_effect(stack, ename) =
 /// Entry point — wraps the walk in `infer_ctx` so row accumulation is automatic.
 fn infer_program(stmts) =
   handle {
+    pre_register_fn_sigs(stmts)
     infer_stmt_list(stmts)
   } with infer_ctx
+
+fn pre_register_fn_sigs(stmts) =
+  if len(stmts) == 0 { () }
+  else {
+    pre_register_stmt(list_head(stmts))
+    pre_register_fn_sigs(list_tail(stmts))
+  }
+
+fn pre_register_stmt(ref node) =
+  let N(body, span, handle) = node
+  match body {
+    NStmt(FnStmt(name, params, _ret_ann, _effs, _body_node)) =>
+      pre_register_fn_sig(name, params, handle, span),
+    NStmt(Documented(_, inner_node)) =>
+      pre_register_stmt(inner_node),
+    _ => ()
+  }
+
+fn pre_register_fn_sig(name, params, handle, span: ValidSpan) = {
+  let param_handles = mint_param_placeholders(params, name)
+  let ret_handle = perform mint(FnReturn(name, Inferred("return of '" |> str_concat(name) |> str_concat("'")))) // drift-audit: ignore — |> inside string-build arg, not a pipe verb
+  let row_handle = perform graph_fresh_row(Inferred("effects of '" |> str_concat(name) |> str_concat("'")))
+  let fn_ty = TFun(
+    build_param_types(params, param_handles),
+    TVar(ret_handle),
+    mk_ef_open([], row_handle)
+  )
+  perform graph_bind(handle, fn_ty, Located(span, Declared(name)))
+  perform env_extend(name, Forall([], fn_ty), Declared(name), FnScheme)
+}
 
 fn infer_stmt_list(stmts) =
   if len(stmts) == 0 { () }
@@ -276,8 +307,15 @@ fn infer_fn(name, params, body_node, handle, span: ValidSpan) = {
   )
 
   // Bind the name BEFORE body so recursive calls resolve.
-  perform env_extend(name, Forall([], fn_ty), Declared(name), FnScheme)
-  perform graph_bind(handle, fn_ty, Located(span, Declared(name)))
+  let existing = perform graph_chase(handle)
+  match existing {
+    GNode(NBound(existing_ty), _) =>
+      unify_types(existing_ty, fn_ty, span, Declared(name)),
+    _ => {
+      perform env_extend(name, Forall([], fn_ty), Declared(name), FnScheme)
+      perform graph_bind(handle, fn_ty, Located(span, Declared(name)))
+    }
+  }
 
   // Enter the row-accumulation scope and infer body.
   perform inf_enter_fn(row_handle, span)
@@ -2000,6 +2038,17 @@ fn find_mapping(mapping, id) =
 
 fn mint_params(params, owner_name) =
   mint_params_at(params, owner_name, 0)
+
+fn mint_param_placeholders(params, owner_name) =
+  mint_param_placeholders_at(params, owner_name, 0)
+
+fn mint_param_placeholders_at(params, owner_name, idx) =
+  if len(params) == 0 { [] }
+  else {
+    let TParam(_, _, _, _) = list_head(params)
+    let h = perform mint(FnParam(owner_name, idx, Inferred("param of '" |> str_concat(owner_name) |> str_concat("'"))))
+    [h] ++ mint_param_placeholders_at(list_tail(params), owner_name, idx + 1)
+  }
 
 fn mint_params_at(params, owner_name, idx) =
   if len(params) == 0 { [] }

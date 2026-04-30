@@ -6,11 +6,38 @@
 
   (func $parse_type_stmt (param $tokens i32) (param $pos i32) (param $span i32) (result i32)
     (local $name i32) (local $p i32) (local $variants_r i32) (local $tup i32)
+    (local $fields_r i32) (local $ty_record i32) (local $variant i32)
+    (local $variants i32) (local $field_tys i32)
     (local.set $name (call $ident_at_p (local.get $tokens) (local.get $pos)))
     (local.set $p (call $skip_ws_p (local.get $tokens) (i32.add (local.get $pos) (i32.const 1))))
     ;; Skip =
     (if (call $at (local.get $tokens) (local.get $p) (i32.const 60)) ;; TEq
       (then (local.set $p (call $skip_ws_p (local.get $tokens) (i32.add (local.get $p) (i32.const 1))))))
+    ;; Nominal record: type Name = {field: Ty, ...}
+    (if (call $at (local.get $tokens) (local.get $p) (i32.const 47)) ;; TLBrace
+      (then
+        (local.set $fields_r (call $parse_record_type_fields
+          (local.get $tokens)
+          (call $skip_ws_p (local.get $tokens) (i32.add (local.get $p) (i32.const 1)))))
+        (local.set $ty_record
+          (call $mk_TyRecord (call $list_index (local.get $fields_r) (i32.const 0))))
+        (local.set $field_tys (call $make_list (i32.const 1)))
+        (drop (call $list_set (local.get $field_tys) (i32.const 0) (local.get $ty_record)))
+        (local.set $variant (call $make_list (i32.const 2)))
+        (drop (call $list_set (local.get $variant) (i32.const 0) (local.get $name)))
+        (drop (call $list_set (local.get $variant) (i32.const 1) (local.get $field_tys)))
+        (local.set $variants (call $make_list (i32.const 1)))
+        (drop (call $list_set (local.get $variants) (i32.const 0) (local.get $variant)))
+        (local.set $tup (call $make_list (i32.const 2)))
+        (drop (call $list_set (local.get $tup) (i32.const 0)
+          (call $nstmt
+            (call $mk_TypeDefStmt (local.get $name)
+              (call $make_list (i32.const 0))
+              (local.get $variants))
+            (local.get $span))))
+        (drop (call $list_set (local.get $tup) (i32.const 1)
+          (call $list_index (local.get $fields_r) (i32.const 1))))
+        (return (local.get $tup))))
     ;; Parse variants
     (local.set $variants_r (call $parse_variants (local.get $tokens) (local.get $p)))
     (local.set $tup (call $make_list (i32.const 2)))
@@ -22,6 +49,59 @@
         (local.get $span))))
     (drop (call $list_set (local.get $tup) (i32.const 1)
       (call $list_index (local.get $variants_r) (i32.const 1))))
+    (local.get $tup))
+
+  ;; parse_record_type_fields: field-name/type pairs until RBrace.
+  ;; Returns (fields_list, new_pos). Each field is a 2-tuple (name, Ty).
+  (func $parse_record_type_fields (param $tokens i32) (param $pos i32) (result i32)
+    (local $p i32) (local $buf i32) (local $count i32)
+    (local $name i32) (local $p2 i32) (local $ty_r i32)
+    (local $ty i32) (local $p3 i32) (local $field i32) (local $tup i32)
+    (local.set $p (call $skip_ws_p (local.get $tokens) (local.get $pos)))
+    (if (call $at (local.get $tokens) (local.get $p) (i32.const 48)) ;; TRBrace
+      (then
+        (local.set $tup (call $make_list (i32.const 2)))
+        (drop (call $list_set (local.get $tup) (i32.const 0) (call $make_list (i32.const 0))))
+        (drop (call $list_set (local.get $tup) (i32.const 1) (i32.add (local.get $p) (i32.const 1))))
+        (return (local.get $tup))))
+    (local.set $buf (call $make_list (i32.const 4)))
+    (local.set $count (i32.const 0))
+    (block $done
+      (loop $fields
+        (local.set $name (call $ident_at_p (local.get $tokens) (local.get $p)))
+        (local.set $p2 (call $expect
+          (local.get $tokens)
+          (call $skip_ws_p (local.get $tokens) (i32.add (local.get $p) (i32.const 1)))
+          (i32.const 53))) ;; TColon
+        (local.set $ty_r (call $parse_type_ty
+          (local.get $tokens)
+          (call $skip_ws_p (local.get $tokens) (local.get $p2))))
+        (local.set $ty (call $list_index (local.get $ty_r) (i32.const 0)))
+        (local.set $p3 (call $skip_ws_p (local.get $tokens)
+          (call $list_index (local.get $ty_r) (i32.const 1))))
+        (local.set $field (call $make_list (i32.const 2)))
+        (drop (call $list_set (local.get $field) (i32.const 0) (local.get $name)))
+        (drop (call $list_set (local.get $field) (i32.const 1) (local.get $ty)))
+        (local.set $buf (call $list_extend_to (local.get $buf)
+          (i32.add (local.get $count) (i32.const 1))))
+        (drop (call $list_set (local.get $buf) (local.get $count) (local.get $field)))
+        (local.set $count (i32.add (local.get $count) (i32.const 1)))
+        (if (call $at (local.get $tokens) (local.get $p3) (i32.const 51)) ;; TComma
+          (then
+            (local.set $p (call $skip_ws_p
+              (local.get $tokens) (i32.add (local.get $p3) (i32.const 1))))
+            (if (call $at (local.get $tokens) (local.get $p) (i32.const 48))
+              (then
+                (local.set $p (i32.add (local.get $p) (i32.const 1)))
+                (br $done)))
+            (br $fields))
+          (else
+            (local.set $p (call $expect (local.get $tokens) (local.get $p3) (i32.const 48)))
+            (br $done)))))
+    (local.set $tup (call $make_list (i32.const 2)))
+    (drop (call $list_set (local.get $tup) (i32.const 0)
+      (call $slice (local.get $buf) (i32.const 0) (local.get $count))))
+    (drop (call $list_set (local.get $tup) (i32.const 1) (local.get $p)))
     (local.get $tup))
 
   ;; parse_variants: V1 | V2(T1, T2) | ...
