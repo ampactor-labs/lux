@@ -205,14 +205,33 @@
   ;;   site handles. Lands when the legacy emit_module.wat path retires
   ;;   per pipeline-wire.
 
-  ;; ─── Phase F data segments (module-wrap) ────────────────────────────
-  ;; Offsets 1584-1596: free space between emit_const.wat (1568+15=1583)
-  ;; and emit_call.wat (1856). Per Hβ-emit §6.1 chunk-owns-its-segments.
-  ;; 1584: "funcref" (7) → 1591
-  ;; 1591: "_start" (6) → 1597
-  ;; Next free: 1597
+  ;; ─── Phase F+H data segments (module-wrap + fn-body emission) ─────
+  ;; Phase F segments: 1584-1596 (funcref, _start)
   (data (i32.const 1584) "funcref")
   (data (i32.const 1591) "_start")
+  ;; Phase H fn-body emission segments: RELOCATED to 4096+ to avoid
+  ;; the contested 1597-1855 range (emit_diag at 1840 / emit_call at 1856).
+  ;; 4096: "__state" (7) → 4103
+  ;; 4104: "_idx i32 (i32.const " (20) → 4124
+  ;; 4124: " (param $" (9) → 4133
+  ;; 4133: " (result i32)" (13) → 4146
+  ;; 4146: " (local $" (9) → 4155
+  ;; 4155: " i32)" (5) → 4160
+  ;; 4160: "(table $fns " (12) → 4172
+  ;; 4172: " funcref)\n" (10) → 4182
+  ;; 4182: "(elem $fns (i32.const 0)" (24) → 4206
+  ;; 4206: ")\n" (2) → 4208
+  ;; Next free: 4208
+  (data (i32.const 4096) "__state")
+  (data (i32.const 4104) "_idx i32 (i32.const ")
+  (data (i32.const 4124) " (param $")
+  (data (i32.const 4133) " (result i32)")
+  (data (i32.const 4146) " (local $")
+  (data (i32.const 4155) " i32)")
+  (data (i32.const 4160) "(table $fns ")
+  (data (i32.const 4172) " funcref)\n")
+  (data (i32.const 4182) "(elem $fns (i32.const 0)")
+  (data (i32.const 4206) ")\n")
 
   ;; ─── $emit_lowir_program — algorithmic-core orchestrator ─────────────
   ;;
@@ -408,6 +427,182 @@
     (call $emit_close)
     (call $emit_nl))
 
+  ;; ─── Phase H: Function body emission ─────────────────────────────────
+  ;; Per src/backends/wasm.nx:848-963 emit_functions + emit_fn_body.
+  ;; Deep-walks the LowExpr list to find LMakeClosure nodes and emits
+  ;; each as a (func $name ...) WAT definition. Also collects fn names
+  ;; for the funcref table + index globals.
+
+  ;; $collect_fn_names — walk LowExpr list, collect LMakeClosure fn names.
+  ;; Returns a flat list of name ptrs. Per wasm.nx:848-928 emit_fns_expr.
+  (func $collect_fn_names (param $lowexprs i32) (result i32)
+    (local $names i32) (local $count i32)
+    (local $i i32) (local $n i32) (local $expr i32) (local $tag i32)
+    (local $inner i32) (local $fn_r i32)
+    (local.set $names (call $make_list (i32.const 16)))
+    (local.set $count (i32.const 0))
+    (local.set $n (call $len (local.get $lowexprs)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $expr (call $list_index (local.get $lowexprs) (local.get $i)))
+        (local.set $tag (call $tag_of (local.get $expr)))
+        ;; LLet (304) — check inner for LMakeClosure
+        (if (i32.eq (local.get $tag) (i32.const 304))
+          (then
+            (local.set $inner (call $lexpr_llet_value (local.get $expr)))
+            (if (i32.eq (call $tag_of (local.get $inner)) (i32.const 311))
+              (then
+                (local.set $fn_r (call $lexpr_lmakeclosure_fn (local.get $inner)))
+                (local.set $names
+                  (call $list_set
+                    (call $list_extend_to (local.get $names)
+                      (i32.add (local.get $count) (i32.const 1)))
+                    (local.get $count)
+                    (call $lowfn_name (local.get $fn_r))))
+                (local.set $count (i32.add (local.get $count) (i32.const 1)))))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter)))
+    ;; Fix list size: $make_list(16) set len=16, but we only filled $count.
+    ;; Overwrite the count field (offset 0) to reflect actual used count.
+    (i32.store (local.get $names) (local.get $count))
+    (local.get $names))
+
+  ;; $emit_fn_table_and_globals — emit (table $fns N funcref) + (elem ...)
+  ;; + (global $name_idx i32 (i32.const N)) per fn.
+  ;; Per wasm.nx:577-609.
+  (func $emit_fn_table_and_globals (param $names i32)
+    (local $n i32) (local $i i32)
+    (local.set $n (call $len (local.get $names)))
+    (if (i32.eqz (local.get $n)) (then (return)))
+    ;; (table $fns N funcref)
+    (call $emit_indent)
+    (call $emit_cstr (i32.const 4160) (i32.const 12)) ;; "(table $fns "
+    (call $emit_int (local.get $n))
+    (call $emit_cstr (i32.const 4172) (i32.const 10)) ;; " funcref)\n"
+    ;; (elem $fns (i32.const 0) $name1 $name2 ...)
+    (call $emit_indent)
+    (call $emit_cstr (i32.const 4182) (i32.const 24)) ;; "(elem $fns (i32.const 0)"
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (call $emit_byte (i32.const 32))  ;; ' '
+        (call $emit_byte (i32.const 36))  ;; '$'
+        (call $emit_str (call $list_index (local.get $names) (local.get $i)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter)))
+    (call $emit_cstr (i32.const 4206) (i32.const 2)) ;; ")\n"
+    ;; (global $name_idx i32 (i32.const N)) per fn
+    (local.set $i (i32.const 0))
+    (block $done2
+      (loop $iter2
+        (br_if $done2 (i32.ge_u (local.get $i) (local.get $n)))
+        (call $emit_indent)
+        (call $emit_cstr (i32.const 862) (i32.const 8))  ;; "(global "
+        (call $emit_byte (i32.const 36))                  ;; '$'
+        (call $emit_str (call $list_index (local.get $names) (local.get $i)))
+        (call $emit_cstr (i32.const 4104) (i32.const 20)) ;; "_idx i32 (i32.const "
+        (call $emit_int (local.get $i))
+        (call $emit_close)  ;; close (i32.const N)
+        (call $emit_close)  ;; close (global ...)
+        (call $emit_nl)
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter2))))
+
+  ;; $emit_fn_body — emit a single (func $name (param $__state i32) ...)
+  ;; Per wasm.nx:930-962 emit_fn_body. W7 calling convention.
+  (func $emit_fn_body (param $fn_r i32)
+    (local $name i32) (local $params i32) (local $body i32)
+    (local $arity i32) (local $i i32)
+    (local.set $name   (call $lowfn_name   (local.get $fn_r)))
+    (local.set $arity  (call $lowfn_arity  (local.get $fn_r)))
+    (local.set $params (call $lowfn_params (local.get $fn_r)))
+    (local.set $body   (call $lowfn_body   (local.get $fn_r)))
+    ;; (func $name
+    (call $emit_indent)
+    (call $emit_cstr (i32.const 924) (i32.const 5)) ;; "(func"
+    (call $emit_byte (i32.const 32))                ;; ' '
+    (call $emit_byte (i32.const 36))                ;; '$'
+    (call $emit_str (local.get $name))
+    ;; (param $__state i32)
+    (call $emit_cstr (i32.const 4124) (i32.const 9)) ;; " (param $"
+    (call $emit_cstr (i32.const 4096) (i32.const 7)) ;; "__state"
+    (call $emit_cstr (i32.const 4155) (i32.const 5)) ;; " i32)"
+    ;; Emit user params
+    (local.set $i (i32.const 0))
+    (block $pdone
+      (loop $piter
+        (br_if $pdone (i32.ge_u (local.get $i) (local.get $arity)))
+        (call $emit_cstr (i32.const 4124) (i32.const 9)) ;; " (param $"
+        (call $emit_str (call $list_index (local.get $params) (local.get $i)))
+        (call $emit_cstr (i32.const 4155) (i32.const 5)) ;; " i32)"
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $piter)))
+    ;; (result i32)
+    (call $emit_cstr (i32.const 4133) (i32.const 13)) ;; " (result i32)"
+    ;; Standard locals per W7
+    (call $emit_cstr (i32.const 4146) (i32.const 9)) ;; " (local $"
+    (call $emit_str (i32.const 2244)) ;; "state_tmp" (reuse emit_call segment, length-prefixed)
+    (call $emit_cstr (i32.const 4155) (i32.const 5)) ;; " i32)"
+    ;; Pre-declare LLet locals from body
+    (call $emit_let_locals (local.get $body))
+    (call $emit_nl)
+    ;; Emit body expressions
+    (call $indent_inc)
+    (call $emit_lowir_program (local.get $body))
+    (call $indent_dec)
+    (call $emit_indent)
+    (call $emit_close)
+    (call $emit_nl))
+
+  ;; $emit_let_locals — walk body LowExpr list, emit (local $name i32)
+  ;; for each LLet. Stops at LMakeClosure boundaries (those are other fns).
+  ;; Per wasm.nx:965-1030.
+  (func $emit_let_locals (param $exprs i32)
+    (local $i i32) (local $n i32) (local $expr i32) (local $tag i32)
+    (local.set $n (call $len (local.get $exprs)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $expr (call $list_index (local.get $exprs) (local.get $i)))
+        (local.set $tag (call $tag_of (local.get $expr)))
+        ;; LLet (304) — declare local and recurse into value
+        (if (i32.eq (local.get $tag) (i32.const 304))
+          (then
+            (call $emit_cstr (i32.const 4146) (i32.const 9)) ;; " (local $"
+            (call $emit_str (call $lexpr_llet_name (local.get $expr)))
+            (call $emit_cstr (i32.const 4155) (i32.const 5)))) ;; " i32)"
+        ;; LMakeClosure (311) / LMakeContinuation (312) — fn boundary, stop
+        ;; All other tags: no locals to declare at this level
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter))))
+
+  ;; $emit_functions — walk LowExpr list, emit (func ...) for each LMakeClosure.
+  ;; Per wasm.nx:854-928 emit_functions.
+  (func $emit_functions (param $lowexprs i32)
+    (local $i i32) (local $n i32) (local $expr i32) (local $tag i32)
+    (local $inner i32) (local $fn_r i32)
+    (local.set $n (call $len (local.get $lowexprs)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $expr (call $list_index (local.get $lowexprs) (local.get $i)))
+        (local.set $tag (call $tag_of (local.get $expr)))
+        ;; LLet (304) — check inner for LMakeClosure
+        (if (i32.eq (local.get $tag) (i32.const 304))
+          (then
+            (local.set $inner (call $lexpr_llet_value (local.get $expr)))
+            (if (i32.eq (call $tag_of (local.get $inner)) (i32.const 311))
+              (then
+                (local.set $fn_r (call $lexpr_lmakeclosure_fn (local.get $inner)))
+                (call $emit_fn_body (local.get $fn_r))))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter))))
+
   ;; ─── $inka_emit — the pipeline-stage entry ───────────────────────────
   ;;
   ;; Per Hβ-emit-substrate.md §10.3 + Hβ-bootstrap §1.15 entry-handler
@@ -417,9 +612,17 @@
   ;; emission is side-effect on $out_base/$out_pos; the WAT byte buffer
   ;; IS the artifact pipeline-wire's `$proc_exit` flushes via
   ;; $emit_flush.
+  ;;
+  ;; Phase H: now emits function definitions per wasm.nx:165-185.
+  ;; Order: header → imports → memory → globals → table → fn_idx_globals
+  ;;        → functions → top-level body in _start → string data → close.
 
   (func $inka_emit (export "inka_emit")
         (param $lowexprs i32)
+    (local $fn_names i32)
+    ;; Collect function names for table + globals
+    (local.set $fn_names (call $collect_fn_names (local.get $lowexprs)))
+
     (call $emit_cstr (i32.const 831) (i32.const 7))  ;; "(module"
     (call $emit_nl)
     (call $indent_inc)
@@ -449,16 +652,60 @@
     (call $emit_close)
     (call $emit_nl)
 
-    ;; ── Body ──
-    (call $emit_lowir_program (local.get $lowexprs))
+    ;; ── Funcref table + index globals ──
+    (call $emit_fn_table_and_globals (local.get $fn_names))
 
-    ;; ── Table & Data ──
+    ;; ── Function definitions ──
+    (call $emit_functions (local.get $lowexprs))
+
+    ;; ── Table & Data (funcref + strings from emit state) ──
     (call $emit_funcref_section)
     (call $emit_string_section)
 
-    ;; ── _start ──
-    (call $emit_start_section)
+    ;; ── _start (top-level body) ──
+    (call $emit_start_section_with_body (local.get $lowexprs))
 
     (call $indent_dec)
     (call $emit_close)
     (call $emit_nl))
+
+  ;; $emit_start_section_with_body — emit _start that runs top-level stmts.
+  ;; Unlike the old $emit_start_section (empty _start), this one emits the
+  ;; lowered program body inside _start, then calls proc_exit.
+  (func $emit_start_section_with_body (param $lowexprs i32)
+    (call $emit_indent)
+    (call $emit_cstr (i32.const 924) (i32.const 5)) ;; "(func"
+    (call $emit_space)
+    (call $emit_byte (i32.const 36))                ;; '$'
+    (call $emit_cstr (i32.const 1591) (i32.const 6)) ;; "_start"
+    ;; (export "_start")
+    (call $emit_space)
+    (call $emit_cstr (i32.const 846) (i32.const 8)) ;; "(export "
+    (call $emit_byte (i32.const 34))
+    (call $emit_cstr (i32.const 1591) (i32.const 6)) ;; "_start"
+    (call $emit_byte (i32.const 34))
+    (call $emit_close)
+    ;; Standard locals for top-level code
+    (call $emit_cstr (i32.const 4146) (i32.const 9)) ;; " (local $"
+    (call $emit_str (i32.const 2244)) ;; "state_tmp" (length-prefixed)
+    (call $emit_cstr (i32.const 4155) (i32.const 5)) ;; " i32)"
+    ;; Pre-declare LLet locals
+    (call $emit_let_locals (local.get $lowexprs))
+    (call $emit_nl)
+    (call $indent_inc)
+    ;; Emit top-level body
+    (call $emit_lowir_program (local.get $lowexprs))
+    ;; (call $wasi_proc_exit (i32.const 0))
+    (call $emit_indent)
+    (call $emit_cstr (i32.const 572) (i32.const 6)) ;; "(call "
+    (call $emit_byte (i32.const 36))
+    (call $emit_cstr (i32.const 1230) (i32.const 14)) ;; "wasi_proc_exit"
+    (call $emit_space)
+    (call $emit_i32_const (i32.const 0))
+    (call $emit_close)
+    (call $emit_nl)
+    (call $indent_dec)
+    (call $emit_indent)
+    (call $emit_close)
+    (call $emit_nl))
+
