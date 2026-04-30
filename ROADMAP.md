@@ -293,10 +293,13 @@ Anchor 7).
    types + funcref-table + data + body + start + close); $inka_lower
    returns 2-tuple (lowfns, top_stmts); deterministic emit ordering.
 
-7. **Phase G — Hβ.infer.pipeline-wire**
-   $sys_main retrofit: parse |> $inka_infer |> $inka_lower |> $inka_emit
-   with $stage_reset between transitions; legacy bootstrap/src/emit_*.wat
-   retires per Anchor 2.
+7. ✓ **Phase G — Hβ.infer.pipeline-wire** (closed)
+   G.1: $graph_chase transitive TVar follow (commit `aa6e7ab`) — fixed
+   infinite unify→unify_types→unify recursion when two handles were
+   mutually bound through TVar indirection. G.2: $sys_main retrofit
+   (commit `fe5e944`) — parse |> $inka_infer |> $inka_lower |> $inka_emit
+   with $stage_reset between transitions per Hβ-arena §7.4; `fn main(x) = x`
+   compiles to structurally valid WAT module through the full pipeline.
 
 8. **Phase H — first-light-L1**
    inka2.wat == inka3.wat byte-for-byte; the kernel-projection is closed
