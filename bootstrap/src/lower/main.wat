@@ -202,14 +202,75 @@
   ;;     lower_stmt_list(stmts)
   ;;   }
   ;;
-  ;; Lock #1: seed elides the two-pass globals pre-registration; named
-  ;; follow-up Hβ.lower.toplevel-pre-register covers wheel parity. Seed
-  ;; body is ONE call to $lower_stmt_list (walk_stmt.wat:426-442 — Lock
-  ;; #11 Ω.3 buffer-counter iteration this stage drives).
-
   (func $lower_program (export "lower_program")
         (param $stmts i32) (result i32)
+    (local $globals i32)
+    (call $lower_init)
+    (call $ls_reset_function)
+    (local.set $globals (call $lower_collect_top_level_names (local.get $stmts)))
+    (call $ls_register_globals (local.get $globals))
     (call $lower_stmt_list (local.get $stmts)))
+
+  ;; ─── Top-level name collection ────────────────────────────────────
+  ;; Mirrors src/lower.nx collect_top_level_names. FnStmt and PVar
+  ;; LetStmt names become module globals before the statement walk, so
+  ;; function bodies lower cross-function references as LGlobal.
+  (func $lower_collect_top_level_names (param $stmts i32) (result i32)
+    (local $n i32) (local $i i32) (local $buf i32) (local $count i32)
+    (local $node i32) (local $name i32)
+    (local.set $n (call $len (local.get $stmts)))
+    (local.set $buf (call $make_list (local.get $n)))
+    (local.set $i (i32.const 0))
+    (local.set $count (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $node (call $list_index (local.get $stmts) (local.get $i)))
+        (local.set $name (call $lower_top_level_name_from_node (local.get $node)))
+        (if (i32.ne (local.get $name) (i32.const 0))
+          (then
+            (local.set $buf
+              (call $list_extend_to
+                (local.get $buf)
+                (i32.add (local.get $count) (i32.const 1))))
+            (drop (call $list_set
+              (local.get $buf)
+              (local.get $count)
+              (local.get $name)))
+            (local.set $count (i32.add (local.get $count) (i32.const 1)))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter)))
+    (i32.store (local.get $buf) (local.get $count))
+    (local.get $buf))
+
+  (func $lower_top_level_name_from_node (param $node i32) (result i32)
+    (local $body i32) (local $body_tag i32) (local $stmt i32)
+    (local.set $body (i32.load offset=4 (local.get $node)))
+    (local.set $body_tag (i32.load offset=0 (local.get $body)))
+    (if (i32.ne (local.get $body_tag) (i32.const 111))
+      (then (return (i32.const 0))))
+    (local.set $stmt (i32.load offset=4 (local.get $body)))
+    (call $lower_top_level_name_from_stmt (local.get $stmt)))
+
+  (func $lower_top_level_name_from_stmt (param $stmt i32) (result i32)
+    (local $tag i32) (local $pat i32)
+    (local.set $tag (call $tag_of (local.get $stmt)))
+    ;; FnStmt(name, ...)
+    (if (i32.eq (local.get $tag) (i32.const 121))
+      (then (return (i32.load offset=4 (local.get $stmt)))))
+    ;; LetStmt(PVar(name), ...)
+    (if (i32.eq (local.get $tag) (i32.const 120))
+      (then
+        (local.set $pat (i32.load offset=4 (local.get $stmt)))
+        (if (i32.eq (call $tag_of (local.get $pat)) (i32.const 130))
+          (then (return (i32.load offset=4 (local.get $pat)))))))
+    ;; Documented(_, inner_node)
+    (if (i32.eq (local.get $tag) (i32.const 128))
+      (then
+        (return
+          (call $lower_top_level_name_from_node
+            (i32.load offset=8 (local.get $stmt))))))
+    (i32.const 0))
 
   ;; ─── $inka_lower — the pipeline-stage entry ──────────────────────────
   ;;

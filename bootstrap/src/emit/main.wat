@@ -144,9 +144,8 @@
   ;;                              sequence (lands in pipeline-wire peer
   ;;                              per Lock #4).
   ;; Drift 8 (mode flag):         NO mode: i32 parameter; one $inka_emit;
-  ;;                              the legacy emit_module.wat path retires
-  ;;                              when pipeline-wire substitutes
-  ;;                              $inka_emit per peer follow-up.
+  ;;                              pipeline-wire selects this projection
+  ;;                              directly via $inka_emit.
   ;; Drift 9 (deferred-by-omis):  $sys_main retrofit is named peer handle
   ;;                              Hβ.infer.pipeline-wire (Lock #4); the
   ;;                              two LFn-bearing emit arms (LMakeClosure
@@ -202,8 +201,8 @@
   ;;   ...)` header, memory imports, fn-table emission via state.wat's
   ;;   $emit_funcref_*, string-data emission via state.wat's
   ;;   $emit_string_*, state-global emission for $s<h> per LFeedback
-  ;;   site handles. Lands when the legacy emit_module.wat path retires
-  ;;   per pipeline-wire.
+  ;;   site handles. Lands as the module-wrap projection selected by
+  ;;   pipeline-wire.
 
   ;; ─── Phase F+H data segments (module-wrap + fn-body emission) ─────
   ;; Phase F segments: 1584-1596 (funcref, _start)
@@ -221,7 +220,14 @@
   ;; 4172: " funcref)\n" (10) → 4182
   ;; 4182: "(elem $fns (i32.const 0)" (24) → 4206
   ;; 4206: ")\n" (2) → 4208
-  ;; Next free: 4208
+  ;; 4208: "(type $ft" (9) → 4217
+  ;; 4217: " (func" (6) → 4223
+  ;; 4224: " i32 " (5) → 4229
+  ;; 4232: "callee_closure" (14) → 4246
+  ;; 4248: "scrut_tmp" (9) → 4257
+  ;; 4260: "loop_i" (6) → 4266
+  ;; 4268: "main" (4) → 4272
+  ;; Next free: 4272
   (data (i32.const 4096) "__state")
   (data (i32.const 4104) "_idx i32 (i32.const ")
   (data (i32.const 4124) " (param $")
@@ -232,6 +238,13 @@
   (data (i32.const 4172) " funcref)\n")
   (data (i32.const 4182) "(elem $fns (i32.const 0)")
   (data (i32.const 4206) ")\n")
+  (data (i32.const 4208) "(type $ft")
+  (data (i32.const 4217) " (func")
+  (data (i32.const 4224) " i32 ")
+  (data (i32.const 4232) "callee_closure")
+  (data (i32.const 4248) "scrut_tmp")
+  (data (i32.const 4260) "loop_i")
+  (data (i32.const 4268) "main")
 
   ;; ─── $emit_lowir_program — algorithmic-core orchestrator ─────────────
   ;;
@@ -259,7 +272,7 @@
         (br $iter))))
 
   ;; ─── WASI import emission ─────────────────────────────────────────
-  ;; Ported from legacy emit_module.wat per Phase F.
+  ;; WASI import projection used by emitted modules.
   (func $emit_wasi_imports_inka
     ;; fd_write
     (call $emit_cstr (i32.const 854) (i32.const 8))   ;; "(import "
@@ -464,10 +477,190 @@
                 (local.set $count (i32.add (local.get $count) (i32.const 1)))))))
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $iter)))
-    ;; Fix list size: $make_list(16) set len=16, but we only filled $count.
-    ;; Overwrite the count field (offset 0) to reflect actual used count.
+  ;; Fix list size: $make_list(16) set len=16, but we only filled $count.
+  ;; Overwrite the count field (offset 0) to reflect actual used count.
+  (i32.store (local.get $names) (local.get $count))
+  (local.get $names))
+
+  ;; $collect_top_level_fn_names — top-level LLet-wrapped closures only.
+  ;; Inline closures still allocate at their expression site; module-level
+  ;; function declarations get static closure records.
+  (func $collect_top_level_fn_names (param $lowexprs i32) (result i32)
+    (local $names i32) (local $count i32)
+    (local $i i32) (local $n i32) (local $expr i32) (local $name i32)
+    (local.set $names (call $make_list (i32.const 16)))
+    (local.set $count (i32.const 0))
+    (local.set $n (call $len (local.get $lowexprs)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $expr (call $list_index (local.get $lowexprs) (local.get $i)))
+        (local.set $name (call $extract_top_fn_name (local.get $expr)))
+        (if (i32.ne (local.get $name) (i32.const 0))
+          (then
+            (local.set $names
+              (call $list_set
+                (call $list_extend_to
+                  (local.get $names)
+                  (i32.add (local.get $count) (i32.const 1)))
+                (local.get $count)
+                (local.get $name)))
+            (local.set $count (i32.add (local.get $count) (i32.const 1)))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter)))
     (i32.store (local.get $names) (local.get $count))
     (local.get $names))
+
+  (func $extract_top_fn_name (param $expr i32) (result i32)
+    (local $inner i32)
+    (if (i32.ne (call $tag_of (local.get $expr)) (i32.const 304))
+      (then (return (i32.const 0))))
+    (local.set $inner (call $lexpr_llet_value (local.get $expr)))
+    (if (i32.eq (call $tag_of (local.get $inner)) (i32.const 311))
+      (then (return (call $lexpr_llet_name (local.get $expr)))))
+    (if (i32.eq (call $tag_of (local.get $inner)) (i32.const 312))
+      (then (return (call $lexpr_llet_name (local.get $expr)))))
+    (i32.const 0))
+
+  ;; ─── Function Type Section ────────────────────────────────────────
+  ;; Every call_indirect references $ftN, where N includes the implicit
+  ;; __state parameter. The LowExpr graph determines the required ceiling.
+  (func $emit_type_section (param $lowexprs i32)
+    (local $observed i32) (local $max i32)
+    (local.set $observed (call $max_arity_in (local.get $lowexprs) (i32.const 0)))
+    (local.set $max (local.get $observed))
+    (if (i32.lt_s (local.get $max) (i32.const 1))
+      (then (local.set $max (i32.const 1))))
+    (call $emit_type_decls (i32.const 0) (local.get $max)))
+
+  (func $max_arity_in (param $exprs i32) (param $acc i32) (result i32)
+    (local $i i32) (local $n i32) (local $best i32) (local $candidate i32)
+    (local.set $best (local.get $acc))
+    (local.set $n (call $len (local.get $exprs)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $candidate
+          (call $max_arity_expr (call $list_index (local.get $exprs) (local.get $i))))
+        (local.set $best (call $max_i32 (local.get $best) (local.get $candidate)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter)))
+    (local.get $best))
+
+  (func $max_arity_expr (param $expr i32) (result i32)
+    (local $tag i32) (local $inner i32) (local $fn_r i32)
+    (local $a i32) (local $b i32)
+    (local.set $tag (call $tag_of (local.get $expr)))
+    ;; LCall / LTailCall / LSuspend: user args + implicit __state.
+    (if (i32.eq (local.get $tag) (i32.const 308))
+      (then
+        (local.set $a (i32.add (call $len (call $lexpr_lcall_args (local.get $expr))) (i32.const 1)))
+        (local.set $b (call $max_arity_expr (call $lexpr_lcall_fn (local.get $expr))))
+        (local.set $b (call $max_i32 (local.get $b)
+          (call $max_arity_in (call $lexpr_lcall_args (local.get $expr)) (i32.const 0))))
+        (return (call $max_i32 (local.get $a) (local.get $b)))))
+    (if (i32.eq (local.get $tag) (i32.const 309))
+      (then
+        (local.set $a (i32.add (call $len (call $lexpr_ltailcall_args (local.get $expr))) (i32.const 1)))
+        (local.set $b (call $max_arity_expr (call $lexpr_ltailcall_fn (local.get $expr))))
+        (local.set $b (call $max_i32 (local.get $b)
+          (call $max_arity_in (call $lexpr_ltailcall_args (local.get $expr)) (i32.const 0))))
+        (return (call $max_i32 (local.get $a) (local.get $b)))))
+    (if (i32.eq (local.get $tag) (i32.const 325))
+      (then
+        (local.set $a (i32.add (call $len (call $lexpr_lsuspend_args (local.get $expr))) (i32.const 1)))
+        (local.set $b (call $max_arity_expr (call $lexpr_lsuspend_fn (local.get $expr))))
+        (local.set $b (call $max_i32 (local.get $b)
+          (call $max_arity_in (call $lexpr_lsuspend_args (local.get $expr)) (i32.const 0))))
+        (local.set $b (call $max_i32 (local.get $b)
+          (call $max_arity_in (call $lexpr_lsuspend_evs (local.get $expr)) (i32.const 0))))
+        (return (call $max_i32 (local.get $a) (local.get $b)))))
+    ;; Direct perform arity is exactly its argument count.
+    (if (i32.eq (local.get $tag) (i32.const 331))
+      (then
+        (return
+          (call $max_i32
+            (call $len (call $lexpr_lperform_args (local.get $expr)))
+            (call $max_arity_in (call $lexpr_lperform_args (local.get $expr)) (i32.const 0))))))
+    (if (i32.eq (local.get $tag) (i32.const 333))
+      (then
+        (return
+          (call $max_i32
+            (i32.add (call $len (call $lexpr_levperform_args (local.get $expr))) (i32.const 1))
+            (call $max_arity_in (call $lexpr_levperform_args (local.get $expr)) (i32.const 0))))))
+    ;; LLet recurses into its value.
+    (if (i32.eq (local.get $tag) (i32.const 304))
+      (then (return (call $max_arity_expr (call $lexpr_llet_value (local.get $expr))))))
+    ;; LMakeClosure contributes its own W7 arity and body call sites.
+    (if (i32.eq (local.get $tag) (i32.const 311))
+      (then
+        (local.set $fn_r (call $lexpr_lmakeclosure_fn (local.get $expr)))
+        (return
+          (call $max_i32
+            (i32.add (call $lowfn_arity (local.get $fn_r)) (i32.const 1))
+            (call $max_arity_in (call $lowfn_body (local.get $fn_r)) (i32.const 0))))))
+    (if (i32.eq (local.get $tag) (i32.const 312))
+      (then
+        (local.set $fn_r (call $lexpr_lmakecontinuation_fn (local.get $expr)))
+        (return
+          (call $max_i32
+            (i32.add (call $lowfn_arity (local.get $fn_r)) (i32.const 1))
+            (call $max_arity_in (call $lowfn_body (local.get $fn_r)) (i32.const 0))))))
+    ;; Common containers used by current lower output.
+    (if (i32.eq (local.get $tag) (i32.const 306))
+      (then
+        (return
+          (call $max_i32
+            (call $max_arity_expr (call $lexpr_lbinop_l (local.get $expr)))
+            (call $max_arity_expr (call $lexpr_lbinop_r (local.get $expr)))))))
+    (if (i32.eq (local.get $tag) (i32.const 307))
+      (then (return (call $max_arity_expr (call $lexpr_lunaryop_x (local.get $expr))))))
+    (if (i32.eq (local.get $tag) (i32.const 310))
+      (then (return (call $max_arity_expr (call $lexpr_lreturn_x (local.get $expr))))))
+    (if (i32.eq (local.get $tag) (i32.const 315))
+      (then (return (call $max_arity_in (call $lexpr_lblock_stmts (local.get $expr)) (i32.const 0)))))
+    (if (i32.eq (local.get $tag) (i32.const 316))
+      (then (return (call $max_arity_in (call $lexpr_lmakelist_elems (local.get $expr)) (i32.const 0)))))
+    (if (i32.eq (local.get $tag) (i32.const 317))
+      (then (return (call $max_arity_in (call $lexpr_lmaketuple_elems (local.get $expr)) (i32.const 0)))))
+    (if (i32.eq (local.get $tag) (i32.const 318))
+      (then (return (call $max_arity_in (call $lexpr_lmakerecord_fields (local.get $expr)) (i32.const 0)))))
+    (if (i32.eq (local.get $tag) (i32.const 319))
+      (then (return (call $max_arity_in (call $lexpr_lmakevariant_args (local.get $expr)) (i32.const 0)))))
+    (if (i32.eq (local.get $tag) (i32.const 334))
+      (then (return (call $max_arity_expr (call $lexpr_lfieldload_record (local.get $expr))))))
+    (i32.const 0))
+
+  (func $max_i32 (param $a i32) (param $b i32) (result i32)
+    (if (result i32) (i32.gt_s (local.get $a) (local.get $b))
+      (then (local.get $a))
+      (else (local.get $b))))
+
+  (func $emit_type_decls (param $i i32) (param $max i32)
+    (block $done
+      (loop $iter
+        (br_if $done (i32.gt_s (local.get $i) (local.get $max)))
+        (call $emit_indent)
+        (call $emit_cstr (i32.const 4208) (i32.const 9)) ;; "(type $ft"
+        (call $emit_int (local.get $i))
+        (call $emit_cstr (i32.const 4217) (i32.const 6)) ;; " (func"
+        (call $emit_param_types (local.get $i))
+        (call $emit_cstr (i32.const 4133) (i32.const 13)) ;; " (result i32)"
+        (call $emit_close)
+        (call $emit_close)
+        (call $emit_nl)
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter))))
+
+  (func $emit_param_types (param $n i32)
+    (block $done
+      (loop $iter
+        (br_if $done (i32.eqz (local.get $n)))
+        (call $emit_cstr (i32.const 1244) (i32.const 12)) ;; " (param i32)"
+        (local.set $n (i32.sub (local.get $n) (i32.const 1)))
+        (br $iter))))
 
   ;; $emit_fn_table_and_globals — emit (table $fns N funcref) + (elem ...)
   ;; + (global $name_idx i32 (i32.const N)) per fn.
@@ -511,6 +704,97 @@
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $iter2))))
 
+  ;; $emit_static_top_closures — module-level closure records for top fns.
+  ;; Each record is [fn_idx:i32, capture_count=0:i32] at address
+  ;; 256 + slot*8, with a global $name pointing at the record.
+  (func $emit_static_top_closures (param $top_names i32) (param $all_names i32)
+    (local $i i32) (local $n i32) (local $name i32) (local $fn_idx i32)
+    (local $addr i32)
+    (local.set $n (call $len (local.get $top_names)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $name (call $list_index (local.get $top_names) (local.get $i)))
+        (local.set $fn_idx (call $emit_find_name_index
+          (local.get $all_names)
+          (local.get $name)))
+        (local.set $addr (i32.add (i32.const 256) (i32.mul (local.get $i) (i32.const 8))))
+        ;; (data (i32.const <addr>) "\xx\xx\xx\xx\00\00\00\00")
+        (call $emit_indent)
+        (call $emit_cstr (i32.const 912) (i32.const 6))  ;; "(data "
+        (call $emit_i32_const (local.get $addr))
+        (call $emit_space)
+        (call $emit_byte (i32.const 34))
+        (call $emit_le4_escape (local.get $fn_idx))
+        (call $emit_le4_escape (i32.const 0))
+        (call $emit_byte (i32.const 34))
+        (call $emit_close)
+        (call $emit_nl)
+        ;; (global $name i32 (i32.const <addr>))
+        (call $emit_indent)
+        (call $emit_cstr (i32.const 862) (i32.const 8))  ;; "(global "
+        (call $emit_byte (i32.const 36))
+        (call $emit_str (local.get $name))
+        (call $emit_cstr (i32.const 4224) (i32.const 5)) ;; " i32 "
+        (call $emit_i32_const (local.get $addr))
+        (call $emit_close)
+        (call $emit_nl)
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter))))
+
+  (func $emit_find_name_index (param $names i32) (param $target i32) (result i32)
+    (local $i i32) (local $n i32)
+    (local.set $n (call $len (local.get $names)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (if (call $str_eq
+              (call $list_index (local.get $names) (local.get $i))
+              (local.get $target))
+          (then (return (local.get $i))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter)))
+    (i32.const -1))
+
+  (func $emit_le4_escape (param $n i32)
+    (call $emit_byte_escape (i32.and (local.get $n) (i32.const 255)))
+    (call $emit_byte_escape (i32.and (i32.shr_u (local.get $n) (i32.const 8)) (i32.const 255)))
+    (call $emit_byte_escape (i32.and (i32.shr_u (local.get $n) (i32.const 16)) (i32.const 255)))
+    (call $emit_byte_escape (i32.and (i32.shr_u (local.get $n) (i32.const 24)) (i32.const 255))))
+
+  (func $emit_byte_escape (param $b i32)
+    (call $emit_byte (i32.const 92)) ;; '\'
+    (call $emit_hex_digit (i32.shr_u (local.get $b) (i32.const 4)))
+    (call $emit_hex_digit (i32.and (local.get $b) (i32.const 15))))
+
+  (func $emit_hex_digit (param $d i32)
+    (if (i32.lt_u (local.get $d) (i32.const 10))
+      (then
+        (call $emit_byte (i32.add (i32.const 48) (local.get $d)))
+        (return)))
+    (call $emit_byte (i32.add (i32.const 87) (local.get $d))))
+
+  (func $emit_local_decl_cstr (param $offset i32) (param $n i32)
+    (call $emit_cstr (i32.const 4146) (i32.const 9)) ;; " (local $"
+    (call $emit_cstr (local.get $offset) (local.get $n))
+    (call $emit_cstr (i32.const 4155) (i32.const 5))) ;; " i32)"
+
+  (func $emit_local_decl_str (param $name i32)
+    (call $emit_cstr (i32.const 4146) (i32.const 9)) ;; " (local $"
+    (call $emit_str (local.get $name))
+    (call $emit_cstr (i32.const 4155) (i32.const 5))) ;; " i32)"
+
+  (func $emit_standard_locals
+    (call $emit_local_decl_str (i32.const 2244))      ;; state_tmp
+    (call $emit_local_decl_str (i32.const 1568))      ;; variant_tmp
+    (call $emit_local_decl_str (i32.const 1552))      ;; record_tmp
+    (call $emit_local_decl_cstr (i32.const 4248) (i32.const 9))  ;; scrut_tmp
+    (call $emit_local_decl_cstr (i32.const 4232) (i32.const 14)) ;; callee_closure
+    (call $emit_local_decl_str (i32.const 1856))      ;; alloc_size
+    (call $emit_local_decl_cstr (i32.const 4260) (i32.const 6))) ;; loop_i
+
   ;; $emit_fn_body — emit a single (func $name (param $__state i32) ...)
   ;; Per wasm.nx:930-962 emit_fn_body. W7 calling convention.
   (func $emit_fn_body (param $fn_r i32)
@@ -542,10 +826,8 @@
         (br $piter)))
     ;; (result i32)
     (call $emit_cstr (i32.const 4133) (i32.const 13)) ;; " (result i32)"
-    ;; Standard locals per W7
-    (call $emit_cstr (i32.const 4146) (i32.const 9)) ;; " (local $"
-    (call $emit_str (i32.const 2244)) ;; "state_tmp" (reuse emit_call segment, length-prefixed)
-    (call $emit_cstr (i32.const 4155) (i32.const 5)) ;; " i32)"
+    ;; Standard locals per W7 + emit arms that lower into scratch slots.
+    (call $emit_standard_locals)
     ;; Pre-declare LLet locals from body
     (call $emit_let_locals (local.get $body))
     (call $emit_nl)
@@ -619,13 +901,17 @@
 
   (func $inka_emit (export "inka_emit")
         (param $lowexprs i32)
-    (local $fn_names i32)
+    (local $fn_names i32) (local $top_fn_names i32)
     ;; Collect function names for table + globals
     (local.set $fn_names (call $collect_fn_names (local.get $lowexprs)))
+    (local.set $top_fn_names (call $collect_top_level_fn_names (local.get $lowexprs)))
 
     (call $emit_cstr (i32.const 831) (i32.const 7))  ;; "(module"
     (call $emit_nl)
     (call $indent_inc)
+
+    ;; ── Function types for call_indirect ──
+    (call $emit_type_section (local.get $lowexprs))
 
     ;; ── WASI imports ──
     (call $emit_wasi_imports_inka)
@@ -655,6 +941,11 @@
     ;; ── Funcref table + index globals ──
     (call $emit_fn_table_and_globals (local.get $fn_names))
 
+    ;; ── Static top-level closure records ──
+    (call $emit_static_top_closures
+      (local.get $top_fn_names)
+      (local.get $fn_names))
+
     ;; ── Function definitions ──
     (call $emit_functions (local.get $lowexprs))
 
@@ -662,8 +953,8 @@
     (call $emit_funcref_section)
     (call $emit_string_section)
 
-    ;; ── _start (top-level body) ──
-    (call $emit_start_section_with_body (local.get $lowexprs))
+    ;; ── _start ──
+    (call $emit_start_section_static (local.get $lowexprs))
 
     (call $indent_dec)
     (call $emit_close)
@@ -709,3 +1000,87 @@
     (call $emit_close)
     (call $emit_nl))
 
+  ;; $emit_start_section_static — executable entry projection.
+  ;; Top-level closures live in static records. Zero-arg main is invoked
+  ;; through the same closure-record call_indirect path as every other
+  ;; function. Parameterized main and library modules clean-exit.
+  (func $emit_start_section_static (param $lowexprs i32)
+    (local $main_arity i32)
+    (local.set $main_arity (call $find_top_fn_arity (local.get $lowexprs) (i32.const 4268) (i32.const 4)))
+    (call $emit_indent)
+    (call $emit_cstr (i32.const 924) (i32.const 5)) ;; "(func"
+    (call $emit_space)
+    (call $emit_byte (i32.const 36))                ;; '$'
+    (call $emit_cstr (i32.const 1591) (i32.const 6)) ;; "_start"
+    (call $emit_space)
+    (call $emit_cstr (i32.const 846) (i32.const 8)) ;; "(export "
+    (call $emit_byte (i32.const 34))
+    (call $emit_cstr (i32.const 1591) (i32.const 6)) ;; "_start"
+    (call $emit_byte (i32.const 34))
+    (call $emit_close)
+    (call $emit_nl)
+    (call $indent_inc)
+    (if (i32.eqz (local.get $main_arity))
+      (then
+        ;; (global.get $main)
+        (call $emit_indent)
+        (call $el_emit_global_get_dollar (call $str_from_mem (i32.const 4268) (i32.const 4)))
+        (call $emit_nl)
+        ;; (global.get $main)(i32.load offset=0)
+        (call $emit_indent)
+        (call $el_emit_global_get_dollar (call $str_from_mem (i32.const 4268) (i32.const 4)))
+        (call $ec6_emit_i32_load_offset_0)
+        (call $emit_nl)
+        ;; (call_indirect (type $ft1))
+        (call $emit_indent)
+        (call $ec6_emit_call_indirect_ftN (i32.const 0))
+        (call $emit_nl)
+        ;; (drop)
+        (call $emit_indent)
+        (call $emit_cstr (i32.const 578) (i32.const 6)) ;; "(drop "
+        (call $emit_close)
+        (call $emit_nl)))
+    ;; (call $wasi_proc_exit (i32.const 0))
+    (call $emit_indent)
+    (call $emit_cstr (i32.const 572) (i32.const 6)) ;; "(call "
+    (call $emit_byte (i32.const 36))
+    (call $emit_cstr (i32.const 1230) (i32.const 14)) ;; "wasi_proc_exit"
+    (call $emit_space)
+    (call $emit_i32_const (i32.const 0))
+    (call $emit_close)
+    (call $emit_nl)
+    (call $indent_dec)
+    (call $emit_indent)
+    (call $emit_close)
+    (call $emit_nl))
+
+  (func $find_top_fn_arity (param $lowexprs i32) (param $name_ptr i32) (param $name_len i32) (result i32)
+    (local $i i32) (local $n i32) (local $expr i32) (local $inner i32)
+    (local $candidate i32)
+    (local.set $n (call $len (local.get $lowexprs)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $expr (call $list_index (local.get $lowexprs) (local.get $i)))
+        (if (i32.eq (call $tag_of (local.get $expr)) (i32.const 304))
+          (then
+            (local.set $candidate (call $lexpr_llet_name (local.get $expr)))
+            (if (call $str_eq
+                  (local.get $candidate)
+                  (call $str_from_mem (local.get $name_ptr) (local.get $name_len)))
+              (then
+                (local.set $inner (call $lexpr_llet_value (local.get $expr)))
+                (if (i32.eq (call $tag_of (local.get $inner)) (i32.const 311))
+                  (then
+                    (return
+                      (call $lowfn_arity
+                        (call $lexpr_lmakeclosure_fn (local.get $inner))))))
+                (if (i32.eq (call $tag_of (local.get $inner)) (i32.const 312))
+                  (then
+                    (return
+                      (call $lowfn_arity
+                        (call $lexpr_lmakecontinuation_fn (local.get $inner))))))))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter)))
+    (i32.const -1))

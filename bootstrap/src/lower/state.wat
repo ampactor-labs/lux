@@ -5,6 +5,8 @@
   ;;             $lower_init + $ls_* helpers per §1.2 lines 204-223.
   ;; Exports:    $lower_init,
   ;;             $ls_bind_local, $ls_lookup_local, $ls_lookup_or_capture,
+  ;;             $ls_register_globals, $ls_is_global,
+  ;;             $ls_enter_function, $ls_exit_function, $ls_in_function,
   ;;             $ls_push_scope, $ls_pop_scope, $ls_reset_function,
   ;;             $lower_locals_len, $lower_captures_len
   ;; Uses:       $alloc (alloc.wat),
@@ -130,6 +132,16 @@
   (global $lower_captures_ptr      (mut i32) (i32.const 0))
   (global $lower_captures_len_g    (mut i32) (i32.const 0))
 
+  ;; Top-level names registered by $lower_program before walking. VarRef
+  ;; resolution uses this set to emit LGlobal instead of capturing or
+  ;; inventing a function-local binding for module-level closures.
+  (global $lower_globals_ptr       (mut i32) (i32.const 0))
+  (global $lower_globals_len_g     (mut i32) (i32.const 0))
+
+  ;; Function nesting depth. Depth 0 means the walker is at module scope;
+  ;; top-level FnStmt names are globals, not locals in later function bodies.
+  (global $lower_function_depth_g  (mut i32) (i32.const 0))
+
   ;; ─── Idempotent initializer (mirrors $infer_init / $graph_init) ────
   ;; Per the seed's discipline for module-level state chunks: every
   ;; public entry calls $lower_init first; subsequent calls no-op.
@@ -142,7 +154,49 @@
         (global.set $lower_next_slot_g    (i32.const 0))
         (global.set $lower_captures_ptr   (call $make_list (i32.const 8)))
         (global.set $lower_captures_len_g (i32.const 0))
+        (global.set $lower_globals_ptr    (call $make_list (i32.const 8)))
+        (global.set $lower_globals_len_g  (i32.const 0))
+        (global.set $lower_function_depth_g (i32.const 0))
         (global.set $lower_initialized    (i32.const 1)))))
+
+  ;; ─── $ls_register_globals — install top-level names for this walk ──
+  (func $ls_register_globals (param $names i32)
+    (call $lower_init)
+    (global.set $lower_globals_ptr (local.get $names))
+    (global.set $lower_globals_len_g (call $len (local.get $names))))
+
+  ;; ─── $ls_is_global — membership in the top-level name set ──────────
+  (func $ls_is_global (param $name i32) (result i32)
+    (local $i i32) (local $entry_name i32)
+    (call $lower_init)
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (global.get $lower_globals_len_g)))
+        (local.set $entry_name
+          (call $list_index (global.get $lower_globals_ptr) (local.get $i)))
+        (if (call $str_eq (local.get $entry_name) (local.get $name))
+          (then (return (i32.const 1))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter)))
+    (i32.const 0))
+
+  ;; ─── Function-depth surfaces for top-level/global distinction ──────
+  (func $ls_enter_function
+    (call $lower_init)
+    (global.set $lower_function_depth_g
+      (i32.add (global.get $lower_function_depth_g) (i32.const 1))))
+
+  (func $ls_exit_function
+    (call $lower_init)
+    (if (i32.gt_u (global.get $lower_function_depth_g) (i32.const 0))
+      (then
+        (global.set $lower_function_depth_g
+          (i32.sub (global.get $lower_function_depth_g) (i32.const 1))))))
+
+  (func $ls_in_function (result i32)
+    (call $lower_init)
+    (i32.gt_u (global.get $lower_function_depth_g) (i32.const 0)))
 
   ;; ─── $ls_bind_local — append a new local; return its slot index ────
   ;; Per Hβ-lower-substrate.md §1.2 lines 204-207 + wheel src/lower.nx:771
@@ -218,8 +272,11 @@
           (then (return (local.get $i))))
         (br $cap_iter)))
     ;; Not local, not yet a capture — check outer-scope reachability
-    ;; via env.wat. If $env_contains returns 0, name is global; return
-    ;; -1 so caller falls through to LGlobal.
+    ;; via the explicit top-level set first, then env.wat. If the name
+    ;; is top-level, return -1 so caller falls through to LGlobal.
+    (if (call $ls_is_global (local.get $name))
+      (then (return (i32.const -1))))
+    ;; If $env_contains returns 0, name is global/foreign; return -1.
     (if (i32.eqz (call $env_contains (local.get $name)))
       (then (return (i32.const -1))))
     ;; Record a fresh CAPTURE_ENTRY. src_slot_idx = 0 sentinel pending
@@ -262,7 +319,8 @@
     (call $lower_init)
     (global.set $lower_locals_len_g    (i32.const 0))
     (global.set $lower_next_slot_g     (i32.const 0))
-    (global.set $lower_captures_len_g  (i32.const 0)))
+    (global.set $lower_captures_len_g  (i32.const 0))
+    (global.set $lower_function_depth_g (i32.const 0)))
 
   ;; ─── Read-only length surfaces (for harness + downstream chunks) ───
   (func $lower_locals_len (result i32)

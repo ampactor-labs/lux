@@ -275,13 +275,18 @@
     (local.set $name      (i32.load offset=4  (local.get $stmt)))
     (local.set $params    (i32.load offset=8  (local.get $stmt)))
     (local.set $body_node (i32.load offset=20 (local.get $stmt)))
-    ;; Lock #3: pre-bind so recursive refs resolve at chunk #6 $lower_var_ref.
-    (drop (call $ls_bind_local (local.get $name) (local.get $handle)))
+    ;; Bind only inside an existing function frame. At module scope the
+    ;; name was pre-registered by $lower_program and resolves as LGlobal.
+    (if (call $ls_in_function)
+      (then
+        (drop (call $ls_bind_local (local.get $name) (local.get $handle)))))
     (local.set $param_names   (call $lower_param_names   (local.get $params)))
     (local.set $param_handles (call $lower_param_handles (local.get $params)))
     (local.set $cp (call $ls_push_scope))
+    (call $ls_enter_function)
     (call $bind_names_as_locals (local.get $param_names) (local.get $param_handles))
     (local.set $lo_body (call $lower_expr (local.get $body_node)))
+    (call $ls_exit_function)
     (call $ls_pop_scope (local.get $cp))
     (local.set $body_list (call $make_list (i32.const 0)))
     (local.set $body_list (call $list_extend_to (local.get $body_list) (i32.const 1)))

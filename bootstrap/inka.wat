@@ -13572,6 +13572,8 @@
   ;;             $lower_init + $ls_* helpers per §1.2 lines 204-223.
   ;; Exports:    $lower_init,
   ;;             $ls_bind_local, $ls_lookup_local, $ls_lookup_or_capture,
+  ;;             $ls_register_globals, $ls_is_global,
+  ;;             $ls_enter_function, $ls_exit_function, $ls_in_function,
   ;;             $ls_push_scope, $ls_pop_scope, $ls_reset_function,
   ;;             $lower_locals_len, $lower_captures_len
   ;; Uses:       $alloc (alloc.wat),
@@ -13697,6 +13699,16 @@
   (global $lower_captures_ptr      (mut i32) (i32.const 0))
   (global $lower_captures_len_g    (mut i32) (i32.const 0))
 
+  ;; Top-level names registered by $lower_program before walking. VarRef
+  ;; resolution uses this set to emit LGlobal instead of capturing or
+  ;; inventing a function-local binding for module-level closures.
+  (global $lower_globals_ptr       (mut i32) (i32.const 0))
+  (global $lower_globals_len_g     (mut i32) (i32.const 0))
+
+  ;; Function nesting depth. Depth 0 means the walker is at module scope;
+  ;; top-level FnStmt names are globals, not locals in later function bodies.
+  (global $lower_function_depth_g  (mut i32) (i32.const 0))
+
   ;; ─── Idempotent initializer (mirrors $infer_init / $graph_init) ────
   ;; Per the seed's discipline for module-level state chunks: every
   ;; public entry calls $lower_init first; subsequent calls no-op.
@@ -13709,7 +13721,49 @@
         (global.set $lower_next_slot_g    (i32.const 0))
         (global.set $lower_captures_ptr   (call $make_list (i32.const 8)))
         (global.set $lower_captures_len_g (i32.const 0))
+        (global.set $lower_globals_ptr    (call $make_list (i32.const 8)))
+        (global.set $lower_globals_len_g  (i32.const 0))
+        (global.set $lower_function_depth_g (i32.const 0))
         (global.set $lower_initialized    (i32.const 1)))))
+
+  ;; ─── $ls_register_globals — install top-level names for this walk ──
+  (func $ls_register_globals (param $names i32)
+    (call $lower_init)
+    (global.set $lower_globals_ptr (local.get $names))
+    (global.set $lower_globals_len_g (call $len (local.get $names))))
+
+  ;; ─── $ls_is_global — membership in the top-level name set ──────────
+  (func $ls_is_global (param $name i32) (result i32)
+    (local $i i32) (local $entry_name i32)
+    (call $lower_init)
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (global.get $lower_globals_len_g)))
+        (local.set $entry_name
+          (call $list_index (global.get $lower_globals_ptr) (local.get $i)))
+        (if (call $str_eq (local.get $entry_name) (local.get $name))
+          (then (return (i32.const 1))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter)))
+    (i32.const 0))
+
+  ;; ─── Function-depth surfaces for top-level/global distinction ──────
+  (func $ls_enter_function
+    (call $lower_init)
+    (global.set $lower_function_depth_g
+      (i32.add (global.get $lower_function_depth_g) (i32.const 1))))
+
+  (func $ls_exit_function
+    (call $lower_init)
+    (if (i32.gt_u (global.get $lower_function_depth_g) (i32.const 0))
+      (then
+        (global.set $lower_function_depth_g
+          (i32.sub (global.get $lower_function_depth_g) (i32.const 1))))))
+
+  (func $ls_in_function (result i32)
+    (call $lower_init)
+    (i32.gt_u (global.get $lower_function_depth_g) (i32.const 0)))
 
   ;; ─── $ls_bind_local — append a new local; return its slot index ────
   ;; Per Hβ-lower-substrate.md §1.2 lines 204-207 + wheel src/lower.nx:771
@@ -13785,8 +13839,11 @@
           (then (return (local.get $i))))
         (br $cap_iter)))
     ;; Not local, not yet a capture — check outer-scope reachability
-    ;; via env.wat. If $env_contains returns 0, name is global; return
-    ;; -1 so caller falls through to LGlobal.
+    ;; via the explicit top-level set first, then env.wat. If the name
+    ;; is top-level, return -1 so caller falls through to LGlobal.
+    (if (call $ls_is_global (local.get $name))
+      (then (return (i32.const -1))))
+    ;; If $env_contains returns 0, name is global/foreign; return -1.
     (if (i32.eqz (call $env_contains (local.get $name)))
       (then (return (i32.const -1))))
     ;; Record a fresh CAPTURE_ENTRY. src_slot_idx = 0 sentinel pending
@@ -13829,7 +13886,8 @@
     (call $lower_init)
     (global.set $lower_locals_len_g    (i32.const 0))
     (global.set $lower_next_slot_g     (i32.const 0))
-    (global.set $lower_captures_len_g  (i32.const 0)))
+    (global.set $lower_captures_len_g  (i32.const 0))
+    (global.set $lower_function_depth_g (i32.const 0)))
 
   ;; ─── Read-only length surfaces (for harness + downstream chunks) ───
   (func $lower_locals_len (result i32)
@@ -18303,13 +18361,18 @@
     (local.set $name      (i32.load offset=4  (local.get $stmt)))
     (local.set $params    (i32.load offset=8  (local.get $stmt)))
     (local.set $body_node (i32.load offset=20 (local.get $stmt)))
-    ;; Lock #3: pre-bind so recursive refs resolve at chunk #6 $lower_var_ref.
-    (drop (call $ls_bind_local (local.get $name) (local.get $handle)))
+    ;; Bind only inside an existing function frame. At module scope the
+    ;; name was pre-registered by $lower_program and resolves as LGlobal.
+    (if (call $ls_in_function)
+      (then
+        (drop (call $ls_bind_local (local.get $name) (local.get $handle)))))
     (local.set $param_names   (call $lower_param_names   (local.get $params)))
     (local.set $param_handles (call $lower_param_handles (local.get $params)))
     (local.set $cp (call $ls_push_scope))
+    (call $ls_enter_function)
     (call $bind_names_as_locals (local.get $param_names) (local.get $param_handles))
     (local.set $lo_body (call $lower_expr (local.get $body_node)))
+    (call $ls_exit_function)
     (call $ls_pop_scope (local.get $cp))
     (local.set $body_list (call $make_list (i32.const 0)))
     (local.set $body_list (call $list_extend_to (local.get $body_list) (i32.const 1)))
@@ -18685,14 +18748,75 @@
   ;;     lower_stmt_list(stmts)
   ;;   }
   ;;
-  ;; Lock #1: seed elides the two-pass globals pre-registration; named
-  ;; follow-up Hβ.lower.toplevel-pre-register covers wheel parity. Seed
-  ;; body is ONE call to $lower_stmt_list (walk_stmt.wat:426-442 — Lock
-  ;; #11 Ω.3 buffer-counter iteration this stage drives).
-
   (func $lower_program (export "lower_program")
         (param $stmts i32) (result i32)
+    (local $globals i32)
+    (call $lower_init)
+    (call $ls_reset_function)
+    (local.set $globals (call $lower_collect_top_level_names (local.get $stmts)))
+    (call $ls_register_globals (local.get $globals))
     (call $lower_stmt_list (local.get $stmts)))
+
+  ;; ─── Top-level name collection ────────────────────────────────────
+  ;; Mirrors src/lower.nx collect_top_level_names. FnStmt and PVar
+  ;; LetStmt names become module globals before the statement walk, so
+  ;; function bodies lower cross-function references as LGlobal.
+  (func $lower_collect_top_level_names (param $stmts i32) (result i32)
+    (local $n i32) (local $i i32) (local $buf i32) (local $count i32)
+    (local $node i32) (local $name i32)
+    (local.set $n (call $len (local.get $stmts)))
+    (local.set $buf (call $make_list (local.get $n)))
+    (local.set $i (i32.const 0))
+    (local.set $count (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $node (call $list_index (local.get $stmts) (local.get $i)))
+        (local.set $name (call $lower_top_level_name_from_node (local.get $node)))
+        (if (i32.ne (local.get $name) (i32.const 0))
+          (then
+            (local.set $buf
+              (call $list_extend_to
+                (local.get $buf)
+                (i32.add (local.get $count) (i32.const 1))))
+            (drop (call $list_set
+              (local.get $buf)
+              (local.get $count)
+              (local.get $name)))
+            (local.set $count (i32.add (local.get $count) (i32.const 1)))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter)))
+    (i32.store (local.get $buf) (local.get $count))
+    (local.get $buf))
+
+  (func $lower_top_level_name_from_node (param $node i32) (result i32)
+    (local $body i32) (local $body_tag i32) (local $stmt i32)
+    (local.set $body (i32.load offset=4 (local.get $node)))
+    (local.set $body_tag (i32.load offset=0 (local.get $body)))
+    (if (i32.ne (local.get $body_tag) (i32.const 111))
+      (then (return (i32.const 0))))
+    (local.set $stmt (i32.load offset=4 (local.get $body)))
+    (call $lower_top_level_name_from_stmt (local.get $stmt)))
+
+  (func $lower_top_level_name_from_stmt (param $stmt i32) (result i32)
+    (local $tag i32) (local $pat i32)
+    (local.set $tag (call $tag_of (local.get $stmt)))
+    ;; FnStmt(name, ...)
+    (if (i32.eq (local.get $tag) (i32.const 121))
+      (then (return (i32.load offset=4 (local.get $stmt)))))
+    ;; LetStmt(PVar(name), ...)
+    (if (i32.eq (local.get $tag) (i32.const 120))
+      (then
+        (local.set $pat (i32.load offset=4 (local.get $stmt)))
+        (if (i32.eq (call $tag_of (local.get $pat)) (i32.const 130))
+          (then (return (i32.load offset=4 (local.get $pat)))))))
+    ;; Documented(_, inner_node)
+    (if (i32.eq (local.get $tag) (i32.const 128))
+      (then
+        (return
+          (call $lower_top_level_name_from_node
+            (i32.load offset=8 (local.get $stmt))))))
+    (i32.const 0))
 
   ;; ─── $inka_lower — the pipeline-stage entry ──────────────────────────
   ;;
@@ -19250,6 +19374,372 @@
   ;; funcref-table.
   (func $emit_op_symbol (param $op_name i32) (result i32)
     (call $str_concat (i32.const 496) (local.get $op_name)))
+
+  ;; ═══ WAT Fragment Data Segments ═════════════════════════════════════
+  ;; Raw byte strings for WAT syntax emission. No length prefix —
+  ;; these are used with emit_cstr(addr, len).
+  ;;
+  ;; Address map (starting at 536, each aligned to next available byte):
+  ;;
+  ;; 536  "(local.get "   11 bytes  → 547
+  ;; 548  "(local.set "   11 bytes  → 559
+  ;; 560  "(i32.const "   11 bytes  → 571
+  ;; 572  "(call "         6 bytes  → 578
+  ;; 578  "(drop "         6 bytes  → 584
+  ;; 584  "(func "         6 bytes  → 590
+  ;; 590  "(param "        7 bytes  → 597
+  ;; 597  " (result i32)"  13 bytes → 610
+  ;; 610  "(local "        7 bytes  → 617
+  ;; 617  "(if (result i32) " 18 bytes → 635
+  ;; 635  "(then "         6 bytes  → 641
+  ;; 641  "(else "         6 bytes  → 647
+  ;; 647  "(block "        7 bytes  → 654
+  ;; 654  "(loop "         6 bytes  → 660
+  ;; 660  "(br "           4 bytes  → 664
+  ;; 664  "(br_if "        7 bytes  → 671
+  ;; 671  "(return "       8 bytes  → 679
+  ;; 679  "(i32.add "      9 bytes  → 688
+  ;; 688  "(i32.sub "      9 bytes  → 697
+  ;; 697  "(i32.mul "      9 bytes  → 706
+  ;; 706  "(i32.div_s "   11 bytes  → 717
+  ;; 717  "(i32.rem_s "   11 bytes  → 728
+  ;; 728  "(i32.eq "       8 bytes  → 736
+  ;; 736  "(i32.ne "       8 bytes  → 744
+  ;; 744  "(i32.lt_s "    10 bytes  → 754
+  ;; 754  "(i32.gt_s "    10 bytes  → 764
+  ;; 764  "(i32.le_s "    10 bytes  → 774
+  ;; 774  "(i32.ge_s "    10 bytes  → 784
+  ;; 784  "(i32.and "      9 bytes  → 793
+  ;; 793  "(i32.or "       8 bytes  → 801
+  ;; 801  "(i32.eqz "      9 bytes  → 810
+  ;; 810  "(i32.store "   11 bytes  → 821
+  ;; 821  "(i32.load "    10 bytes  → 831
+  ;; 831  "(module"        7 bytes  → 838
+  ;; 838  "(memory "       8 bytes  → 846
+  ;; 846  "(export "       8 bytes  → 854
+  ;; 854  "(import "       8 bytes  → 862
+  ;; 862  "(global "       8 bytes  → 870
+  ;; 870  "(table "        7 bytes  → 877
+  ;; 877  "(elem "         6 bytes  → 883
+  ;; 883  "(i32.store8 "  12 bytes  → 895
+  ;; 895  "(i32.load8_u " 13 bytes  → 908
+  ;; 908  " i32"           4 bytes  → 912
+  ;; 912  "(data "         6 bytes  → 918
+  ;; 918  "(type "         6 bytes  → 924
+  ;; 924  "(func"          5 bytes  → 929
+  ;; 929  "offset="        7 bytes  → 936
+  ;; 936  "(select "       8 bytes  → 944
+  ;; 944  "(i32.sub (i32.const 0) " 24 bytes → 968
+  ;;
+  ;; Next free: 968
+  ;;
+  ;; NOTE: these overlap with the bump allocator's sentinel region
+  ;; (0-4096) but that's fine — sentinels are identified by value,
+  ;; not by reading memory at those addresses. The allocator starts
+  ;; at 1 MiB (1048576). Data segments are written at module load
+  ;; time before any allocation happens.
+
+  (data (i32.const 536) "(local.get ")
+  (data (i32.const 548) "(local.set ")
+  (data (i32.const 560) "(i32.const ")
+  (data (i32.const 572) "(call ")
+  (data (i32.const 578) "(drop ")
+  (data (i32.const 584) "(func ")
+  (data (i32.const 590) "(param ")
+  (data (i32.const 597) " (result i32)")
+  (data (i32.const 610) "(local ")
+  (data (i32.const 617) "(if (result i32) ")
+  (data (i32.const 635) "(then ")
+  (data (i32.const 641) "(else ")
+  (data (i32.const 647) "(block ")
+  (data (i32.const 654) "(loop ")
+  (data (i32.const 660) "(br ")
+  (data (i32.const 664) "(br_if ")
+  (data (i32.const 671) "(return ")
+  (data (i32.const 679) "(i32.add ")
+  (data (i32.const 688) "(i32.sub ")
+  (data (i32.const 697) "(i32.mul ")
+  (data (i32.const 706) "(i32.div_s ")
+  (data (i32.const 717) "(i32.rem_s ")
+  (data (i32.const 728) "(i32.eq ")
+  (data (i32.const 736) "(i32.ne ")
+  (data (i32.const 744) "(i32.lt_s ")
+  (data (i32.const 754) "(i32.gt_s ")
+  (data (i32.const 764) "(i32.le_s ")
+  (data (i32.const 774) "(i32.ge_s ")
+  (data (i32.const 784) "(i32.and ")
+  (data (i32.const 793) "(i32.or ")
+  (data (i32.const 801) "(i32.eqz ")
+  (data (i32.const 810) "(i32.store ")
+  (data (i32.const 821) "(i32.load ")
+  (data (i32.const 831) "(module")
+  (data (i32.const 838) "(memory ")
+  (data (i32.const 846) "(export ")
+  (data (i32.const 854) "(import ")
+  (data (i32.const 862) "(global ")
+  (data (i32.const 870) "(table ")
+  (data (i32.const 877) "(elem ")
+  (data (i32.const 883) "(i32.store8 ")
+  (data (i32.const 895) "(i32.load8_u ")
+  (data (i32.const 908) " i32")
+  (data (i32.const 912) "(data ")
+  (data (i32.const 918) "(type ")
+  (data (i32.const 924) "(func")
+  (data (i32.const 929) "offset=")
+  (data (i32.const 936) "(select ")
+  (data (i32.const 944) "(i32.sub (i32.const 0) ")
+
+  ;; Additional: runtime function name strings for emitter
+  ;; 968: "str_concat"  (10 bytes) → 978
+  ;; 978: "call_indirect" (13 bytes) → 991
+  ;; 991: "str_alloc"  (9 bytes) → 1000
+  ;; 1000: "record_get" (10 bytes) → 1010
+  ;; 1010: "make_list"  (9 bytes) → 1019
+  ;; 1019: "list_set"   (8 bytes) → 1027
+  ;; 1027: "list_index" (10 bytes) → 1037
+  ;; 1037: "tag_of"     (6 bytes) → 1043
+  ;; 1043: "str_from_mem" (12 bytes) → 1055
+  ;; 1055: "alloc"      (5 bytes) → 1060
+  ;; 1060: "str_len"    (7 bytes) → 1067
+  ;; 1067: "byte_at"    (7 bytes) → 1074
+  ;; 1074: "str_eq"     (6 bytes) → 1080
+  ;; Next free: 1080
+
+  (data (i32.const 968) "str_concat")
+  (data (i32.const 978) "call_indirect")
+  (data (i32.const 991) "str_alloc")
+  (data (i32.const 1000) "record_get")
+  (data (i32.const 1010) "make_list")
+  (data (i32.const 1019) "list_set")
+  (data (i32.const 1027) "list_index")
+  (data (i32.const 1037) "tag_of")
+  (data (i32.const 1043) "str_from_mem")
+  (data (i32.const 1055) "alloc")
+  (data (i32.const 1060) "str_len")
+  (data (i32.const 1067) "byte_at")
+  (data (i32.const 1074) "str_eq")
+
+  ;; 1080: "__match_" (8 bytes) → 1088
+  ;; 1088: "ctor_tag" (8 bytes) → 1096
+  ;; Next free: 1096
+  (data (i32.const 1080) "__match_")
+  (data (i32.const 1088) "ctor_tag")
+
+  ;; Module emission strings
+  ;; 1096: "memory"  (6 bytes) → 1102
+  ;; 1102: "heap_ptr" (8 bytes) → 1110
+  ;; 1110: " (mut i32) " (12 bytes, with leading/trailing space) → 1122
+  ;; 1122: "wasi_snapshot_preview1" (22 bytes) → 1144
+  ;; But wait - that's 22 bytes not 13. Let me recalculate.
+  ;; Actually "wasi_snapshot_preview1" is 22 chars. Let me fix the emit_module references.
+  ;; 1096: "memory" (6) → 1102
+  ;; 1102: "heap_ptr" (8) → 1110
+  ;; 1110: " (mut i32) " (11) → 1121
+  ;; 1121: "wasi_snapshot_preview1" (22) → 1143
+  ;; 1143: "fd_write" (8) → 1151
+  ;; 1151: "wasi_fd_write" (13) → 1164
+  ;; 1164: " (param i32 i32 i32 i32) (result i32)" (38) → 1202
+  ;; 1202: "fd_read" (7) → 1209
+  ;; 1209: "wasi_fd_read" (12) → 1221
+  ;; 1221: "proc_exit" (9) → 1230
+  ;; 1230: "wasi_proc_exit" (14) → 1244
+  ;; 1244: " (param i32)" (12) → 1256
+  ;; 1256: " (param $size i32)" (18 — but we only need 15 "(param $size i32)") → let me use 15
+  ;; Actually: " (param $size i32)" is 19 chars. Use 19.
+  ;; 1256: " (param $size i32)" (19) → 1275
+  ;; 1275-1475: alloc function body as raw WAT text (200 bytes)
+  ;; 1475: " (param $v i32)" (16) → 1491
+  ;; Next free: ~1491
+
+  (data (i32.const 1096) "memory")
+  (data (i32.const 1102) "heap_ptr")
+  (data (i32.const 1110) " (mut i32) ")
+  (data (i32.const 1121) "wasi_snapshot_preview1")
+  (data (i32.const 1143) "fd_write")
+  (data (i32.const 1151) "wasi_fd_write")
+  (data (i32.const 1164) " (param i32 i32 i32 i32) (result i32)")
+  (data (i32.const 1202) "fd_read")
+  (data (i32.const 1209) "wasi_fd_read")
+  (data (i32.const 1221) "proc_exit")
+  (data (i32.const 1230) "wasi_proc_exit")
+  (data (i32.const 1244) " (param i32)")
+  (data (i32.const 1256) " (param $size i32)")
+  ;; Alloc body as raw WAT (padded to 200 bytes with spaces)
+  (data (i32.const 1275) "(local $ptr i32)(local.set $ptr (global.get $heap_ptr))(global.set $heap_ptr (i32.add (global.get $heap_ptr)(i32.and (i32.add (local.get $size)(i32.const 7))(i32.const -8))))(local.get $ptr)                  ")
+  (data (i32.const 1475) " (param $v i32)")
+
+  ;; 1491: "_start_fn" (9) → 1500
+  ;; 1500: " (export \"_start\")" (19, including escaped quotes) → 1519
+  ;; But WAT data segments need literal bytes. The quotes are 0x22.
+  ;; " (export \22_start\22)" — use \22 for double quote in data segment
+  ;; Next free: 1519
+
+  (data (i32.const 1491) "_start_fn")
+  (data (i32.const 1500) " (export \22_start\22)")
+  ;; Next free in emit_data.wat: 1519 (but 1520+ is claimed by
+  ;; emit/emit_const.wat — see emit_const.wat:143). Phase F strings
+  ;; live in emit/main.wat's own segment range (1584+).
+
+  ;; ═══ Emitter Infrastructure ═════════════════════════════════════════
+  ;; Output buffer management for WAT text generation.
+  ;;
+  ;; Strategy: accumulate bytes in a heap buffer at 16 MiB, flush to
+  ;; stdout via WASI fd_write. Auto-flushes when buffer is nearly full.
+  ;;
+  ;; All emit_* functions in other modules depend on these primitives.
+
+  (global $out_pos (mut i32) (i32.const 0))
+  (global $out_base (mut i32) (i32.const 16777216))  ;; 16 MiB
+  (global $out_cap (mut i32) (i32.const 4194304))     ;; 4 MiB capacity
+  (global $emit_indent_level (mut i32) (i32.const 0))
+
+  ;; ─── Core output ──────────────────────────────────────────────────
+
+  (func $emit_byte (param $b i32)
+    (i32.store8 (i32.add (global.get $out_base) (global.get $out_pos)) (local.get $b))
+    (global.set $out_pos (i32.add (global.get $out_pos) (i32.const 1)))
+    (if (i32.ge_u (global.get $out_pos) (i32.sub (global.get $out_cap) (i32.const 1024)))
+      (then (call $emit_flush_partial))))
+
+  (func $emit_flush_partial
+    (i32.store (i32.const 240) (global.get $out_base))
+    (i32.store (i32.const 244) (global.get $out_pos))
+    (drop (call $wasi_fd_write (i32.const 1) (i32.const 240) (i32.const 1) (i32.const 248)))
+    (global.set $out_pos (i32.const 0)))
+
+  (func $emit_flush
+    (if (i32.gt_u (global.get $out_pos) (i32.const 0))
+      (then (call $emit_flush_partial))))
+
+  ;; ─── String / memory emission ─────────────────────────────────────
+
+  (func $emit_str (param $s i32)
+    (local $len i32) (local $i i32) (local $src i32)
+    (local.set $len (call $str_len (local.get $s)))
+    (local.set $src (i32.add (local.get $s) (i32.const 4)))
+    (local.set $i (i32.const 0))
+    (block $done (loop $cp
+      (br_if $done (i32.ge_u (local.get $i) (local.get $len)))
+      (call $emit_byte (i32.load8_u (i32.add (local.get $src) (local.get $i))))
+      (local.set $i (i32.add (local.get $i) (i32.const 1)))
+      (br $cp))))
+
+  (func $emit_cstr (param $addr i32) (param $len i32)
+    (local $i i32)
+    (local.set $i (i32.const 0))
+    (block $done (loop $cp
+      (br_if $done (i32.ge_u (local.get $i) (local.get $len)))
+      (call $emit_byte (i32.load8_u (i32.add (local.get $addr) (local.get $i))))
+      (local.set $i (i32.add (local.get $i) (i32.const 1)))
+      (br $cp))))
+
+  ;; ─── Number emission ──────────────────────────────────────────────
+
+  (func $emit_int (param $n i32)
+    (local $pos i32) (local $neg i32) (local $abs i32) (local $digit i32)
+    (local.set $pos (i32.const 0))
+    (if (i32.eqz (local.get $n))
+      (then (call $emit_byte (i32.const 48)) (return)))
+    (local.set $neg (i32.const 0))
+    (local.set $abs (local.get $n))
+    (if (i32.lt_s (local.get $n) (i32.const 0))
+      (then
+        (local.set $neg (i32.const 1))
+        (local.set $abs (i32.sub (i32.const 0) (local.get $n)))))
+    ;; Extract digits into scratch at 200 (reversed)
+    (block $done (loop $dg
+      (br_if $done (i32.eqz (local.get $abs)))
+      (i32.store8 (i32.add (i32.const 200) (local.get $pos))
+        (i32.add (i32.rem_u (local.get $abs) (i32.const 10)) (i32.const 48)))
+      (local.set $pos (i32.add (local.get $pos) (i32.const 1)))
+      (local.set $abs (i32.div_u (local.get $abs) (i32.const 10)))
+      (br $dg)))
+    (if (local.get $neg) (then (call $emit_byte (i32.const 45))))
+    ;; Emit in correct order
+    (block $done2 (loop $em
+      (local.set $pos (i32.sub (local.get $pos) (i32.const 1)))
+      (br_if $done2 (i32.lt_s (local.get $pos) (i32.const 0)))
+      (call $emit_byte (i32.load8_u (i32.add (i32.const 200) (local.get $pos))))
+      (br $em))))
+
+  ;; ─── Formatting ───────────────────────────────────────────────────
+
+  (func $emit_space (call $emit_byte (i32.const 32)))
+  (func $emit_nl (call $emit_byte (i32.const 10)))
+
+  (func $emit_indent
+    (local $i i32) (local $n i32)
+    (local.set $n (i32.mul (global.get $emit_indent_level) (i32.const 2)))
+    (local.set $i (i32.const 0))
+    (block $done (loop $sp
+      (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+      (call $emit_byte (i32.const 32))
+      (local.set $i (i32.add (local.get $i) (i32.const 1)))
+      (br $sp))))
+
+  (func $indent_inc
+    (global.set $emit_indent_level (i32.add (global.get $emit_indent_level) (i32.const 1))))
+  (func $indent_dec
+    (global.set $emit_indent_level (i32.sub (global.get $emit_indent_level) (i32.const 1))))
+
+  ;; ─── WAT syntax helpers ───────────────────────────────────────────
+  ;; These use the data segments defined in emit_data.wat.
+
+  (func $emit_open (param $name i32)
+    (call $emit_byte (i32.const 40))
+    (call $emit_str (local.get $name)))
+
+  (func $emit_open_cstr (param $addr i32) (param $len i32)
+    (call $emit_byte (i32.const 40))
+    (call $emit_cstr (local.get $addr) (local.get $len)))
+
+  (func $emit_close (call $emit_byte (i32.const 41)))
+
+  (func $emit_dollar_name (param $name i32)
+    (call $emit_byte (i32.const 36))
+    (call $emit_str (local.get $name)))
+
+  ;; Shorthand emitters using data segment addresses:
+  (func $emit_local_get (param $name i32)
+    (call $emit_cstr (i32.const 536) (i32.const 11))
+    (call $emit_dollar_name (local.get $name))
+    (call $emit_close))
+
+  (func $emit_local_set_open (param $name i32)
+    (call $emit_cstr (i32.const 548) (i32.const 11))
+    (call $emit_dollar_name (local.get $name))
+    (call $emit_space))
+
+  (func $emit_i32_const (param $n i32)
+    (call $emit_cstr (i32.const 560) (i32.const 11))
+    (call $emit_int (local.get $n))
+    (call $emit_close))
+
+  (func $emit_call_open (param $name i32)
+    (call $emit_cstr (i32.const 572) (i32.const 6))
+    (call $emit_dollar_name (local.get $name)))
+
+  ;; emit_quoted_str: emit "..." with WAT string escaping
+  (func $emit_quoted_str (param $s i32)
+    (local $len i32) (local $i i32) (local $b i32)
+    (call $emit_byte (i32.const 34)) ;; opening "
+    (local.set $len (call $str_len (local.get $s)))
+    (local.set $i (i32.const 0))
+    (block $done (loop $ch
+      (br_if $done (i32.ge_u (local.get $i) (local.get $len)))
+      (local.set $b (call $byte_at (local.get $s) (local.get $i)))
+      ;; Escape special chars
+      (if (i32.eq (local.get $b) (i32.const 34))  ;; "
+        (then (call $emit_byte (i32.const 92)) (call $emit_byte (i32.const 34)))
+      (else (if (i32.eq (local.get $b) (i32.const 92))  ;; backslash
+        (then (call $emit_byte (i32.const 92)) (call $emit_byte (i32.const 92)))
+      (else (if (i32.eq (local.get $b) (i32.const 10))  ;; newline
+        (then (call $emit_byte (i32.const 92)) (call $emit_byte (i32.const 110)))
+      (else
+        (call $emit_byte (local.get $b))))))))
+      (local.set $i (i32.add (local.get $i) (i32.const 1)))
+      (br $ch)))
+    (call $emit_byte (i32.const 34))) ;; closing "
 
   ;; ═══ emit_const.wat — Hβ.emit const-family literal arm (Tier 6) ═══
   ;; Implements: Hβ-emit-substrate.md §2.1 (LConst tag 300 — Ty-tag
@@ -22308,9 +22798,8 @@
   ;;                              sequence (lands in pipeline-wire peer
   ;;                              per Lock #4).
   ;; Drift 8 (mode flag):         NO mode: i32 parameter; one $inka_emit;
-  ;;                              the legacy emit_module.wat path retires
-  ;;                              when pipeline-wire substitutes
-  ;;                              $inka_emit per peer follow-up.
+  ;;                              pipeline-wire selects this projection
+  ;;                              directly via $inka_emit.
   ;; Drift 9 (deferred-by-omis):  $sys_main retrofit is named peer handle
   ;;                              Hβ.infer.pipeline-wire (Lock #4); the
   ;;                              two LFn-bearing emit arms (LMakeClosure
@@ -22366,8 +22855,8 @@
   ;;   ...)` header, memory imports, fn-table emission via state.wat's
   ;;   $emit_funcref_*, string-data emission via state.wat's
   ;;   $emit_string_*, state-global emission for $s<h> per LFeedback
-  ;;   site handles. Lands when the legacy emit_module.wat path retires
-  ;;   per pipeline-wire.
+  ;;   site handles. Lands as the module-wrap projection selected by
+  ;;   pipeline-wire.
 
   ;; ─── Phase F+H data segments (module-wrap + fn-body emission) ─────
   ;; Phase F segments: 1584-1596 (funcref, _start)
@@ -22385,7 +22874,14 @@
   ;; 4172: " funcref)\n" (10) → 4182
   ;; 4182: "(elem $fns (i32.const 0)" (24) → 4206
   ;; 4206: ")\n" (2) → 4208
-  ;; Next free: 4208
+  ;; 4208: "(type $ft" (9) → 4217
+  ;; 4217: " (func" (6) → 4223
+  ;; 4224: " i32 " (5) → 4229
+  ;; 4232: "callee_closure" (14) → 4246
+  ;; 4248: "scrut_tmp" (9) → 4257
+  ;; 4260: "loop_i" (6) → 4266
+  ;; 4268: "main" (4) → 4272
+  ;; Next free: 4272
   (data (i32.const 4096) "__state")
   (data (i32.const 4104) "_idx i32 (i32.const ")
   (data (i32.const 4124) " (param $")
@@ -22396,6 +22892,13 @@
   (data (i32.const 4172) " funcref)\n")
   (data (i32.const 4182) "(elem $fns (i32.const 0)")
   (data (i32.const 4206) ")\n")
+  (data (i32.const 4208) "(type $ft")
+  (data (i32.const 4217) " (func")
+  (data (i32.const 4224) " i32 ")
+  (data (i32.const 4232) "callee_closure")
+  (data (i32.const 4248) "scrut_tmp")
+  (data (i32.const 4260) "loop_i")
+  (data (i32.const 4268) "main")
 
   ;; ─── $emit_lowir_program — algorithmic-core orchestrator ─────────────
   ;;
@@ -22423,7 +22926,7 @@
         (br $iter))))
 
   ;; ─── WASI import emission ─────────────────────────────────────────
-  ;; Ported from legacy emit_module.wat per Phase F.
+  ;; WASI import projection used by emitted modules.
   (func $emit_wasi_imports_inka
     ;; fd_write
     (call $emit_cstr (i32.const 854) (i32.const 8))   ;; "(import "
@@ -22628,10 +23131,190 @@
                 (local.set $count (i32.add (local.get $count) (i32.const 1)))))))
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $iter)))
-    ;; Fix list size: $make_list(16) set len=16, but we only filled $count.
-    ;; Overwrite the count field (offset 0) to reflect actual used count.
+  ;; Fix list size: $make_list(16) set len=16, but we only filled $count.
+  ;; Overwrite the count field (offset 0) to reflect actual used count.
+  (i32.store (local.get $names) (local.get $count))
+  (local.get $names))
+
+  ;; $collect_top_level_fn_names — top-level LLet-wrapped closures only.
+  ;; Inline closures still allocate at their expression site; module-level
+  ;; function declarations get static closure records.
+  (func $collect_top_level_fn_names (param $lowexprs i32) (result i32)
+    (local $names i32) (local $count i32)
+    (local $i i32) (local $n i32) (local $expr i32) (local $name i32)
+    (local.set $names (call $make_list (i32.const 16)))
+    (local.set $count (i32.const 0))
+    (local.set $n (call $len (local.get $lowexprs)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $expr (call $list_index (local.get $lowexprs) (local.get $i)))
+        (local.set $name (call $extract_top_fn_name (local.get $expr)))
+        (if (i32.ne (local.get $name) (i32.const 0))
+          (then
+            (local.set $names
+              (call $list_set
+                (call $list_extend_to
+                  (local.get $names)
+                  (i32.add (local.get $count) (i32.const 1)))
+                (local.get $count)
+                (local.get $name)))
+            (local.set $count (i32.add (local.get $count) (i32.const 1)))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter)))
     (i32.store (local.get $names) (local.get $count))
     (local.get $names))
+
+  (func $extract_top_fn_name (param $expr i32) (result i32)
+    (local $inner i32)
+    (if (i32.ne (call $tag_of (local.get $expr)) (i32.const 304))
+      (then (return (i32.const 0))))
+    (local.set $inner (call $lexpr_llet_value (local.get $expr)))
+    (if (i32.eq (call $tag_of (local.get $inner)) (i32.const 311))
+      (then (return (call $lexpr_llet_name (local.get $expr)))))
+    (if (i32.eq (call $tag_of (local.get $inner)) (i32.const 312))
+      (then (return (call $lexpr_llet_name (local.get $expr)))))
+    (i32.const 0))
+
+  ;; ─── Function Type Section ────────────────────────────────────────
+  ;; Every call_indirect references $ftN, where N includes the implicit
+  ;; __state parameter. The LowExpr graph determines the required ceiling.
+  (func $emit_type_section (param $lowexprs i32)
+    (local $observed i32) (local $max i32)
+    (local.set $observed (call $max_arity_in (local.get $lowexprs) (i32.const 0)))
+    (local.set $max (local.get $observed))
+    (if (i32.lt_s (local.get $max) (i32.const 1))
+      (then (local.set $max (i32.const 1))))
+    (call $emit_type_decls (i32.const 0) (local.get $max)))
+
+  (func $max_arity_in (param $exprs i32) (param $acc i32) (result i32)
+    (local $i i32) (local $n i32) (local $best i32) (local $candidate i32)
+    (local.set $best (local.get $acc))
+    (local.set $n (call $len (local.get $exprs)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $candidate
+          (call $max_arity_expr (call $list_index (local.get $exprs) (local.get $i))))
+        (local.set $best (call $max_i32 (local.get $best) (local.get $candidate)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter)))
+    (local.get $best))
+
+  (func $max_arity_expr (param $expr i32) (result i32)
+    (local $tag i32) (local $inner i32) (local $fn_r i32)
+    (local $a i32) (local $b i32)
+    (local.set $tag (call $tag_of (local.get $expr)))
+    ;; LCall / LTailCall / LSuspend: user args + implicit __state.
+    (if (i32.eq (local.get $tag) (i32.const 308))
+      (then
+        (local.set $a (i32.add (call $len (call $lexpr_lcall_args (local.get $expr))) (i32.const 1)))
+        (local.set $b (call $max_arity_expr (call $lexpr_lcall_fn (local.get $expr))))
+        (local.set $b (call $max_i32 (local.get $b)
+          (call $max_arity_in (call $lexpr_lcall_args (local.get $expr)) (i32.const 0))))
+        (return (call $max_i32 (local.get $a) (local.get $b)))))
+    (if (i32.eq (local.get $tag) (i32.const 309))
+      (then
+        (local.set $a (i32.add (call $len (call $lexpr_ltailcall_args (local.get $expr))) (i32.const 1)))
+        (local.set $b (call $max_arity_expr (call $lexpr_ltailcall_fn (local.get $expr))))
+        (local.set $b (call $max_i32 (local.get $b)
+          (call $max_arity_in (call $lexpr_ltailcall_args (local.get $expr)) (i32.const 0))))
+        (return (call $max_i32 (local.get $a) (local.get $b)))))
+    (if (i32.eq (local.get $tag) (i32.const 325))
+      (then
+        (local.set $a (i32.add (call $len (call $lexpr_lsuspend_args (local.get $expr))) (i32.const 1)))
+        (local.set $b (call $max_arity_expr (call $lexpr_lsuspend_fn (local.get $expr))))
+        (local.set $b (call $max_i32 (local.get $b)
+          (call $max_arity_in (call $lexpr_lsuspend_args (local.get $expr)) (i32.const 0))))
+        (local.set $b (call $max_i32 (local.get $b)
+          (call $max_arity_in (call $lexpr_lsuspend_evs (local.get $expr)) (i32.const 0))))
+        (return (call $max_i32 (local.get $a) (local.get $b)))))
+    ;; Direct perform arity is exactly its argument count.
+    (if (i32.eq (local.get $tag) (i32.const 331))
+      (then
+        (return
+          (call $max_i32
+            (call $len (call $lexpr_lperform_args (local.get $expr)))
+            (call $max_arity_in (call $lexpr_lperform_args (local.get $expr)) (i32.const 0))))))
+    (if (i32.eq (local.get $tag) (i32.const 333))
+      (then
+        (return
+          (call $max_i32
+            (i32.add (call $len (call $lexpr_levperform_args (local.get $expr))) (i32.const 1))
+            (call $max_arity_in (call $lexpr_levperform_args (local.get $expr)) (i32.const 0))))))
+    ;; LLet recurses into its value.
+    (if (i32.eq (local.get $tag) (i32.const 304))
+      (then (return (call $max_arity_expr (call $lexpr_llet_value (local.get $expr))))))
+    ;; LMakeClosure contributes its own W7 arity and body call sites.
+    (if (i32.eq (local.get $tag) (i32.const 311))
+      (then
+        (local.set $fn_r (call $lexpr_lmakeclosure_fn (local.get $expr)))
+        (return
+          (call $max_i32
+            (i32.add (call $lowfn_arity (local.get $fn_r)) (i32.const 1))
+            (call $max_arity_in (call $lowfn_body (local.get $fn_r)) (i32.const 0))))))
+    (if (i32.eq (local.get $tag) (i32.const 312))
+      (then
+        (local.set $fn_r (call $lexpr_lmakecontinuation_fn (local.get $expr)))
+        (return
+          (call $max_i32
+            (i32.add (call $lowfn_arity (local.get $fn_r)) (i32.const 1))
+            (call $max_arity_in (call $lowfn_body (local.get $fn_r)) (i32.const 0))))))
+    ;; Common containers used by current lower output.
+    (if (i32.eq (local.get $tag) (i32.const 306))
+      (then
+        (return
+          (call $max_i32
+            (call $max_arity_expr (call $lexpr_lbinop_l (local.get $expr)))
+            (call $max_arity_expr (call $lexpr_lbinop_r (local.get $expr)))))))
+    (if (i32.eq (local.get $tag) (i32.const 307))
+      (then (return (call $max_arity_expr (call $lexpr_lunaryop_x (local.get $expr))))))
+    (if (i32.eq (local.get $tag) (i32.const 310))
+      (then (return (call $max_arity_expr (call $lexpr_lreturn_x (local.get $expr))))))
+    (if (i32.eq (local.get $tag) (i32.const 315))
+      (then (return (call $max_arity_in (call $lexpr_lblock_stmts (local.get $expr)) (i32.const 0)))))
+    (if (i32.eq (local.get $tag) (i32.const 316))
+      (then (return (call $max_arity_in (call $lexpr_lmakelist_elems (local.get $expr)) (i32.const 0)))))
+    (if (i32.eq (local.get $tag) (i32.const 317))
+      (then (return (call $max_arity_in (call $lexpr_lmaketuple_elems (local.get $expr)) (i32.const 0)))))
+    (if (i32.eq (local.get $tag) (i32.const 318))
+      (then (return (call $max_arity_in (call $lexpr_lmakerecord_fields (local.get $expr)) (i32.const 0)))))
+    (if (i32.eq (local.get $tag) (i32.const 319))
+      (then (return (call $max_arity_in (call $lexpr_lmakevariant_args (local.get $expr)) (i32.const 0)))))
+    (if (i32.eq (local.get $tag) (i32.const 334))
+      (then (return (call $max_arity_expr (call $lexpr_lfieldload_record (local.get $expr))))))
+    (i32.const 0))
+
+  (func $max_i32 (param $a i32) (param $b i32) (result i32)
+    (if (result i32) (i32.gt_s (local.get $a) (local.get $b))
+      (then (local.get $a))
+      (else (local.get $b))))
+
+  (func $emit_type_decls (param $i i32) (param $max i32)
+    (block $done
+      (loop $iter
+        (br_if $done (i32.gt_s (local.get $i) (local.get $max)))
+        (call $emit_indent)
+        (call $emit_cstr (i32.const 4208) (i32.const 9)) ;; "(type $ft"
+        (call $emit_int (local.get $i))
+        (call $emit_cstr (i32.const 4217) (i32.const 6)) ;; " (func"
+        (call $emit_param_types (local.get $i))
+        (call $emit_cstr (i32.const 4133) (i32.const 13)) ;; " (result i32)"
+        (call $emit_close)
+        (call $emit_close)
+        (call $emit_nl)
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter))))
+
+  (func $emit_param_types (param $n i32)
+    (block $done
+      (loop $iter
+        (br_if $done (i32.eqz (local.get $n)))
+        (call $emit_cstr (i32.const 1244) (i32.const 12)) ;; " (param i32)"
+        (local.set $n (i32.sub (local.get $n) (i32.const 1)))
+        (br $iter))))
 
   ;; $emit_fn_table_and_globals — emit (table $fns N funcref) + (elem ...)
   ;; + (global $name_idx i32 (i32.const N)) per fn.
@@ -22675,6 +23358,97 @@
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $iter2))))
 
+  ;; $emit_static_top_closures — module-level closure records for top fns.
+  ;; Each record is [fn_idx:i32, capture_count=0:i32] at address
+  ;; 256 + slot*8, with a global $name pointing at the record.
+  (func $emit_static_top_closures (param $top_names i32) (param $all_names i32)
+    (local $i i32) (local $n i32) (local $name i32) (local $fn_idx i32)
+    (local $addr i32)
+    (local.set $n (call $len (local.get $top_names)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $name (call $list_index (local.get $top_names) (local.get $i)))
+        (local.set $fn_idx (call $emit_find_name_index
+          (local.get $all_names)
+          (local.get $name)))
+        (local.set $addr (i32.add (i32.const 256) (i32.mul (local.get $i) (i32.const 8))))
+        ;; (data (i32.const <addr>) "\xx\xx\xx\xx\00\00\00\00")
+        (call $emit_indent)
+        (call $emit_cstr (i32.const 912) (i32.const 6))  ;; "(data "
+        (call $emit_i32_const (local.get $addr))
+        (call $emit_space)
+        (call $emit_byte (i32.const 34))
+        (call $emit_le4_escape (local.get $fn_idx))
+        (call $emit_le4_escape (i32.const 0))
+        (call $emit_byte (i32.const 34))
+        (call $emit_close)
+        (call $emit_nl)
+        ;; (global $name i32 (i32.const <addr>))
+        (call $emit_indent)
+        (call $emit_cstr (i32.const 862) (i32.const 8))  ;; "(global "
+        (call $emit_byte (i32.const 36))
+        (call $emit_str (local.get $name))
+        (call $emit_cstr (i32.const 4224) (i32.const 5)) ;; " i32 "
+        (call $emit_i32_const (local.get $addr))
+        (call $emit_close)
+        (call $emit_nl)
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter))))
+
+  (func $emit_find_name_index (param $names i32) (param $target i32) (result i32)
+    (local $i i32) (local $n i32)
+    (local.set $n (call $len (local.get $names)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (if (call $str_eq
+              (call $list_index (local.get $names) (local.get $i))
+              (local.get $target))
+          (then (return (local.get $i))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter)))
+    (i32.const -1))
+
+  (func $emit_le4_escape (param $n i32)
+    (call $emit_byte_escape (i32.and (local.get $n) (i32.const 255)))
+    (call $emit_byte_escape (i32.and (i32.shr_u (local.get $n) (i32.const 8)) (i32.const 255)))
+    (call $emit_byte_escape (i32.and (i32.shr_u (local.get $n) (i32.const 16)) (i32.const 255)))
+    (call $emit_byte_escape (i32.and (i32.shr_u (local.get $n) (i32.const 24)) (i32.const 255))))
+
+  (func $emit_byte_escape (param $b i32)
+    (call $emit_byte (i32.const 92)) ;; '\'
+    (call $emit_hex_digit (i32.shr_u (local.get $b) (i32.const 4)))
+    (call $emit_hex_digit (i32.and (local.get $b) (i32.const 15))))
+
+  (func $emit_hex_digit (param $d i32)
+    (if (i32.lt_u (local.get $d) (i32.const 10))
+      (then
+        (call $emit_byte (i32.add (i32.const 48) (local.get $d)))
+        (return)))
+    (call $emit_byte (i32.add (i32.const 87) (local.get $d))))
+
+  (func $emit_local_decl_cstr (param $offset i32) (param $n i32)
+    (call $emit_cstr (i32.const 4146) (i32.const 9)) ;; " (local $"
+    (call $emit_cstr (local.get $offset) (local.get $n))
+    (call $emit_cstr (i32.const 4155) (i32.const 5))) ;; " i32)"
+
+  (func $emit_local_decl_str (param $name i32)
+    (call $emit_cstr (i32.const 4146) (i32.const 9)) ;; " (local $"
+    (call $emit_str (local.get $name))
+    (call $emit_cstr (i32.const 4155) (i32.const 5))) ;; " i32)"
+
+  (func $emit_standard_locals
+    (call $emit_local_decl_str (i32.const 2244))      ;; state_tmp
+    (call $emit_local_decl_str (i32.const 1568))      ;; variant_tmp
+    (call $emit_local_decl_str (i32.const 1552))      ;; record_tmp
+    (call $emit_local_decl_cstr (i32.const 4248) (i32.const 9))  ;; scrut_tmp
+    (call $emit_local_decl_cstr (i32.const 4232) (i32.const 14)) ;; callee_closure
+    (call $emit_local_decl_str (i32.const 1856))      ;; alloc_size
+    (call $emit_local_decl_cstr (i32.const 4260) (i32.const 6))) ;; loop_i
+
   ;; $emit_fn_body — emit a single (func $name (param $__state i32) ...)
   ;; Per wasm.nx:930-962 emit_fn_body. W7 calling convention.
   (func $emit_fn_body (param $fn_r i32)
@@ -22706,10 +23480,8 @@
         (br $piter)))
     ;; (result i32)
     (call $emit_cstr (i32.const 4133) (i32.const 13)) ;; " (result i32)"
-    ;; Standard locals per W7
-    (call $emit_cstr (i32.const 4146) (i32.const 9)) ;; " (local $"
-    (call $emit_str (i32.const 2244)) ;; "state_tmp" (reuse emit_call segment, length-prefixed)
-    (call $emit_cstr (i32.const 4155) (i32.const 5)) ;; " i32)"
+    ;; Standard locals per W7 + emit arms that lower into scratch slots.
+    (call $emit_standard_locals)
     ;; Pre-declare LLet locals from body
     (call $emit_let_locals (local.get $body))
     (call $emit_nl)
@@ -22783,13 +23555,17 @@
 
   (func $inka_emit (export "inka_emit")
         (param $lowexprs i32)
-    (local $fn_names i32)
+    (local $fn_names i32) (local $top_fn_names i32)
     ;; Collect function names for table + globals
     (local.set $fn_names (call $collect_fn_names (local.get $lowexprs)))
+    (local.set $top_fn_names (call $collect_top_level_fn_names (local.get $lowexprs)))
 
     (call $emit_cstr (i32.const 831) (i32.const 7))  ;; "(module"
     (call $emit_nl)
     (call $indent_inc)
+
+    ;; ── Function types for call_indirect ──
+    (call $emit_type_section (local.get $lowexprs))
 
     ;; ── WASI imports ──
     (call $emit_wasi_imports_inka)
@@ -22819,6 +23595,11 @@
     ;; ── Funcref table + index globals ──
     (call $emit_fn_table_and_globals (local.get $fn_names))
 
+    ;; ── Static top-level closure records ──
+    (call $emit_static_top_closures
+      (local.get $top_fn_names)
+      (local.get $fn_names))
+
     ;; ── Function definitions ──
     (call $emit_functions (local.get $lowexprs))
 
@@ -22826,8 +23607,8 @@
     (call $emit_funcref_section)
     (call $emit_string_section)
 
-    ;; ── _start (top-level body) ──
-    (call $emit_start_section_with_body (local.get $lowexprs))
+    ;; ── _start ──
+    (call $emit_start_section_static (local.get $lowexprs))
 
     (call $indent_dec)
     (call $emit_close)
@@ -22873,372 +23654,90 @@
     (call $emit_close)
     (call $emit_nl))
 
-
-  ;; ═══ WAT Fragment Data Segments ═════════════════════════════════════
-  ;; Raw byte strings for WAT syntax emission. No length prefix —
-  ;; these are used with emit_cstr(addr, len).
-  ;;
-  ;; Address map (starting at 536, each aligned to next available byte):
-  ;;
-  ;; 536  "(local.get "   11 bytes  → 547
-  ;; 548  "(local.set "   11 bytes  → 559
-  ;; 560  "(i32.const "   11 bytes  → 571
-  ;; 572  "(call "         6 bytes  → 578
-  ;; 578  "(drop "         6 bytes  → 584
-  ;; 584  "(func "         6 bytes  → 590
-  ;; 590  "(param "        7 bytes  → 597
-  ;; 597  " (result i32)"  13 bytes → 610
-  ;; 610  "(local "        7 bytes  → 617
-  ;; 617  "(if (result i32) " 18 bytes → 635
-  ;; 635  "(then "         6 bytes  → 641
-  ;; 641  "(else "         6 bytes  → 647
-  ;; 647  "(block "        7 bytes  → 654
-  ;; 654  "(loop "         6 bytes  → 660
-  ;; 660  "(br "           4 bytes  → 664
-  ;; 664  "(br_if "        7 bytes  → 671
-  ;; 671  "(return "       8 bytes  → 679
-  ;; 679  "(i32.add "      9 bytes  → 688
-  ;; 688  "(i32.sub "      9 bytes  → 697
-  ;; 697  "(i32.mul "      9 bytes  → 706
-  ;; 706  "(i32.div_s "   11 bytes  → 717
-  ;; 717  "(i32.rem_s "   11 bytes  → 728
-  ;; 728  "(i32.eq "       8 bytes  → 736
-  ;; 736  "(i32.ne "       8 bytes  → 744
-  ;; 744  "(i32.lt_s "    10 bytes  → 754
-  ;; 754  "(i32.gt_s "    10 bytes  → 764
-  ;; 764  "(i32.le_s "    10 bytes  → 774
-  ;; 774  "(i32.ge_s "    10 bytes  → 784
-  ;; 784  "(i32.and "      9 bytes  → 793
-  ;; 793  "(i32.or "       8 bytes  → 801
-  ;; 801  "(i32.eqz "      9 bytes  → 810
-  ;; 810  "(i32.store "   11 bytes  → 821
-  ;; 821  "(i32.load "    10 bytes  → 831
-  ;; 831  "(module"        7 bytes  → 838
-  ;; 838  "(memory "       8 bytes  → 846
-  ;; 846  "(export "       8 bytes  → 854
-  ;; 854  "(import "       8 bytes  → 862
-  ;; 862  "(global "       8 bytes  → 870
-  ;; 870  "(table "        7 bytes  → 877
-  ;; 877  "(elem "         6 bytes  → 883
-  ;; 883  "(i32.store8 "  12 bytes  → 895
-  ;; 895  "(i32.load8_u " 13 bytes  → 908
-  ;; 908  " i32"           4 bytes  → 912
-  ;; 912  "(data "         6 bytes  → 918
-  ;; 918  "(type "         6 bytes  → 924
-  ;; 924  "(func"          5 bytes  → 929
-  ;; 929  "offset="        7 bytes  → 936
-  ;; 936  "(select "       8 bytes  → 944
-  ;; 944  "(i32.sub (i32.const 0) " 24 bytes → 968
-  ;;
-  ;; Next free: 968
-  ;;
-  ;; NOTE: these overlap with the bump allocator's sentinel region
-  ;; (0-4096) but that's fine — sentinels are identified by value,
-  ;; not by reading memory at those addresses. The allocator starts
-  ;; at 1 MiB (1048576). Data segments are written at module load
-  ;; time before any allocation happens.
-
-  (data (i32.const 536) "(local.get ")
-  (data (i32.const 548) "(local.set ")
-  (data (i32.const 560) "(i32.const ")
-  (data (i32.const 572) "(call ")
-  (data (i32.const 578) "(drop ")
-  (data (i32.const 584) "(func ")
-  (data (i32.const 590) "(param ")
-  (data (i32.const 597) " (result i32)")
-  (data (i32.const 610) "(local ")
-  (data (i32.const 617) "(if (result i32) ")
-  (data (i32.const 635) "(then ")
-  (data (i32.const 641) "(else ")
-  (data (i32.const 647) "(block ")
-  (data (i32.const 654) "(loop ")
-  (data (i32.const 660) "(br ")
-  (data (i32.const 664) "(br_if ")
-  (data (i32.const 671) "(return ")
-  (data (i32.const 679) "(i32.add ")
-  (data (i32.const 688) "(i32.sub ")
-  (data (i32.const 697) "(i32.mul ")
-  (data (i32.const 706) "(i32.div_s ")
-  (data (i32.const 717) "(i32.rem_s ")
-  (data (i32.const 728) "(i32.eq ")
-  (data (i32.const 736) "(i32.ne ")
-  (data (i32.const 744) "(i32.lt_s ")
-  (data (i32.const 754) "(i32.gt_s ")
-  (data (i32.const 764) "(i32.le_s ")
-  (data (i32.const 774) "(i32.ge_s ")
-  (data (i32.const 784) "(i32.and ")
-  (data (i32.const 793) "(i32.or ")
-  (data (i32.const 801) "(i32.eqz ")
-  (data (i32.const 810) "(i32.store ")
-  (data (i32.const 821) "(i32.load ")
-  (data (i32.const 831) "(module")
-  (data (i32.const 838) "(memory ")
-  (data (i32.const 846) "(export ")
-  (data (i32.const 854) "(import ")
-  (data (i32.const 862) "(global ")
-  (data (i32.const 870) "(table ")
-  (data (i32.const 877) "(elem ")
-  (data (i32.const 883) "(i32.store8 ")
-  (data (i32.const 895) "(i32.load8_u ")
-  (data (i32.const 908) " i32")
-  (data (i32.const 912) "(data ")
-  (data (i32.const 918) "(type ")
-  (data (i32.const 924) "(func")
-  (data (i32.const 929) "offset=")
-  (data (i32.const 936) "(select ")
-  (data (i32.const 944) "(i32.sub (i32.const 0) ")
-
-  ;; Additional: runtime function name strings for emitter
-  ;; 968: "str_concat"  (10 bytes) → 978
-  ;; 978: "call_indirect" (13 bytes) → 991
-  ;; 991: "str_alloc"  (9 bytes) → 1000
-  ;; 1000: "record_get" (10 bytes) → 1010
-  ;; 1010: "make_list"  (9 bytes) → 1019
-  ;; 1019: "list_set"   (8 bytes) → 1027
-  ;; 1027: "list_index" (10 bytes) → 1037
-  ;; 1037: "tag_of"     (6 bytes) → 1043
-  ;; 1043: "str_from_mem" (12 bytes) → 1055
-  ;; 1055: "alloc"      (5 bytes) → 1060
-  ;; 1060: "str_len"    (7 bytes) → 1067
-  ;; 1067: "byte_at"    (7 bytes) → 1074
-  ;; 1074: "str_eq"     (6 bytes) → 1080
-  ;; Next free: 1080
-
-  (data (i32.const 968) "str_concat")
-  (data (i32.const 978) "call_indirect")
-  (data (i32.const 991) "str_alloc")
-  (data (i32.const 1000) "record_get")
-  (data (i32.const 1010) "make_list")
-  (data (i32.const 1019) "list_set")
-  (data (i32.const 1027) "list_index")
-  (data (i32.const 1037) "tag_of")
-  (data (i32.const 1043) "str_from_mem")
-  (data (i32.const 1055) "alloc")
-  (data (i32.const 1060) "str_len")
-  (data (i32.const 1067) "byte_at")
-  (data (i32.const 1074) "str_eq")
-
-  ;; 1080: "__match_" (8 bytes) → 1088
-  ;; 1088: "ctor_tag" (8 bytes) → 1096
-  ;; Next free: 1096
-  (data (i32.const 1080) "__match_")
-  (data (i32.const 1088) "ctor_tag")
-
-  ;; Module emission strings
-  ;; 1096: "memory"  (6 bytes) → 1102
-  ;; 1102: "heap_ptr" (8 bytes) → 1110
-  ;; 1110: " (mut i32) " (12 bytes, with leading/trailing space) → 1122
-  ;; 1122: "wasi_snapshot_preview1" (22 bytes) → 1144
-  ;; But wait - that's 22 bytes not 13. Let me recalculate.
-  ;; Actually "wasi_snapshot_preview1" is 22 chars. Let me fix the emit_module references.
-  ;; 1096: "memory" (6) → 1102
-  ;; 1102: "heap_ptr" (8) → 1110
-  ;; 1110: " (mut i32) " (11) → 1121
-  ;; 1121: "wasi_snapshot_preview1" (22) → 1143
-  ;; 1143: "fd_write" (8) → 1151
-  ;; 1151: "wasi_fd_write" (13) → 1164
-  ;; 1164: " (param i32 i32 i32 i32) (result i32)" (38) → 1202
-  ;; 1202: "fd_read" (7) → 1209
-  ;; 1209: "wasi_fd_read" (12) → 1221
-  ;; 1221: "proc_exit" (9) → 1230
-  ;; 1230: "wasi_proc_exit" (14) → 1244
-  ;; 1244: " (param i32)" (12) → 1256
-  ;; 1256: " (param $size i32)" (18 — but we only need 15 "(param $size i32)") → let me use 15
-  ;; Actually: " (param $size i32)" is 19 chars. Use 19.
-  ;; 1256: " (param $size i32)" (19) → 1275
-  ;; 1275-1475: alloc function body as raw WAT text (200 bytes)
-  ;; 1475: " (param $v i32)" (16) → 1491
-  ;; Next free: ~1491
-
-  (data (i32.const 1096) "memory")
-  (data (i32.const 1102) "heap_ptr")
-  (data (i32.const 1110) " (mut i32) ")
-  (data (i32.const 1121) "wasi_snapshot_preview1")
-  (data (i32.const 1143) "fd_write")
-  (data (i32.const 1151) "wasi_fd_write")
-  (data (i32.const 1164) " (param i32 i32 i32 i32) (result i32)")
-  (data (i32.const 1202) "fd_read")
-  (data (i32.const 1209) "wasi_fd_read")
-  (data (i32.const 1221) "proc_exit")
-  (data (i32.const 1230) "wasi_proc_exit")
-  (data (i32.const 1244) " (param i32)")
-  (data (i32.const 1256) " (param $size i32)")
-  ;; Alloc body as raw WAT (padded to 200 bytes with spaces)
-  (data (i32.const 1275) "(local $ptr i32)(local.set $ptr (global.get $heap_ptr))(global.set $heap_ptr (i32.add (global.get $heap_ptr)(i32.and (i32.add (local.get $size)(i32.const 7))(i32.const -8))))(local.get $ptr)                  ")
-  (data (i32.const 1475) " (param $v i32)")
-
-  ;; 1491: "_start_fn" (9) → 1500
-  ;; 1500: " (export \"_start\")" (19, including escaped quotes) → 1519
-  ;; But WAT data segments need literal bytes. The quotes are 0x22.
-  ;; " (export \22_start\22)" — use \22 for double quote in data segment
-  ;; Next free: 1519
-
-  (data (i32.const 1491) "_start_fn")
-  (data (i32.const 1500) " (export \22_start\22)")
-  ;; Next free in emit_data.wat: 1519 (but 1520+ is claimed by
-  ;; emit/emit_const.wat — see emit_const.wat:143). Phase F strings
-  ;; live in emit/main.wat's own segment range (1584+).
-
-  ;; ═══ Emitter Infrastructure ═════════════════════════════════════════
-  ;; Output buffer management for WAT text generation.
-  ;;
-  ;; Strategy: accumulate bytes in a heap buffer at 16 MiB, flush to
-  ;; stdout via WASI fd_write. Auto-flushes when buffer is nearly full.
-  ;;
-  ;; All emit_* functions in other modules depend on these primitives.
-
-  (global $out_pos (mut i32) (i32.const 0))
-  (global $out_base (mut i32) (i32.const 16777216))  ;; 16 MiB
-  (global $out_cap (mut i32) (i32.const 4194304))     ;; 4 MiB capacity
-  (global $emit_indent_level (mut i32) (i32.const 0))
-
-  ;; ─── Core output ──────────────────────────────────────────────────
-
-  (func $emit_byte (param $b i32)
-    (i32.store8 (i32.add (global.get $out_base) (global.get $out_pos)) (local.get $b))
-    (global.set $out_pos (i32.add (global.get $out_pos) (i32.const 1)))
-    (if (i32.ge_u (global.get $out_pos) (i32.sub (global.get $out_cap) (i32.const 1024)))
-      (then (call $emit_flush_partial))))
-
-  (func $emit_flush_partial
-    (i32.store (i32.const 240) (global.get $out_base))
-    (i32.store (i32.const 244) (global.get $out_pos))
-    (drop (call $wasi_fd_write (i32.const 1) (i32.const 240) (i32.const 1) (i32.const 248)))
-    (global.set $out_pos (i32.const 0)))
-
-  (func $emit_flush
-    (if (i32.gt_u (global.get $out_pos) (i32.const 0))
-      (then (call $emit_flush_partial))))
-
-  ;; ─── String / memory emission ─────────────────────────────────────
-
-  (func $emit_str (param $s i32)
-    (local $len i32) (local $i i32) (local $src i32)
-    (local.set $len (call $str_len (local.get $s)))
-    (local.set $src (i32.add (local.get $s) (i32.const 4)))
-    (local.set $i (i32.const 0))
-    (block $done (loop $cp
-      (br_if $done (i32.ge_u (local.get $i) (local.get $len)))
-      (call $emit_byte (i32.load8_u (i32.add (local.get $src) (local.get $i))))
-      (local.set $i (i32.add (local.get $i) (i32.const 1)))
-      (br $cp))))
-
-  (func $emit_cstr (param $addr i32) (param $len i32)
-    (local $i i32)
-    (local.set $i (i32.const 0))
-    (block $done (loop $cp
-      (br_if $done (i32.ge_u (local.get $i) (local.get $len)))
-      (call $emit_byte (i32.load8_u (i32.add (local.get $addr) (local.get $i))))
-      (local.set $i (i32.add (local.get $i) (i32.const 1)))
-      (br $cp))))
-
-  ;; ─── Number emission ──────────────────────────────────────────────
-
-  (func $emit_int (param $n i32)
-    (local $pos i32) (local $neg i32) (local $abs i32) (local $digit i32)
-    (local.set $pos (i32.const 0))
-    (if (i32.eqz (local.get $n))
-      (then (call $emit_byte (i32.const 48)) (return)))
-    (local.set $neg (i32.const 0))
-    (local.set $abs (local.get $n))
-    (if (i32.lt_s (local.get $n) (i32.const 0))
+  ;; $emit_start_section_static — executable entry projection.
+  ;; Top-level closures live in static records. Zero-arg main is invoked
+  ;; through the same closure-record call_indirect path as every other
+  ;; function. Parameterized main and library modules clean-exit.
+  (func $emit_start_section_static (param $lowexprs i32)
+    (local $main_arity i32)
+    (local.set $main_arity (call $find_top_fn_arity (local.get $lowexprs) (i32.const 4268) (i32.const 4)))
+    (call $emit_indent)
+    (call $emit_cstr (i32.const 924) (i32.const 5)) ;; "(func"
+    (call $emit_space)
+    (call $emit_byte (i32.const 36))                ;; '$'
+    (call $emit_cstr (i32.const 1591) (i32.const 6)) ;; "_start"
+    (call $emit_space)
+    (call $emit_cstr (i32.const 846) (i32.const 8)) ;; "(export "
+    (call $emit_byte (i32.const 34))
+    (call $emit_cstr (i32.const 1591) (i32.const 6)) ;; "_start"
+    (call $emit_byte (i32.const 34))
+    (call $emit_close)
+    (call $emit_nl)
+    (call $indent_inc)
+    (if (i32.eqz (local.get $main_arity))
       (then
-        (local.set $neg (i32.const 1))
-        (local.set $abs (i32.sub (i32.const 0) (local.get $n)))))
-    ;; Extract digits into scratch at 200 (reversed)
-    (block $done (loop $dg
-      (br_if $done (i32.eqz (local.get $abs)))
-      (i32.store8 (i32.add (i32.const 200) (local.get $pos))
-        (i32.add (i32.rem_u (local.get $abs) (i32.const 10)) (i32.const 48)))
-      (local.set $pos (i32.add (local.get $pos) (i32.const 1)))
-      (local.set $abs (i32.div_u (local.get $abs) (i32.const 10)))
-      (br $dg)))
-    (if (local.get $neg) (then (call $emit_byte (i32.const 45))))
-    ;; Emit in correct order
-    (block $done2 (loop $em
-      (local.set $pos (i32.sub (local.get $pos) (i32.const 1)))
-      (br_if $done2 (i32.lt_s (local.get $pos) (i32.const 0)))
-      (call $emit_byte (i32.load8_u (i32.add (i32.const 200) (local.get $pos))))
-      (br $em))))
-
-  ;; ─── Formatting ───────────────────────────────────────────────────
-
-  (func $emit_space (call $emit_byte (i32.const 32)))
-  (func $emit_nl (call $emit_byte (i32.const 10)))
-
-  (func $emit_indent
-    (local $i i32) (local $n i32)
-    (local.set $n (i32.mul (global.get $emit_indent_level) (i32.const 2)))
-    (local.set $i (i32.const 0))
-    (block $done (loop $sp
-      (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
-      (call $emit_byte (i32.const 32))
-      (local.set $i (i32.add (local.get $i) (i32.const 1)))
-      (br $sp))))
-
-  (func $indent_inc
-    (global.set $emit_indent_level (i32.add (global.get $emit_indent_level) (i32.const 1))))
-  (func $indent_dec
-    (global.set $emit_indent_level (i32.sub (global.get $emit_indent_level) (i32.const 1))))
-
-  ;; ─── WAT syntax helpers ───────────────────────────────────────────
-  ;; These use the data segments defined in emit_data.wat.
-
-  (func $emit_open (param $name i32)
-    (call $emit_byte (i32.const 40))
-    (call $emit_str (local.get $name)))
-
-  (func $emit_open_cstr (param $addr i32) (param $len i32)
-    (call $emit_byte (i32.const 40))
-    (call $emit_cstr (local.get $addr) (local.get $len)))
-
-  (func $emit_close (call $emit_byte (i32.const 41)))
-
-  (func $emit_dollar_name (param $name i32)
+        ;; (global.get $main)
+        (call $emit_indent)
+        (call $el_emit_global_get_dollar (call $str_from_mem (i32.const 4268) (i32.const 4)))
+        (call $emit_nl)
+        ;; (global.get $main)(i32.load offset=0)
+        (call $emit_indent)
+        (call $el_emit_global_get_dollar (call $str_from_mem (i32.const 4268) (i32.const 4)))
+        (call $ec6_emit_i32_load_offset_0)
+        (call $emit_nl)
+        ;; (call_indirect (type $ft1))
+        (call $emit_indent)
+        (call $ec6_emit_call_indirect_ftN (i32.const 0))
+        (call $emit_nl)
+        ;; (drop)
+        (call $emit_indent)
+        (call $emit_cstr (i32.const 578) (i32.const 6)) ;; "(drop "
+        (call $emit_close)
+        (call $emit_nl)))
+    ;; (call $wasi_proc_exit (i32.const 0))
+    (call $emit_indent)
+    (call $emit_cstr (i32.const 572) (i32.const 6)) ;; "(call "
     (call $emit_byte (i32.const 36))
-    (call $emit_str (local.get $name)))
+    (call $emit_cstr (i32.const 1230) (i32.const 14)) ;; "wasi_proc_exit"
+    (call $emit_space)
+    (call $emit_i32_const (i32.const 0))
+    (call $emit_close)
+    (call $emit_nl)
+    (call $indent_dec)
+    (call $emit_indent)
+    (call $emit_close)
+    (call $emit_nl))
 
-  ;; Shorthand emitters using data segment addresses:
-  (func $emit_local_get (param $name i32)
-    (call $emit_cstr (i32.const 536) (i32.const 11))
-    (call $emit_dollar_name (local.get $name))
-    (call $emit_close))
-
-  (func $emit_local_set_open (param $name i32)
-    (call $emit_cstr (i32.const 548) (i32.const 11))
-    (call $emit_dollar_name (local.get $name))
-    (call $emit_space))
-
-  (func $emit_i32_const (param $n i32)
-    (call $emit_cstr (i32.const 560) (i32.const 11))
-    (call $emit_int (local.get $n))
-    (call $emit_close))
-
-  (func $emit_call_open (param $name i32)
-    (call $emit_cstr (i32.const 572) (i32.const 6))
-    (call $emit_dollar_name (local.get $name)))
-
-  ;; emit_quoted_str: emit "..." with WAT string escaping
-  (func $emit_quoted_str (param $s i32)
-    (local $len i32) (local $i i32) (local $b i32)
-    (call $emit_byte (i32.const 34)) ;; opening "
-    (local.set $len (call $str_len (local.get $s)))
+  (func $find_top_fn_arity (param $lowexprs i32) (param $name_ptr i32) (param $name_len i32) (result i32)
+    (local $i i32) (local $n i32) (local $expr i32) (local $inner i32)
+    (local $candidate i32)
+    (local.set $n (call $len (local.get $lowexprs)))
     (local.set $i (i32.const 0))
-    (block $done (loop $ch
-      (br_if $done (i32.ge_u (local.get $i) (local.get $len)))
-      (local.set $b (call $byte_at (local.get $s) (local.get $i)))
-      ;; Escape special chars
-      (if (i32.eq (local.get $b) (i32.const 34))  ;; "
-        (then (call $emit_byte (i32.const 92)) (call $emit_byte (i32.const 34)))
-      (else (if (i32.eq (local.get $b) (i32.const 92))  ;; backslash
-        (then (call $emit_byte (i32.const 92)) (call $emit_byte (i32.const 92)))
-      (else (if (i32.eq (local.get $b) (i32.const 10))  ;; newline
-        (then (call $emit_byte (i32.const 92)) (call $emit_byte (i32.const 110)))
-      (else
-        (call $emit_byte (local.get $b))))))))
-      (local.set $i (i32.add (local.get $i) (i32.const 1)))
-      (br $ch)))
-    (call $emit_byte (i32.const 34))) ;; closing "
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $expr (call $list_index (local.get $lowexprs) (local.get $i)))
+        (if (i32.eq (call $tag_of (local.get $expr)) (i32.const 304))
+          (then
+            (local.set $candidate (call $lexpr_llet_name (local.get $expr)))
+            (if (call $str_eq
+                  (local.get $candidate)
+                  (call $str_from_mem (local.get $name_ptr) (local.get $name_len)))
+              (then
+                (local.set $inner (call $lexpr_llet_value (local.get $expr)))
+                (if (i32.eq (call $tag_of (local.get $inner)) (i32.const 311))
+                  (then
+                    (return
+                      (call $lowfn_arity
+                        (call $lexpr_lmakeclosure_fn (local.get $inner))))))
+                (if (i32.eq (call $tag_of (local.get $inner)) (i32.const 312))
+                  (then
+                    (return
+                      (call $lowfn_arity
+                        (call $lexpr_lmakecontinuation_fn (local.get $inner))))))))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter)))
+    (i32.const -1))
 
   ;; ═══ Expression Emitter ═════════════════════════════════════════════
   ;; Walks AST expression nodes and emits corresponding WAT.
