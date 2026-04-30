@@ -880,6 +880,14 @@
     (local.set $qs (call $scheme_quantified (local.get $scheme)))
     (local.set $qs_n (call $len (local.get $qs)))
     (local.set $body (call $scheme_body (local.get $scheme)))
+    
+    ;; ── Inka solves Inka: The Graph IS the substitution ──
+    ;; Prematurely generalized handles (e.g. from forward-declared recursive
+    ;; closures) may have been bound in the Graph since the Scheme was created.
+    ;; We chase_deep here to resolve them to their true types. This prevents
+    ;; stripping away NBound bindings when substituting over-quantified vars.
+    (local.set $body (call $chase_deep (local.get $body)))
+
     ;; Empty quantification — monotype; identity.
     (if (i32.eqz (local.get $qs_n))
       (then (return (local.get $body))))
