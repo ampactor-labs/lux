@@ -205,7 +205,7 @@ Current Hβ.emit + Hβ.arena cascade state — **Hβ.arena CLOSED; Hβ.emit CHUN
 
 Current branch tip:
 
-- `b6e1f23` — `substrate: bootstrap/src/infer/main.wat — Hβ.infer cascade closure`
+- `3a21226` — `substrate: eradicate 'self' OOP drift from refinement syntax`
 - `c53904d` — `substrate: bootstrap/src/lower/main.wat — Hβ.lower cascade closure`
 
 ---
@@ -454,10 +454,8 @@ ultimate form within scope. Beyond Phase H, the post-L1 cascade roadmap
 (see "Phase A-H sequence — the active path" above) names peer cascades
 that compose on this plan's substrate.
 
-Current cursor: **Phase D next** (Hβ.emit.handler-fnref-substrate).
-Phase A closed at `d57e20c`. Phase B closed (B.6/B.7 deferred — pressure
-gate lifted by B.2-B.5). Phase C closed (72/72 PASS). Pipeline wire
-parse→infer→emit survives EXIT=0 on all three source files.
+Current cursor: **Phase H next** (first-light-L1).
+Phases A through G are now closed. Pipeline wire parse→infer→emit survives EXIT=0 on all three source files. Recent substrate canonicalization (subscript desugaring, drift-audit elimination) ensures the compiler is in its ultimate form before self-application.
 
 ---
 
