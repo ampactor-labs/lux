@@ -112,47 +112,42 @@ for chunk in "${CHUNKS[@]}"; do
 done
 
 # ─── Layer 6: Entry point (inline) ──────────────────────────────────
-# `_start` per WASI. Pipeline: stdin → lex → parse → emit → stdout.
-# Closes the (module ...) wrapper.
+# Pipeline-wire status: Phase G — all four substrate gates CLEARED:
+#   - Hβ.emit.module-wrap       ✓ (Phase F, commit 3cf4861 + fix 6ab695e)
+#   - Hβ.lower.lowfn-substrate  ✓ (Phase C.1)
+#   - Hβ.infer.bump-allocator-pressure-substrate ✓ (Phase A, commit d57e20c)
+#   - Hβ.infer.parser-ast-shape-substrate        ✓ (Phase B)
+#   - $graph_chase transitive TVar follow         ✓ (Phase G.1, commit aa6e7ab)
 #
-# Pipeline-wire status: Hβ.infer.pipeline-wire follow-up depends on
-# four substrate landings to ship cleanly:
-#   - Hβ.emit.module-wrap                       — $inka_emit produces
-#                                                 complete WAT modules
-#   - Hβ.lower.lowfn-substrate                  — module-wrap's fn
-#                                                 emission needs LowFn
-#                                                 record
-#   - Hβ.infer.bump-allocator-pressure-substrate — real parse_program
-#                                                 AST consumes the
-#                                                 bump heap during
-#                                                 $inka_infer's walk
-#                                                 on production inputs
-#   - Hβ.infer.parser-ast-shape-substrate       — synthetic-AST
-#                                                 harnesses pass but
-#                                                 real parser-output
-#                                                 AST traps in
-#                                                 $infer_program (out-
-#                                                 of-bounds memory
-#                                                 fault at first-light
-#                                                 — diagnosed 2026-04-29)
-#
-# All four are post-L1 substrate growth; first-light Tier 1 stays
-# clean by leaving emit consuming raw AST without any infer/lower
-# pre-pass.
+# Pipeline: stdin → lex → parse → infer → lower → emit → flush → exit
+# Per ROADMAP §Phase G + Hβ-infer-substrate.md §10.3 clean handoff.
 
 cat >> "$OUT" <<'EOF'
 
   ;; ─── Entry Point ──────────────────────────────────────────────────
-  ;; Pipeline: stdin → lex → parse → emit → stdout (WAT)
+  ;; Pipeline: stdin → lex → parse → infer → lower → emit → stdout
+  ;; Per Phase G — Hβ.infer.pipeline-wire. The canonical form:
+  ;;   $parse_program |> $inka_infer |> $inka_lower |> $inka_emit
+  ;; with $stage_reset between transitions per Hβ-arena §7.4.
   (func $sys_main (export "_start")
     (local $input i32) (local $lex_result i32) (local $tokens i32)
-    (local $count i32) (local $ast i32)
+    (local $count i32) (local $ast i32) (local $lowered i32)
     (local.set $input (call $read_all_stdin))
     (local.set $lex_result (call $lex (local.get $input)))
     (local.set $tokens (call $list_index (local.get $lex_result) (i32.const 0)))
     (local.set $count (call $list_index (local.get $lex_result) (i32.const 1)))
     (local.set $ast (call $parse_program (local.get $tokens)))
-    (call $emit_program (local.get $ast))
+    ;; ── infer stage ──
+    (call $stage_reset)
+    (call $inka_infer (local.get $ast))
+    ;; ── lower stage ──
+    (call $stage_reset)
+    (local.set $lowered (call $inka_lower (local.get $ast)))
+    ;; ── emit stage ──
+    (call $stage_reset)
+    (call $emit_init)
+    (call $inka_emit (local.get $lowered))
+    (call $emit_flush)
     (call $wasi_proc_exit (i32.const 0)))
 )
 EOF

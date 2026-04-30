@@ -24366,15 +24366,28 @@
 
 
   ;; ─── Entry Point ──────────────────────────────────────────────────
-  ;; Pipeline: stdin → lex → parse → emit → stdout (WAT)
+  ;; Pipeline: stdin → lex → parse → infer → lower → emit → stdout
+  ;; Per Phase G — Hβ.infer.pipeline-wire. The canonical form:
+  ;;   $parse_program |> $inka_infer |> $inka_lower |> $inka_emit
+  ;; with $stage_reset between transitions per Hβ-arena §7.4.
   (func $sys_main (export "_start")
     (local $input i32) (local $lex_result i32) (local $tokens i32)
-    (local $count i32) (local $ast i32)
+    (local $count i32) (local $ast i32) (local $lowered i32)
     (local.set $input (call $read_all_stdin))
     (local.set $lex_result (call $lex (local.get $input)))
     (local.set $tokens (call $list_index (local.get $lex_result) (i32.const 0)))
     (local.set $count (call $list_index (local.get $lex_result) (i32.const 1)))
     (local.set $ast (call $parse_program (local.get $tokens)))
-    (call $emit_program (local.get $ast))
+    ;; ── infer stage ──
+    (call $stage_reset)
+    (call $inka_infer (local.get $ast))
+    ;; ── lower stage ──
+    (call $stage_reset)
+    (local.set $lowered (call $inka_lower (local.get $ast)))
+    ;; ── emit stage ──
+    (call $stage_reset)
+    (call $emit_init)
+    (call $inka_emit (local.get $lowered))
+    (call $emit_flush)
     (call $wasi_proc_exit (i32.const 0)))
 )
