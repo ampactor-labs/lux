@@ -291,7 +291,7 @@ fn span_zero() with Pure = Span(0, 0, 0, 0)
 type Handle = Int where 0 <= self
 type TagId = Int where 0 <= self && self <= 255
 type ValidOffset = Int where 0 <= self
-type NonEmptyList<A> = List<A> where self.len > 0   // drift-audit: ignore
+type NonEmptyList<A> = List<A> where len(self) > 0
 
 fn span_valid(s) with Pure =
   let Span(sl, sc, el, ec) = s
