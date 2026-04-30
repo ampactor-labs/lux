@@ -263,6 +263,7 @@
 
   (func $graph_chase_loop (param $handle i32) (param $depth i32) (result i32)
     (local $g i32) (local $nk i32) (local $tag i32)
+    (local $ty i32) (local $ty_tag i32)
     ;; depth bound — cycle safety net
     (if (i32.gt_u (local.get $depth) (i32.const 100))
       (then
@@ -273,12 +274,22 @@
     (local.set $g (call $graph_node_at (local.get $handle)))
     (local.set $nk (call $gnode_kind (local.get $g)))
     (local.set $tag (call $node_kind_tag (local.get $nk)))
-    ;; NBound terminal — return as-is (Tier-3 base; transitive Ty walk
-    ;; per Hβ.lower)
+    ;; NBound — per src/graph.nx:269-272 chase_node: if the payload is
+    ;; TVar(next), follow transitively. Otherwise return the GNode.
+    ;; This is the load-bearing fix: without it, two handles bound to
+    ;; TVar(each_other) create an infinite unify→unify_types→unify cycle.
     (if (i32.eq (local.get $tag) (i32.const 60))   ;; NBOUND
-      (then (return (local.get $g))))
-    ;; NRowBound terminal — return as-is (Tier-3 base; transitive
-    ;; EffRow walk per Hβ.lower)
+      (then
+        (local.set $ty (call $node_kind_payload (local.get $nk)))
+        (local.set $ty_tag (call $ty_tag (local.get $ty)))
+        (if (i32.eq (local.get $ty_tag) (i32.const 104))  ;; TVar
+          (then
+            (return (call $graph_chase_loop
+              (call $ty_tvar_handle (local.get $ty))
+              (i32.add (local.get $depth) (i32.const 1))))))
+        (return (local.get $g))))
+    ;; NRowBound terminal — return as-is (row transitive walk is the
+    ;; named Hβ.infer.row-normalize follow-up)
     (if (i32.eq (local.get $tag) (i32.const 62))   ;; NROWBOUND
       (then (return (local.get $g))))
     ;; NFree / NRowFree / NErrorHole all terminal
