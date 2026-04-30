@@ -180,7 +180,7 @@ handler fork_copy with target_arena = parent_arena() {
 /// (Ω.3).
 
 fn copy_captures(captures_classified, target_local, target_arena, i) with GraphRead + GraphWrite =
-  let n = len(captures_classified)
+  let n = captures_classified.len
   if i >= n { () }
   else {
     let entry = list_index(captures_classified, i)

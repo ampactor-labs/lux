@@ -81,6 +81,26 @@
           (call $mk_CallExpr (local.get $e) (local.get $args))
           (local.get $span)))
         (return (call $postfix_loop (local.get $tokens) (local.get $node) (local.get $p2)))))
+    ;; Subscript: e[idx] → Call(VarRef("list_index"), [e, idx])
+    (if (i32.eq (local.get $k) (i32.const 49))  ;; TLBracket
+      (then
+        (local.set $args_result
+          (call $parse_expr (local.get $tokens)
+            (call $skip_ws_p (local.get $tokens) (i32.add (local.get $pos) (i32.const 1)))))
+        (local.set $field (call $list_index (local.get $args_result) (i32.const 0)))
+        (local.set $p2    (call $list_index (local.get $args_result) (i32.const 1)))
+        (local.set $p2 (call $expect (local.get $tokens)
+          (call $skip_ws_p (local.get $tokens) (local.get $p2)) (i32.const 50)))
+        (local.set $span (i32.load offset=8 (local.get $e)))
+        (local.set $args (call $make_list (i32.const 2)))
+        (drop (call $list_set (local.get $args) (i32.const 0) (local.get $e)))
+        (drop (call $list_set (local.get $args) (i32.const 1) (local.get $field)))
+        (local.set $node (call $nexpr
+          (call $mk_CallExpr
+            (call $nexpr (call $mk_VarRef (i32.const 4288)) (local.get $span))
+            (local.get $args))
+          (local.get $span)))
+        (return (call $postfix_loop (local.get $tokens) (local.get $node) (local.get $p2)))))
     ;; Field: e.field
     (if (i32.eq (local.get $k) (i32.const 52))  ;; TDot
       (then

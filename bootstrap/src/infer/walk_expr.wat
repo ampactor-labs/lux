@@ -564,14 +564,10 @@
       (local.get $ty)
       (call $reason_make_located (local.get $span)
         (call $reason_make_varlookup (local.get $name) (local.get $reason))))
-    ;; Ownership: every VarRef performs Consume. The affine_ledger handler
-    ;; (own.wat) decides whether to fire diagnostic. Per src/infer.nx:803-
-    ;; 809 check_consume_at_use unconditional.
-    (call $infer_consume_use
-      (local.get $handle) (local.get $name)
-      (local.get $span)
-      (call $reason_make_located (local.get $span)
-        (call $reason_make_inferred (i32.const 3520))))   ;; "var ref"
+    ;; Ownership is row-gated, not globally tracked. Consume fires ONLY
+    ;; for params declared `own X`. Default = ref = !Consume. Wire-up
+    ;; through env_binding ownership marker is the SchemeKind extension
+    ;; (Hβ.infer.ownership-row-gate). Until then: no false positives.
     (local.get $handle))
 
   ;; BinOpExpr arm — src/infer.nx:501-507 + 1543-1572. Dispatches on

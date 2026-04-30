@@ -429,7 +429,7 @@ fn find_char_either(s, slen, start, ch1, ch2) with Memory =
 
 /// set_contains — O(log N) binary search over a sorted set.
 fn set_contains(set, target) with Memory =
-  set_bsearch(set, target, 0, len(set))
+  set_bsearch(set, target, 0, set.len)
 
 fn set_bsearch(set, target, lo, hi) with Memory =
   if lo >= hi { false }
@@ -447,8 +447,8 @@ fn set_bsearch(set, target, lo, hi) with Memory =
 // set_union: merge two sorted sets into a fresh sorted, deduped set.
 // O(M + N) — single-pass two-pointer merge into a pre-sized buffer.
 fn set_union(a, b) with Memory + Alloc =
-  let len_a = len(a)
-  let len_b = len(b)
+  let len_a = a.len
+  let len_b = b.len
   let buf = make_list(len_a + len_b)
   let final_len = set_union_merge(a, b, buf, 0, 0, 0, len_a, len_b)
   set_trim(buf, final_len)
@@ -484,8 +484,8 @@ fn set_union_merge(a, b, buf, ai, bi, oi, len_a, len_b) with Memory + Alloc =
 
 // set_diff: a minus b. Both sorted; output sorted. O(M + N).
 fn set_diff(a, b) with Memory + Alloc =
-  let len_a = len(a)
-  let len_b = len(b)
+  let len_a = a.len
+  let len_b = b.len
   let buf = make_list(len_a)
   let final_len = set_diff_merge(a, b, buf, 0, 0, 0, len_a, len_b)
   set_trim(buf, final_len)
@@ -513,8 +513,8 @@ fn set_diff_merge(a, b, buf, ai, bi, oi, len_a, len_b) with Memory + Alloc =
 
 // set_eq: structural equality of two sorted sets. O(N).
 fn set_eq(a, b) with Memory =
-  let la = len(a)
-  let lb = len(b)
+  let la = a.len
+  let lb = b.len
   if la != lb { false }
   else { set_eq_loop(a, b, 0, la) }
 
@@ -530,7 +530,7 @@ fn set_eq_loop(a, b, i, n) with Memory =
 // AST. Hot-path callers should already maintain the invariant and
 // skip this step.
 fn set_canonicalize(lst) with Memory + Alloc =
-  let n = len(lst)
+  let n = lst.len
   set_canonicalize_loop(lst, [], 0, n)
 
 fn set_canonicalize_loop(lst, acc, i, n) with Memory + Alloc =
@@ -543,7 +543,7 @@ fn set_canonicalize_loop(lst, acc, i, n) with Memory + Alloc =
 // O(N) due to position scan + copy; hot-path callers should prefer
 // set_union with a singleton set when inserting into large sets.
 fn set_insert(set, name) with Memory + Alloc =
-  let n = len(set)
+  let n = set.len
   let pos = set_find_pos(set, name, 0, n)
   if pos < n && str_eq(list_index(set, pos), name) { set }
   else { set_insert_at(set, name, pos, n) }
@@ -576,8 +576,8 @@ fn set_trim(buf, n) with Memory + Alloc =
 
 // set_intersect: a ∩ b. Both sorted; output sorted, <= min(|a|,|b|). // drift-audit: ignore
 fn set_intersect(a, b) with Memory + Alloc =
-  let len_a = len(a)
-  let len_b = len(b)
+  let len_a = a.len
+  let len_b = b.len
   let cap = if len_a < len_b { len_a } else { len_b }
   let buf = make_list(cap)
   let final_len = set_intersect_merge(a, b, buf, 0, 0, 0, len_a, len_b)
@@ -602,7 +602,7 @@ fn set_intersect_merge(a, b, buf, ai, bi, oi, len_a, len_b) with Memory + Alloc 
 
 // set_subset: every element of `sub` appears in `sup`. O(|sub| * log|sup|). // drift-audit: ignore
 fn set_subset(sub, sup) with Memory =
-  set_subset_loop(sub, sup, 0, len(sub))
+  set_subset_loop(sub, sup, 0, sub.len)
 
 fn set_subset_loop(sub, sup, i, n) with Memory =
   if i >= n { true }
@@ -612,7 +612,7 @@ fn set_subset_loop(sub, sup, i, n) with Memory =
 
 // set_disjoint: no element of `a` appears in `b`. O(|a| * log|b|). // drift-audit: ignore
 fn set_disjoint(a, b) with Memory =
-  set_disjoint_loop(a, b, 0, len(a))
+  set_disjoint_loop(a, b, 0, a.len)
 
 fn set_disjoint_loop(a, b, i, n) with Memory =
   if i >= n { true }

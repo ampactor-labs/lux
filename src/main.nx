@@ -39,7 +39,7 @@ import mentl_lsp
 /// the other modes share. Per Insight #1 (handler chain IS capability
 /// stack): lsp_adapter is OUTERMOST = least trusted = sandbox boundary.
 fn main(argv) =
-  if len(argv) >= 2 && str_eq(argv[1], "lsp") {
+  if argv.len >= 2 && str_eq(argv[1], "lsp") {
     inka_lsp_session()
       ~> lsp_adapter
       ~> mentl_voice_filesystem
@@ -77,20 +77,20 @@ fn path_to_module(arg) = {
 }
 
 fn dispatch_mode(argv) =
-  if len(argv) < 2 { None }
+  if argv.len < 2 { None }
   else {
     let mode = argv[1]
-    if str_eq(mode, "compile") && len(argv) >= 3 {
+    if str_eq(mode, "compile") && argv.len >= 3 {
       Some(() => compile(path_to_module(argv[2])))
-    } else if str_eq(mode, "check") && len(argv) >= 3 {
+    } else if str_eq(mode, "check") && argv.len >= 3 {
       Some(() => check(path_to_module(argv[2])))
-    } else if str_eq(mode, "query") && len(argv) >= 4 {
+    } else if str_eq(mode, "query") && argv.len >= 4 {
       Some(() => query(path_to_module(argv[2]), argv[3]))
-    } else if str_eq(mode, "teach") && len(argv) >= 3 {
+    } else if str_eq(mode, "teach") && argv.len >= 3 {
       Some(() => teach(path_to_module(argv[2])))
-    } else if str_eq(mode, "audit") && len(argv) >= 3 {
+    } else if str_eq(mode, "audit") && argv.len >= 3 {
       Some(() => audit(path_to_module(argv[2])))
-    } else if str_eq(mode, "compile-source") && len(argv) >= 3 {
+    } else if str_eq(mode, "compile-source") && argv.len >= 3 {
       Some(() => compile_source(read_stdin()))
     } else {
       None

@@ -207,11 +207,12 @@
     (if (i32.eq (local.get $tag) (i32.const 61))                       ;; NFREE
       (then
         (call $lower_emit_unresolved_type (local.get $handle))
-        (call $wasi_proc_exit (i32.const 1))))
-    ;; NRowBound (62) / NRowFree (63) — should never reach $lookup_ty;
-    ;; rows are queried via $lookup_row_for (peer; named follow-up
-    ;; Hβ.lower.lookup-row — lands when walk_handle.wat needs it).
-    (unreachable))
+        (return (call $ty_make_terror_hole))))
+    ;; Hazel productive-under-error: any other tag (NRowBound/NRowFree
+    ;; surfacing here, or sentinel) is substrate-honest reported as
+    ;; unresolved — emit diagnostic + return TErrorHole sentinel.
+    (call $lower_emit_unresolved_type (local.get $handle))
+    (call $ty_make_terror_hole))
 
   ;; ─── $row_is_ground — monomorphism gate ──────────────────────────
   ;; Per Hβ-lower-substrate.md §3.2 lines 369-372. A row is ground iff

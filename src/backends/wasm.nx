@@ -115,7 +115,7 @@ handler emit_memory_arena {
 // On lookup miss the handler returns 0 (points at the start of the
 // string region — an empty string whose emit is idempotent).
 handler string_table with entries = [] {
-  string_offset(s) => resume(string_offset_lookup(entries, s, 0, len(entries))),
+  string_offset(s) => resume(string_offset_lookup(entries, s, 0, entries.len)),
   set_string_entries(es) => resume() with entries = es
 }
 
@@ -198,7 +198,7 @@ fn collect_string_literals(lowered) = {
 }
 
 fn collect_strings_list(exprs, buf, count, next_offset) =
-  if len(exprs) == 0 { (buf, count, next_offset) }
+  if exprs.len == 0 { (buf, count, next_offset) }
   else {
     let (buf2, count2, off2) = collect_strings_expr(list_head(exprs), buf, count, next_offset)
     collect_strings_list(list_tail(exprs), buf2, count2, off2)
@@ -302,7 +302,7 @@ fn collect_state_slots(lowered) = {
 }
 
 fn collect_slots_list(exprs, buf, count) =
-  if len(exprs) == 0 { (buf, count) }
+  if exprs.len == 0 { (buf, count) }
   else {
     let (buf2, count2) = collect_slots_expr(list_head(exprs), buf, count)
     collect_slots_list(list_tail(exprs), buf2, count2)
@@ -395,7 +395,7 @@ fn slot_already_recorded(entries, target, i, n) =
 /// scope; LF.M migrates to per-handler-state offsets.
 
 fn emit_state_globals(slots) =
-  emit_state_globals_loop(slots, 0, len(slots))
+  emit_state_globals_loop(slots, 0, slots.len)
 
 fn emit_state_globals_loop(slots, i, n) =
   if i >= n { () }
@@ -412,7 +412,7 @@ fn emit_state_globals_loop(slots, i, n) =
 // by the UTF-8 bytes (each byte emitted as \xx so the WAT parser
 // accepts the whole payload uniformly regardless of byte values).
 fn emit_string_data(entries) =
-  emit_string_data_loop(entries, 0, len(entries))
+  emit_string_data_loop(entries, 0, entries.len)
 
 fn emit_string_data_loop(entries, i, n) =
   if i >= n { () }
@@ -445,7 +445,7 @@ fn collect_fn_names(lowered) = {
 }
 
 fn collect_fn_names_list(exprs, buf, count) =
-  if len(exprs) == 0 { (buf, count) }
+  if exprs.len == 0 { (buf, count) }
   else {
     let (buf2, count2) = collect_fn_names_expr(list_head(exprs), buf, count)
     collect_fn_names_list(list_tail(exprs), buf2, count2)
@@ -543,7 +543,7 @@ fn collect_fn_names_expr(expr, buf, count) = match expr {
 // Bounded-N (number of top-level LMakeClosure-bound LLet stmts);
 // the buffer pattern preserves O(N) total allocation regardless.
 fn collect_top_level_fn_names(lowered) = {
-  let n = len(lowered)
+  let n = lowered.len
   let initial_capacity = if n < 4 { 4 } else { n }
   let buf = make_list(initial_capacity)
   let (final_buf, final_count) =
@@ -575,7 +575,7 @@ fn extract_top_fn_name(stmt) with Pure = match stmt {
 // labels. Every closure's fn_ptr slot stores the i32 index into
 // this table; `call_indirect (type $ftK)` dispatches by index.
 fn emit_fn_table(fn_names) = {
-  let n = len(fn_names)
+  let n = fn_names.len
   if n == 0 { () }
   else {
     perform wat_emit("  (table $fns ")
@@ -588,7 +588,7 @@ fn emit_fn_table(fn_names) = {
 }
 
 fn emit_fn_refs(names) =
-  if len(names) == 0 { () }
+  if names.len == 0 { () }
   else {
     perform wat_emit(" $")
     perform wat_emit(list_head(names))
@@ -599,7 +599,7 @@ fn emit_fn_refs(names) =
 // `(global.get $<name>_idx)` to get the i32 table index — no list
 // lookup needed at emit time. One global per top-level function.
 fn emit_fn_index_globals(names, idx) =
-  if len(names) == 0 { () }
+  if names.len == 0 { () }
   else {
     perform wat_emit("  (global $")
     perform wat_emit(list_head(names))
@@ -633,7 +633,7 @@ fn emit_fn_index_globals(names, idx) =
 // are non-empty in general).
 
 fn emit_static_top_closures(top_names, all_names, slot) =
-  if len(top_names) == 0 { () }
+  if top_names.len == 0 { () }
   else {
     let name = list_head(top_names)
     let fn_idx = ls_find_str_local(all_names, name, 0)
@@ -657,7 +657,7 @@ fn emit_static_top_closures(top_names, all_names, slot) =
 
 // Find the index of a string in a list. Returns -1 if not found.
 fn ls_find_str_local(lst, target, i) =
-  ls_find_str_local_loop(lst, target, i, len(lst))
+  ls_find_str_local_loop(lst, target, i, lst.len)
 
 fn ls_find_str_local_loop(lst, target, i, n) =
   if i >= n { -1 }
@@ -702,7 +702,7 @@ fn emit_type_section(lowered) = {
 }
 
 fn max_arity_in(stmts, acc) =
-  if len(stmts) == 0 { acc }
+  if stmts.len == 0 { acc }
   else {
     let bigger = max_int(acc, max_arity_expr(list_head(stmts)))
     max_arity_in(list_tail(stmts), bigger)
@@ -711,7 +711,7 @@ fn max_arity_in(stmts, acc) =
 // Arity counting accounts for W7's implicit `__state` param: every
 // emitted function takes `__state` as its first parameter, and
 // every LCall pushes the closure pointer before the user args, so
-// the effective call arity is len(args)+1.
+// the effective call arity is args.len+1.
 // H6: exhaustive LowExpr enumeration. Call-producing variants
 // contribute their arity (+1 for the implicit __state slot when
 // relevant). Every other variant's own arity is 0; they need
@@ -719,11 +719,11 @@ fn max_arity_in(stmts, acc) =
 // call form must decide whether to add a $ft entry — silent
 // `_ => 0` would emit a WASM module with missing type signatures.
 fn max_arity_expr(expr) = match expr {
-  LCall(_, _, args)         => len(args) + 1,
-  LTailCall(_, _, args)     => len(args) + 1,
-  LSuspend(_, _, _, args, _) => len(args) + 1,
-  LPerform(_, _, args)      => len(args),
-  LEvPerform(_, _, _, args) => len(args) + 1,
+  LCall(_, _, args)         => args.len + 1,
+  LTailCall(_, _, args)     => args.len + 1,
+  LSuspend(_, _, _, args, _) => args.len + 1,
+  LPerform(_, _, args)      => args.len,
+  LEvPerform(_, _, _, args) => args.len + 1,
   LLet(_, _, inner)         => max_arity_expr(inner),
   LMakeClosure(_, _, _, _)         => 0,
   LMakeContinuation(_, _, _, _, _, _) => 0,
@@ -855,7 +855,7 @@ fn emit_functions(lowered) =
   emit_fns_list(lowered)
 
 fn emit_fns_list(exprs) =
-  if len(exprs) == 0 { () }
+  if exprs.len == 0 { () }
   else {
     emit_fns_expr(list_head(exprs))
     emit_fns_list(list_tail(exprs))
@@ -867,7 +867,7 @@ fn emit_fns_expr(expr) = match expr {
     // body_context install knows the fence between captures and
     // evidence in __state. The fence determines LEvPerform's
     // offset arithmetic inside the body.
-    emit_fn_body(name, param_names, body, len(captures))
+    emit_fn_body(name, param_names, body, captures.len)
     // Recurse into body + captures + ev_slots for nested lambdas.
     emit_fns_list(body)
     emit_fns_list(captures)
@@ -879,7 +879,7 @@ fn emit_fns_expr(expr) = match expr {
     // takes a __state continuation pointer parameter; captures
     // restored from offsets per H7 §1.2 layout). Recurse into body
     // + captures + ev_slots for nested lambdas.
-    emit_fn_body(name, param_names, body, len(captures))
+    emit_fn_body(name, param_names, body, captures.len)
     emit_fns_list(body)
     emit_fns_list(captures)
     emit_fns_list(ev)
@@ -967,7 +967,7 @@ fn emit_fn_body(name, param_names, body, captures_count) = {
 // (those are other functions with their own locals). Must cover
 // every LowExpr container that can hold LLet descendants.
 fn emit_let_locals_list(stmts) =
-  if len(stmts) == 0 { () }
+  if stmts.len == 0 { () }
   else {
     emit_let_locals_expr(list_head(stmts))
     emit_let_locals_list(list_tail(stmts))
@@ -1045,7 +1045,7 @@ fn emit_let_locals_expr(expr) = match expr {
 // local so the (local.set $name) inside emit_match_arms validates.
 // Bodies are walked for nested LLet locals as usual.
 fn emit_let_locals_arms(arms) =
-  if len(arms) == 0 { () }
+  if arms.len == 0 { () }
   else {
     let (pat, body) = list_head(arms)
     emit_let_locals_pat(pat)
@@ -1068,7 +1068,7 @@ fn emit_let_locals_pat(pat) = match pat {
 }
 
 fn emit_let_locals_pat_record(field_binds) =
-  if len(field_binds) == 0 { () }
+  if field_binds.len == 0 { () }
   else {
     let (_, _, sub_pat) = list_head(field_binds)
     emit_let_locals_pat(sub_pat)
@@ -1076,14 +1076,14 @@ fn emit_let_locals_pat_record(field_binds) =
   }
 
 fn emit_let_locals_pat_list(pats) =
-  if len(pats) == 0 { () }
+  if pats.len == 0 { () }
   else {
     emit_let_locals_pat(list_head(pats))
     emit_let_locals_pat_list(list_tail(pats))
   }
 
 fn emit_params(names) =
-  if len(names) == 0 { () }
+  if names.len == 0 { () }
   else {
     perform wat_emit(" (param $")
     perform wat_emit(list_head(names))
@@ -1092,7 +1092,7 @@ fn emit_params(names) =
   }
 
 fn emit_body(stmts) =
-  if len(stmts) == 0 { () }
+  if stmts.len == 0 { () }
   else {
     emit_expr(list_head(stmts))
     emit_body(list_tail(stmts))
@@ -1184,7 +1184,7 @@ fn emit_expr(expr) = match expr {
     emit_expr_list(args)
     perform wat_emit("    (local.get $state_tmp) (i32.load offset=0)\n")
     perform wat_emit("    (call_indirect (type $ft")
-    perform wat_emit(int_to_str(len(args) + 1))
+    perform wat_emit(int_to_str(args.len + 1))
     perform wat_emit("))\n")
   },
 
@@ -1195,7 +1195,7 @@ fn emit_expr(expr) = match expr {
     emit_expr_list(args)
     perform wat_emit("    (local.get $state_tmp) (i32.load offset=0)\n")
     perform wat_emit("    (return_call_indirect (type $ft")
-    perform wat_emit(int_to_str(len(args) + 1))
+    perform wat_emit(int_to_str(args.len + 1))
     perform wat_emit("))\n")
   },
 
@@ -1221,8 +1221,8 @@ fn emit_expr(expr) = match expr {
     // dispatched by the installed EmitMemory handler. Bump today;
     // future arena / GC handlers swap the WAT without touching
     // this site.
-    let nc = len(captures_exprs)
-    let ne = len(ev_exprs)
+    let nc = captures_exprs.len
+    let ne = ev_exprs.len
     let size = 8 + 4 * (nc + ne)
     perform emit_alloc(size, "state_tmp")
     // Store fn_ptr (table index) at offset 0.
@@ -1270,8 +1270,8 @@ fn emit_expr(expr) = match expr {
     // a plain i32 indexing into the WASM funcref table; resume happens
     // via call_indirect with the resume_fn's signature. Evidence
     // passing per Koka JFP 2022, not vtable indirection.
-    let nc = len(captures_exprs)
-    let ne = len(ev_exprs)
+    let nc = captures_exprs.len
+    let ne = ev_exprs.len
     let size = 12 + 4 * (nc + ne) + 4
     perform emit_alloc(size, "state_tmp")
     // Store fn_ptr (resume_fn table index) at offset 0.
@@ -1328,7 +1328,7 @@ fn emit_expr(expr) = match expr {
     // their identity in the type system; runtime sees raw fields.
     // emit_alloc routes through the EmitMemory swap surface, same
     // discipline as closures and variants.
-    let n = len(fields)
+    let n = fields.len
     let size = n * 4
     perform emit_alloc(size, "record_tmp")
     emit_record_field_stores(fields, 0)
@@ -1349,7 +1349,7 @@ fn emit_expr(expr) = match expr {
     //
     // Fielded variants heap-allocate via emit_alloc (EmitMemory
     // swap surface — bump today, arena/GC tomorrow).
-    let n = len(fields)
+    let n = fields.len
     if n == 0 {
       perform wat_emit("    (i32.const ")
       perform wat_emit(int_to_str(tag_id))
@@ -1406,7 +1406,7 @@ fn emit_expr(expr) = match expr {
     //   offset 4 : capture_count nc (copied)
     //   offset 8 + 4*i              : capture_i (copied via runtime loop)
     //   offset 8 + 4*nc + 4*j       : ev_slot_j (newly stored)
-    let ne = len(ev_slots)
+    let ne = ev_slots.len
     // Save callee closure pointer for header read + capture copy.
     emit_expr(func)
     perform wat_emit("    (local.set $callee_closure)\n")
@@ -1460,7 +1460,7 @@ fn emit_expr(expr) = match expr {
     emit_expr_list(args)
     perform wat_emit("    (local.get $state_tmp) (i32.load offset=0)\n")
     perform wat_emit("    (call_indirect (type $ft")
-    perform wat_emit(int_to_str(len(args) + 1))
+    perform wat_emit(int_to_str(args.len + 1))
     perform wat_emit("))\n")
   },
 
@@ -1582,7 +1582,7 @@ fn emit_expr(expr) = match expr {
     perform wat_emit(int_to_str(absolute_offset))
     perform wat_emit(")\n")
     perform wat_emit("    (call_indirect (type $ft")
-    perform wat_emit(int_to_str(len(args) + 1))
+    perform wat_emit(int_to_str(args.len + 1))
     perform wat_emit("))\n")
   },
 
@@ -1609,7 +1609,7 @@ fn emit_expr(expr) = match expr {
 }
 
 fn emit_expr_list(exprs) =
-  if len(exprs) == 0 { () }
+  if exprs.len == 0 { () }
   else {
     emit_expr(list_head(exprs))
     emit_expr_list(list_tail(exprs))
@@ -1669,7 +1669,7 @@ fn emit_unaryop(op) = match op {
 // Emit the stores for each capture in the closure record.
 // Captures are indexed from 0; each stored at offset 8 + 4*i.
 fn emit_capture_stores(captures, i) =
-  if len(captures) == 0 { () }
+  if captures.len == 0 { () }
   else {
     perform wat_emit("    (local.get $state_tmp)\n")
     emit_expr(list_head(captures))
@@ -1686,7 +1686,7 @@ fn emit_capture_stores(captures, i) =
 // the lowering layer produced — typically LConst(LInt(fn_idx))
 // or a load from the enclosing __state for poly pass-through).
 fn emit_ev_slot_stores(ev_exprs, nc, j) =
-  if len(ev_exprs) == 0 { () }
+  if ev_exprs.len == 0 { () }
   else {
     perform wat_emit("    (local.get $state_tmp)\n")
     emit_expr(list_head(ev_exprs))
@@ -1704,7 +1704,7 @@ fn emit_ev_slot_stores(ev_exprs, nc, j) =
 /// only the base offset differs.
 
 fn emit_capture_stores_at_offset(captures, base_offset, i) =
-  if len(captures) == 0 { () }
+  if captures.len == 0 { () }
   else {
     perform wat_emit("    (local.get $state_tmp)\n")
     emit_expr(list_head(captures))
@@ -1720,7 +1720,7 @@ fn emit_capture_stores_at_offset(captures, base_offset, i) =
 /// 12 + 4 * nc.
 
 fn emit_ev_slot_stores_at_offset(ev_exprs, base_offset, j) =
-  if len(ev_exprs) == 0 { () }
+  if ev_exprs.len == 0 { () }
   else {
     perform wat_emit("    (local.get $state_tmp)\n")
     emit_expr(list_head(ev_exprs))
@@ -1734,7 +1734,7 @@ fn emit_ev_slot_stores_at_offset(ev_exprs, base_offset, j) =
 // nc is runtime-known (loaded from $callee_closure[4]); each ev
 // slot's address is base + 8 + 4*nc + 4*j computed at runtime.
 fn emit_ev_slots_dynamic(ev_exprs, j) =
-  if len(ev_exprs) == 0 { () }
+  if ev_exprs.len == 0 { () }
   else {
     // Address: state_tmp + 8 + 4*nc + 4*j
     perform wat_emit("    (local.get $state_tmp)\n")
@@ -1756,7 +1756,7 @@ fn emit_ev_slots_dynamic(ev_exprs, j) =
 // the base offset (4 vs 8) — closures reserve slot 1 for capture
 // count, variants don't.
 fn emit_variant_field_stores(fields, i) =
-  if len(fields) == 0 { () }
+  if fields.len == 0 { () }
   else {
     perform wat_emit("    (local.get $variant_tmp)\n")
     emit_expr(list_head(fields))
@@ -1771,7 +1771,7 @@ fn emit_variant_field_stores(fields, i) =
 // system, no runtime tag. Field i lands at byte 4*i, matching
 // LFieldLoad's offset arithmetic in lower.nx.
 fn emit_record_field_stores(fields, i) =
-  if len(fields) == 0 { () }
+  if fields.len == 0 { () }
   else {
     perform wat_emit("    (local.get $record_tmp)\n")
     emit_expr(list_head(fields))
@@ -1790,7 +1790,7 @@ fn emit_record_field_stores(fields, i) =
 // fielded variants are heap pointers ≥ HEAP_BASE. The threshold
 // comparison `(scrut < HEAP_BASE)` discriminates without ambiguity.
 fn emit_match_arms(arms) =
-  if len(arms) == 0 {
+  if arms.len == 0 {
     perform wat_emit("    (unreachable)\n")
   } else {
     let shape = classify_arms_shape(arms)
@@ -1805,7 +1805,7 @@ fn emit_match_arms(arms) =
 // (every LPCon has empty sub_pats), Pure-Fielded (all non-empty),
 // or Mixed. Wildcards / vars / lits are shape-neutral.
 fn classify_arms_shape(arms) =
-  classify_arms_shape_loop(arms, 0, len(arms), ShapePureFielded, false)
+  classify_arms_shape_loop(arms, 0, arms.len, ShapePureFielded, false)
 
 fn classify_arms_shape_loop(arms, i, n, acc, seen) =
   if i >= n {
@@ -1817,7 +1817,7 @@ fn classify_arms_shape_loop(arms, i, n, acc, seen) =
     let (pat, _) = list_index(arms, i)
     match pat {
       LPCon(_, _, sub_pats) => {
-        let arm_shape = if len(sub_pats) == 0 { ShapePureNullary }
+        let arm_shape = if sub_pats.len == 0 { ShapePureNullary }
                         else { ShapePureFielded }
         let next = if !seen { arm_shape }
                    else if shape_eq(acc, arm_shape) { acc }
@@ -1840,7 +1840,7 @@ fn shape_eq(a, b) with Pure = match a {
 // emit_match_arms_mixed's two branches (each handed a filtered
 // arm subset).
 fn emit_match_arms_uniform(arms, shape) =
-  if len(arms) == 0 {
+  if arms.len == 0 {
     perform wat_emit("    (unreachable)\n")
   } else {
     let (pat, body) = list_head(arms)
@@ -1924,7 +1924,7 @@ fn emit_match_arms_mixed(arms) = {
 // Keep arms whose LPCon fits the requested shape; always keep
 // wildcards/vars/lits/records (always-match terminals).
 fn filter_arms_by_shape(arms, want_shape) = {
-  let n = len(arms)
+  let n = arms.len
   let (buf, count) = filter_arms_by_shape_loop(arms, want_shape, 0, n, make_list(n), 0)
   slice(buf, 0, count)
 }
@@ -1936,7 +1936,7 @@ fn filter_arms_by_shape_loop(arms, want_shape, i, n, buf, count) =
     let (pat, _) = arm
     let keep = match pat {
       LPCon(_, _, sub_pats) => {
-        let arm_shape = if len(sub_pats) == 0 { ShapePureNullary }
+        let arm_shape = if sub_pats.len == 0 { ShapePureNullary }
                         else { ShapePureFielded }
         shape_eq(arm_shape, want_shape)
       },
@@ -1957,7 +1957,7 @@ fn filter_arms_by_shape_loop(arms, want_shape, i, n, buf, count) =
 // instead of computing 4 + 4*i. Field-puning patterns are LPVar
 // sub-pats; nested record/list patterns fall through (TODO).
 fn emit_record_field_binds(binds) =
-  if len(binds) == 0 { () }
+  if binds.len == 0 { () }
   else {
     let (_field_name, offset, sub_pat) = list_head(binds)
     match sub_pat {
@@ -1985,7 +1985,7 @@ fn emit_record_field_binds(binds) =
 // Wildcards bind nothing; nested constructor patterns are not yet
 // destructured (shallow-pattern v1).
 fn emit_pat_field_binds(sub_pats, i) =
-  if len(sub_pats) == 0 { () }
+  if sub_pats.len == 0 { () }
   else {
     let p = list_head(sub_pats)
     match p {
@@ -2048,7 +2048,7 @@ fn emit_list_literal(elems) = {
   // named peer handle tracked in ROADMAP.md;
   // it does not change the emitted primitive when the fold doesn't
   // apply.
-  let n = len(elems)
+  let n = elems.len
   perform wat_emit("    (i32.const ")
   perform wat_emit(int_to_str(n))
   perform wat_emit(")\n")
@@ -2057,7 +2057,7 @@ fn emit_list_literal(elems) = {
 }
 
 fn emit_list_stores(elems, idx) =
-  if len(elems) == 0 { () }
+  if elems.len == 0 { () }
   else {
     perform wat_emit("    (i32.const ")
     perform wat_emit(int_to_str(idx))
@@ -2070,6 +2070,6 @@ fn emit_list_stores(elems, idx) =
 fn emit_tuple_literal(elems) = {
   emit_expr_list(elems)
   perform wat_emit("    (i32.const ")
-  perform wat_emit(int_to_str(len(elems) * 4))
+  perform wat_emit(int_to_str(elems.len * 4))
   perform wat_emit(") (call $alloc_tuple)\n")
 }

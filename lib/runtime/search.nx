@@ -85,7 +85,7 @@ effect Choice {
 
 handler pick_first {
   choose(options) =>
-    if len(options) == 0 { perform abort() }
+    if options.len == 0 { perform abort() }
     else                 { resume(list_index(options, 0)) }
 }
 
@@ -131,7 +131,7 @@ fn try_with_abort_catch(try_fn, catch_fn) with Abort =
 handler backtrack with Choice + GraphRead + GraphWrite + Abort {
   choose(options) => {
     fn try_each(i) =
-      if i >= len(options) { perform abort() }
+      if i >= options.len { perform abort() }
       else {
         let checkpoint = perform graph_push_checkpoint()
         try_with_abort_catch(
@@ -177,9 +177,8 @@ handler backtrack with Choice + GraphRead + GraphWrite + Abort {
 /// (borrowed by all forks); each picked option is `own` to its
 /// resume scope.
 ///
-/// Primitive #6 (Refinement) — could refine
-/// `options: List<A> where len(self) >= 1` to compile-out empty-
-/// list aborts; V1 lets the runtime Abort handle it per QA Q-B.3.2.
+/// Primitive #6 (Refinement) — could refine options to length >= 1
+/// to compile-out empty-list aborts; V1 lets the runtime Abort handle it.
 ///
 /// Primitive #7 (Annotation gradient) — `~> backtrack` is a
 /// gradient step that unlocks search-domain capabilities (SAT, logic

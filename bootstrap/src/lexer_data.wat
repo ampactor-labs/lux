@@ -25,56 +25,56 @@
   ;; ─── Keyword strings for the lexer — [256, 512) ───────────────────
   ;; "fn" at 256
   (data (i32.const 256) "\02\00\00\00fn")
-  ;; "let" at 264
-  (data (i32.const 264) "\03\00\00\00let")
-  ;; "if" at 272
-  (data (i32.const 272) "\02\00\00\00if")
-  ;; "else" at 280
-  (data (i32.const 280) "\04\00\00\00else")
-  ;; "match" at 288
-  (data (i32.const 288) "\05\00\00\00match")
-  ;; "type" at 296
-  (data (i32.const 296) "\04\00\00\00type")
-  ;; "effect" at 304
-  (data (i32.const 304) "\06\00\00\00effect")
-  ;; "handle" at 312
-  (data (i32.const 312) "\06\00\00\00handle")
+  ;; "let" at 262
+  (data (i32.const 262) "\03\00\00\00let")
+  ;; "if" at 269
+  (data (i32.const 269) "\02\00\00\00if")
+  ;; "else" at 275
+  (data (i32.const 275) "\04\00\00\00else")
+  ;; "match" at 283
+  (data (i32.const 283) "\05\00\00\00match")
+  ;; "type" at 292
+  (data (i32.const 292) "\04\00\00\00type")
+  ;; "effect" at 300
+  (data (i32.const 300) "\06\00\00\00effect")
+  ;; "handle" at 310
+  (data (i32.const 310) "\06\00\00\00handle")
   ;; "handler" at 320
   (data (i32.const 320) "\07\00\00\00handler")
-  ;; "with" at 332
-  (data (i32.const 332) "\04\00\00\00with")
-  ;; "resume" at 340
-  (data (i32.const 340) "\06\00\00\00resume")
-  ;; "perform" at 348
-  (data (i32.const 348) "\07\00\00\00perform")
-  ;; "for" at 360
+  ;; "with" at 331
+  (data (i32.const 331) "\04\00\00\00with")
+  ;; "resume" at 339
+  (data (i32.const 339) "\06\00\00\00resume")
+  ;; "perform" at 349
+  (data (i32.const 349) "\07\00\00\00perform")
+  ;; "for" at 360 (display only; not a keyword per SYNTAX.md)
   (data (i32.const 360) "\03\00\00\00for")
-  ;; "in" at 368
-  (data (i32.const 368) "\02\00\00\00in")
-  ;; "loop" at 376
-  (data (i32.const 376) "\04\00\00\00loop")
-  ;; "break" at 384
-  (data (i32.const 384) "\05\00\00\00break")
-  ;; "continue" at 392
-  (data (i32.const 392) "\08\00\00\00continue")
-  ;; "return" at 404
-  (data (i32.const 404) "\06\00\00\00return")
+  ;; "in" at 367 (display only; not a keyword per SYNTAX.md)
+  (data (i32.const 367) "\02\00\00\00in")
+  ;; "loop" at 373 (display only; not a keyword per SYNTAX.md)
+  (data (i32.const 373) "\04\00\00\00loop")
+  ;; "break" at 381 (display only; not a keyword per SYNTAX.md)
+  (data (i32.const 381) "\05\00\00\00break")
+  ;; "continue" at 390 (display only; not a keyword per SYNTAX.md)
+  (data (i32.const 390) "\08\00\00\00continue")
+  ;; "return" at 402 (display only; not a keyword per SYNTAX.md)
+  (data (i32.const 402) "\06\00\00\00return")
   ;; "import" at 412
   (data (i32.const 412) "\06\00\00\00import")
-  ;; "where" at 420
-  (data (i32.const 420) "\05\00\00\00where")
-  ;; "own" at 428
-  (data (i32.const 428) "\03\00\00\00own")
-  ;; "ref" at 436
-  (data (i32.const 436) "\03\00\00\00ref")
-  ;; "capability" at 444
-  (data (i32.const 444) "\0a\00\00\00capability")
-  ;; "Pure" at 456
-  (data (i32.const 456) "\04\00\00\00Pure")
-  ;; "true" at 464
-  (data (i32.const 464) "\04\00\00\00true")
-  ;; "false" at 472
-  (data (i32.const 472) "\05\00\00\00false")
+  ;; "where" at 422
+  (data (i32.const 422) "\05\00\00\00where")
+  ;; "own" at 431
+  (data (i32.const 431) "\03\00\00\00own")
+  ;; "ref" at 438
+  (data (i32.const 438) "\03\00\00\00ref")
+  ;; "capability" at 445 (display only; not a TokenKind in SYNTAX.md)
+  (data (i32.const 445) "\0a\00\00\00capability")
+  ;; "Pure" at 459
+  (data (i32.const 459) "\04\00\00\00Pure")
+  ;; "true" at 467
+  (data (i32.const 467) "\04\00\00\00true")
+  ;; "false" at 475
+  (data (i32.const 475) "\05\00\00\00false")
 
   ;; ─── Output format strings — [512, 4096) ──────────────────────────
   ;; " tokens, " at 512 (9 bytes)

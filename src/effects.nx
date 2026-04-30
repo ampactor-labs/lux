@@ -41,7 +41,7 @@ fn mk_record_open(ref fields, v) with !Mutate =
   TRecordOpen(field_canonicalize(fields), v)
 
 fn field_canonicalize(ref fields) with !Mutate =
-  let n = len(fields)
+  let n = fields.len
   field_canonicalize_loop(fields, 0, n, [])
 
 fn field_canonicalize_loop(ref fields, i, n, own acc) with !Mutate =
@@ -54,7 +54,7 @@ fn field_canonicalize_loop(ref fields, i, n, own acc) with !Mutate =
 /// Insert (name, ty) into sorted-by-name list; if name already present,
 /// replace (last write wins).
 fn field_insert(ref sorted, ref name, ref ty) with !Mutate =
-  let n = len(sorted)
+  let n = sorted.len
   let pos = field_find_pos(sorted, name, 0, n)
   if pos < n {
     let (existing_name, _) = list_index(sorted, pos)
@@ -179,7 +179,7 @@ fn normalize_inter(ref a, ref b) with !Mutate =
   }
 
 fn closed_or_pure(ref names) with !Mutate =
-  if len(names) == 0 { EfPure }
+  if names.len == 0 { EfPure }
   else { EfClosed(names) }
 
 /// Union row (`+`): E + F = the row of all effects in E or F.
@@ -254,7 +254,7 @@ fn row_subsumes(ref body_row, ref gate_row) with !Mutate =
     EfPure =>
       match body_row {
         EfPure => true,
-        EfClosed(names) => len(names) == 0,
+        EfClosed(names) => names.len == 0,
         _ => false
       },
     EfClosed(gate_names) =>
@@ -311,10 +311,10 @@ fn unify_row_canonical(ref a, ref b, ref span, ref reason) with !Mutate =
       match b {
         EfPure => (),
         EfClosed(names) =>
-          if len(names) == 0 { () }
+          if names.len == 0 { () }
           else { report_purity_mismatch(b, span) },
         EfOpen(names, v) =>
-          if len(names) == 0 {
+          if names.len == 0 {
             perform graph_bind_row(v, EfPure, Located(span, reason))
           } else {
             report_purity_mismatch(b, span)
@@ -324,7 +324,7 @@ fn unify_row_canonical(ref a, ref b, ref span, ref reason) with !Mutate =
     EfClosed(na) =>
       match b {
         EfPure =>
-          if len(na) == 0 { () }
+          if na.len == 0 { () }
           else { report_purity_mismatch(a, span) },
         EfClosed(nb) =>
           if list_eq_str(na, nb) { () }
@@ -338,7 +338,7 @@ fn unify_row_canonical(ref a, ref b, ref span, ref reason) with !Mutate =
     EfOpen(na, va) =>
       match b {
         EfPure =>
-          if len(na) == 0 {
+          if na.len == 0 {
             perform graph_bind_row(va, EfPure, Located(span, reason))
           } else {
             report_purity_mismatch(a, span)
@@ -466,8 +466,8 @@ fn eff_name_eq(ref a, ref b) with !Mutate = match a {
 }
 
 fn eff_args_eq(ref a, ref b) with !Mutate =
-  if len(a) != len(b) { false }
-  else { eff_args_eq_loop(a, b, 0, len(a)) }
+  if a.len != b.len { false }
+  else { eff_args_eq_loop(a, b, 0, a.len) }
 
 fn eff_args_eq_loop(ref a, ref b, i, n) with !Mutate =
   if i >= n { true }
@@ -511,7 +511,7 @@ fn eff_name_lt(ref a, ref b) with !Mutate = match a {
 }
 
 fn eff_args_lt(ref a, ref b) with !Mutate =
-  eff_args_lt_loop(a, b, 0, len(a), len(b))
+  eff_args_lt_loop(a, b, 0, a.len, b.len)
 
 fn eff_args_lt_loop(ref a, ref b, i, na, nb) with !Mutate =
   if i >= na { na < nb }
@@ -554,7 +554,7 @@ fn eff_arg_lt(ref a, ref b) with !Mutate = match a {
 // string-set substrate handles boundary canonicalization.
 
 fn name_set_canonicalize(ref names) with !Mutate =
-  name_set_canonicalize_loop(names, 0, len(names), [])
+  name_set_canonicalize_loop(names, 0, names.len, [])
 
 fn name_set_canonicalize_loop(ref names, i, n, own acc) with !Mutate =
   if i >= n { acc }
@@ -564,7 +564,7 @@ fn name_set_canonicalize_loop(ref names, i, n, own acc) with !Mutate =
   }
 
 fn name_set_insert(ref sorted, ref name) with !Mutate =
-  let n = len(sorted)
+  let n = sorted.len
   let pos = name_find_pos(sorted, name, 0, n)
   if pos < n {
     let existing = list_index(sorted, pos)
@@ -600,7 +600,7 @@ fn name_copy_suffix_shifted(ref src, own dst, src_idx, dst_idx, n) with !Mutate 
   }
 
 fn name_set_union(ref a, ref b) with !Mutate =
-  name_set_union_loop(a, b, 0, len(b), name_set_canonicalize(a))
+  name_set_union_loop(a, b, 0, b.len, name_set_canonicalize(a))
 
 fn name_set_union_loop(ref a, ref b, i, n, own acc) with !Mutate =
   if i >= n { acc }
@@ -610,7 +610,7 @@ fn name_set_union_loop(ref a, ref b, i, n, own acc) with !Mutate =
   }
 
 fn name_set_intersect(ref a, ref b) with !Mutate =
-  name_set_intersect_loop(a, b, 0, len(a), [])
+  name_set_intersect_loop(a, b, 0, a.len, [])
 
 fn name_set_intersect_loop(ref a, ref b, i, n, own acc) with !Mutate =
   if i >= n { acc }
@@ -623,7 +623,7 @@ fn name_set_intersect_loop(ref a, ref b, i, n, own acc) with !Mutate =
   }
 
 fn name_set_diff(ref a, ref b) with !Mutate =
-  name_set_diff_loop(a, b, 0, len(a), [])
+  name_set_diff_loop(a, b, 0, a.len, [])
 
 fn name_set_diff_loop(ref a, ref b, i, n, own acc) with !Mutate =
   if i >= n { acc }
@@ -635,7 +635,7 @@ fn name_set_diff_loop(ref a, ref b, i, n, own acc) with !Mutate =
   }
 
 fn name_set_subset(ref sub, ref sup) with !Mutate =
-  name_set_subset_loop(sub, sup, 0, len(sub))
+  name_set_subset_loop(sub, sup, 0, sub.len)
 
 fn name_set_subset_loop(ref sub, ref sup, i, n) with !Mutate =
   if i >= n { true }
@@ -644,7 +644,7 @@ fn name_set_subset_loop(ref sub, ref sup, i, n) with !Mutate =
   } else { false }
 
 fn name_set_disjoint(ref a, ref b) with !Mutate =
-  name_set_disjoint_loop(a, b, 0, len(a))
+  name_set_disjoint_loop(a, b, 0, a.len)
 
 fn name_set_disjoint_loop(ref a, ref b, i, n) with !Mutate =
   if i >= n { true }
@@ -652,11 +652,11 @@ fn name_set_disjoint_loop(ref a, ref b, i, n) with !Mutate =
   else { name_set_disjoint_loop(a, b, i + 1, n) }
 
 fn name_set_eq(ref a, ref b) with !Mutate =
-  if len(a) != len(b) { false }
+  if a.len != b.len { false }
   else { name_set_subset(a, b) }
 
 fn name_set_contains(ref set, ref name) with !Mutate =
-  name_set_contains_loop(set, name, 0, len(set))
+  name_set_contains_loop(set, name, 0, set.len)
 
 fn name_set_contains_loop(ref set, ref name, i, n) with !Mutate =
   if i >= n { false }

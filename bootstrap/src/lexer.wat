@@ -124,55 +124,55 @@
   (func $keyword_kind (param $word i32) (result i32)
     (if (call $str_eq (local.get $word) (i32.const 256))    ;; "fn"
       (then (return (call $mk_Some (i32.const 0)))))
-    (if (call $str_eq (local.get $word) (i32.const 264))    ;; "let"
+    (if (call $str_eq (local.get $word) (i32.const 262))    ;; "let"
       (then (return (call $mk_Some (i32.const 1)))))
-    (if (call $str_eq (local.get $word) (i32.const 272))    ;; "if"
+    (if (call $str_eq (local.get $word) (i32.const 269))    ;; "if"
       (then (return (call $mk_Some (i32.const 2)))))
-    (if (call $str_eq (local.get $word) (i32.const 280))    ;; "else"
+    (if (call $str_eq (local.get $word) (i32.const 275))    ;; "else"
       (then (return (call $mk_Some (i32.const 3)))))
-    (if (call $str_eq (local.get $word) (i32.const 288))    ;; "match"
+    (if (call $str_eq (local.get $word) (i32.const 283))    ;; "match"
       (then (return (call $mk_Some (i32.const 4)))))
-    (if (call $str_eq (local.get $word) (i32.const 296))    ;; "type"
+    (if (call $str_eq (local.get $word) (i32.const 292))    ;; "type"
       (then (return (call $mk_Some (i32.const 5)))))
-    (if (call $str_eq (local.get $word) (i32.const 304))    ;; "effect"
+    (if (call $str_eq (local.get $word) (i32.const 300))    ;; "effect"
       (then (return (call $mk_Some (i32.const 6)))))
-    (if (call $str_eq (local.get $word) (i32.const 312))    ;; "handle"
+    (if (call $str_eq (local.get $word) (i32.const 310))    ;; "handle"
       (then (return (call $mk_Some (i32.const 7)))))
     (if (call $str_eq (local.get $word) (i32.const 320))    ;; "handler"
       (then (return (call $mk_Some (i32.const 8)))))
-    (if (call $str_eq (local.get $word) (i32.const 332))    ;; "with"
+    (if (call $str_eq (local.get $word) (i32.const 331))    ;; "with"
       (then (return (call $mk_Some (i32.const 9)))))
-    (if (call $str_eq (local.get $word) (i32.const 340))    ;; "resume"
+    (if (call $str_eq (local.get $word) (i32.const 339))    ;; "resume"
       (then (return (call $mk_Some (i32.const 10)))))
-    (if (call $str_eq (local.get $word) (i32.const 348))    ;; "perform"
+    (if (call $str_eq (local.get $word) (i32.const 349))    ;; "perform"
       (then (return (call $mk_Some (i32.const 11)))))
     (if (call $str_eq (local.get $word) (i32.const 360))    ;; "for"
       (then (return (call $mk_Some (i32.const 12)))))
-    (if (call $str_eq (local.get $word) (i32.const 368))    ;; "in"
+    (if (call $str_eq (local.get $word) (i32.const 367))    ;; "in"
       (then (return (call $mk_Some (i32.const 13)))))
-    (if (call $str_eq (local.get $word) (i32.const 376))    ;; "loop"
+    (if (call $str_eq (local.get $word) (i32.const 373))    ;; "loop"
       (then (return (call $mk_Some (i32.const 14)))))
-    (if (call $str_eq (local.get $word) (i32.const 384))    ;; "break"
+    (if (call $str_eq (local.get $word) (i32.const 381))    ;; "break"
       (then (return (call $mk_Some (i32.const 15)))))
-    (if (call $str_eq (local.get $word) (i32.const 392))    ;; "continue"
+    (if (call $str_eq (local.get $word) (i32.const 390))    ;; "continue"
       (then (return (call $mk_Some (i32.const 16)))))
-    (if (call $str_eq (local.get $word) (i32.const 404))    ;; "return"
+    (if (call $str_eq (local.get $word) (i32.const 402))    ;; "return"
       (then (return (call $mk_Some (i32.const 17)))))
     (if (call $str_eq (local.get $word) (i32.const 412))    ;; "import"
       (then (return (call $mk_Some (i32.const 18)))))
-    (if (call $str_eq (local.get $word) (i32.const 420))    ;; "where"
+    (if (call $str_eq (local.get $word) (i32.const 422))    ;; "where"
       (then (return (call $mk_Some (i32.const 19)))))
-    (if (call $str_eq (local.get $word) (i32.const 428))    ;; "own"
+    (if (call $str_eq (local.get $word) (i32.const 431))    ;; "own"
       (then (return (call $mk_Some (i32.const 20)))))
-    (if (call $str_eq (local.get $word) (i32.const 436))    ;; "ref"
+    (if (call $str_eq (local.get $word) (i32.const 438))    ;; "ref"
       (then (return (call $mk_Some (i32.const 21)))))
-    (if (call $str_eq (local.get $word) (i32.const 444))    ;; "capability"
+    (if (call $str_eq (local.get $word) (i32.const 445))    ;; "capability"
       (then (return (call $mk_Some (i32.const 22)))))
-    (if (call $str_eq (local.get $word) (i32.const 456))    ;; "Pure"
+    (if (call $str_eq (local.get $word) (i32.const 459))    ;; "Pure"
       (then (return (call $mk_Some (i32.const 22)))))
-    (if (call $str_eq (local.get $word) (i32.const 464))    ;; "true"
+    (if (call $str_eq (local.get $word) (i32.const 467))    ;; "true"
       (then (return (call $mk_Some (i32.const 23)))))
-    (if (call $str_eq (local.get $word) (i32.const 472))    ;; "false"
+    (if (call $str_eq (local.get $word) (i32.const 475))    ;; "false"
       (then (return (call $mk_Some (i32.const 24)))))
     (i32.const 70))  ;; None
 

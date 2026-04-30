@@ -88,7 +88,7 @@ handler query_default {
 
     QIntentOf(handle) => {
       let Graph(_, _, _, _, _, intent_index) = perform graph_snapshot()
-      match find_intent(intent_index, handle, 0, len(intent_index)) {
+      match find_intent(intent_index, handle, 0, intent_index.len) {
         None => resume(QRError("no intent recorded for handle " |> str_concat(int_to_str(handle)))), // drift-audit: ignore
         Some(effs) => resume(QRIntent(effs))
       }
@@ -184,14 +184,14 @@ fn chase_type_deep(ref ty) with !Mutate = match ty {
 }
 
 fn chase_list_deep(ref tys) with !Mutate =
-  if len(tys) == 0 { [] }
+  if tys.len == 0 { [] }
   else {
     [chase_type_deep(list_head(tys))]
       ++ chase_list_deep(list_tail(tys))
   }
 
 fn chase_params_deep(ref params) with !Mutate =
-  if len(params) == 0 { [] }
+  if params.len == 0 { [] }
   else {
     let TParam(name, ty, auth, res) = list_head(params)
     [TParam(name, chase_type_deep(ty), auth, res)]
@@ -199,7 +199,7 @@ fn chase_params_deep(ref params) with !Mutate =
   }
 
 fn chase_fields_deep(ref fields) with !Mutate =
-  if len(fields) == 0 { [] }
+  if fields.len == 0 { [] }
   else {
     let (name, ty) = list_head(fields)
     [(name, chase_type_deep(ty))]
@@ -210,7 +210,7 @@ fn chase_fields_deep(ref fields) with !Mutate =
 /// Returned by `QUnresolved` — the set of names with incomplete types
 /// after inference.
 fn find_unresolved(ref entries) with !Mutate =
-  if len(entries) == 0 { [] }
+  if entries.len == 0 { [] }
   else {
     let (name, scheme, _reason, _kind) = list_head(entries)
     let Forall(_, ty) = scheme
@@ -242,21 +242,21 @@ fn has_free_tvar(ref ty) with !Mutate = match ty {
 }
 
 fn has_free_tvar_list(ref tys) with !Mutate =
-  if len(tys) == 0 { false }
+  if tys.len == 0 { false }
   else {
     has_free_tvar(list_head(tys))
       || has_free_tvar_list(list_tail(tys))
   }
 
 fn has_free_tvar_params(ref params) with !Mutate =
-  if len(params) == 0 { false }
+  if params.len == 0 { false }
   else {
     let TParam(_, ty, _, _) = list_head(params)
     has_free_tvar(ty) || has_free_tvar_params(list_tail(params))
   }
 
 fn has_free_tvar_fields(ref fields) with !Mutate =
-  if len(fields) == 0 { false }
+  if fields.len == 0 { false }
   else {
     let (_, ty) = list_head(fields)
     has_free_tvar(ty) || has_free_tvar_fields(list_tail(fields))
@@ -287,7 +287,7 @@ fn span_area(s: ValidSpan) with Pure =
   else { ((el - sl) * 1000) + ec - sc }
 
 fn find_tightest(ref idx, target, best_h, best_area) with Pure =
-  if len(idx) == 0 { best_h }
+  if idx.len == 0 { best_h }
   else {
     let (s, h) = list_head(idx)
     if span_contains(s, target) {

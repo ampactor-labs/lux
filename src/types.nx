@@ -291,7 +291,7 @@ fn span_zero() with Pure = Span(0, 0, 0, 0)
 type Handle = Int where 0 <= self
 type TagId = Int where 0 <= self && self <= 255
 type ValidOffset = Int where 0 <= self
-type NonEmptyList<A> = List<A> where len(self) > 0
+type NonEmptyList<A> = List<A> where self.len > 0   // drift-audit: ignore
 
 fn span_valid(s) with Pure =
   let Span(sl, sc, el, ec) = s
@@ -893,7 +893,7 @@ fn show_field(ref field) with GraphRead + !Mutate =
     |> str_concat(show_type(ty))
 
 fn show_type_args(ref args) with GraphRead + !Mutate =
-  if len(args) == 0 { "" }
+  if args.len == 0 { "" }
   else {
     "("
       |> str_concat(show_list(args, show_type, ", "))
@@ -913,7 +913,7 @@ fn show_effrow(ref row) with GraphRead + !Mutate =
     EfPure            => "Pure",   // drift-audit: ignore — human-facing rendering string for diagnostics/show; not an effect-keyed lookup; tracked for item 11.B effect-rendering normalization
     EfClosed(names)   => show_list(names, show_eff_name, " + "),
     EfOpen(names, v)  =>
-      if len(names) == 0 { show_handle(v) }
+      if names.len == 0 { show_handle(v) }
       else {
         show_list(names, show_eff_name, " + ")
           |> str_concat(" + ")
@@ -1100,7 +1100,7 @@ fn show_span(ref span) with !Mutate =
 
 fn show_scheme(ref sch) with GraphRead + !Mutate =
   let Forall(vars, ty) = sch
-  if len(vars) == 0 { show_type(ty) }
+  if vars.len == 0 { show_type(ty) }
   else {
     "∀"
       |> str_concat(show_list(vars, show_handle, " "))
@@ -1120,8 +1120,8 @@ fn show_pipe_kind(pk) with Pure =
 
 
 fn show_list(ref items, ref render, ref sep) with !Mutate =
-  if len(items) == 0 { "" }
-  else if len(items) == 1 { render(list_head(items)) }
+  if items.len == 0 { "" }
+  else if items.len == 1 { render(list_head(items)) }
   else {
     render(list_head(items))
       |> str_concat(sep)

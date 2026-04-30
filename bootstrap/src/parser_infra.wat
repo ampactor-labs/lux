@@ -91,6 +91,10 @@
     (i32.store offset=4 (local.get $p) (local.get $b))
     (local.get $p))
 
+  ;; Subscript-sugar target — `xs[i]` parses as Call(VarRef("list_index"), [xs, i]).
+  ;; Length-prefixed flat string at fixed addr; VarRef name pointer = 4288.
+  (data (i32.const 4288) "\0a\00\00\00list_index")
+
   ;; VarRef(name) → [tag=85][name_ptr]
   (func $mk_VarRef (param $name i32) (result i32)
     (local $p i32) (local.set $p (call $alloc (i32.const 8)))

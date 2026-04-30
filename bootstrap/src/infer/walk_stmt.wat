@@ -385,13 +385,45 @@
       (call $reason_make_declared (local.get $name))))
     (call $graph_bind (local.get $handle) (local.get $fn_ty)
                       (local.get $reason))
+    ;; Pre-registered fn_ty is fully polymorphic — quantify over every
+    ;; fresh handle so each call site instantiates fresh TVars rather
+    ;; than mutating the placeholder. Mirrors generalize() at fn-stmt
+    ;; exit; here the body hasn't walked yet so the quantifier is
+    ;; literally [param_handles..., ret_h, row_h].
     (call $env_extend
       (local.get $name)
       (call $scheme_make_forall
-        (call $make_list (i32.const 0))
+        (call $infer_pre_register_quantifier
+          (local.get $param_handles) (local.get $ret_h) (local.get $row_h))
         (local.get $fn_ty))
       (local.get $reason)
       (call $schemekind_make_fn)))
+
+  ;; $infer_pre_register_quantifier: cons each param handle, ret handle,
+  ;; and row handle into one List<i32>. Quantifying over all of them
+  ;; means every call-site instantiation produces fresh TVars per the
+  ;; Forall→fresh-substitution discipline of $instantiate.
+  (func $infer_pre_register_quantifier
+        (param $param_handles i32) (param $ret_h i32) (param $row_h i32)
+        (result i32)
+    (local $n i32) (local $out i32) (local $i i32)
+    (local.set $n (call $len (local.get $param_handles)))
+    (local.set $out
+      (call $list_extend_to (call $make_list (i32.const 0))
+                            (i32.add (local.get $n) (i32.const 2))))
+    (local.set $i (i32.const 0))
+    (block $copy_done
+      (loop $copy
+        (br_if $copy_done (i32.ge_u (local.get $i) (local.get $n)))
+        (drop (call $list_set (local.get $out) (local.get $i)
+          (call $list_index (local.get $param_handles) (local.get $i))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $copy)))
+    (drop (call $list_set (local.get $out) (local.get $n) (local.get $ret_h)))
+    (drop (call $list_set (local.get $out)
+                          (i32.add (local.get $n) (i32.const 1))
+                          (local.get $row_h)))
+    (local.get $out))
 
   (func $infer_pre_register_stmt (param $node i32)
     (local $body i32) (local $stmt i32) (local $tag i32)
@@ -1070,3 +1102,4 @@
     (call $infer_init)
     (call $infer_pre_register_fn_sigs (local.get $stmts))
     (call $infer_stmt_list (local.get $stmts)))
+

@@ -263,7 +263,7 @@ fn derive_ev_slots_from_row(row) = match row {
 }
 
 fn derive_ev_slots_from_names(names) = {
-  let n = len(names)
+  let n = names.len
   let (buf, count) = derive_ev_slots_loop(names, 0, n, make_list(n), 0)
   slice(buf, 0, count)
 }
@@ -413,7 +413,7 @@ fn lower_expr_body(e, handle, span) = match e {
     perform ls_exit_frame()
     let fn_ir = LFn(
       lambda_name,
-      len(params),
+      params.len,
       param_names_list,
       [lo_body],
       EfPure
@@ -504,7 +504,7 @@ fn lower_diverge_branches(lo_input, lo_branches) =
   }
 
 fn apply_each_branch(lo_input, branches) =
-  if len(branches) == 0 { [] }
+  if branches.len == 0 { [] }
   else {
     [LCall(0, list_head(branches), [lo_input])]
       ++ apply_each_branch(lo_input, list_tail(branches))
@@ -518,8 +518,8 @@ fn apply_each_branch(lo_input, branches) =
 /// the loader hits whatever offset 0 holds (best-effort graceful degrade).
 fn resolve_field_offset(rec_handle, field_name) =
   match perform lookup_ty(rec_handle) {
-    TRecord(fields)        => field_byte_offset(fields, field_name, 0, len(fields)),
-    TRecordOpen(fields, _) => field_byte_offset(fields, field_name, 0, len(fields)),
+    TRecord(fields)        => field_byte_offset(fields, field_name, 0, fields.len),
+    TRecordOpen(fields, _) => field_byte_offset(fields, field_name, 0, fields.len),
     // H2.3: nominal records — chase TName through env to its
     // RecordSchemeKind for the field schema. Same offset arithmetic
     // applies (sorted-by-name, 4 bytes per i32-erased slot).
@@ -528,7 +528,7 @@ fn resolve_field_offset(rec_handle, field_name) =
         let (_, _, kind) = entry
         match kind {
           RecordSchemeKind(fields) =>
-            field_byte_offset(fields, field_name, 0, len(fields)),
+            field_byte_offset(fields, field_name, 0, fields.len),
           _ => 0
         }
       },
@@ -548,7 +548,7 @@ fn field_byte_offset(fields, target, i, n) =
 // Statement lowering
 
 fn lower_stmt_list(stmts) =
-  if len(stmts) == 0 { [] }
+  if stmts.len == 0 { [] }
   else { [lower_stmt(list_head(stmts))] ++ lower_stmt_list(list_tail(stmts)) }
 
 // H6: exhaustive NodeBody enumeration. NPat and NHole at
@@ -598,7 +598,7 @@ fn lower_stmt_body(s, handle, span) = match s {
     perform ls_exit_frame()
     let fn_ir = LFn(
       name,
-      len(params),
+      params.len,
       param_names_list,
       [lo_body],
       EfPure          // row resolved live via lookup_ty(handle)
@@ -632,7 +632,7 @@ fn lower_stmt_as_expr(s, handle, span) =
 // Pattern lowering
 
 fn lower_match_arms(arms) =
-  if len(arms) == 0 { [] }
+  if arms.len == 0 { [] }
   else {
     let (pat, body) = list_head(arms)
     let cp = perform ls_push_scope()
@@ -665,7 +665,7 @@ fn bind_pat_locals(pat) = match pat {
 }
 
 fn bind_pat_locals_fields(flds) =
-  if len(flds) == 0 { () }
+  if flds.len == 0 { () }
   else {
     let (_, sub_pat) = list_head(flds)
     bind_pat_locals(sub_pat)
@@ -673,7 +673,7 @@ fn bind_pat_locals_fields(flds) =
   }
 
 fn bind_pat_locals_list(pats) =
-  if len(pats) == 0 { () }
+  if pats.len == 0 { () }
   else {
     bind_pat_locals(list_head(pats))
     bind_pat_locals_list(list_tail(pats))
@@ -703,7 +703,7 @@ fn lower_pat(pat) = match pat {
 /// IS the byte offset (`4 * index`) per `LMakeRecord`'s untagged layout.
 /// No tag prefix to skip — offset 0 is the first field.
 fn lower_pat_record_fields(flds, i) =
-  if len(flds) == 0 { [] }
+  if flds.len == 0 { [] }
   else {
     let (name, sub_pat) = list_head(flds)
     [(name, i * 4, lower_pat(sub_pat))]
@@ -718,13 +718,13 @@ fn lower_lit_value(v) with Pure = match v {
 }
 
 fn lower_pats(pats) =
-  if len(pats) == 0 { [] }
+  if pats.len == 0 { [] }
   else { [lower_pat(list_head(pats))] ++ lower_pats(list_tail(pats)) }
 
 /// Each arm = `(op_name, arg_names, body)`. Lowered as a pair for emit
 /// to dispatch through the handler's state machine.
 fn lower_handler_arms(arms) =
-  if len(arms) == 0 { [] }
+  if arms.len == 0 { [] }
   else {
     let arm = list_head(arms)
     // Handler arm args bind into the arm body's scope — push a fresh
@@ -743,7 +743,7 @@ fn lower_handler_arms(arms) =
 /// `__state` per the calling convention). Stateful handlers (with state
 /// slots) land with H1.6's evidence wiring.
 fn lower_handler_arms_as_decls(arms) =
-  if len(arms) == 0 { [] }
+  if arms.len == 0 { [] }
   else {
     let arm = list_head(arms)
     let cp = perform ls_push_scope()
@@ -751,12 +751,12 @@ fn lower_handler_arms_as_decls(arms) =
     let lo_body = lower_expr(arm.body)
     perform ls_pop_scope(cp)
     let fn_name = "op_" |> str_concat(arm.op_name)
-    let fn_ir = LFn(fn_name, len(arm.args), arm.args, [lo_body], EfPure)
+    let fn_ir = LFn(fn_name, arm.args.len, arm.args, [lo_body], EfPure)
     [LDeclareFn(fn_ir)] ++ lower_handler_arms_as_decls(list_tail(arms))
   }
 
 fn bind_names_as_locals(names) =
-  if len(names) == 0 { () }
+  if names.len == 0 { () }
   else {
     // Handler-arm args don't carry separate type handles at lower
     // time; the op's signature gives them inferentially. 0 is the
@@ -769,7 +769,7 @@ fn bind_names_as_locals(names) =
 // Parameter name lowering (for LFn metadata)
 
 fn lower_param_names(params) =
-  if len(params) == 0 { [] }
+  if params.len == 0 { [] }
   else {
     let TParam(name, _, _, _) = list_head(params)
     [name] ++ lower_param_names(list_tail(params))
@@ -780,7 +780,7 @@ fn lower_param_names(params) =
 // common case after infer mints fresh handles); for ground types
 // without a handle, 0 stands as a sentinel.
 fn lower_param_handles(params) =
-  if len(params) == 0 { [] }
+  if params.len == 0 { [] }
   else {
     let TParam(_, ty, _, _) = list_head(params)
     let h = match ty {
@@ -910,7 +910,7 @@ fn cfv_stmt(s, bound) = match s {
 }
 
 fn cfv_list(nodes, bound) =
-  if len(nodes) == 0 { [] }
+  if nodes.len == 0 { [] }
   else {
     cfv_merge(
       collect_free_vars(list_head(nodes), bound),
@@ -922,7 +922,7 @@ fn cfv_list(nodes, bound) =
 /// each field's value. Field names are not value-position references
 /// (the parser already desugared pun-syntax to `VarRef` nodes).
 fn cfv_record_fields(flds, bound) =
-  if len(flds) == 0 { [] }
+  if flds.len == 0 { [] }
   else {
     let (_, value) = list_head(flds)
     cfv_merge(
@@ -935,7 +935,7 @@ fn cfv_record_fields(flds, bound) =
 /// subsequent statements see the new bindings. Returns
 /// `(accumulated_frees, final_bound)`.
 fn cfv_stmts(stmts, bound, acc_frees) =
-  if len(stmts) == 0 { (acc_frees, bound) }
+  if stmts.len == 0 { (acc_frees, bound) }
   else {
     let stmt = list_head(stmts)
     let N(stmt_body, _, _) = stmt
@@ -968,7 +968,7 @@ fn cfv_stmts(stmts, bound, acc_frees) =
   }
 
 fn cfv_match_arms(arms, bound) =
-  if len(arms) == 0 { [] }
+  if arms.len == 0 { [] }
   else {
     let (pat, body) = list_head(arms)
     let arm_bound = cfv_merge(bound, cfv_pat_binds(pat))
@@ -981,7 +981,7 @@ fn cfv_match_arms(arms, bound) =
 /// Handler arm shape: `(op_name, arg_names, body)`. The `arg_names` bind
 /// inside `body`; `op_name` is the effect op being handled (global scope).
 fn cfv_handler_arms(arms, bound) =
-  if len(arms) == 0 { [] }
+  if arms.len == 0 { [] }
   else {
     let (op_name, arg_names, body) = list_head(arms)
     let arm_bound = cfv_merge(bound, arg_names)
@@ -992,7 +992,7 @@ fn cfv_handler_arms(arms, bound) =
   }
 
 fn cfv_param_names(params) =
-  if len(params) == 0 { [] }
+  if params.len == 0 { [] }
   else {
     let TParam(name, _, _, _) = list_head(params)
     [name] ++ cfv_param_names(list_tail(params))
@@ -1015,20 +1015,20 @@ fn cfv_pat_binds(pat) = match pat {
 /// Extract binder names from record-pattern fields `[(name, Pat)]`.
 /// Each field contributes its sub-pat's binders.
 fn cfv_pat_binds_fields(flds) =
-  if len(flds) == 0 { [] }
+  if flds.len == 0 { [] }
   else {
     let (_, sub_pat) = list_head(flds)
     cfv_merge(cfv_pat_binds(sub_pat), cfv_pat_binds_fields(list_tail(flds)))
   }
 
 fn cfv_pat_binds_list(pats) =
-  if len(pats) == 0 { [] }
+  if pats.len == 0 { [] }
   else {
     cfv_merge(cfv_pat_binds(list_head(pats)), cfv_pat_binds_list(list_tail(pats)))
   }
 
 fn cfv_merge(a, b) =
-  if len(b) == 0 { a }
+  if b.len == 0 { a }
   else {
     let x = list_head(b)
     let rest = list_tail(b)
@@ -1037,7 +1037,7 @@ fn cfv_merge(a, b) =
   }
 
 fn cfv_contains(lst, s) =
-  cfv_contains_loop(lst, s, 0, len(lst))
+  cfv_contains_loop(lst, s, 0, lst.len)
 
 fn cfv_contains_loop(lst, s, i, n) =
   if i >= n { false }
@@ -1047,7 +1047,7 @@ fn cfv_contains_loop(lst, s, i, n) =
 // Expression list
 
 fn lower_expr_list(nodes) =
-  if len(nodes) == 0 { [] }
+  if nodes.len == 0 { [] }
   else { [lower_expr(list_head(nodes))] ++ lower_expr_list(list_tail(nodes)) }
 
 /// Lower each value in a record-literal field list. Fields arrive
@@ -1055,7 +1055,7 @@ fn lower_expr_list(nodes) =
 /// list is in field-name sort order — emit reads it as the byte
 /// layout directly, no per-field lookup.
 fn lower_record_field_values(flds) =
-  if len(flds) == 0 { [] }
+  if flds.len == 0 { [] }
   else {
     let (_, value) = list_head(flds)
     [lower_expr(value)] ++ lower_record_field_values(list_tail(flds))
@@ -1072,7 +1072,7 @@ fn lower_record_field_values(flds) =
 /// triples. `captures_names` feeds `ls_enter_frame`; `captures_exprs` feeds
 /// `LMakeClosure`'s heap-record materialization at emit time.
 fn resolve_captures_outer(names, owner_h) =
-  if len(names) == 0 { ([], [], []) }
+  if names.len == 0 { ([], [], []) }
   else {
     let name = list_head(names)
     let (res, local_h) = perform ls_resolve(name)
@@ -1110,7 +1110,7 @@ fn lower_program(stmts) = {
 /// through tail-recursion as `(buf, count)` because `list_extend_to`
 /// may return a fresh allocation if the current capacity is exceeded.
 fn collect_top_level_names(stmts) = {
-  let n = len(stmts)
+  let n = stmts.len
   let initial_capacity = if n < 4 { 4 } else { n }
   let buf = make_list(initial_capacity)
   let (final_buf, final_count) = collect_top_level_names_loop(stmts, 0, n, buf, 0)
@@ -1176,7 +1176,7 @@ handler lower_scope with frames = [], globals = [] {
   },
 
   ls_exit_frame() => {
-    if len(frames) == 0 { resume() }
+    if frames.len == 0 { resume() }
     else {
       resume()
         with frames = list_tail(frames)
@@ -1184,15 +1184,15 @@ handler lower_scope with frames = [], globals = [] {
   },
 
   ls_push_scope() => {
-    if len(frames) == 0 { resume(0) }
+    if frames.len == 0 { resume(0) }
     else {
       let frame = list_head(frames)
-      resume(len(frame.local_order))
+      resume(frame.local_order.len)
     }
   },
 
   ls_pop_scope(checkpoint) => {
-    if len(frames) == 0 { resume() }
+    if frames.len == 0 { resume() }
     else {
       let frame = list_head(frames)
       let truncated_order = list_take_n(frame.local_order, checkpoint)
@@ -1211,10 +1211,10 @@ handler lower_scope with frames = [], globals = [] {
   },
 
   ls_bind_local(name, h) => {
-    if len(frames) == 0 { resume(0) }
+    if frames.len == 0 { resume(0) }
     else {
       let frame = list_head(frames)
-      let slot = len(frame.local_order)
+      let slot = frame.local_order.len
       let updated = {
         capture_handles: frame.capture_handles,
         capture_order: frame.capture_order,
@@ -1229,7 +1229,7 @@ handler lower_scope with frames = [], globals = [] {
   },
 
   ls_resolve(name) => {
-    if len(frames) == 0 {
+    if frames.len == 0 {
       resume((RGlobal, 0))
     } else {
       let frame = list_head(frames)
@@ -1260,7 +1260,7 @@ handler lower_scope with frames = [], globals = [] {
 /// Only fires after a positive `set_contains`, so worst case is O(N)
 /// but expected case hits early since recently-bound names dominate.
 fn ls_find_in_order(lst, target, i) =
-  ls_find_in_order_loop(lst, target, i, len(lst))
+  ls_find_in_order_loop(lst, target, i, lst.len)
 
 fn ls_find_in_order_loop(lst, target, i, n) =
   if i >= n { -1 }

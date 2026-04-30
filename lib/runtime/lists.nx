@@ -43,7 +43,7 @@ fn list_set(l, idx, val) with Memory =
 
 /// list_extend_to — ensure `list` has capacity ≥ min_size. If already
 /// large enough, returns `list` unchanged. Otherwise allocates a new
-/// flat tag=0 list of size max(min_size, 2 * len(list)), copies
+/// flat tag=0 list of size max(min_size, 2 * list.len), copies
 /// existing elements, and returns the new pointer. Amortized O(1)
 /// per append when callers maintain a separate logical-length
 /// counter.
@@ -54,11 +54,11 @@ fn list_set(l, idx, val) with Memory =
 /// and query.nx (capability sets). Every flat-substrate grow in the
 /// compiler routes through here.
 ///
-/// CONTRACT: slots in [len(list), new_cap) are zero-initialized by
+/// CONTRACT: slots in [list.len, new_cap) are zero-initialized by
 /// the allocator but carry no semantic meaning. Callers must track
 /// logical length separately and never read uninitialized slots.
 fn list_extend_to(list, min_size) with Memory + Alloc =
-  let cur_len = len(list)
+  let cur_len = list.len
   if cur_len >= min_size { list }
   else {
     let new_cap = if min_size > cur_len * 2 { min_size } else { cur_len * 2 }

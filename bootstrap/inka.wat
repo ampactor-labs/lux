@@ -398,38 +398,80 @@
 
   ;; Read all of stdin into a single string. Loops until EOF.
   (func $read_all_stdin (result i32)
-    (local $chunk_buf i32)   ;; raw read buffer
+    (local $chunk_buf i32)
     (local $iovs i32)
     (local $nread_ptr i32)
     (local $nread i32)
-    (local $result i32)      ;; accumulated string
     (local $chunk_str i32)
+    (local $chunks i32)
+    (local $count i32)
+    (local $total_len i32)
+    (local $i i32)
+    (local $str_len i32)
+    (local $result i32)
+    (local $offset i32)
+    
     ;; Pre-allocate read infrastructure
     (local.set $chunk_buf (call $alloc (i32.const 65536)))
     (local.set $iovs (call $alloc (i32.const 8)))
     (local.set $nread_ptr (call $alloc (i32.const 4)))
-    ;; Start with empty string
-    (local.set $result (call $str_alloc (i32.const 0)))
+    
+    ;; Buffer-counter substrate
+    (local.set $chunks (call $make_list (i32.const 0)))
+    (local.set $count (i32.const 0))
+    
     (block $eof
       (loop $read_loop
-        ;; Set up iovec: buf ptr, buf len
         (i32.store (local.get $iovs) (local.get $chunk_buf))
         (i32.store offset=4 (local.get $iovs) (i32.const 65536))
-        ;; Read
-        (drop (call $wasi_fd_read
-          (i32.const 0) (local.get $iovs) (i32.const 1) (local.get $nread_ptr)))
+        (drop (call $wasi_fd_read (i32.const 0) (local.get $iovs) (i32.const 1) (local.get $nread_ptr)))
         (local.set $nread (i32.load (local.get $nread_ptr)))
-        ;; EOF when nread == 0
+        
         (br_if $eof (i32.eqz (local.get $nread)))
-        ;; Wrap chunk bytes in a string
+        
         (local.set $chunk_str (call $str_alloc (local.get $nread)))
         (memory.copy
           (i32.add (local.get $chunk_str) (i32.const 4))
           (local.get $chunk_buf)
           (local.get $nread))
-        ;; Concat to result
-        (local.set $result (call $str_concat (local.get $result) (local.get $chunk_str)))
+          
+        ;; extend and set
+        (local.set $chunks (call $list_extend_to (local.get $chunks) (i32.add (local.get $count) (i32.const 1))))
+        (drop (call $list_set (local.get $chunks) (local.get $count) (local.get $chunk_str)))
+        (local.set $count (i32.add (local.get $count) (i32.const 1)))
+        
         (br $read_loop)))
+        
+    ;; Pass 1: compute total length
+    (local.set $total_len (i32.const 0))
+    (local.set $i (i32.const 0))
+    (block $pass1_done
+      (loop $pass1_loop
+        (br_if $pass1_done (i32.ge_u (local.get $i) (local.get $count)))
+        (local.set $chunk_str (call $list_index (local.get $chunks) (local.get $i)))
+        (local.set $total_len (i32.add (local.get $total_len) (call $str_len (local.get $chunk_str))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $pass1_loop)))
+        
+    ;; Allocate final string
+    (local.set $result (call $str_alloc (local.get $total_len)))
+    
+    ;; Pass 2: copy all chunks
+    (local.set $offset (i32.const 0))
+    (local.set $i (i32.const 0))
+    (block $pass2_done
+      (loop $pass2_loop
+        (br_if $pass2_done (i32.ge_u (local.get $i) (local.get $count)))
+        (local.set $chunk_str (call $list_index (local.get $chunks) (local.get $i)))
+        (local.set $str_len (call $str_len (local.get $chunk_str)))
+        (memory.copy
+          (i32.add (i32.add (local.get $result) (i32.const 4)) (local.get $offset))
+          (i32.add (local.get $chunk_str) (i32.const 4))
+          (local.get $str_len))
+        (local.set $offset (i32.add (local.get $offset) (local.get $str_len)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $pass2_loop)))
+        
     (local.get $result))
 
   ;; ═══ int.wat — integer ↔ string conversion (Tier 1) ═══════════════
@@ -2838,56 +2880,56 @@
   ;; ─── Keyword strings for the lexer — [256, 512) ───────────────────
   ;; "fn" at 256
   (data (i32.const 256) "\02\00\00\00fn")
-  ;; "let" at 264
-  (data (i32.const 264) "\03\00\00\00let")
-  ;; "if" at 272
-  (data (i32.const 272) "\02\00\00\00if")
-  ;; "else" at 280
-  (data (i32.const 280) "\04\00\00\00else")
-  ;; "match" at 288
-  (data (i32.const 288) "\05\00\00\00match")
-  ;; "type" at 296
-  (data (i32.const 296) "\04\00\00\00type")
-  ;; "effect" at 304
-  (data (i32.const 304) "\06\00\00\00effect")
-  ;; "handle" at 312
-  (data (i32.const 312) "\06\00\00\00handle")
+  ;; "let" at 262
+  (data (i32.const 262) "\03\00\00\00let")
+  ;; "if" at 269
+  (data (i32.const 269) "\02\00\00\00if")
+  ;; "else" at 275
+  (data (i32.const 275) "\04\00\00\00else")
+  ;; "match" at 283
+  (data (i32.const 283) "\05\00\00\00match")
+  ;; "type" at 292
+  (data (i32.const 292) "\04\00\00\00type")
+  ;; "effect" at 300
+  (data (i32.const 300) "\06\00\00\00effect")
+  ;; "handle" at 310
+  (data (i32.const 310) "\06\00\00\00handle")
   ;; "handler" at 320
   (data (i32.const 320) "\07\00\00\00handler")
-  ;; "with" at 332
-  (data (i32.const 332) "\04\00\00\00with")
-  ;; "resume" at 340
-  (data (i32.const 340) "\06\00\00\00resume")
-  ;; "perform" at 348
-  (data (i32.const 348) "\07\00\00\00perform")
-  ;; "for" at 360
+  ;; "with" at 331
+  (data (i32.const 331) "\04\00\00\00with")
+  ;; "resume" at 339
+  (data (i32.const 339) "\06\00\00\00resume")
+  ;; "perform" at 349
+  (data (i32.const 349) "\07\00\00\00perform")
+  ;; "for" at 360 (display only; not a keyword per SYNTAX.md)
   (data (i32.const 360) "\03\00\00\00for")
-  ;; "in" at 368
-  (data (i32.const 368) "\02\00\00\00in")
-  ;; "loop" at 376
-  (data (i32.const 376) "\04\00\00\00loop")
-  ;; "break" at 384
-  (data (i32.const 384) "\05\00\00\00break")
-  ;; "continue" at 392
-  (data (i32.const 392) "\08\00\00\00continue")
-  ;; "return" at 404
-  (data (i32.const 404) "\06\00\00\00return")
+  ;; "in" at 367 (display only; not a keyword per SYNTAX.md)
+  (data (i32.const 367) "\02\00\00\00in")
+  ;; "loop" at 373 (display only; not a keyword per SYNTAX.md)
+  (data (i32.const 373) "\04\00\00\00loop")
+  ;; "break" at 381 (display only; not a keyword per SYNTAX.md)
+  (data (i32.const 381) "\05\00\00\00break")
+  ;; "continue" at 390 (display only; not a keyword per SYNTAX.md)
+  (data (i32.const 390) "\08\00\00\00continue")
+  ;; "return" at 402 (display only; not a keyword per SYNTAX.md)
+  (data (i32.const 402) "\06\00\00\00return")
   ;; "import" at 412
   (data (i32.const 412) "\06\00\00\00import")
-  ;; "where" at 420
-  (data (i32.const 420) "\05\00\00\00where")
-  ;; "own" at 428
-  (data (i32.const 428) "\03\00\00\00own")
-  ;; "ref" at 436
-  (data (i32.const 436) "\03\00\00\00ref")
-  ;; "capability" at 444
-  (data (i32.const 444) "\0a\00\00\00capability")
-  ;; "Pure" at 456
-  (data (i32.const 456) "\04\00\00\00Pure")
-  ;; "true" at 464
-  (data (i32.const 464) "\04\00\00\00true")
-  ;; "false" at 472
-  (data (i32.const 472) "\05\00\00\00false")
+  ;; "where" at 422
+  (data (i32.const 422) "\05\00\00\00where")
+  ;; "own" at 431
+  (data (i32.const 431) "\03\00\00\00own")
+  ;; "ref" at 438
+  (data (i32.const 438) "\03\00\00\00ref")
+  ;; "capability" at 445 (display only; not a TokenKind in SYNTAX.md)
+  (data (i32.const 445) "\0a\00\00\00capability")
+  ;; "Pure" at 459
+  (data (i32.const 459) "\04\00\00\00Pure")
+  ;; "true" at 467
+  (data (i32.const 467) "\04\00\00\00true")
+  ;; "false" at 475
+  (data (i32.const 475) "\05\00\00\00false")
 
   ;; ─── Output format strings — [512, 4096) ──────────────────────────
   ;; " tokens, " at 512 (9 bytes)
@@ -3021,55 +3063,55 @@
   (func $keyword_kind (param $word i32) (result i32)
     (if (call $str_eq (local.get $word) (i32.const 256))    ;; "fn"
       (then (return (call $mk_Some (i32.const 0)))))
-    (if (call $str_eq (local.get $word) (i32.const 264))    ;; "let"
+    (if (call $str_eq (local.get $word) (i32.const 262))    ;; "let"
       (then (return (call $mk_Some (i32.const 1)))))
-    (if (call $str_eq (local.get $word) (i32.const 272))    ;; "if"
+    (if (call $str_eq (local.get $word) (i32.const 269))    ;; "if"
       (then (return (call $mk_Some (i32.const 2)))))
-    (if (call $str_eq (local.get $word) (i32.const 280))    ;; "else"
+    (if (call $str_eq (local.get $word) (i32.const 275))    ;; "else"
       (then (return (call $mk_Some (i32.const 3)))))
-    (if (call $str_eq (local.get $word) (i32.const 288))    ;; "match"
+    (if (call $str_eq (local.get $word) (i32.const 283))    ;; "match"
       (then (return (call $mk_Some (i32.const 4)))))
-    (if (call $str_eq (local.get $word) (i32.const 296))    ;; "type"
+    (if (call $str_eq (local.get $word) (i32.const 292))    ;; "type"
       (then (return (call $mk_Some (i32.const 5)))))
-    (if (call $str_eq (local.get $word) (i32.const 304))    ;; "effect"
+    (if (call $str_eq (local.get $word) (i32.const 300))    ;; "effect"
       (then (return (call $mk_Some (i32.const 6)))))
-    (if (call $str_eq (local.get $word) (i32.const 312))    ;; "handle"
+    (if (call $str_eq (local.get $word) (i32.const 310))    ;; "handle"
       (then (return (call $mk_Some (i32.const 7)))))
     (if (call $str_eq (local.get $word) (i32.const 320))    ;; "handler"
       (then (return (call $mk_Some (i32.const 8)))))
-    (if (call $str_eq (local.get $word) (i32.const 332))    ;; "with"
+    (if (call $str_eq (local.get $word) (i32.const 331))    ;; "with"
       (then (return (call $mk_Some (i32.const 9)))))
-    (if (call $str_eq (local.get $word) (i32.const 340))    ;; "resume"
+    (if (call $str_eq (local.get $word) (i32.const 339))    ;; "resume"
       (then (return (call $mk_Some (i32.const 10)))))
-    (if (call $str_eq (local.get $word) (i32.const 348))    ;; "perform"
+    (if (call $str_eq (local.get $word) (i32.const 349))    ;; "perform"
       (then (return (call $mk_Some (i32.const 11)))))
     (if (call $str_eq (local.get $word) (i32.const 360))    ;; "for"
       (then (return (call $mk_Some (i32.const 12)))))
-    (if (call $str_eq (local.get $word) (i32.const 368))    ;; "in"
+    (if (call $str_eq (local.get $word) (i32.const 367))    ;; "in"
       (then (return (call $mk_Some (i32.const 13)))))
-    (if (call $str_eq (local.get $word) (i32.const 376))    ;; "loop"
+    (if (call $str_eq (local.get $word) (i32.const 373))    ;; "loop"
       (then (return (call $mk_Some (i32.const 14)))))
-    (if (call $str_eq (local.get $word) (i32.const 384))    ;; "break"
+    (if (call $str_eq (local.get $word) (i32.const 381))    ;; "break"
       (then (return (call $mk_Some (i32.const 15)))))
-    (if (call $str_eq (local.get $word) (i32.const 392))    ;; "continue"
+    (if (call $str_eq (local.get $word) (i32.const 390))    ;; "continue"
       (then (return (call $mk_Some (i32.const 16)))))
-    (if (call $str_eq (local.get $word) (i32.const 404))    ;; "return"
+    (if (call $str_eq (local.get $word) (i32.const 402))    ;; "return"
       (then (return (call $mk_Some (i32.const 17)))))
     (if (call $str_eq (local.get $word) (i32.const 412))    ;; "import"
       (then (return (call $mk_Some (i32.const 18)))))
-    (if (call $str_eq (local.get $word) (i32.const 420))    ;; "where"
+    (if (call $str_eq (local.get $word) (i32.const 422))    ;; "where"
       (then (return (call $mk_Some (i32.const 19)))))
-    (if (call $str_eq (local.get $word) (i32.const 428))    ;; "own"
+    (if (call $str_eq (local.get $word) (i32.const 431))    ;; "own"
       (then (return (call $mk_Some (i32.const 20)))))
-    (if (call $str_eq (local.get $word) (i32.const 436))    ;; "ref"
+    (if (call $str_eq (local.get $word) (i32.const 438))    ;; "ref"
       (then (return (call $mk_Some (i32.const 21)))))
-    (if (call $str_eq (local.get $word) (i32.const 444))    ;; "capability"
+    (if (call $str_eq (local.get $word) (i32.const 445))    ;; "capability"
       (then (return (call $mk_Some (i32.const 22)))))
-    (if (call $str_eq (local.get $word) (i32.const 456))    ;; "Pure"
+    (if (call $str_eq (local.get $word) (i32.const 459))    ;; "Pure"
       (then (return (call $mk_Some (i32.const 22)))))
-    (if (call $str_eq (local.get $word) (i32.const 464))    ;; "true"
+    (if (call $str_eq (local.get $word) (i32.const 467))    ;; "true"
       (then (return (call $mk_Some (i32.const 23)))))
-    (if (call $str_eq (local.get $word) (i32.const 472))    ;; "false"
+    (if (call $str_eq (local.get $word) (i32.const 475))    ;; "false"
       (then (return (call $mk_Some (i32.const 24)))))
     (i32.const 70))  ;; None
 
@@ -3457,9 +3499,9 @@
         (local.set $tag (local.get $kind))
         ;; Map tag to name string
         (if (i32.eq (local.get $tag) (i32.const 0)) (then (return (i32.const 256))))  ;; "fn"
-        (if (i32.eq (local.get $tag) (i32.const 1)) (then (return (i32.const 264))))  ;; "let"
-        (if (i32.eq (local.get $tag) (i32.const 2)) (then (return (i32.const 272))))  ;; "if"
-        (if (i32.eq (local.get $tag) (i32.const 3)) (then (return (i32.const 280))))  ;; "else"
+        (if (i32.eq (local.get $tag) (i32.const 1)) (then (return (i32.const 262))))  ;; "let"
+        (if (i32.eq (local.get $tag) (i32.const 2)) (then (return (i32.const 269))))  ;; "if"
+        (if (i32.eq (local.get $tag) (i32.const 3)) (then (return (i32.const 275))))  ;; "else"
         ;; ... (abbreviated — full table would map all 64 nullary sentinels)
         (if (i32.eq (local.get $tag) (i32.const 68)) (then (return (i32.const 272)))) ;; TNewline→"NL"
         (if (i32.eq (local.get $tag) (i32.const 69)) (then (return (i32.const 272)))) ;; TEof→"EOF"
@@ -3569,6 +3611,10 @@
     (i32.store (local.get $p) (i32.const 83))
     (i32.store offset=4 (local.get $p) (local.get $b))
     (local.get $p))
+
+  ;; Subscript-sugar target — `xs[i]` parses as Call(VarRef("list_index"), [xs, i]).
+  ;; Length-prefixed flat string at fixed addr; VarRef name pointer = 4288.
+  (data (i32.const 4288) "\0a\00\00\00list_index")
 
   ;; VarRef(name) → [tag=85][name_ptr]
   (func $mk_VarRef (param $name i32) (result i32)
@@ -4251,6 +4297,14 @@
     (i32.store offset=4 (local.get $p) (local.get $h))
     (local.get $p))
 
+  ;; TyRecord(fields) → [tag=207][fields]
+  ;; Fields are a list of 2-tuples (name, parser-Ty).
+  (func $mk_TyRecord (param $fields i32) (result i32)
+    (local $p i32) (local.set $p (call $alloc (i32.const 8)))
+    (i32.store (local.get $p) (i32.const 207))
+    (i32.store offset=4 (local.get $p) (local.get $fields))
+    (local.get $p))
+
   ;; ─── parse_type_ty: type expression parser ────────────────────────
   ;; Int → 200, Float → 201, String → 202, Bool → TyName("Bool"),
   ;; Unit → 204, other ident → TyName(v), () → TyUnit
@@ -4471,11 +4525,38 @@
 
   (func $parse_type_stmt (param $tokens i32) (param $pos i32) (param $span i32) (result i32)
     (local $name i32) (local $p i32) (local $variants_r i32) (local $tup i32)
+    (local $fields_r i32) (local $ty_record i32) (local $variant i32)
+    (local $variants i32) (local $field_tys i32)
     (local.set $name (call $ident_at_p (local.get $tokens) (local.get $pos)))
     (local.set $p (call $skip_ws_p (local.get $tokens) (i32.add (local.get $pos) (i32.const 1))))
     ;; Skip =
     (if (call $at (local.get $tokens) (local.get $p) (i32.const 60)) ;; TEq
       (then (local.set $p (call $skip_ws_p (local.get $tokens) (i32.add (local.get $p) (i32.const 1))))))
+    ;; Nominal record: type Name = {field: Ty, ...}
+    (if (call $at (local.get $tokens) (local.get $p) (i32.const 47)) ;; TLBrace
+      (then
+        (local.set $fields_r (call $parse_record_type_fields
+          (local.get $tokens)
+          (call $skip_ws_p (local.get $tokens) (i32.add (local.get $p) (i32.const 1)))))
+        (local.set $ty_record
+          (call $mk_TyRecord (call $list_index (local.get $fields_r) (i32.const 0))))
+        (local.set $field_tys (call $make_list (i32.const 1)))
+        (drop (call $list_set (local.get $field_tys) (i32.const 0) (local.get $ty_record)))
+        (local.set $variant (call $make_list (i32.const 2)))
+        (drop (call $list_set (local.get $variant) (i32.const 0) (local.get $name)))
+        (drop (call $list_set (local.get $variant) (i32.const 1) (local.get $field_tys)))
+        (local.set $variants (call $make_list (i32.const 1)))
+        (drop (call $list_set (local.get $variants) (i32.const 0) (local.get $variant)))
+        (local.set $tup (call $make_list (i32.const 2)))
+        (drop (call $list_set (local.get $tup) (i32.const 0)
+          (call $nstmt
+            (call $mk_TypeDefStmt (local.get $name)
+              (call $make_list (i32.const 0))
+              (local.get $variants))
+            (local.get $span))))
+        (drop (call $list_set (local.get $tup) (i32.const 1)
+          (call $list_index (local.get $fields_r) (i32.const 1))))
+        (return (local.get $tup))))
     ;; Parse variants
     (local.set $variants_r (call $parse_variants (local.get $tokens) (local.get $p)))
     (local.set $tup (call $make_list (i32.const 2)))
@@ -4487,6 +4568,59 @@
         (local.get $span))))
     (drop (call $list_set (local.get $tup) (i32.const 1)
       (call $list_index (local.get $variants_r) (i32.const 1))))
+    (local.get $tup))
+
+  ;; parse_record_type_fields: field-name/type pairs until RBrace.
+  ;; Returns (fields_list, new_pos). Each field is a 2-tuple (name, Ty).
+  (func $parse_record_type_fields (param $tokens i32) (param $pos i32) (result i32)
+    (local $p i32) (local $buf i32) (local $count i32)
+    (local $name i32) (local $p2 i32) (local $ty_r i32)
+    (local $ty i32) (local $p3 i32) (local $field i32) (local $tup i32)
+    (local.set $p (call $skip_ws_p (local.get $tokens) (local.get $pos)))
+    (if (call $at (local.get $tokens) (local.get $p) (i32.const 48)) ;; TRBrace
+      (then
+        (local.set $tup (call $make_list (i32.const 2)))
+        (drop (call $list_set (local.get $tup) (i32.const 0) (call $make_list (i32.const 0))))
+        (drop (call $list_set (local.get $tup) (i32.const 1) (i32.add (local.get $p) (i32.const 1))))
+        (return (local.get $tup))))
+    (local.set $buf (call $make_list (i32.const 4)))
+    (local.set $count (i32.const 0))
+    (block $done
+      (loop $fields
+        (local.set $name (call $ident_at_p (local.get $tokens) (local.get $p)))
+        (local.set $p2 (call $expect
+          (local.get $tokens)
+          (call $skip_ws_p (local.get $tokens) (i32.add (local.get $p) (i32.const 1)))
+          (i32.const 53))) ;; TColon
+        (local.set $ty_r (call $parse_type_ty
+          (local.get $tokens)
+          (call $skip_ws_p (local.get $tokens) (local.get $p2))))
+        (local.set $ty (call $list_index (local.get $ty_r) (i32.const 0)))
+        (local.set $p3 (call $skip_ws_p (local.get $tokens)
+          (call $list_index (local.get $ty_r) (i32.const 1))))
+        (local.set $field (call $make_list (i32.const 2)))
+        (drop (call $list_set (local.get $field) (i32.const 0) (local.get $name)))
+        (drop (call $list_set (local.get $field) (i32.const 1) (local.get $ty)))
+        (local.set $buf (call $list_extend_to (local.get $buf)
+          (i32.add (local.get $count) (i32.const 1))))
+        (drop (call $list_set (local.get $buf) (local.get $count) (local.get $field)))
+        (local.set $count (i32.add (local.get $count) (i32.const 1)))
+        (if (call $at (local.get $tokens) (local.get $p3) (i32.const 51)) ;; TComma
+          (then
+            (local.set $p (call $skip_ws_p
+              (local.get $tokens) (i32.add (local.get $p3) (i32.const 1))))
+            (if (call $at (local.get $tokens) (local.get $p) (i32.const 48))
+              (then
+                (local.set $p (i32.add (local.get $p) (i32.const 1)))
+                (br $done)))
+            (br $fields))
+          (else
+            (local.set $p (call $expect (local.get $tokens) (local.get $p3) (i32.const 48)))
+            (br $done)))))
+    (local.set $tup (call $make_list (i32.const 2)))
+    (drop (call $list_set (local.get $tup) (i32.const 0)
+      (call $slice (local.get $buf) (i32.const 0) (local.get $count))))
+    (drop (call $list_set (local.get $tup) (i32.const 1) (local.get $p)))
     (local.get $tup))
 
   ;; parse_variants: V1 | V2(T1, T2) | ...
@@ -4784,6 +4918,26 @@
         (local.set $span (i32.load offset=8 (local.get $e)))
         (local.set $node (call $nexpr
           (call $mk_CallExpr (local.get $e) (local.get $args))
+          (local.get $span)))
+        (return (call $postfix_loop (local.get $tokens) (local.get $node) (local.get $p2)))))
+    ;; Subscript: e[idx] → Call(VarRef("list_index"), [e, idx])
+    (if (i32.eq (local.get $k) (i32.const 49))  ;; TLBracket
+      (then
+        (local.set $args_result
+          (call $parse_expr (local.get $tokens)
+            (call $skip_ws_p (local.get $tokens) (i32.add (local.get $pos) (i32.const 1)))))
+        (local.set $field (call $list_index (local.get $args_result) (i32.const 0)))
+        (local.set $p2    (call $list_index (local.get $args_result) (i32.const 1)))
+        (local.set $p2 (call $expect (local.get $tokens)
+          (call $skip_ws_p (local.get $tokens) (local.get $p2)) (i32.const 50)))
+        (local.set $span (i32.load offset=8 (local.get $e)))
+        (local.set $args (call $make_list (i32.const 2)))
+        (drop (call $list_set (local.get $args) (i32.const 0) (local.get $e)))
+        (drop (call $list_set (local.get $args) (i32.const 1) (local.get $field)))
+        (local.set $node (call $nexpr
+          (call $mk_CallExpr
+            (call $nexpr (call $mk_VarRef (i32.const 4288)) (local.get $span))
+            (local.get $args))
           (local.get $span)))
         (return (call $postfix_loop (local.get $tokens) (local.get $node) (local.get $p2)))))
     ;; Field: e.field
@@ -5298,13 +5452,16 @@
     ;; TImport → parse import
     (if (i32.eq (local.get $k) (i32.const 18))
       (then
-        (local.set $name (call $ident_at_p (local.get $tokens)
+        (local.set $result (call $parse_import_path (local.get $tokens)
           (i32.add (local.get $pos) (i32.const 1))))
         (local.set $tup (call $make_list (i32.const 2)))
         (drop (call $list_set (local.get $tup) (i32.const 0)
-          (call $nstmt (call $mk_ImportStmt (local.get $name)) (local.get $span))))
+          (call $nstmt
+            (call $mk_ImportStmt
+              (call $list_index (local.get $result) (i32.const 0)))
+            (local.get $span))))
         (drop (call $list_set (local.get $tup) (i32.const 1)
-          (i32.add (local.get $pos) (i32.const 2))))
+          (call $list_index (local.get $result) (i32.const 1))))
         (return (local.get $tup))))
     ;; Default: expression statement
     (local.set $result (call $parse_expr (local.get $tokens) (local.get $pos)))
@@ -5318,6 +5475,31 @@
     (local.get $tup))
 
   ;; HandlerDeclStmt stub: [tag=124][name][effect=""][arms=[]]
+  ;; parse_import_path: slash-separated module name per SYNTAX.md
+  ;; `import path/to/module`. Returns [path, next_pos].
+  (func $parse_import_path (param $tokens i32) (param $pos i32) (result i32)
+    (local $acc i32) (local $p i32) (local $name i32)
+    (local $slash i32) (local $tup i32)
+    (local.set $acc (call $str_alloc (i32.const 0)))
+    (local.set $p (local.get $pos))
+    (block $done
+      (loop $parts
+        (local.set $name (call $ident_at_p (local.get $tokens) (local.get $p)))
+        (local.set $acc (call $str_concat (local.get $acc) (local.get $name)))
+        (local.set $p (i32.add (local.get $p) (i32.const 1)))
+        (if (call $at (local.get $tokens) (local.get $p) (i32.const 58))
+          (then
+            (local.set $slash (call $str_alloc (i32.const 1)))
+            (i32.store8 (i32.add (local.get $slash) (i32.const 4)) (i32.const 47))
+            (local.set $acc (call $str_concat (local.get $acc) (local.get $slash)))
+            (local.set $p (i32.add (local.get $p) (i32.const 1)))
+            (br $parts)))
+        (br $done)))
+    (local.set $tup (call $make_list (i32.const 2)))
+    (drop (call $list_set (local.get $tup) (i32.const 0) (local.get $acc)))
+    (drop (call $list_set (local.get $tup) (i32.const 1) (local.get $p)))
+    (local.get $tup))
+
   (func $mk_handler_decl (param $name i32) (result i32)
     (local $p i32) (local.set $p (call $alloc (i32.const 16)))
     (i32.store (local.get $p) (i32.const 124))
@@ -11281,14 +11463,10 @@
       (local.get $ty)
       (call $reason_make_located (local.get $span)
         (call $reason_make_varlookup (local.get $name) (local.get $reason))))
-    ;; Ownership: every VarRef performs Consume. The affine_ledger handler
-    ;; (own.wat) decides whether to fire diagnostic. Per src/infer.nx:803-
-    ;; 809 check_consume_at_use unconditional.
-    (call $infer_consume_use
-      (local.get $handle) (local.get $name)
-      (local.get $span)
-      (call $reason_make_located (local.get $span)
-        (call $reason_make_inferred (i32.const 3520))))   ;; "var ref"
+    ;; Ownership is row-gated, not globally tracked. Consume fires ONLY
+    ;; for params declared `own X`. Default = ref = !Consume. Wire-up
+    ;; through env_binding ownership marker is the SchemeKind extension
+    ;; (Hβ.infer.ownership-row-gate). Until then: no false positives.
     (local.get $handle))
 
   ;; BinOpExpr arm — src/infer.nx:501-507 + 1543-1572. Dispatches on
@@ -12818,6 +12996,131 @@
         (br $each)))
     (local.get $buf))
 
+  ;; ─── Toplevel FnStmt pre-registration ─────────────────────────────
+  ;;
+  ;; Before statement inference walks bodies, every top-level function
+  ;; name is visible in env with a placeholder TFun. Forward calls then
+  ;; unify against the declaration handle instead of emitting
+  ;; E_MissingVariable. The later FnStmt arm unifies this placeholder
+  ;; with the body-derived type before re-binding the handle.
+  (func $infer_pre_register_fn_sig
+        (param $stmt i32) (param $handle i32) (param $span i32)
+    (local $name i32) (local $params i32)
+    (local $n_params i32) (local $i i32)
+    (local $param_h i32) (local $param_handles i32)
+    (local $ret_h i32) (local $row_h i32)
+    (local $tparam_list i32) (local $fn_ty i32)
+    (local $reason i32)
+    ;; FnStmt: [tag=121][name][params][ret][effs][body]
+    (local.set $name   (i32.load offset=4 (local.get $stmt)))
+    (local.set $params (i32.load offset=8 (local.get $stmt)))
+
+    (local.set $param_handles (call $make_list (i32.const 0)))
+    (local.set $n_params (call $len (local.get $params)))
+    (local.set $param_handles
+      (call $list_extend_to (local.get $param_handles) (local.get $n_params)))
+    (local.set $i (i32.const 0))
+    (block $params_done
+      (loop $each_param
+        (br_if $params_done (i32.ge_u (local.get $i) (local.get $n_params)))
+        (local.set $param_h (call $graph_fresh_ty
+          (call $reason_make_located (local.get $span)
+            (call $reason_make_inferred (i32.const 4056)))))   ;; "param"
+        (drop (call $list_set (local.get $param_handles) (local.get $i)
+                              (local.get $param_h)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each_param)))
+
+    (local.set $ret_h (call $graph_fresh_ty
+      (call $reason_make_located (local.get $span)
+        (call $reason_make_inferred (i32.const 4064)))))   ;; "return"
+    (local.set $row_h (call $graph_fresh_row
+      (call $reason_make_located (local.get $span)
+        (call $reason_make_inferred (i32.const 4080)))))   ;; "effects"
+    (local.set $tparam_list
+      (call $walk_stmt_build_inferred_params (local.get $param_handles)))
+    (local.set $fn_ty (call $ty_make_tfun
+      (local.get $tparam_list)
+      (call $ty_make_tvar (local.get $ret_h))
+      (local.get $row_h)))
+    (local.set $reason (call $reason_make_located
+      (local.get $span)
+      (call $reason_make_declared (local.get $name))))
+    (call $graph_bind (local.get $handle) (local.get $fn_ty)
+                      (local.get $reason))
+    ;; Pre-registered fn_ty is fully polymorphic — quantify over every
+    ;; fresh handle so each call site instantiates fresh TVars rather
+    ;; than mutating the placeholder. Mirrors generalize() at fn-stmt
+    ;; exit; here the body hasn't walked yet so the quantifier is
+    ;; literally [param_handles..., ret_h, row_h].
+    (call $env_extend
+      (local.get $name)
+      (call $scheme_make_forall
+        (call $infer_pre_register_quantifier
+          (local.get $param_handles) (local.get $ret_h) (local.get $row_h))
+        (local.get $fn_ty))
+      (local.get $reason)
+      (call $schemekind_make_fn)))
+
+  ;; $infer_pre_register_quantifier: cons each param handle, ret handle,
+  ;; and row handle into one List<i32>. Quantifying over all of them
+  ;; means every call-site instantiation produces fresh TVars per the
+  ;; Forall→fresh-substitution discipline of $instantiate.
+  (func $infer_pre_register_quantifier
+        (param $param_handles i32) (param $ret_h i32) (param $row_h i32)
+        (result i32)
+    (local $n i32) (local $out i32) (local $i i32)
+    (local.set $n (call $len (local.get $param_handles)))
+    (local.set $out
+      (call $list_extend_to (call $make_list (i32.const 0))
+                            (i32.add (local.get $n) (i32.const 2))))
+    (local.set $i (i32.const 0))
+    (block $copy_done
+      (loop $copy
+        (br_if $copy_done (i32.ge_u (local.get $i) (local.get $n)))
+        (drop (call $list_set (local.get $out) (local.get $i)
+          (call $list_index (local.get $param_handles) (local.get $i))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $copy)))
+    (drop (call $list_set (local.get $out) (local.get $n) (local.get $ret_h)))
+    (drop (call $list_set (local.get $out)
+                          (i32.add (local.get $n) (i32.const 1))
+                          (local.get $row_h)))
+    (local.get $out))
+
+  (func $infer_pre_register_stmt (param $node i32)
+    (local $body i32) (local $stmt i32) (local $tag i32)
+    (local $handle i32) (local $span i32) (local $inner_node i32)
+    (local.set $body   (call $walk_stmt_node_body   (local.get $node)))
+    (local.set $span   (call $walk_stmt_node_span   (local.get $node)))
+    (local.set $handle (call $walk_stmt_node_handle (local.get $node)))
+    (if (i32.ne (i32.load (local.get $body)) (i32.const 111))
+      (then (return)))
+    (local.set $stmt (i32.load offset=4 (local.get $body)))
+    (local.set $tag (call $walk_stmt_stmt_tag (local.get $stmt)))
+    (if (i32.eq (local.get $tag) (i32.const 121))
+      (then
+        (call $infer_pre_register_fn_sig
+          (local.get $stmt) (local.get $handle) (local.get $span))
+        (return)))
+    (if (i32.eq (local.get $tag) (i32.const 128))
+      (then
+        ;; Documented(doc, inner_node): inner Node at offset 8.
+        (local.set $inner_node (i32.load offset=8 (local.get $stmt)))
+        (call $infer_pre_register_stmt (local.get $inner_node)))))
+
+  (func $infer_pre_register_fn_sigs (param $stmts i32)
+    (local $n i32) (local $i i32) (local $stmt_node i32)
+    (local.set $n (call $len (local.get $stmts)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $stmt_node (call $list_index (local.get $stmts) (local.get $i)))
+        (call $infer_pre_register_stmt (local.get $stmt_node))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each))))
+
   ;; ─── Per-Stmt-variant arms ───────────────────────────────────────────
 
   ;; LetStmt arm (tag 120) — src/infer.nx:200-204 + 1588-1592.
@@ -12877,8 +13180,11 @@
     (local $n_params i32) (local $i i32) (local $param i32) (local $param_name i32)
     (local $param_h i32) (local $param_handles i32)
     (local $ret_h i32) (local $row_h i32)
+    (local $tparam i32) (local $param_ty i32)
     (local $tparam_list i32) (local $fn_ty i32) (local $placeholder_scheme i32)
     (local $declared_reason i32)
+    (local $existing_g i32) (local $existing_kind i32)
+    (local $existing_tag i32) (local $existing_ty i32)
     (local $body_h i32)
     (local $generalized_scheme i32)
     ;; Layout: [tag=121][name][params][ret][effs][body]
@@ -12900,83 +13206,96 @@
     ;; in this scope; on exit they all go out.
     (call $env_scope_enter)
 
-    ;; ─── Mint per-param fresh handle + env-extend each name ──────────
-    ;; mint_params (src/infer.nx:2001-2011): for each parser TParam
-    ;; (tag 190, layout [tag][name][ty][own][own]), mint a fresh handle,
-    ;; env_extend(param_name, Forall([], TVar(h)), Located(span,
-    ;; Declared(name)), FnScheme).
-    ;;
-    ;; CRITICAL: parser TParam offset layout per parser_fn.wat:11-19:
-    ;;   offset 0  = tag (190)
-    ;;   offset 4  = name (string ptr)
-    ;;   offset 8  = ty   (parser TyName / TyVar — opaque at seed)
-    ;;   offset 12 = own  (raw int 170/171/172)
-    ;;   offset 16 = own  (raw int 170/171/172)
-    (local.set $param_handles (call $make_list (i32.const 0)))
-    (local.set $n_params (call $len (local.get $params)))
-    (local.set $param_handles
-      (call $list_extend_to (local.get $param_handles) (local.get $n_params)))
-    (local.set $i (i32.const 0))
-    (block $params_done
-      (loop $each_param
-        (br_if $params_done (i32.ge_u (local.get $i) (local.get $n_params)))
-        (local.set $param (call $list_index (local.get $params) (local.get $i)))
-        (local.set $param_name (i32.load offset=4 (local.get $param)))
-        ;; Mint fresh handle with Located(span, Inferred("param")) Reason.
-        ;; Wheel uses richer FnParam(owner_name, idx, Inferred("param of
-        ;; '" |> ...)) (src/infer.nx:2008); seed simpler form lands per
-        ;; Hβ.infer.fnparam-reason-rich follow-up.
-        (local.set $param_h (call $graph_fresh_ty
+    ;; If pre-registered, extract existing. Otherwise mint.
+    (local.set $existing_g (call $graph_chase (local.get $handle)))
+    (local.set $existing_kind (call $gnode_kind (local.get $existing_g)))
+    (local.set $existing_tag (call $node_kind_tag (local.get $existing_kind)))
+    (if (i32.eq (local.get $existing_tag) (i32.const 60))   ;; NBOUND
+      (then
+        (local.set $fn_ty (call $node_kind_payload (local.get $existing_kind)))
+        (local.set $tparam_list (call $ty_tfun_params (local.get $fn_ty)))
+        (local.set $ret_h (call $ty_tvar_handle (call $ty_tfun_return (local.get $fn_ty))))
+        (local.set $row_h (call $ty_tfun_row (local.get $fn_ty)))
+        
+        ;; Extend env with extracted params
+        (local.set $n_params (call $len (local.get $params)))
+        (local.set $i (i32.const 0))
+        (block $params_done_ex
+          (loop $each_param_ex
+            (br_if $params_done_ex (i32.ge_u (local.get $i) (local.get $n_params)))
+            (local.set $param (call $list_index (local.get $params) (local.get $i)))
+            (local.set $param_name (i32.load offset=4 (local.get $param)))
+            (local.set $tparam (call $list_index (local.get $tparam_list) (local.get $i)))
+            (call $env_extend
+              (local.get $param_name)
+              (call $scheme_make_forall
+                (call $make_list (i32.const 0))
+                (call $tparam_ty (local.get $tparam)))
+              (call $reason_make_located
+                (local.get $span)
+                (call $reason_make_declared (local.get $param_name)))
+              (call $schemekind_make_fn))
+            (local.set $i (i32.add (local.get $i) (i32.const 1)))
+            (br $each_param_ex)))
+      )
+      (else
+        ;; Not pre-registered (e.g. nested). Mint fresh.
+        (local.set $param_handles (call $make_list (i32.const 0)))
+        (local.set $n_params (call $len (local.get $params)))
+        (local.set $param_handles
+          (call $list_extend_to (local.get $param_handles) (local.get $n_params)))
+        (local.set $i (i32.const 0))
+        (block $params_done_mint
+          (loop $each_param_mint
+            (br_if $params_done_mint (i32.ge_u (local.get $i) (local.get $n_params)))
+            (local.set $param (call $list_index (local.get $params) (local.get $i)))
+            (local.set $param_name (i32.load offset=4 (local.get $param)))
+            (local.set $param_h (call $graph_fresh_ty
+              (call $reason_make_located (local.get $span)
+                (call $reason_make_inferred (i32.const 4056)))))   ;; "param"
+            (drop (call $list_set (local.get $param_handles) (local.get $i)
+                                  (local.get $param_h)))
+            (call $env_extend
+              (local.get $param_name)
+              (call $scheme_make_forall
+                (call $make_list (i32.const 0))
+                (call $ty_make_tvar (local.get $param_h)))
+              (call $reason_make_located
+                (local.get $span)
+                (call $reason_make_declared (local.get $param_name)))
+              (call $schemekind_make_fn))
+            (local.set $i (i32.add (local.get $i) (i32.const 1)))
+            (br $each_param_mint)))
+
+        (local.set $ret_h (call $graph_fresh_ty
           (call $reason_make_located (local.get $span)
-            (call $reason_make_inferred (i32.const 4056)))))   ;; "param"
-        (drop (call $list_set (local.get $param_handles) (local.get $i)
-                              (local.get $param_h)))
-        ;; env_extend(param_name, Forall([], TVar(param_h)),
-        ;;             Located(span, Declared(param_name)), FnScheme)
+            (call $reason_make_inferred (i32.const 4064)))))   ;; "return"
+        (local.set $row_h (call $graph_fresh_row
+          (call $reason_make_located (local.get $span)
+            (call $reason_make_inferred (i32.const 4080)))))   ;; "effects"
+
+        (local.set $tparam_list
+          (call $walk_stmt_build_inferred_params (local.get $param_handles)))
+        (local.set $fn_ty (call $ty_make_tfun
+          (local.get $tparam_list)
+          (call $ty_make_tvar (local.get $ret_h))
+          (local.get $row_h)))
+        (local.set $declared_reason (call $reason_make_located
+          (local.get $span)
+          (call $reason_make_declared (local.get $name))))
+        (call $graph_bind (local.get $handle) (local.get $fn_ty)
+                          (local.get $declared_reason))
+
+        ;; Pre-extend env with placeholder Forall
+        (local.set $placeholder_scheme (call $scheme_make_forall
+          (call $make_list (i32.const 0))
+          (local.get $fn_ty)))
         (call $env_extend
-          (local.get $param_name)
-          (call $scheme_make_forall
-            (call $make_list (i32.const 0))
-            (call $ty_make_tvar (local.get $param_h)))
-          (call $reason_make_located
-            (local.get $span)
-            (call $reason_make_declared (local.get $param_name)))
+          (local.get $name) (local.get $placeholder_scheme)
+          (local.get $declared_reason)
           (call $schemekind_make_fn))
-        (local.set $i (i32.add (local.get $i) (i32.const 1)))
-        (br $each_param)))
-
-    ;; ─── Mint return + row handles ───────────────────────────────────
-    (local.set $ret_h (call $graph_fresh_ty
-      (call $reason_make_located (local.get $span)
-        (call $reason_make_inferred (i32.const 4064)))))   ;; "return"
-    (local.set $row_h (call $graph_fresh_row
-      (call $reason_make_located (local.get $span)
-        (call $reason_make_inferred (i32.const 4080)))))   ;; "effects"
-
-    ;; ─── Build placeholder TFun + bind fn handle + pre-extend env ────
-    ;; Pre-bind the fn name BEFORE walking body so recursive calls
-    ;; resolve. Per src/infer.nx:279-280.
-    (local.set $tparam_list
-      (call $walk_stmt_build_inferred_params (local.get $param_handles)))
-    (local.set $fn_ty (call $ty_make_tfun
-      (local.get $tparam_list)
-      (call $ty_make_tvar (local.get $ret_h))
-      (local.get $row_h)))
-    (local.set $declared_reason (call $reason_make_located
-      (local.get $span)
-      (call $reason_make_declared (local.get $name))))
-    ;; Bind fn handle to the placeholder TFun.
-    (call $graph_bind (local.get $handle) (local.get $fn_ty)
-                      (local.get $declared_reason))
-    ;; Pre-extend env with placeholder Forall — recursive-call resolution
-    ;; surface.
-    (local.set $placeholder_scheme (call $scheme_make_forall
-      (call $make_list (i32.const 0))
-      (local.get $fn_ty)))
-    (call $env_extend
-      (local.get $name) (local.get $placeholder_scheme)
-      (local.get $declared_reason)
-      (call $schemekind_make_fn))
+      )
+    )
 
     ;; ─── Walk fn body ────────────────────────────────────────────────
     (local.set $body_h (call $infer_walk_expr (local.get $body_node)))
@@ -13014,7 +13333,7 @@
   ;; site exercises generic constructor instantiation that needs proper
   ;; TVar handling beyond the productive-under-error fallback below.
   (func $walk_stmt_parser_ty_to_ty (param $pty i32) (result i32)
-    (local $tag i32)
+    (local $tag i32) (local $fields i32)
     (if (i32.eq (local.get $pty) (i32.const 200))
       (then (return (call $ty_make_tint))))
     (if (i32.eq (local.get $pty) (i32.const 201))
@@ -13037,10 +13356,48 @@
       (then (return (call $ty_make_tvar
         (call $graph_fresh_ty
           (call $reason_make_inferred (i32.const 4056)))))))   ;; "param"
+    ;; tag=207 TyRecord(fields) — convert each (name, parser-Ty)
+    ;; field pair into the canonical TRecord field-list shape.
+    (if (i32.eq (local.get $tag) (i32.const 207))
+      (then
+        (local.set $fields
+          (call $walk_stmt_parser_record_fields_to_ty_fields
+            (i32.load offset=4 (local.get $pty))))
+        (return (call $ty_make_trecord (local.get $fields)))))
     ;; Unknown shape — productive-under-error: fresh TVar.
     (call $ty_make_tvar
       (call $graph_fresh_ty
         (call $reason_make_inferred (i32.const 4056)))))
+
+  ;; ─── parser record fields → canonical Ty field pairs ─────────────
+  ;; Parser record fields are list entries shaped as 2-tuples
+  ;; (name, parser-Ty). Convert only the Ty slot; preserve the field
+  ;; name as the graph-visible record label.
+  (func $walk_stmt_parser_record_fields_to_ty_fields
+        (param $fields i32) (result i32)
+    (local $n i32) (local $i i32) (local $out i32)
+    (local $field i32) (local $name i32) (local $pty i32)
+    (local $ty i32) (local $pair i32)
+    (local.set $n (call $len (local.get $fields)))
+    (local.set $out (call $list_extend_to
+      (call $make_list (local.get $n))
+      (local.get $n)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $field
+          (call $list_index (local.get $fields) (local.get $i)))
+        (local.set $name (call $list_index (local.get $field) (i32.const 0)))
+        (local.set $pty  (call $list_index (local.get $field) (i32.const 1)))
+        (local.set $ty (call $walk_stmt_parser_ty_to_ty (local.get $pty)))
+        (local.set $pair (call $make_list (i32.const 2)))
+        (drop (call $list_set (local.get $pair) (i32.const 0) (local.get $name)))
+        (drop (call $list_set (local.get $pair) (i32.const 1) (local.get $ty)))
+        (drop (call $list_set (local.get $out) (local.get $i) (local.get $pair)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter)))
+    (local.get $out))
 
   ;; ─── $walk_stmt_build_field_tparams — parser field-tys → List<TParam> ──
   ;; Per parser_decl.wat:60-63 each variant 2-tuple is (vname,
@@ -13406,7 +13763,9 @@
     (call $graph_init)
     (call $env_init)
     (call $infer_init)
+    (call $infer_pre_register_fn_sigs (local.get $stmts))
     (call $infer_stmt_list (local.get $stmts)))
+
 
   ;; ═══ main.wat — Hβ.infer pipeline-stage boundary (Tier 8) ════════════
   ;; Implements: Hβ-infer-substrate.md §8.1 main.wat row
@@ -14107,11 +14466,12 @@
     (if (i32.eq (local.get $tag) (i32.const 61))                       ;; NFREE
       (then
         (call $lower_emit_unresolved_type (local.get $handle))
-        (call $wasi_proc_exit (i32.const 1))))
-    ;; NRowBound (62) / NRowFree (63) — should never reach $lookup_ty;
-    ;; rows are queried via $lookup_row_for (peer; named follow-up
-    ;; Hβ.lower.lookup-row — lands when walk_handle.wat needs it).
-    (unreachable))
+        (return (call $ty_make_terror_hole))))
+    ;; Hazel productive-under-error: any other tag (NRowBound/NRowFree
+    ;; surfacing here, or sentinel) is substrate-honest reported as
+    ;; unresolved — emit diagnostic + return TErrorHole sentinel.
+    (call $lower_emit_unresolved_type (local.get $handle))
+    (call $ty_make_terror_hole))
 
   ;; ─── $row_is_ground — monomorphism gate ──────────────────────────
   ;; Per Hβ-lower-substrate.md §3.2 lines 369-372. A row is ground iff
@@ -16569,9 +16929,12 @@
       (then (return (call $lower_named_record (local.get $node)))))
     (if (i32.eq (local.get $tag) (i32.const 100))
       (then (return (call $lower_field       (local.get $node)))))
-    ;; Unknown (BinOpExpr 86 — Hβ.lower.binop-arm named follow-up;
-    ;; future Expr-region growth) → trap.
-    (unreachable))
+    ;; Unknown tag — productive-under-error per Hazel discipline.
+    ;; Emit diagnostic, return unit-sentinel LConst so callers can compose.
+    (call $lower_emit_unresolved_type (call $walk_expr_node_handle (local.get $node)))
+    (call $lexpr_make_lconst
+      (call $walk_expr_node_handle (local.get $node))
+      (i32.const 0)))
 
   ;; ─── $lower_args — chunk-private buffer-counter helper (Lock #5) ──
   ;; Per src/lower.nx:1055-1057 lower_expr_list. Buffer-counter substrate

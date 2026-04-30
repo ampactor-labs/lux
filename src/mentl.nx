@@ -144,7 +144,7 @@ fn gradient_next(handle) = {
 /// Try each candidate: checkpoint → tentative apply → verify → rollback.
 /// Returns [(Annotation, Capability)] for annotations that passed.
 fn try_each_annotation(handle, candidates, base_ty) =
-  let n = len(candidates)
+  let n = candidates.len
   let buf = make_list(n)
   let proven_len = try_each_annotation_loop(handle, candidates, base_ty, 0, n, buf, 0)
   slice(buf, 0, proven_len)
@@ -189,7 +189,7 @@ fn apply_annotation_tentatively(handle, ann, base_ty) = match ann {
     // wrap (splice `handle ... with handler_name` around body) is
     // a TEXT patch — out of substrate, into the patcher's surface.
     let absorbed = catalog_handled_effects(handler_name)
-    if len(absorbed) == 0 { () }
+    if absorbed.len == 0 { () }
     else {
       let absorbed_row = mk_ef_closed(absorbed)
       // The narrowed row is base_row - absorbed_row.
@@ -287,7 +287,7 @@ fn verify_after_apply(handle) = {
 
 fn ownership_candidates(params) =
   let flat = list_to_flat(params)
-  let n = len(flat)
+  let n = flat.len
   // Each Inferred param yields 2 candidates (AOwn + ARef); buffer
   // sized for the maximum (2n); slice trims to the actual count.
   let buf = make_list(n * 2)
@@ -309,7 +309,7 @@ fn ownership_candidates_loop(params, i, n, buf, buf_len) =
   }
 
 fn pick_highest_leverage(proven) =
-  if len(proven) == 0 { None }
+  if proven.len == 0 { None }
   else {
     let best = find_by_priority(proven,
       [ANotAlloc(None), ANotIO(None), ANotNetwork(None), APure(None)])
@@ -320,7 +320,7 @@ fn pick_highest_leverage(proven) =
   }
 
 fn find_by_priority(proven, priorities) =
-  find_by_priority_loop(proven, priorities, 0, len(priorities))
+  find_by_priority_loop(proven, priorities, 0, priorities.len)
 
 fn find_by_priority_loop(proven, priorities, i, n) =
   if i >= n { None }
@@ -333,7 +333,7 @@ fn find_by_priority_loop(proven, priorities, i, n) =
   }
 
 fn find_annotation(proven, target) =
-  find_annotation_loop(proven, target, 0, len(proven))
+  find_annotation_loop(proven, target, 0, proven.len)
 
 fn find_annotation_loop(proven, target, i, n) =
   if i >= n { None }
@@ -438,7 +438,7 @@ handler synth_enumerative {
 }
 
 fn verify_each(candidates) =
-  let n = len(candidates)
+  let n = candidates.len
   let buf = make_list(n)
   let kept = verify_each_loop(candidates, 0, n, buf, 0)
   slice(buf, 0, kept)
@@ -462,7 +462,7 @@ fn teach_synthesize(hole_handle, context) = {
     NBound(ty) => {
       let row = extract_row(ty)
       let candidates = perform propose(ty, row, context)
-      if len(candidates) == 0 { None }
+      if candidates.len == 0 { None }
       else { Some(list_index(candidates, 0)) }
     },
     _ => None

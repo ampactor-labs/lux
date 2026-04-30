@@ -78,7 +78,7 @@ fn driver_collect_visit(ref module_name, own collected, own visited)
 
 fn driver_collect_visit_list(ref modules, own collected, own visited)
   with Memory + Alloc + Filesystem = {
-  if len(modules) == 0 { (collected, visited) }
+  if modules.len == 0 { (collected, visited) }
   else {
     let m = list_head(modules)
     let (c2, v2) = driver_collect_visit(m, collected, visited)
@@ -93,7 +93,7 @@ fn driver_collect_visit_list(ref modules, own collected, own visited)
 fn driver_extract_imports(ref source) with Memory + Alloc = {
   let tokens = lex(source)
   let ast = parse_program(tokens)
-  let n = len(ast)
+  let n = ast.len
   let (buf, count) = driver_extract_imports_loop(ast, 0, n, make_list(n), 0)
   slice(buf, 0, count)
 }
@@ -155,7 +155,7 @@ fn driver_infer_module(ref module_name, ref source, ref source_hash)
   with Memory + Alloc + Filesystem + EnvRead + EnvWrite + GraphRead + GraphWrite + Diagnostic + LookupTy + Verify + InferCtx = {
   let tokens = lex(source)
   let ast = parse_program(tokens)
-  let n_ast = len(ast)
+  let n_ast = ast.len
   let (import_buf, import_count) = driver_extract_imports_loop(ast, 0, n_ast, make_list(n_ast), 0)
   let imports = slice(import_buf, 0, import_count)
   let imports_hashes = driver_collect_dep_hashes(imports)
@@ -163,13 +163,13 @@ fn driver_infer_module(ref module_name, ref source, ref source_hash)
   // this module's exported entries.
   let env_before = perform env_snapshot()
   let Env(entries_before) = env_before
-  let n_before = len(entries_before)
+  let n_before = entries_before.len
   // Run inference.
   infer_program(ast)
   // Snapshot env AFTER; the new entries are this module's exports.
   let env_after = perform env_snapshot()
   let Env(entries_after) = env_after
-  let n_after = len(entries_after)
+  let n_after = entries_after.len
   // entries are prepended in env_handler, so the new ones are at
   // the head; take the first (n_after - n_before).
   let new_count = n_after - n_before
@@ -194,7 +194,7 @@ fn driver_infer_module(ref module_name, ref source, ref source_hash)
 // cache-write moment so future invalidation can compare). For
 // caches written now, "now's" hash is what we record.
 fn driver_collect_dep_hashes(ref imports) with Memory + Alloc + Filesystem =
-  let n = len(imports)
+  let n = imports.len
   driver_collect_dep_hashes_loop(imports, 0, n, make_list(n))
 
 fn driver_collect_dep_hashes_loop(ref imports, i, n, own buf)
@@ -211,7 +211,7 @@ fn driver_collect_dep_hashes_loop(ref imports, i, n, own buf)
 
 fn driver_take_first(ref entries, count) =
   if count <= 0 { [] }
-  else if len(entries) == 0 { [] }
+  else if entries.len == 0 { [] }
   else { [list_head(entries)] ++ driver_take_first(list_tail(entries), count - 1) }
 
 // Env install — push entries into env_handler for importing modules.
@@ -220,7 +220,7 @@ fn driver_take_first(ref entries, count) =
 
 fn driver_install_entries(ref module_name, ref entries) with Memory + Alloc + EnvWrite =
   let short = module_short_name(module_name)
-  driver_install_loop(short, entries, 0, len(entries))
+  driver_install_loop(short, entries, 0, entries.len)
 
 fn driver_install_loop(ref short, ref entries, i, n) with Memory + Alloc + EnvWrite =
   if i >= n { () }
@@ -258,7 +258,7 @@ fn module_find_last_slash(ref path, i, n, last) =
 
 fn driver_install_qualified_only(ref module_name, ref entries) with Memory + Alloc + EnvWrite =
   let short = module_short_name(module_name)
-  driver_install_qualified_loop(short, entries, 0, len(entries))
+  driver_install_qualified_loop(short, entries, 0, entries.len)
 
 fn driver_install_qualified_loop(ref short, ref entries, i, n) with Memory + Alloc + EnvWrite =
   if i >= n { () }
@@ -277,7 +277,7 @@ fn driver_install_qualified_loop(ref short, ref entries, i, n) with Memory + All
 fn driver_check(ref entry_module)
   with Memory + Alloc + Filesystem + EnvRead + EnvWrite + GraphRead + GraphWrite + Diagnostic + LookupTy + Verify + InferCtx = {
   let modules = driver_collect_dag(entry_module)
-  driver_check_modules_loop(modules, 0, len(modules))
+  driver_check_modules_loop(modules, 0, modules.len)
 }
 
 fn driver_check_modules_loop(ref modules, i, n)

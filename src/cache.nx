@@ -118,14 +118,14 @@ fn cache_pack(kai) with Pack + !Unpack = {
   perform pack_str(kai.module_name)
   perform pack_i32(kai.source_hash)
   // Imports
-  perform pack_i32(len(kai.imports))
-  cache_pack_string_list(kai.imports, 0, len(kai.imports))
+  perform pack_i32(kai.imports.len)
+  cache_pack_string_list(kai.imports, 0, kai.imports.len)
   // Import hashes
-  perform pack_i32(len(kai.imports_hashes))
-  cache_pack_int_list(kai.imports_hashes, 0, len(kai.imports_hashes))
+  perform pack_i32(kai.imports_hashes.len)
+  cache_pack_int_list(kai.imports_hashes, 0, kai.imports_hashes.len)
   // Entries
-  perform pack_i32(len(kai.exported_entries))
-  cache_pack_entries(kai.exported_entries, 0, len(kai.exported_entries))
+  perform pack_i32(kai.exported_entries.len)
+  cache_pack_entries(kai.exported_entries, 0, kai.exported_entries.len)
 }
 
 fn cache_pack_string_list(lst, i, n) with Pack + !Unpack =
@@ -154,8 +154,8 @@ fn cache_pack_entries(entries, i, n) with Pack + !Unpack =
 
 fn cache_pack_scheme(scheme) with Pack + !Unpack = {
   let Forall(handles, ty) = scheme
-  perform pack_i32(len(handles))
-  cache_pack_int_list(handles, 0, len(handles))
+  perform pack_i32(handles.len)
+  cache_pack_int_list(handles, 0, handles.len)
   cache_pack_ty(ty)
 }
 
@@ -174,13 +174,13 @@ fn cache_pack_kind(kind) with Pack + !Unpack = match kind {
   },
   RecordSchemeKind(fields) => {
     perform pack_byte(3)
-    perform pack_i32(len(fields))
-    cache_pack_fields(fields, 0, len(fields))
+    perform pack_i32(fields.len)
+    cache_pack_fields(fields, 0, fields.len)
   },
   CapabilityScheme(eff_pairs) => {
     perform pack_byte(4)
-    perform pack_i32(len(eff_pairs))
-    cache_pack_eff_pairs(eff_pairs, 0, len(eff_pairs))
+    perform pack_i32(eff_pairs.len)
+    cache_pack_eff_pairs(eff_pairs, 0, eff_pairs.len)
   }
 }
 
@@ -198,13 +198,13 @@ fn cache_pack_ty(ty) with Pack + !Unpack = match ty {
   },
   TTuple(elems) => {
     perform pack_byte(5)
-    perform pack_i32(len(elems))
-    cache_pack_ty_list(elems, 0, len(elems))
+    perform pack_i32(elems.len)
+    cache_pack_ty_list(elems, 0, elems.len)
   },
   TFun(params, ret, row) => {
     perform pack_byte(6)
-    perform pack_i32(len(params))
-    cache_pack_params(params, 0, len(params))
+    perform pack_i32(params.len)
+    cache_pack_params(params, 0, params.len)
     cache_pack_ty(ret)
     cache_pack_effrow(row)
   },
@@ -215,18 +215,18 @@ fn cache_pack_ty(ty) with Pack + !Unpack = match ty {
   TName(name, args) => {
     perform pack_byte(8)
     perform pack_str(name)
-    perform pack_i32(len(args))
-    cache_pack_ty_list(args, 0, len(args))
+    perform pack_i32(args.len)
+    cache_pack_ty_list(args, 0, args.len)
   },
   TRecord(fields) => {
     perform pack_byte(9)
-    perform pack_i32(len(fields))
-    cache_pack_fields(fields, 0, len(fields))
+    perform pack_i32(fields.len)
+    cache_pack_fields(fields, 0, fields.len)
   },
   TRecordOpen(fields, v) => {
     perform pack_byte(10)
-    perform pack_i32(len(fields))
-    cache_pack_fields(fields, 0, len(fields))
+    perform pack_i32(fields.len)
+    cache_pack_fields(fields, 0, fields.len)
     perform pack_i32(v)
   },
   TRefined(base, _pred) => {
@@ -288,13 +288,13 @@ fn cache_pack_effrow(row) with Pack + !Unpack = match row {
   EfPure => perform pack_byte(0),
   EfClosed(names) => {
     perform pack_byte(1)
-    perform pack_i32(len(names))
-    cache_pack_effnames(names, 0, len(names))
+    perform pack_i32(names.len)
+    cache_pack_effnames(names, 0, names.len)
   },
   EfOpen(names, v) => {
     perform pack_byte(2)
-    perform pack_i32(len(names))
-    cache_pack_effnames(names, 0, len(names))
+    perform pack_i32(names.len)
+    cache_pack_effnames(names, 0, names.len)
     perform pack_i32(v)
   },
   EfNeg(inner) => {
@@ -340,8 +340,8 @@ fn cache_pack_effname(name) with Pack + !Unpack = match name {
   EParameterized(s, args) => {
     perform pack_byte(1)
     perform pack_str(s)
-    perform pack_i32(len(args))
-    cache_pack_effargs(args, 0, len(args))
+    perform pack_i32(args.len)
+    cache_pack_effargs(args, 0, args.len)
   }
 }
 

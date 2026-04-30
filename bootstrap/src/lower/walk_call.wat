@@ -353,9 +353,12 @@
       (then (return (call $lower_named_record (local.get $node)))))
     (if (i32.eq (local.get $tag) (i32.const 100))
       (then (return (call $lower_field       (local.get $node)))))
-    ;; Unknown (BinOpExpr 86 — Hβ.lower.binop-arm named follow-up;
-    ;; future Expr-region growth) → trap.
-    (unreachable))
+    ;; Unknown tag — productive-under-error per Hazel discipline.
+    ;; Emit diagnostic, return unit-sentinel LConst so callers can compose.
+    (call $lower_emit_unresolved_type (call $walk_expr_node_handle (local.get $node)))
+    (call $lexpr_make_lconst
+      (call $walk_expr_node_handle (local.get $node))
+      (i32.const 0)))
 
   ;; ─── $lower_args — chunk-private buffer-counter helper (Lock #5) ──
   ;; Per src/lower.nx:1055-1057 lower_expr_list. Buffer-counter substrate

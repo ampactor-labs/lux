@@ -278,7 +278,7 @@ handler project_queue_merger
 
 fn run_oracle(env, module_path) with Verify =
   let positions = collect_positions_with_dependents(env)
-  let n         = len(positions)
+  let n         = positions.len
   let buf       = make_list(n * 4)        // generous estimate; over-alloc fine
   let count     = explore_positions(positions, 0, n, env, module_path, buf, 0)
   OracleQueue(sort_by_priority(slice(buf, 0, count)))
@@ -305,7 +305,7 @@ fn explore_positions(positions, i, n, env, module_path, buf, count) with Verify 
 /// instead of returning a tuple list.
 
 fn try_each_candidate_to_queue(handle, candidates, env, module_path, buf, count) with Verify =
-  let n = len(candidates)
+  let n = candidates.len
   try_each_candidate_loop(handle, candidates, 0, n, env, module_path, buf, count)
 
 fn try_each_candidate_loop(handle, candidates, i, n, env, module_path, buf, count) with Verify =

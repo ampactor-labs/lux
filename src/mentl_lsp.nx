@@ -428,7 +428,7 @@ fn hover_from_reason(reason) with Memory + Alloc + GraphRead + !Mutate =
 /// kind=14 = Keyword as v1 placeholder). Other slot kinds skipped.
 
 fn completion_items_from_slots(slots) with Memory + Alloc =
-  completion_items_loop(slots, 0, len(slots), [])
+  completion_items_loop(slots, 0, slots.len, [])
 
 fn completion_items_loop(slots, i, n, acc_rev) with Memory + Alloc =
   if i >= n { reverse_list_lsp(acc_rev) }
@@ -451,7 +451,7 @@ fn completion_items_loop(slots, i, n, acc_rev) with Memory + Alloc =
 /// CodeActions. SLit slots carrying suggestion text become actions.
 
 fn code_actions_from_slots(slots) with Memory + Alloc =
-  code_actions_loop(slots, 0, len(slots), [])
+  code_actions_loop(slots, 0, slots.len, [])
 
 fn code_actions_loop(slots, i, n, acc_rev) with Memory + Alloc =
   if i >= n { reverse_list_lsp(acc_rev) }
@@ -474,7 +474,7 @@ fn reverse_list_lsp(xs) with Pure =
   reverse_list_lsp_loop(xs, [])
 
 fn reverse_list_lsp_loop(xs, acc) with Pure =
-  if len(xs) == 0 { acc }
+  if xs.len == 0 { acc }
   else {
     let head = list_head(xs)
     let rest = list_tail(xs)
@@ -499,15 +499,15 @@ fn response_to_json(body) with Memory + Alloc =
     LspNullResp                       => JNull,
     LspHoverResp(None)                => JNull,
     LspHoverResp(Some(content))       => hover_content_to_json(content),
-    LspCompletionResp(items)          => JArr(map_completion_items_to_json(items, 0, len(items), [])),
-    LspCodeActionResp(actions)        => JArr(map_code_actions_to_json(actions, 0, len(actions), [])),
+    LspCompletionResp(items)          => JArr(map_completion_items_to_json(items, 0, items.len, [])),
+    LspCodeActionResp(actions)        => JArr(map_code_actions_to_json(actions, 0, actions.len, [])),
     LspDiagnosticResp(diags)          => JObj([
       ("kind",  JStr("full")),
-      ("items", JArr(map_diagnostics_to_json(diags, 0, len(diags), [])))
+      ("items", JArr(map_diagnostics_to_json(diags, 0, diags.len, [])))
     ]),
     LspDefinitionResp(None)           => JNull,
     LspDefinitionResp(Some(loc))      => location_to_json(loc),
-    LspReferencesResp(locs)           => JArr(map_locations_to_json(locs, 0, len(locs), [])),
+    LspReferencesResp(locs)           => JArr(map_locations_to_json(locs, 0, locs.len, [])),
     LspInitializeResp(result)         => result
   }
 

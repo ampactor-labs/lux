@@ -76,7 +76,7 @@ fn get_authored_ownership(ref name) with !Mutate =
            |> unwrap_env
            |> extract_fn_params
 
-         if idx < len(params) {
+         if idx < params.len {
            let TParam(_, _, auth, _) = list_index(params, idx)
            Some(auth)
          } else { None }
@@ -126,7 +126,7 @@ handler affine_ledger with used = [], used_sites = [], branches = [] {
   // to the frame's deltas list, then resets `used` to base so the
   // next branch sees the original scope.
   branch_divider(_span) => {
-    if len(branches) == 0 { resume() }
+    if branches.len == 0 { resume() }
     else {
       let (base, deltas) = list_head(branches)
       let delta = set_diff(used, base)
@@ -141,7 +141,7 @@ handler affine_ledger with used = [], used_sites = [], branches = [] {
   // E_OwnershipViolation at the branch site), merges all deltas into
   // `used` as base ∪ union(deltas), pops the frame.
   branch_exit(span) => {
-    if len(branches) == 0 { resume() }
+    if branches.len == 0 { resume() }
     else {
       let (base, prior_deltas) = list_head(branches)
       let last_delta = set_diff(used, base)
@@ -158,7 +158,7 @@ handler affine_ledger with used = [], used_sites = [], branches = [] {
 /// a sorted set (maintained by set_insert during consume), so folding
 /// set_union across them preserves the invariant.
 fn union_all_deltas(ref deltas) with !Mutate =
-  union_all_deltas_loop(deltas, 0, len(deltas), [])
+  union_all_deltas_loop(deltas, 0, deltas.len, [])
 
 fn union_all_deltas_loop(ref deltas, i, n, own acc) with !Mutate =
   if i >= n { acc }
@@ -177,7 +177,7 @@ fn union_all_deltas_loop(ref deltas, i, n, own acc) with !Mutate =
 /// branch pair in its own diagnostic. Span is the branching verb's
 /// span — the site where the violation becomes observable.
 fn report_branch_collisions(ref deltas, ref span) with !Mutate =
-  report_collisions_outer(deltas, 0, len(deltas), span)
+  report_collisions_outer(deltas, 0, deltas.len, span)
 
 fn report_collisions_outer(ref deltas, i, n, ref span) with !Mutate =
   if i >= n { () }
@@ -192,7 +192,7 @@ fn report_collisions_inner(ref deltas, i, j, n, ref span) with !Mutate =
     let delta_i = list_index(deltas, i)
     let delta_j = list_index(deltas, j)
     let collisions = set_intersect(delta_i, delta_j)
-    report_each_collision(collisions, 0, len(collisions), span)
+    report_each_collision(collisions, 0, collisions.len, span)
     report_collisions_inner(deltas, i, j + 1, n, span)
   }
 
@@ -222,12 +222,12 @@ handler region_tracker with region_stack = [], next_region = 0, tagged_values = 
   },
 
   region_exit(_rid) => {
-    if len(region_stack) == 0 { resume() }
+    if region_stack.len == 0 { resume() }
     else { resume() with region_stack = list_tail(region_stack) }
   },
 
   current_region() => {
-    if len(region_stack) == 0 { resume(0) }
+    if region_stack.len == 0 { resume(0) }
     else {
       let Region(rid, _) = list_head(region_stack)
       resume(rid)
@@ -240,9 +240,9 @@ handler region_tracker with region_stack = [], next_region = 0, tagged_values = 
     // are records — adding metadata fields (e.g., region join
     // for record/variant fields per H4 addendum) is additive
     // without breaking lookup_tag's destructure.
-    let rid = if len(region_stack) == 0 { 0 }
+    let rid = if region_stack.len == 0 { 0 }
               else { let Region(r, _) = list_head(region_stack); r }
-    let install_span = if len(region_stack) == 0 { span_zero() }
+    let install_span = if region_stack.len == 0 { span_zero() }
                        else { let Region(_, s) = list_head(region_stack); s }
     let tag = {handle: value_handle, install_span: install_span, region_id: rid}
     resume()
@@ -257,9 +257,9 @@ handler region_tracker with region_stack = [], next_region = 0, tagged_values = 
     // escaping the composite to outer scope would orphan the
     // inner-region pointer field. The escape check at fn return
     // uses this max-region tag.
-    let cur_rid = if len(region_stack) == 0 { 0 }
+    let cur_rid = if region_stack.len == 0 { 0 }
                   else { let Region(r, _) = list_head(region_stack); r }
-    let install_span = if len(region_stack) == 0 { span_zero() }
+    let install_span = if region_stack.len == 0 { span_zero() }
                        else { let Region(_, s) = list_head(region_stack); s }
     let joined = join_field_regions(tagged_values, field_handles, cur_rid)
     let tag = {handle: value_handle, install_span: install_span, region_id: joined}
@@ -295,7 +295,7 @@ handler region_tracker with region_stack = [], next_region = 0, tagged_values = 
 }
 
 fn lookup_tag(ref tags, handle) with !Mutate =
-  lookup_tag_loop(tags, handle, 0, len(tags))
+  lookup_tag_loop(tags, handle, 0, tags.len)
 
 fn lookup_tag_loop(ref tags, handle, i, n) with !Mutate =
   if i >= n { None }
@@ -306,7 +306,7 @@ fn lookup_tag_loop(ref tags, handle, i, n) with !Mutate =
   }
 
 fn region_on_stack(ref stack, rid) with !Mutate =
-  region_on_stack_loop(stack, rid, 0, len(stack))
+  region_on_stack_loop(stack, rid, 0, stack.len)
 
 fn region_on_stack_loop(ref stack, rid, i, n) with !Mutate =
   if i >= n { false }
@@ -321,7 +321,7 @@ fn region_on_stack_loop(ref stack, rid, i, n) with !Mutate =
 /// contribute region 0 (global lifetime, doesn't bound the join).
 /// The result is the composite's pinning region.
 fn join_field_regions(ref tags, ref fields, current) with !Mutate =
-  join_field_regions_loop(tags, fields, current, 0, len(fields))
+  join_field_regions_loop(tags, fields, current, 0, fields.len)
 
 fn join_field_regions_loop(ref tags, ref fields, current, i, n) with !Mutate =
   if i >= n { acc }
@@ -349,7 +349,7 @@ fn report_each_collision(ref names, i, n, ref span) with !Mutate =
   }
 
 fn find_first_span(ref sites, ref name) with !Mutate =
-  find_first_span_loop(sites, name, 0, len(sites))
+  find_first_span_loop(sites, name, 0, sites.len)
 
 fn find_first_span_loop(ref sites, ref name, i, n) with !Mutate =
   if i >= n { span_zero() }
@@ -372,7 +372,7 @@ fn check_ref_escape(ref params, ref body) with !Mutate =
   params
     |> collect_ref_params
     |> (refs) =>
-         if len(refs) == 0 { () }
+         if refs.len == 0 { () }
          else { walk_return_positions(refs, body) }
 
 /// Phase-A4: collect_ref_params returns `slice(buf, 0, count)` — a
@@ -381,7 +381,7 @@ fn check_ref_escape(ref params, ref body) with !Mutate =
 /// preserves O(1) read into the original buffer (no copy).
 fn collect_ref_params(ref params) with !Mutate =
   let flat = list_to_flat(params)
-  let n = len(flat)
+  let n = flat.len
   let buf = make_list(n)
   let count = collect_ref_params_loop(flat, 0, n, buf, 0)
   slice(buf, 0, count)
@@ -454,7 +454,7 @@ fn walk_return_positions(ref refs, ref node) with !Mutate =
   }
 
 fn walk_match_arms(ref refs, ref arms) with !Mutate =
-  walk_match_arms_loop(refs, arms, 0, len(arms))
+  walk_match_arms_loop(refs, arms, 0, arms.len)
 
 fn walk_match_arms_loop(ref refs, ref arms, i, n) with !Mutate =
   if i >= n { () }
@@ -470,7 +470,7 @@ fn walk_match_arms_loop(ref refs, ref arms, i, n) with !Mutate =
 /// (borrowed multiple times).
 fn infer_ownership(ref params, ref body) with !Mutate =
   let flat = list_to_flat(params)
-  let n = len(flat)
+  let n = flat.len
   infer_ownership_loop(flat, body, 0, n, make_list(n))
 
 fn infer_ownership_loop(ref params, ref body, i, n, own acc) with !Mutate =
@@ -542,10 +542,10 @@ fn count_uses(ref name, ref node) with !Mutate =
   }
 
 fn count_uses_list(ref name, ref nodes) with !Mutate =
-  count_uses_list_loop(name, nodes, 0, len(nodes), 0)
+  count_uses_list_loop(name, nodes, 0, nodes.len, 0)
 
 fn count_uses_record_fields(ref name, ref flds) with !Mutate =
-  count_uses_record_fields_loop(name, flds, 0, len(flds), 0)
+  count_uses_record_fields_loop(name, flds, 0, flds.len, 0)
 
 fn count_uses_record_fields_loop(ref name, ref flds, i, n, acc) with !Mutate =
   if i >= n { acc }
@@ -566,7 +566,7 @@ fn count_uses_list_loop(ref name, ref nodes, i, n, acc) with !Mutate =
   }
 
 fn count_match_arms(ref name, ref arms) with !Mutate =
-  count_match_arms_loop(name, arms, 0, len(arms), 0)
+  count_match_arms_loop(name, arms, 0, arms.len, 0)
 
 fn count_match_arms_loop(ref name, ref arms, i, n, acc) with !Mutate =
   if i >= n { acc }

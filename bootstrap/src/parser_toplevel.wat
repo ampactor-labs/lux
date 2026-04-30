@@ -43,13 +43,16 @@
     ;; TImport → parse import
     (if (i32.eq (local.get $k) (i32.const 18))
       (then
-        (local.set $name (call $ident_at_p (local.get $tokens)
+        (local.set $result (call $parse_import_path (local.get $tokens)
           (i32.add (local.get $pos) (i32.const 1))))
         (local.set $tup (call $make_list (i32.const 2)))
         (drop (call $list_set (local.get $tup) (i32.const 0)
-          (call $nstmt (call $mk_ImportStmt (local.get $name)) (local.get $span))))
+          (call $nstmt
+            (call $mk_ImportStmt
+              (call $list_index (local.get $result) (i32.const 0)))
+            (local.get $span))))
         (drop (call $list_set (local.get $tup) (i32.const 1)
-          (i32.add (local.get $pos) (i32.const 2))))
+          (call $list_index (local.get $result) (i32.const 1))))
         (return (local.get $tup))))
     ;; Default: expression statement
     (local.set $result (call $parse_expr (local.get $tokens) (local.get $pos)))
@@ -63,6 +66,31 @@
     (local.get $tup))
 
   ;; HandlerDeclStmt stub: [tag=124][name][effect=""][arms=[]]
+  ;; parse_import_path: slash-separated module name per SYNTAX.md
+  ;; `import path/to/module`. Returns [path, next_pos].
+  (func $parse_import_path (param $tokens i32) (param $pos i32) (result i32)
+    (local $acc i32) (local $p i32) (local $name i32)
+    (local $slash i32) (local $tup i32)
+    (local.set $acc (call $str_alloc (i32.const 0)))
+    (local.set $p (local.get $pos))
+    (block $done
+      (loop $parts
+        (local.set $name (call $ident_at_p (local.get $tokens) (local.get $p)))
+        (local.set $acc (call $str_concat (local.get $acc) (local.get $name)))
+        (local.set $p (i32.add (local.get $p) (i32.const 1)))
+        (if (call $at (local.get $tokens) (local.get $p) (i32.const 58))
+          (then
+            (local.set $slash (call $str_alloc (i32.const 1)))
+            (i32.store8 (i32.add (local.get $slash) (i32.const 4)) (i32.const 47))
+            (local.set $acc (call $str_concat (local.get $acc) (local.get $slash)))
+            (local.set $p (i32.add (local.get $p) (i32.const 1)))
+            (br $parts)))
+        (br $done)))
+    (local.set $tup (call $make_list (i32.const 2)))
+    (drop (call $list_set (local.get $tup) (i32.const 0) (local.get $acc)))
+    (drop (call $list_set (local.get $tup) (i32.const 1) (local.get $p)))
+    (local.get $tup))
+
   (func $mk_handler_decl (param $name i32) (result i32)
     (local $p i32) (local.set $p (call $alloc (i32.const 16)))
     (i32.store (local.get $p) (i32.const 124))

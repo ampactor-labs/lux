@@ -34,12 +34,12 @@ fn nhole(id, span: ValidSpan) = N(NHole(id), span, fresh_ph(span))
 
 // kind_at returns the TokenKind variant at position pos (or TEof if past end).
 fn kind_at(ref tokens, pos) =
-  if pos >= len(tokens) { TEof }
+  if pos >= tokens.len { TEof }
   else { token_kind(tokens[pos]) }
 
 // span_at returns the span of the token at position pos.
 fn span_at(ref tokens, pos) =
-  if pos >= len(tokens) { span_zero() }
+  if pos >= tokens.len { span_zero() }
   else { token_span(tokens[pos]) }
 
 // kind_eq compares two TokenKind values for variant identity. Used
@@ -763,7 +763,7 @@ fn postfix_loop(ref tokens, e, pos) = match kind_at(tokens, pos) {
     let N(body, start_span, _) = e
     let is_named_record = match body {
       NExpr(VarRef(name)) =>
-        len(name) > 0 &&
+        name.len > 0 &&
         first_char_code(name) >= 65 &&
         first_char_code(name) <= 90,
       _ => false
@@ -975,7 +975,7 @@ fn parse_record_fields(ref tokens, pos, own buf, count) = {
 /// Insertion sort by field name. N≤~16 in practice; insertion is the
 /// natural shape and keeps the parser dependency-free.
 fn sort_record_fields(fields) =
-  sort_record_fields_loop(fields, 0, len(fields), [])
+  sort_record_fields_loop(fields, 0, fields.len, [])
 
 fn sort_record_fields_loop(fields, i, n, own acc) =
   if i >= n { acc }
@@ -986,7 +986,7 @@ fn sort_record_fields_loop(fields, i, n, own acc) =
 
 fn record_field_insert(sorted, entry) =
   let (name, _) = entry
-  let n = len(sorted)
+  let n = sorted.len
   let pos = record_field_find_pos(sorted, name, 0, n)
   if pos < n {
     let buf = make_list(n + 1)
@@ -1245,7 +1245,7 @@ fn parse_pat_record_fields(ref tokens, pos) = {
 }
 
 fn sort_pat_fields(fields) =
-  sort_record_fields_loop(fields, 0, len(fields), [])
+  sort_record_fields_loop(fields, 0, fields.len, [])
 
 fn parse_pat_args(ref tokens, pos) = {
   let p = skip_ws(tokens, pos)
@@ -1278,7 +1278,7 @@ fn parse_pat_list_args(ref tokens, pos) = {
 }
 
 fn first_char_code(s) =
-  if len(s) == 0 { 0 }
+  if s.len == 0 { 0 }
   else { char_code(chars(s)[0]) }
 
 // Type expressions
@@ -1352,7 +1352,7 @@ fn parse_record_type_fields(ref tokens, pos) = {
 }
 
 fn sort_record_type_fields(fields) =
-  sort_record_type_fields_loop(fields, 0, len(fields), [])
+  sort_record_type_fields_loop(fields, 0, fields.len, [])
 
 fn sort_record_type_fields_loop(fields, i, n, own acc) =
   if i >= n { acc }

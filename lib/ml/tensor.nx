@@ -23,9 +23,9 @@ fn mat_vec_mul(w, x) = map((row) => dot(row, x), w)
 fn outer_product(a, b) = map((ai) => scalar_mul(ai, b), a)
 
 fn transpose(m) =
-  if len(m) == 0 { [] }
+  if m.len == 0 { [] }
   else {
-    let cols = len(m[0])
+    let cols = m[0].len
     map((j) => map((row) => row[j], m), range(0, cols))
   }
 
@@ -48,9 +48,9 @@ fn sigmoid_vec(xs) = map((x) => sigmoid_scalar(x), xs)
 fn mse(pred, target) = {
   let diffs = vec_sub(pred, target)
   let sq = vec_mul(diffs, diffs)
-  sumf(sq) / to_float(len(pred))
+  sumf(sq) / to_float(pred.len)
 }
 
 fn mse_grad(pred, target) =
-  scalar_mul(2.0 / to_float(len(pred)), vec_sub(pred, target))
+  scalar_mul(2.0 / to_float(pred.len), vec_sub(pred, target))
 

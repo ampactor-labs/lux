@@ -215,9 +215,9 @@
         (local.set $tag (local.get $kind))
         ;; Map tag to name string
         (if (i32.eq (local.get $tag) (i32.const 0)) (then (return (i32.const 256))))  ;; "fn"
-        (if (i32.eq (local.get $tag) (i32.const 1)) (then (return (i32.const 264))))  ;; "let"
-        (if (i32.eq (local.get $tag) (i32.const 2)) (then (return (i32.const 272))))  ;; "if"
-        (if (i32.eq (local.get $tag) (i32.const 3)) (then (return (i32.const 280))))  ;; "else"
+        (if (i32.eq (local.get $tag) (i32.const 1)) (then (return (i32.const 262))))  ;; "let"
+        (if (i32.eq (local.get $tag) (i32.const 2)) (then (return (i32.const 269))))  ;; "if"
+        (if (i32.eq (local.get $tag) (i32.const 3)) (then (return (i32.const 275))))  ;; "else"
         ;; ... (abbreviated — full table would map all 64 nullary sentinels)
         (if (i32.eq (local.get $tag) (i32.const 68)) (then (return (i32.const 272)))) ;; TNewline→"NL"
         (if (i32.eq (local.get $tag) (i32.const 69)) (then (return (i32.const 272)))) ;; TEof→"EOF"

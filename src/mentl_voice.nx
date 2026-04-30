@@ -669,7 +669,7 @@ fn situation_hash(situation) with Pure =
 
 fn pick_from_pool(tentacle, hash) with Pure =
   let pool = applicable_modifiers_for_tentacle(tentacle)
-  let n    = len(pool)
+  let n    = pool.len
   if n == 0 { NoMod }
   else      { list_index(pool, hash % n) }
 
@@ -854,7 +854,7 @@ fn render_verify_arm(situation) with Pure =
     SLit("Refinements at "),
     SSpan(topic_span_or_zero(s.topic)),
     SLit(": "),
-    SLit(int_to_str_lite(len(s.refinements))),
+    SLit(int_to_str_lite(s.refinements.len)),
     SLit(" obligations")
   ], select_modifier(situation, s.register))
 
@@ -968,7 +968,7 @@ fn voice_lines_for(situation) with OracleQuery =
   else {
     let tentacles = [TentQuery, TentPropose, TentTopology, TentUnlock,
                      TentTrace, TentVerify, TentTeach, TentWhy]
-    let n = len(tentacles)
+    let n = tentacles.len
     let buf = make_list(n)
     let count = fold_tentacles_to_voicelines(situation, tentacles, 0, n, buf, 0)
     slice(buf, 0, count)
@@ -1030,7 +1030,7 @@ fn voice_queue_walk(situation_seed) with OracleQuery =
       }
     }
   }
-  let n = len(queue_items)
+  let n = queue_items.len
   fold_queue_items(situation_seed, queue_items, 0, n, make_list(n), 0)
 
 /// fold_queue_items — walk the queue items in priority order; per item,
@@ -1274,7 +1274,7 @@ fn compose_propose_situation(target_handle, target_reason, prior_turn) with Pure
 /// voiceline_to_answer.
 
 fn answer_from_slots(slots, reason) with Pure =
-  if len(slots) == 0 { AnsSilence }
+  if slots.len == 0 { AnsSilence }
   else {
     let head = list_head(slots)
     let rest = list_tail(slots)
@@ -1335,7 +1335,7 @@ fn intent_id_eq(a, b) with Pure =
 /// counter) reserved for genuinely-large N — this is not it.
 
 fn intents_without(intents, id) with Pure =
-  if len(intents) == 0 { [] }
+  if intents.len == 0 { [] }
   else {
     let head = list_head(intents)
     let rest = list_tail(intents)
@@ -1589,7 +1589,7 @@ handler mentl_voice_default
   /// VoiceLine / span; surfaces use this for observation-delta
   /// reasoning (silence_predicate's prior_turn input is the head).
   history(n) => {
-    let h_len = len(history)
+    let h_len = history.len
     if n >= h_len { resume(history) }
     else          { resume(slice(history, h_len - n, h_len)) }
   },
@@ -1632,7 +1632,7 @@ handler mentl_voice_default
 /// table holds open editor sessions, not arbitrary file enumerations).
 
 fn handles_table_lookup(table, target_handle) with Pure =
-  if len(table) == 0 { None }
+  if table.len == 0 { None }
   else {
     let head = list_head(table)
     let rest = list_tail(table)

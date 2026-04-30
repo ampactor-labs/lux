@@ -377,7 +377,7 @@ fn reverse_list(xs) with Pure =
   reverse_list_loop(xs, [])
 
 fn reverse_list_loop(xs, acc) with Pure =
-  if len(xs) == 0 { acc }
+  if xs.len == 0 { acc }
   else {
     let head = list_head(xs)
     let rest = list_tail(xs)
@@ -451,7 +451,7 @@ fn escape_string_loop(s, i, n, buf, written, cap) with Memory + Alloc =
 
 fn serialize_array(items) with Memory + Alloc =
   "["
-    |> str_concat(serialize_array_inner(items, 0, len(items), ""))
+    |> str_concat(serialize_array_inner(items, 0, items.len, ""))
     |> str_concat("]")
 
 fn serialize_array_inner(items, i, n, acc) with Memory + Alloc =
@@ -466,7 +466,7 @@ fn serialize_array_inner(items, i, n, acc) with Memory + Alloc =
 
 fn serialize_object(fields) with Memory + Alloc =
   "{"
-    |> str_concat(serialize_object_inner(fields, 0, len(fields), ""))
+    |> str_concat(serialize_object_inner(fields, 0, fields.len, ""))
     |> str_concat("}")
 
 fn serialize_object_inner(fields, i, n, acc) with Memory + Alloc =
@@ -490,7 +490,7 @@ fn serialize_object_inner(fields, i, n, acc) with Memory + Alloc =
 
 fn json_obj_get(v, key) with Memory =
   match v {
-    JObj(fields)      => json_obj_get_loop(fields, key, 0, len(fields)),
+    JObj(fields)      => json_obj_get_loop(fields, key, 0, fields.len),
     JNull             => None,
     JBool(_)          => None,
     JNum(_)           => None,

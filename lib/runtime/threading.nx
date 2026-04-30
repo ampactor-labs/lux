@@ -132,7 +132,7 @@ handler parallel_compose with threads = [] {
 handler sequential_compose with results = [] {
   spawn(task) => {
     let result = task()
-    let handle = Handle(len(results))
+    let handle = Handle(results.len)
     resume(handle) with results = push(results, result)
   },
 
