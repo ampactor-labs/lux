@@ -746,20 +746,51 @@
         (param $expr i32) (param $handle i32) (param $span i32)
         (result i32)
     (local $body_node i32) (local $bh i32)
-    (local $row_h i32) (local $params i32)
+    (local $row_h i32) (local $params_parser i32)
+    (local $tparam_list i32) (local $param_handles i32)
+    (local $n_params i32) (local $i i32) (local $param i32)
+    (local $param_name i32) (local $param_h i32)
     ;; Layout: [tag=89][params][body]
-    (drop (i32.load offset=4 (local.get $expr)))   ;; params (Hβ.infer.lambda-params)
+    (local.set $params_parser (i32.load offset=4 (local.get $expr)))
     (local.set $body_node (i32.load offset=8 (local.get $expr)))
     (call $env_scope_enter)
+
+    (local.set $n_params (call $len (local.get $params_parser)))
+    (local.set $param_handles (call $make_list (i32.const 0)))
+    (local.set $param_handles (call $list_extend_to (local.get $param_handles) (local.get $n_params)))
+    (local.set $i (i32.const 0))
+    (block $params_done
+      (loop $each_param
+        (br_if $params_done (i32.ge_u (local.get $i) (local.get $n_params)))
+        (local.set $param (call $list_index (local.get $params_parser) (local.get $i)))
+        (local.set $param_name (i32.load offset=4 (local.get $param)))
+        (local.set $param_h (call $graph_fresh_ty
+          (call $reason_make_located (local.get $span)
+            (call $reason_make_inferred (i32.const 4056)))))   ;; "param"
+        (drop (call $list_set (local.get $param_handles) (local.get $i) (local.get $param_h)))
+        (call $env_extend
+          (local.get $param_name)
+          (call $scheme_make_forall
+            (call $make_list (i32.const 0))
+            (call $ty_make_tvar (local.get $param_h)))
+          (call $reason_make_located
+            (local.get $span)
+            (call $reason_make_declared (local.get $param_name)))
+          (call $schemekind_make_fn))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each_param)))
+
+    (local.set $tparam_list (call $walk_expr_build_inferred_params (local.get $param_handles)))
+
     (local.set $row_h (call $graph_fresh_row
       (call $reason_make_inferred (i32.const 3984))))   ;; "lambda"
     (call $walk_expr_inf_enter_fn (local.get $row_h) (local.get $span))
     (local.set $bh (call $infer_walk_expr (local.get $body_node)))
     (call $walk_expr_inf_exit_fn)
-    (local.set $params (call $make_list (i32.const 0)))
+
     (call $graph_bind (local.get $handle)
       (call $ty_make_tfun
-        (local.get $params)
+        (local.get $tparam_list)
         (call $ty_make_tvar (local.get $bh))
         (local.get $row_h))
       (call $reason_make_located (local.get $span)

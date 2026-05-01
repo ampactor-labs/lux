@@ -440,6 +440,25 @@
         (call $infer_pre_register_fn_sig
           (local.get $stmt) (local.get $handle) (local.get $span))
         (return)))
+    (if (i32.eq (local.get $tag) (i32.const 122))
+      (then
+        (call $infer_register_typedef_ctors
+          (i32.load offset=4 (local.get $stmt))
+          (i32.load offset=12 (local.get $stmt))
+          (local.get $span))
+        (return)))
+    (if (i32.eq (local.get $tag) (i32.const 123))
+      (then
+        (call $infer_register_effect_ops
+          (i32.load offset=4 (local.get $stmt))
+          (i32.load offset=8 (local.get $stmt))
+          (local.get $span))
+        (return)))
+    (if (i32.eq (local.get $tag) (i32.const 124))
+      (then
+        (call $infer_walk_stmt_handler_decl
+          (local.get $stmt) (local.get $handle) (local.get $span))
+        (return)))
     (if (i32.eq (local.get $tag) (i32.const 128))
       (then
         ;; Documented(doc, inner_node): inner Node at offset 8.
@@ -791,19 +810,15 @@
   ;; False are nullary variants under `type Bool = False | True` per
   ;; types.nx:32 — they get ConstructorScheme(0, 2) and (1, 2) just like
   ;; any other ADT's nullary variants.
-  (func $infer_walk_stmt_typedef
-        (export "infer_walk_stmt_typedef")
-        (param $stmt i32) (param $handle i32) (param $span i32)
-    (local $type_name i32) (local $variants i32) (local $total i32)
+    (func $infer_register_typedef_ctors
+        (param $type_name i32) (param $variants i32) (param $span i32)
+    (local $total i32)
     (local $tag_id i32) (local $variant i32)
     (local $vname i32) (local $field_tys_parser i32)
     (local $field_tys i32) (local $field_count i32)
     (local $result_ty i32) (local $ctor_ty i32)
     (local $row_h i32) (local $scheme i32) (local $reason i32)
-    (drop (local.get $handle))
-    ;; TypeDefStmt: [tag=122][name][targs][variants]
-    (local.set $type_name (i32.load offset=4  (local.get $stmt)))
-    (local.set $variants  (i32.load offset=12 (local.get $stmt)))
+
     (local.set $total (call $len (local.get $variants)))
     ;; Build the result type once: TName(type_name, []) — every variant
     ;; constructor returns this.
@@ -853,6 +868,15 @@
         (local.set $tag_id (i32.add (local.get $tag_id) (i32.const 1)))
         (br $each))))
 
+  (func $infer_walk_stmt_typedef
+        (export "infer_walk_stmt_typedef")
+        (param $stmt i32) (param $handle i32) (param $span i32)
+    (drop (local.get $handle))
+    (call $infer_register_typedef_ctors
+      (i32.load offset=4 (local.get $stmt))
+      (i32.load offset=12 (local.get $stmt))
+      (local.get $span)))
+
   ;; ─── EffectDeclStmt arm (tag 123) — Phase B.3 ultimate-form ──────
   ;;
   ;; Per src/infer.nx:215-216 + register_effect_ops 2081-2098.
@@ -867,17 +891,12 @@
   ;; The effect-name field on EffectOpScheme is the surface for
   ;; handler-arm matching at handler installation; the wheel's
   ;; row.wat substrate composes on this.
-  (func $infer_walk_stmt_effect_decl
-        (export "infer_walk_stmt_effect_decl")
-        (param $stmt i32) (param $handle i32) (param $span i32)
-    (local $eff_name i32) (local $ops i32) (local $n_ops i32) (local $i i32)
+    (func $infer_register_effect_ops
+        (param $eff_name i32) (param $ops i32) (param $span i32)
+    (local $n_ops i32) (local $i i32)
     (local $op i32) (local $op_name i32) (local $param_tys_parser i32)
     (local $ret_ty_parser i32) (local $param_tys i32) (local $ret_ty i32)
     (local $row_h i32) (local $op_ty i32) (local $scheme i32) (local $reason i32)
-    (drop (local.get $handle))
-    ;; EffectDeclStmt: [tag=123][name][ops]
-    (local.set $eff_name (i32.load offset=4 (local.get $stmt)))
-    (local.set $ops      (i32.load offset=8 (local.get $stmt)))
     (local.set $n_ops (call $len (local.get $ops)))
     (local.set $i (i32.const 0))
     (block $done
@@ -913,6 +932,15 @@
           (call $schemekind_make_effectop (local.get $eff_name)))
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $each))))
+
+  (func $infer_walk_stmt_effect_decl
+        (export "infer_walk_stmt_effect_decl")
+        (param $stmt i32) (param $handle i32) (param $span i32)
+    (drop (local.get $handle))
+    (call $infer_register_effect_ops
+      (i32.load offset=4 (local.get $stmt))
+      (i32.load offset=8 (local.get $stmt))
+      (local.get $span)))
 
   ;; ─── HandlerDeclStmt arm (tag 124) — Phase B.4 ultimate-form ─────
   ;;
