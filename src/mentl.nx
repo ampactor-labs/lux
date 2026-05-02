@@ -122,23 +122,103 @@ handler mentl_default with annotations = [] {
 
 /// Speculative oracle: for each candidate annotation, checkpoint → tentative apply →
 /// run unification → record → rollback. Only PROVEN annotations reach the user.
-/// The trail (graph.nx) makes this O(M) where M = mutations recorded.
+/// The trail (graph.nx) makes the run O(M) where M = mutations recorded.
+///
+/// Returns Option<AnnotationSuggestion> per Hμ.cursor §2 + GR §3.2 (live).
+/// Internally pick_highest_leverage produces Option<(Annotation, Capability)>;
+/// `to_annotation_suggestion` wraps at the boundary with kind / annotation
+/// text / unlocked-capability labels / Reason — the public shape Cursor
+/// reads off CursorView.teach.
 fn gradient_next(handle) = {
   let node = perform graph_chase(handle)
+  let GNode(_, anchor_reason) = node
   let GNode(kind, _) = node
   match kind {
     NBound(ty) => match ty {
-      TFun(params, ret, row) => {
+      TFun(params, _ret, _row) => {
         let base_candidates = [APure(None), ANotAlloc(None), ANotIO(None), ANotNetwork(None)]
         let param_candidates = ownership_candidates(params)
         let all = base_candidates ++ param_candidates
         let proven = try_each_annotation(handle, all, ty)
-        pick_highest_leverage(proven)
+        match pick_highest_leverage(proven) {
+          None => None,
+          Some(pair) => {
+            let (ann, _cap) = pair
+            Some(to_annotation_suggestion(ann, anchor_reason))
+          }
+        }
       },
       _ => None
     },
     _ => None
   }
+}
+
+/// Boundary wrap — (Annotation, Capability) inside the speculative
+/// loop becomes the public AnnotationSuggestion shape Cursor reads.
+/// Per Hμ.cursor §2.1: kind comes from the Annotation tag (drift 8 —
+/// SuggestionKind ADT, never a string flag); annotation text is
+/// `show_annotation`'s residue; unlocks is `capabilities_for_annotation`'s
+/// list (multiple capabilities per annotation, not the lossy single
+/// `unlock_capability`); reason wraps the anchor with Located.
+fn to_annotation_suggestion(ann, anchor_reason) =
+  AnnotationSuggestion(
+    suggestion_kind_of(ann),
+    show_annotation(ann),
+    capability_labels(capabilities_for_annotation(ann)),
+    suggestion_reason(ann, anchor_reason)
+  )
+
+/// Map an Annotation variant to its SuggestionKind axis. Drift 8
+/// closure: SuggestionKind is the tagged dispatch surface; the
+/// match below is the only place the mapping lives.
+fn suggestion_kind_of(ann) with Pure = match ann {
+  APure(_)              => SuggestEffectRow,
+  ANotAlloc(_)          => SuggestEffectRow,
+  ANotIO(_)             => SuggestEffectRow,
+  ANotNetwork(_)        => SuggestEffectRow,
+  ARefined(_, _, _)     => SuggestRefinement,
+  AOwn(_, _)            => SuggestOwnership,
+  ARef(_, _)            => SuggestOwnership,
+  AWrapHandler(_, _, _) => SuggestEffectRow
+}
+
+/// Capability ADT to display label list. Used by AnnotationSuggestion.unlocks.
+/// Composition over `show_capability` (already in mentl.nx).
+fn capability_labels(caps) with Pure =
+  capability_labels_loop(caps, 0, caps.len, make_list(caps.len), 0)
+
+fn capability_labels_loop(caps, i, n, buf, buf_len) with Pure =
+  if i >= n { slice(buf, 0, buf_len) }
+  else {
+    list_set(buf, buf_len, show_capability(list_index(caps, i)))
+    capability_labels_loop(caps, i + 1, n, buf, buf_len + 1)
+  }
+
+/// Suggestion's Reason edge. Wraps the candidate's anchor reason in a
+/// Located/Inferred chain that the Why-tentacle walks. Span comes from
+/// the annotation's source-span field when present (user-originated
+/// candidate), span_zero otherwise (fully internal speculation).
+fn suggestion_reason(ann, anchor) =
+  let span = unwrap_source_span(annotation_source_span(ann))
+  Located(span, Inferred(suggestion_kind_label(suggestion_kind_of(ann))))
+
+fn annotation_source_span(ann) with Pure = match ann {
+  APure(sp)             => sp,
+  ANotAlloc(sp)         => sp,
+  ANotIO(sp)            => sp,
+  ANotNetwork(sp)       => sp,
+  ARefined(_, _, sp)    => sp,
+  AOwn(_, sp)           => sp,
+  ARef(_, sp)           => sp,
+  AWrapHandler(_, _, sp) => sp
+}
+
+fn suggestion_kind_label(k) with Pure = match k {
+  SuggestEffectRow   => "gradient: effect-row tightening",
+  SuggestOwnership   => "gradient: ownership marker",
+  SuggestRefinement  => "gradient: refinement predicate",
+  SuggestReturnType  => "gradient: result-type annotation"
 }
 
 /// Try each candidate: checkpoint → tentative apply → verify → rollback.
