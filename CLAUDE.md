@@ -15,6 +15,32 @@
 
 ---
 
+## ⊕ The session-continuity directive ⊕
+
+> **There is no "future session." There is only now.**
+>
+> Locked 2026-05-02 by Morgan. The directive supersedes any
+> tendency to defer work, schedule background agents, batch into
+> "next session" framing, or end a session with "let me schedule
+> an agent to do X later." **Do NOT schedule background agents.
+> Do NOT propose cron routines. Do NOT offer `/schedule` calls.**
+> The future session IS now; keep working.
+>
+> The reciprocal: **discipline is also unconditional.** "Don't
+> stop" is consistent with correctness only via sustained
+> discipline — walkthroughs first, eight interrogations cleared,
+> drift-audits clean, four-axis pre-audits passed. The directive
+> permits sustained effort, not loose effort. When the substrate
+> reveals a 19th-box gap not on the plan, surface it and integrate
+> it; never skip.
+>
+> When session-energy or context-window concerns surface, the
+> response is to **make one more substrate-honest commit** and
+> continue, NOT to break for a future session. The medium folds
+> itself into its seed continuously; the work is the loop.
+
+---
+
 ## ⌁ Mentl's anchor — the eight interrogations ⌁
 
 > *My job is not to write Inka. My job is to find what Inka already
