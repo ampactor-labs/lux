@@ -280,13 +280,81 @@ linguistically.
 
 ---
 
+## Cursor — Mentl's projection at a position
+
+**Status: LIVE per Hμ.cursor handle (2026-05-02).** See
+`docs/specs/simulations/Hμ-cursor.md` for the walkthrough,
+SUBSTRATE.md §VI "Cursor: The Gradient's Global Argmax" for the
+authority, and `protocol_cursor_is_argmax.md` for the discipline.
+
+**Cursor is Mentl's projection of the live graph for a human at a
+position.** The "eight tentacles" of this spec are eight *aspects of
+one read* at the cursor's position, not eight subsystems that
+coordinate. The graph already carries all eight at every node
+(kernel closure, SUBSTRATE.md §I); `cursor_default` (`src/cursor.nx`)
+composes the eight reads into one `CursorView` record:
+
+| Field | Tentacle | Read from |
+|---|---|---|
+| `query` | Query (#1) | `perform graph_chase(handle)` → `NodeKind` |
+| `propose` | Propose (#2) | `perform synth_propose(...)` |
+| `topology` | Topology (#3) | local helper `pipe_context_of_node` |
+| `row` | Unlock (#4) | local helper `row_of_node` (via TFun row field) |
+| `trace` | Trace (#5) | local helper `ownership_of_node` (TParam.resolved) |
+| `verify` | Verify (#6) | `perform verify_debt()` filtered by handle |
+| `teach` | Teach (#7) | `perform teach_gradient(handle)` (mentl_default arm) |
+| `why` | Why (#8) | `perform teach_why(handle)` (mentl_default arm) |
+
+**`cursor_default` and `mentl_default` are the same projection at
+different abstraction levels.** `mentl_default` surfaces individual
+Teach ops (one tentacle at a time); `cursor_default` composes them
+at a position into one record. The IDE's developer experience IS
+`cursor_default` surfaced through a transport handler
+(Hμ.cursor.transport, peer handle).
+
+**Cursor effect (`src/cursor.nx`):**
+
+```
+effect Cursor {
+  cursor_at(Span) -> CursorView                @resume=OneShot
+  cursor_argmax(Caret) -> Cursor               @resume=OneShot
+  cursor_pinned(Handle) -> Cursor              @resume=OneShot
+}
+```
+
+`cursor_default with !Mutate` proves at compile time that the
+projection cannot corrupt oracle state — exactly the constraint
+`protocol_oracle_is_ic.md` locks for "surfaces query, never write."
+
+**Caret + Cursor must NOT be parallel state.** `Caret(Handle, Reason)`
+is the user's text-attention position (one input). `Cursor(Handle,
+Reason, Float)` is the gradient argmax (the result). Cursor consumes
+Caret as a function parameter; one unified pipeline; no parallel
+"caret_state" + "argmax_state" — drift mode 5 closure.
+
+**`??` is the developer's override of Cursor's auto-argmax.** When
+the developer types `??`, `cursor_pinned(handle)` returns a Cursor
+with sentinel-large impact; `argmax_or_default` always picks the
+pin. Read-mode (cursor at finished code) and write-mode (cursor at
+`??`) are the same machinery with different weight on the cursor's
+chosen slot.
+
+---
+
+
 ## Consumed by
 
 - `std/compiler/pipeline.nx` — installs `mentl_default` at compile
   entry (always active; zero-cost when no teach request is made).
+- `src/cursor.nx` — Hμ.cursor's `cursor_default` composes Teach +
+  Synth + Verify + GraphRead reads through `mentl_default`'s
+  individual ops; the cursor handler is the position-scoped read
+  surface.
 - Arc F.1 `verify_smt` — emits through Mentl for catalog-backed
   diagnostics.
-- Arc F.2 LSP — wraps Mentl tentacles as JSON-RPC methods.
+- Arc F.2 LSP — wraps Mentl tentacles as JSON-RPC methods (and
+  Hμ.cursor.transport routes `cursor_default` through LSP for the
+  IDE's per-cursor projection).
 - `inka query` — every query output routes through Mentl for
   consistent rendering.
 

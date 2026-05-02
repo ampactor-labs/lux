@@ -364,20 +364,42 @@ type Session
   = Session(
       Graph,           // live graph (the program state)
       Env,                  // live env
-      Cursor,               // cursor-of-attention (a Handle)
+      Caret,                // user's text-attention position (was: "Cursor")
       VoiceRing,            // recent VoiceLines (for silence predicate)
       Intents,              // human's declared intents (if any)
       History               // prior Interact ops, bounded
     )
 
-type Cursor
-  = Cursor(Handle, Reason)  // what the human is looking at + why Mentl thinks so
+type Caret
+  = Caret(Handle, Reason)   // what the human is looking at + why Mentl thinks so
 ```
 
-*To resolve: Cursor update discipline. Every `focus` op resets
-it; every `edit` op's mutation site auto-updates it; every `ask`
-op's target auto-updates it. Does `speak` update Cursor? Probably
-not — Mentl shouldn't steal attention.*
+*Cursor update discipline (resolved 2026-05-02 by Hμ.cursor):*
+
+The legacy `Cursor(Handle, Reason)` ADT defined here is **renamed**
+to `Caret(Handle, Reason)` per Hμ.cursor §2.2. Under the live
+ontology (`src/types.nx` Cursor/Caret split):
+
+- **Caret** is the user's text-attention position — one input among
+  many to Cursor's argmax. Updated by every `focus` op (mouse,
+  keyboard, drag-select, arrow keys); every `edit` op's mutation
+  site auto-updates it; every `ask` op's target auto-updates it.
+  `speak` does NOT update Caret — Mentl doesn't steal attention.
+
+- **Cursor** is the gradient's global argmax over the live graph,
+  with Caret as proximity bias. Lives in `src/types.nx` as
+  `Cursor(Handle, Reason, Float)` — the third field is `impact`
+  carrying the argmax score (or sentinel-infinity for `??`-pinned
+  positions). Updated implicitly on every graph delta via
+  `cursor_argmax(caret)` projection.
+
+The `cursor()` op on the `Interact` effect (line 237 below) returns
+the live Cursor — i.e. the gradient argmax filtered through the
+current Caret bias — not just the Caret. The `focus(CursorTarget)`
+op (line 236) updates the Caret; the auto-argmax recomputes against
+the new Caret on the next query. See `src/cursor.nx`'s
+`cursor_default` for the projection handler;
+`docs/SUBSTRATE.md` §VI Cursor subsection for the discipline.
 
 ### Q6. Turn anatomy
 

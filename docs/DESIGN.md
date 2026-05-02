@@ -28,7 +28,12 @@ the vision alone.*
 > eight anchors, the eight interrogations, and the JIT-trigger
 > table; see `docs/SUBSTRATE.md` for the canonical substrate
 > (kernel, verbs, algebra, handlers, gradient, refinement,
-> theorems); see `docs/specs/00–11` for the per-module contracts.
+> theorems); see `docs/specs/00–11` for the per-module contracts;
+> see `docs/ULTIMATE_MEDIUM.md` for the highest-altitude thesis
+> statement (Phase μ anchor) — what Inka IS as a medium between
+> intent and execution, why "ultimate medium" rules out programming
+> languages / IDEs / AI tools, and how the kernel + projection +
+> cursor + loop compose into the thesis made flesh.
 
 ---
 
@@ -1697,21 +1702,40 @@ effects and handlers.**
 
 ---
 
-## 8. Mentl — The Oracle
+## 8. Mentl — The Projection of the Graph for a Human at the Cursor
 
 *The thesis made flesh. Mentl must render all modern agentic coding AI
 obsolete. Through the gradient, the Why Engine, and multi-shot
-speculative search, Mentl is an oracle that PROVES its suggestions —
-not an LLM that guesses. The compiler IS the AI.*
+speculative search, Mentl is the kernel projected for a human — proving
+suggestions structurally, not guessing. The compiler IS the AI.*
 
 Mentl is not a feature of Inka. Mentl is what the substrate *becomes*
-when you project it toward a human. **Eight tentacles, because the
-kernel has eight primitives (§0.5). Each tentacle IS one primitive's
-human-facing projection** — one-to-one, not arbitrary. Octopus
-neurology (distributed cognition over a shared central nervous
-system) matches the architecture because the architecture IS
-distributed cognition: eight tentacles reasoning locally against
-one graph, each surfacing what one primitive wants to say.
+when projected toward a human at a position. **Eight tentacles,
+because the kernel has eight primitives (§0.5). Each tentacle IS one
+primitive's human-facing projection** — one-to-one, not arbitrary.
+The eight are eight *aspects of one read* at the cursor's position,
+not eight subsystems coordinating; the graph already carries all
+eight at every node (kernel closure 2026-04-24, SUBSTRATE.md §I), so
+the tentacles compose in one record (`CursorView` per Hμ.cursor)
+rather than collaborating across modules.
+
+**Mentl IS Cursor IS the gradient argmax IS the graph projected for
+the human.** All four names point to one thing. The Why Engine is
+not an engine — it's the Reason chain, projected. Teach is not a
+system — it's the gradient, projected. Synth is not a separate
+handler — it's Mentl's projection at a `??` position with no
+incumbent. The cursor is **attention**, not text-position; the
+text-caret biases the gradient's argmax via proximity weighting but
+does not define the cursor. See SUBSTRATE.md §VI "Cursor: The
+Gradient's Global Argmax" for the substrate; `src/cursor.nx`
+`cursor_default` for the projection handler;
+`docs/specs/simulations/Hμ-cursor.md` for the walkthrough;
+`protocol_cursor_is_argmax.md` for the discipline.
+
+Octopus neurology (distributed cognition over a shared central
+nervous system) matches the architecture because the architecture IS
+distributed cognition over one read: eight aspects of the same graph
+position projected as one record for the human.
 
 ### The architecture — eight tentacles, one per kernel primitive
 

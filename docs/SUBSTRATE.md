@@ -5,6 +5,7 @@
 **How to read it.** Cursor-adjacent. CLAUDE.md cites sections by name; load only what the cursor needs. Not always-loaded; not Session-Zero-bulk-read. (Insight #15 — MRCR cliff under Opus 4.7+.)
 
 **What lives elsewhere.**
+- Highest-altitude thesis: `docs/ULTIMATE_MEDIUM.md` (Phase μ anchor)
 - Manifesto / vision: `docs/DESIGN.md`
 - Discipline crystallizations: `/home/suds/.claude/projects/-home-suds-Projects-inka/memory/protocol_*.md`
 - Per-handle design walkthroughs: `docs/specs/simulations/`
@@ -955,6 +956,94 @@ kernel primitives. The visual signal "this is where the gradient
 asks the question" reinforces the substrate role: an empty socket
 waiting to be filled, with eight tentacles' worth of proof-search
 behind every candidate.
+
+---
+
+
+### Cursor: The Gradient's Global Argmax
+
+*2026-05-02. Crystallized at the Hμ.cursor handle authoring — the
+opening handle of Phase μ (Mentl active-surface composition).*
+
+Cursor is **not** the developer's text-caret position. Cursor is
+**attention** — the locus where impact-per-next-action is highest
+across the entire live graph at the moment of query. The text-caret
+is one weighted input (proximity bias) to that locus, not its
+definition.
+
+**One projection, eight aspects.** When asked "what should I see at
+the cursor's position?", the kernel already has all eight answers:
+graph node + handler candidates + topology + effect row + ownership
++ refinement + gradient next-step + Reason chain. The Cursor handler
+*reads* these from existing substrate and composes them into one
+`CursorView` record (`src/types.nx` Cursor + CursorView + Annotation-
+Suggestion + SuggestionKind + PipeContext additions per Hμ.cursor
+landing). There is no new computation; the graph carries all eight
+at every node.
+
+**Therefore Mentl is not a separate system.** Mentl IS the graph
+projected for a human at the cursor. The "eight tentacles" are eight
+aspects of one read, not eight subsystems coordinating. The Why
+Engine is not an engine — it's the Reason chain, projected. Teach
+is not a system — it's the gradient, projected. Synth is not a
+separate handler — it's Mentl's projection at a `??` position with
+no incumbent.
+
+**Mentl IS Cursor IS the gradient argmax IS the graph projected for
+the human.** All four names point to one thing. Eight tentacles is
+eight aspects of one read because the graph carries all eight at
+every node (kernel closure, §I).
+
+**Argmax with caret bias.** When the developer rewrites Module A and
+saves, the gradient's argmax may land in Module C because some `f`
+there just became provably `Pure`. The user's text-caret is still in
+Module A. Cursor moves to Module C automatically, surfaces the
+proposal with the Reason chain walking back to A's deletion. The
+developer accepts/defers/rejects without ever opening Module C's
+tab. **The bus-compressor topology at the human-medium boundary:**
+the graph is IC-live (the bus); the gradient is the response curve;
+the caret + argmax + acceptance is the feedback loop (`<~` applied
+at the editing layer); each keystroke shapes the next argmax; the
+developer is mixing into the bus.
+
+**`??` is the developer's override of Cursor's auto-argmax.** When
+the developer types `??`, they pin the cursor to that slot; the
+gradient's auto-argmax is suppressed for that position
+(implementation: sentinel-large impact; `argmax_or_default` always
+picks the pin). Read-mode (cursor at finished code, gradient
+proposes alternatives) and write-mode (cursor at `??`, gradient
+proposes from constraint space alone) are the **same machinery with
+different weight on the cursor's chosen slot** — exactly per the
+Hole subsection above.
+
+**Caret + Cursor must NOT be parallel state (drift 5 closure).**
+`Caret(Handle, Reason)` is the user's text-attention position — one
+input. `Cursor(Handle, Reason, Float)` is the gradient argmax — the
+result. Cursor *consumes* Caret as a function parameter (`cursor_argmax(caret)
+-> Cursor`). One unified pipeline; no parallel
+"caret_state" + "argmax_state" record.
+
+**Substrate consequence.** `src/cursor.nx` (Hμ.cursor) lands the
+`Cursor` effect (three ops: `cursor_at`, `cursor_argmax`,
+`cursor_pinned`) and the `cursor_default` handler with `with !Mutate`
+(read-only — surfaces query, never corrupts oracle state per
+`protocol_oracle_is_ic.md`). The handler composes the existing eight
+tentacle reads via `perform graph_chase` + `perform synth_propose` +
+`perform teach_gradient` + `perform teach_why` + `perform verify_debt`
++ small local helpers for ownership / pipe-context / row extraction.
+Zero new effects beyond `Cursor` itself; zero new ADTs beyond the
+five in types.nx; the eight reads are what the graph already
+exposes. See `docs/specs/simulations/Hμ-cursor.md` for the
+walkthrough and `protocol_cursor_is_argmax.md` for the discipline
+crystallization.
+
+**Surfacing cadence is handler-decided.** IC re-evaluation is
+continuous (the graph stays live). Cursor argmax is pure on graph
+delta. *Surfacing* (telling the human) is a transport handler choice:
+real-time / idle-debounced (~250ms default) / on-save / on-explicit-
+ask. Same kernel; four handler variants; user picks via configuration
+which transport handler is installed. Inka solves Inka's UX-tradeoff
+problem through handler-swap.
 
 ---
 

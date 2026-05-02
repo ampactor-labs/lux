@@ -89,7 +89,17 @@ documentation because Mentl IS the documentation surface.
    per cursor through the silence-gated `voice_lines_for(situation)`
    projection (D.1.e LOWER LAYER, commit `8e490d8`). Every cursor
    movement updates every tentacle; what surfaces depends only on
-   what the substrate proves at that position.
+   what the substrate proves at that position. **Substrate per
+   Hμ.cursor (2026-05-02):** `cursor_default`'s `CursorView` IS the
+   eight-tentacle read at a position — `query` + `propose` +
+   `topology` + `row` + `trace` + `verify` + `teach` + `why` as one
+   record (`src/types.nx` CursorView; `src/cursor.nx`
+   `cursor_default` handler). `voice_lines_for` is a render handler
+   over CursorView; the IDE's per-cursor projection is
+   Hμ.cursor.transport routing `cursor_default` through the
+   browser-WASM transport. Cursor is attention not text-caret —
+   the text-caret biases the argmax via proximity weighting per
+   SUBSTRATE.md §VI "Cursor: The Gradient's Global Argmax."
 
 **Why other editors stay first-class peers:** per CLAUDE.md anchor +
 DESIGN §0.5 primitive #2 — every transport is a handler. Vim users

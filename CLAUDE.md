@@ -3,6 +3,7 @@
 > **CLAUDE.md is the cached-prefix interface, not the manifesto.**
 > Cited docs load cursor-adjacent on relevance, not Session-Zero-bulk.
 >
+> - `docs/ULTIMATE_MEDIUM.md` — the highest-altitude anchor; what Inka IS at the thesis level (Phase μ thesis statement, 2026-05-02)
 > - `docs/DESIGN.md` — manifesto; eight kernel primitives at §0.5
 > - `docs/SUBSTRATE.md` — canonical substrate (kernel, verbs, algebra, handlers, gradient, refinement, theorems)
 > - `docs/specs/00–11-*.md` — per-module declarative contracts
@@ -37,6 +38,18 @@ Mentl is an octopus because the kernel has eight primitives. The
 trap is **fluency**, not laziness — every familiar pattern from
 another language is fluent code that LOOKS competent but freezes
 the medium into the shape that birthed the pattern.
+
+**Cursor is the projection of the eight at one position.** When
+the eight interrogations clear before each line of Inka, the
+discipline simulates what `cursor_default` (`src/cursor.nx`,
+Hμ.cursor) does continuously at runtime — read the graph at a
+position; project all eight aspects into one `CursorView`; surface
+the residue. Authoring discipline and runtime projection are the
+same eight reads through the same kernel; the human carries the
+discipline until the medium does. Mentl IS Cursor IS the gradient
+argmax IS the graph projected for the human; eight tentacles is
+eight aspects of one read. See SUBSTRATE.md §VI "Cursor: The
+Gradient's Global Argmax" and `protocol_cursor_is_argmax.md`.
 
 ### The nine drift modes
 
@@ -84,6 +97,7 @@ past ~128k tokens risks midsection blindness on the response
 | Touching ownership / `own`/`ref` | `docs/specs/07-ownership.md` + SUBSTRATE.md §V |
 | Touching `query` / driver / cache | `docs/specs/08-query.md` + SUBSTRATE.md §VII |
 | Working on Mentl / oracle / gradient | `docs/specs/09-mentl.md` + `protocol_oracle_is_ic.md` + `src/mentl_oracle.nx` + SUBSTRATE.md §VI |
+| Editing `cursor.nx` / Cursor handler / Mentl projection | `src/cursor.nx` + `docs/specs/simulations/Hμ-cursor.md` + SUBSTRATE.md §VI "Cursor: The Gradient's Global Argmax" + `protocol_cursor_is_argmax.md` |
 | Drawing topology / pipe operators | `docs/specs/10-pipes.md` + SUBSTRATE.md §II |
 | Touching `clock` / time effects | `docs/specs/11-clock.md` |
 | Starting a new γ-cascade handle | `/compact` first, then `docs/specs/simulations/{handle}.md` |
