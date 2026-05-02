@@ -102,6 +102,7 @@ past ~128k tokens risks midsection blindness on the response
 | Touching `clock` / time effects | `docs/specs/11-clock.md` |
 | Starting a new γ-cascade handle | `/compact` first, then `docs/specs/simulations/{handle}.md` |
 | Substrate-architecture realization brewing | `protocol_realization_loop.md` (5-step recipe) |
+| Working on Phase H first-light-L1 closure (`inka2.wat == inka3.wat`) | `docs/specs/simulations/PLAN-to-first-light.md` (18-box trackable plan) + `Hβ-first-light-residue.md` (cascade decomposition) + `Hβ-first-light-empirical.md` (empirical seed-state — REQUIRED before substrate authoring) |
 
 **Synthesis at session start:** 3–5 sentences in Inka's vocabulary
 touching all eight kernel primitives by name or consequence.
@@ -124,6 +125,8 @@ Omitted primitives = under-loaded register.
 | "Mode 0 / 1 / 2" / "flag for shape" | Drift 8 | Convert to ADT |
 | "Vtable" / "dispatch table" any layer | Drift 1 | The word never appears in correct Inka dispatch |
 | `_ => <fabricated value>` over a load-bearing ADT | — | Convert to explicit enumeration. Safe `_`: `()`, `0`, identity-preserve, `type_mismatch(...)`. Dangerous: any fabricated value (`_ => Forall([], TVar(handle))`, `_ => "Pure"`) |
+| "Per the chunk-header named follow-up, X is a stub" | Anchor 7 | Empirically verify before authoring. Named follow-ups can be stale (substrate landed, comment unchanged). Run a 5-line micro-test through the seed; trust evidence over comment. See `Hβ-first-light-empirical.md`. |
+| "Cascade decomposes into N speculative handles" | Anchor 7 + `protocol_walkthrough_pre_audit.md` | Verification-pass FIRST: ~5-min micro-test per handle distinguishes closed-vs-real before walkthrough authoring. 12 walkthroughs against stale state costs more than 1 hour of empirical pre-audit. |
 
 ---
 
@@ -238,12 +241,23 @@ translator is deleted. Live sequencing: `ROADMAP.md`.
 **Cascade state.** γ approach (γ = handle-graph). Landed: Σ (SYNTAX),
 Ω.0–Ω.5, H6, H3, H3.1, H2, HB, H1 substrate, H4 substrate, H2.3,
 **Hβ.infer cascade CLOSED** (11/11 chunks; commit `b6e1f23` 2026-04-27),
-**Hβ.lower cascade CLOSED** (11/11 chunks; commit `c53904d` 2026-04-28).
-Active: **Hβ.emit cascade** (next walkthrough Hβ-emit-substrate.md TBD;
-unlocks emit consuming LowExpr per Hβ-lower §9.2; gates first-light-L1).
-Pipeline-wire follow-up dual-gated on emit-extension + bump-allocator-
-pressure substrate (per ba327c9 substrate-honesty audit). Then
-H1.4/H1.6, H4 sweeps, H5 (Mentl's arms).
+**Hβ.lower cascade CLOSED** (11/11 chunks; commit `c53904d` 2026-04-28),
+**Hβ.emit cascade CLOSED** (chunks #1-#8 + handler-fnref + module-wrap;
+ROADMAP §Phase D-F), **Hβ.infer.pipeline-wire CLOSED** (commit `fe5e944`;
+`fn main(x) = x` compiles end-to-end through full pipeline),
+**Hμ.cursor wheel-side CLOSED** (Phase μ opening; 7 commits ending
+`9f6b616`, 2026-05-02; `src/cursor.nx` + ULTIMATE_MEDIUM thesis).
+Active: **Phase H first-light-L1** — `inka2.wat == inka3.wat` byte-for-
+byte. Empirical state per `Hβ-first-light-empirical.md` (commit
+`6a5a64b`, 2026-05-02): seed compiles many wheel constructs already;
+chunk-header named follow-ups partially stale; ~3-5 specific real bugs
+remain (constructor-call literal-arg emit; nullary-ctor type-flow in
+CallExpr context; possibly float-substrate; possibly effect/handler-
+decl). Cursor of attention: empirical verification-pass per
+`Hβ-first-light-empirical.md` §2.1 BEFORE substrate authoring; then
+land the empirically-real handles only. After L1 closure, Tier 3
+unlocks Hμ.cursor.seed + every Phase μ peer handle's `.seed` variant
+automatically (per Hβ-bootstrap.md §12.5 + ROADMAP Phase μ).
 
 **Build commands** (when bootstrap translator exists):
 
