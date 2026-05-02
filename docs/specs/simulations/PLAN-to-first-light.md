@@ -526,25 +526,34 @@ invokes `protocol_realization_loop.md` 5-step recovery. No shortcut.
 This document tracks live progress. Each commit closing a handle
 checks its box and pushes the cursor forward.
 
-**Phase H.1 — Inference completeness (3/3 to land)**
-- [ ] H.1.a Hβ.first-light.infer-typedef-ctors
-- [ ] H.1.b Hβ.first-light.infer-effect-ops
-- [ ] H.1.c Hβ.first-light.infer-handler-decls
+**Phase H.1 — Inference completeness (3/3)**
+- [x] H.1.a Hβ.first-light.infer-typedef-ctors — *VERIFIED ALREADY-CLOSED 2026-05-02; walk_stmt.wat:818-874 implemented; chunk-header named follow-up was stale*
+- [ ] H.1.b Hβ.first-light.infer-effect-ops — *partial: walk_stmt.wat:899-948 implements registration; verify cross-module env composition*
+- [ ] H.1.c Hβ.first-light.infer-handler-decls — *partial seed-stub at walk_stmt.wat:966*
 
-**Phase H.2 — Lower completeness (5/5 to land)**
+**Phase H.2 — Lower completeness (5/5)**
 - [ ] H.2.a Hβ.first-light.lower-letstmt-destructure
-- [ ] H.2.b Hβ.first-light.lower-match-arms
+- [ ] H.2.b Hβ.first-light.lower-match-arms — *VERIFIED ALREADY-CLOSED; match arms compile to real WAT*
 - [ ] H.2.c Hβ.first-light.lower-handler-arm-decls
-- [ ] H.2.d Hβ.first-light.lower-blockexpr-stmts
-- [ ] H.2.e Hβ.first-light.lower-lambda-capture
+- [ ] H.2.d Hβ.first-light.lower-blockexpr-stmts — *VERIFIED ALREADY-CLOSED; block let-bindings compile correctly*
+- [ ] H.2.e Hβ.first-light.lower-lambda-capture — *parser-side closed below; capture-substrate remains*
 
-**Phase H.3 — Emit completeness (3/3 to land)**
-- [ ] H.3.a Hβ.first-light.emit-match-pattern
+**Phase H.3 — Emit completeness (3/3)**
+- [ ] H.3.a Hβ.first-light.emit-match-pattern — *VERIFIED ALREADY-CLOSED; match emit produces real sentinel/heap dispatch*
 - [ ] H.3.b Hβ.first-light.emit-float-substrate
 - [ ] H.3.c Hβ.first-light.emit-list-runtime-call
 
-**Phase H.4 — First-light fixpoint harness (1/1 to land)**
+**Phase H.4 — First-light fixpoint harness (1/1)**
 - [ ] H.4 Hβ.first-light.fixpoint-harness
+
+**Empirically-discovered NEW boxes (added to plan post-Hμ.cursor)**
+- [x] Hβ.first-light.lambda-parser — *(commit `c28c525`) `(params) => body` parsing per SYNTAX.md §234-260; mk_LambdaExpr + exprs_to_tparams + paren-form detection*
+- [x] Hβ.first-light.varref-schemekind-dispatch — *(commit `12cfcac`) ctor calls now emit LMakeVariant via env_binding_kind ConstructorScheme triage in $lower_call*
+- [x] Hβ.first-light.wheel-brace-discipline — *(commit `07a2a99`) types.nx span_join/span_valid/span_contains brace-aligned to SYNTAX.md §126-142; more wheel files remain*
+- [ ] Hβ.first-light.lambda-body-fn-emit — closures lower to LMakeClosure but body fn isn't yet emitted at module level
+- [ ] Hβ.first-light.lmakevariant-literal-args — VERIFIED CLOSED via varref-schemekind-dispatch
+- [ ] Hβ.first-light.nullary-ctor-call-context — type-flow for nullary ctors as call args
+- [ ] Hβ.first-light.import-resolution — cross-module env composition
 
 **Tier 3 — Wheel growth post-L1 (6 handles automatic)**
 - [ ] T3.a Hμ.cursor.seed
