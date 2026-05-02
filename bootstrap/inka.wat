@@ -5138,6 +5138,21 @@
               (then (local.set $p3 (call $skip_ws_p (local.get $tokens)
                 (i32.add (local.get $p3) (i32.const 1))))))
             (br $elems)))
+        ;; Tuple form complete. BEFORE returning MakeTupleExpr,
+        ;; check for trailing `=>`: if present, this was a multi-
+        ;; param lambda `(x, y, ...) => body` per SYNTAX.md.
+        ;; Drift 6 closure: same TFatArrow detection as the single-
+        ;; param case; one mechanism, two arities.
+        (if (call $at (local.get $tokens)
+                      (call $skip_ws_p (local.get $tokens)
+                            (i32.add (local.get $p3) (i32.const 1)))
+                      (i32.const 35))
+          (then
+            (return (call $parse_lambda_from_paren_multi
+                           (local.get $tokens)
+                           (call $slice (local.get $buf) (i32.const 0) (local.get $count))
+                           (i32.add (local.get $p3) (i32.const 1))
+                           (local.get $span)))))
         ;; MakeTupleExpr
         (local.set $tup (call $make_list (i32.const 2)))
         (drop (call $list_set (local.get $tup) (i32.const 0)
@@ -5147,11 +5162,185 @@
         (drop (call $list_set (local.get $tup) (i32.const 1)
           (i32.add (local.get $p3) (i32.const 1))))
         (return (local.get $tup))))
-    ;; Single parenthesized expression
+    ;; Single parenthesized expression — but FIRST check for lambda
+    ;; form (params) => body per SYNTAX.md §234-260.
+    ;; Per Hβ.first-light.lambda-parser (2026-05-02): the canonical
+    ;; lambda form is `(params) => body`; if `=>` follows the `)`,
+    ;; the contents of the parens are PARAMS, not an expression. The
+    ;; lambda subsumes the parenthesized-expr case (drift mode 6
+    ;; closure: no special-case for "lambda-shape parens vs
+    ;; expression-shape parens"; the trailing TFatArrow drives
+    ;; classification uniformly).
+    (local.set $p3 (call $expect (local.get $tokens) (local.get $p2) (i32.const 46)))
+    ;; $p3 now points past `)`. Peek: is the next non-ws token TFatArrow (35)?
+    (if (call $at (local.get $tokens)
+                  (call $skip_ws_p (local.get $tokens) (local.get $p3))
+                  (i32.const 35))
+      (then
+        (return (call $parse_lambda_from_paren_single
+                       (local.get $tokens) (local.get $first)
+                       (local.get $p3) (local.get $span)))))
     (local.set $tup (call $make_list (i32.const 2)))
     (drop (call $list_set (local.get $tup) (i32.const 0) (local.get $first)))
-    (drop (call $list_set (local.get $tup) (i32.const 1)
-      (call $expect (local.get $tokens) (local.get $p2) (i32.const 46))))
+    (drop (call $list_set (local.get $tup) (i32.const 1) (local.get $p3)))
+    (local.get $tup))
+
+  ;; ─── Lambda construction — (params) => body per SYNTAX.md ──────────
+  ;;
+  ;; Eight interrogations on this edit site:
+  ;;
+  ;; 1. Graph?      LambdaExpr (tag 89) is an existing graph-AST node;
+  ;;                $infer_walk_expr_lambda + $lower_lambda already
+  ;;                consume it. The parser's job is to produce nodes
+  ;;                downstream consumes.
+  ;; 2. Handler?    @resume=OneShot — parsing is a OneShot return;
+  ;;                no continuation captured.
+  ;; 3. Verb?       Lambda is a value-producing expression; primary-
+  ;;                expression position. No pipe-verb here.
+  ;; 4. Row?        Pure parse function; no effects performed.
+  ;; 5. Ownership?  $tokens is read-only; $params/$body owned forward
+  ;;                into the constructed LambdaExpr.
+  ;; 6. Refinement? span is a ValidSpan from caller; $params each carry
+  ;;                non-null name; $body is a valid Node.
+  ;; 7. Gradient?   No annotations needed; parser produces canonical
+  ;;                shape that downstream inference + lower consume.
+  ;; 8. Reason?     LambdaExpr's span IS the Located reason source
+  ;;                for downstream; no Reason edges constructed here.
+  ;;
+  ;; Forbidden patterns (drift modes refused):
+  ;; - Drift 1 (vtable):   No dispatch; direct constructor.
+  ;; - Drift 6 (special):  Single-elem and multi-elem (tuple) param
+  ;;                       cases handled UNIFORMLY: both call
+  ;;                       $convert_exprs_to_tparams over a list.
+  ;; - Drift 8 (string):   TFatArrow is i32 token-kind (35), not a
+  ;;                       string compare.
+  ;; - Drift 9 (deferred): Lambda body parsed via $parse_expr (handles
+  ;;                       both single-expression and brace-block via
+  ;;                       parse_primary's TLBrace route). No "later"
+  ;;                       handler.
+
+  ;; LambdaExpr(params, body) → [tag=89][params][body] — constructor.
+  ;; Layout per parser_infra.wat conventions; offsets 0/4/8.
+  (func $mk_LambdaExpr (param $params i32) (param $body i32) (result i32)
+    (local $p i32)
+    (local.set $p (call $alloc (i32.const 12)))
+    (i32.store (local.get $p) (i32.const 89))
+    (i32.store offset=4 (local.get $p) (local.get $params))
+    (i32.store offset=8 (local.get $p) (local.get $body))
+    (local.get $p))
+
+  ;; Convert one VarRef Node into a TParam — for lambda param-list
+  ;; construction. Each paren-expression that turns out to be a
+  ;; lambda-param must be a VarRef whose name becomes the TParam's
+  ;; name. Type defaults to TyVar(fresh) per SYNTAX.md "type
+  ;; annotations are reserved for Intent Boundaries"; ownership
+  ;; defaults to Inferred. Per drift mode 6 closure: no special-
+  ;; case for ownership; everything is Inferred at parse-time, and
+  ;; refined later through the gradient.
+  (func $convert_var_ref_to_tparam (param $node i32) (result i32)
+    (local $body i32) (local $expr i32) (local $name i32)
+    ;; Node layout per parser_infra.wat:31-39:
+    ;;   [tag=0][body][span][handle] — body at offset 4.
+    ;; NodeBody for NExpr per parser_infra.wat:41-47:
+    ;;   [tag=110][expr] — expr at offset 4.
+    ;; VarRef per src/parser.nx + seed parser:
+    ;;   [tag=85][name] — name at offset 4.
+    (local.set $body (i32.load offset=4 (local.get $node)))
+    ;; If NodeBody is NExpr (tag 110), unwrap to inner expr.
+    (if (i32.eq (i32.load (local.get $body)) (i32.const 110))
+      (then
+        (local.set $expr (i32.load offset=4 (local.get $body))))
+      (else
+        ;; Non-NExpr NodeBody — shouldn't happen for parens contents
+        ;; in well-formed source, but stay drift-honest with fallback.
+        (local.set $expr (local.get $body))))
+    ;; Inner expr should be VarRef (tag 85) for well-formed lambda
+    ;; param; if not, fall back to empty-string name.
+    (if (i32.eq (i32.load (local.get $expr)) (i32.const 85))
+      (then
+        (local.set $name (i32.load offset=4 (local.get $expr))))
+      (else
+        (local.set $name (call $str_alloc (i32.const 0)))))
+    ;; TParam(name, TyVar(fresh), Inferred=170)
+    (call $mk_TParam
+      (local.get $name)
+      (call $mk_TyVar (call $fresh_handle))
+      (i32.const 170)))
+
+  ;; Convert a list of expression Nodes into a TParam list.
+  ;; Single-paren form passes a 1-element list synthesized by the
+  ;; caller; tuple form would pass the buffer's elements.
+  (func $exprs_to_tparams (param $exprs i32) (result i32)
+    (local $n i32) (local $i i32) (local $out i32) (local $node i32)
+    (local.set $n (call $len (local.get $exprs)))
+    (local.set $out (call $list_extend_to
+      (call $make_list (i32.const 0))
+      (local.get $n)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $node (call $list_index (local.get $exprs) (local.get $i)))
+        (drop (call $list_set (local.get $out) (local.get $i)
+          (call $convert_var_ref_to_tparam (local.get $node))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each)))
+    (local.get $out))
+
+  ;; Lambda from multi-paren `(x, y, ...) => body`. Caller has
+  ;; already parsed the comma-separated expression list into $exprs
+  ;; and advanced to $past_rparen = position past `)`. Each expr
+  ;; must be a VarRef for well-formed lambda; convert to TParam
+  ;; list and parse body.
+  (func $parse_lambda_from_paren_multi
+        (param $tokens i32) (param $exprs i32) (param $past_rparen i32) (param $span i32)
+        (result i32)
+    (local $p4 i32) (local $body_r i32) (local $body i32) (local $p5 i32)
+    (local $params i32) (local $tup i32)
+    (local.set $p4 (call $expect (local.get $tokens)
+                          (call $skip_ws_p (local.get $tokens) (local.get $past_rparen))
+                          (i32.const 35)))
+    (local.set $body_r (call $parse_expr (local.get $tokens)
+                              (call $skip_ws_p (local.get $tokens) (local.get $p4))))
+    (local.set $body (call $list_index (local.get $body_r) (i32.const 0)))
+    (local.set $p5   (call $list_index (local.get $body_r) (i32.const 1)))
+    (local.set $params (call $exprs_to_tparams (local.get $exprs)))
+    (local.set $tup (call $make_list (i32.const 2)))
+    (drop (call $list_set (local.get $tup) (i32.const 0)
+      (call $nexpr (call $mk_LambdaExpr (local.get $params) (local.get $body))
+                   (local.get $span))))
+    (drop (call $list_set (local.get $tup) (i32.const 1) (local.get $p5)))
+    (local.get $tup))
+
+  ;; Lambda from single-paren `(x) => body`. Caller already parsed
+  ;; the inner expression as $first (which must be a VarRef for
+  ;; well-formed lambdas) and advanced to $p3 = position past `)`.
+  ;; Now consume `=>` + parse body.
+  (func $parse_lambda_from_paren_single
+        (param $tokens i32) (param $first i32) (param $p3 i32) (param $span i32)
+        (result i32)
+    (local $p4 i32) (local $body_r i32) (local $body i32) (local $p5 i32)
+    (local $exprs i32) (local $params i32) (local $tup i32)
+    ;; Consume the TFatArrow.
+    (local.set $p4 (call $expect (local.get $tokens)
+                          (call $skip_ws_p (local.get $tokens) (local.get $p3))
+                          (i32.const 35)))
+    ;; Parse body.
+    (local.set $body_r (call $parse_expr (local.get $tokens)
+                              (call $skip_ws_p (local.get $tokens) (local.get $p4))))
+    (local.set $body (call $list_index (local.get $body_r) (i32.const 0)))
+    (local.set $p5   (call $list_index (local.get $body_r) (i32.const 1)))
+    ;; Wrap $first in a 1-element list; convert to TParam list.
+    (local.set $exprs (call $list_extend_to
+      (call $make_list (i32.const 0)) (i32.const 1)))
+    (drop (call $list_set (local.get $exprs) (i32.const 0) (local.get $first)))
+    (local.set $params (call $exprs_to_tparams (local.get $exprs)))
+    ;; Build (LambdaExpr, p5).
+    (local.set $tup (call $make_list (i32.const 2)))
+    (drop (call $list_set (local.get $tup) (i32.const 0)
+      (call $nexpr (call $mk_LambdaExpr (local.get $params) (local.get $body))
+                   (local.get $span))))
+    (drop (call $list_set (local.get $tup) (i32.const 1) (local.get $p5)))
     (local.get $tup))
 
   ;; MakeTupleExpr(elems) → [tag=97][elems]
@@ -11645,20 +11834,51 @@
         (param $expr i32) (param $handle i32) (param $span i32)
         (result i32)
     (local $body_node i32) (local $bh i32)
-    (local $row_h i32) (local $params i32)
+    (local $row_h i32) (local $params_parser i32)
+    (local $tparam_list i32) (local $param_handles i32)
+    (local $n_params i32) (local $i i32) (local $param i32)
+    (local $param_name i32) (local $param_h i32)
     ;; Layout: [tag=89][params][body]
-    (drop (i32.load offset=4 (local.get $expr)))   ;; params (Hβ.infer.lambda-params)
+    (local.set $params_parser (i32.load offset=4 (local.get $expr)))
     (local.set $body_node (i32.load offset=8 (local.get $expr)))
     (call $env_scope_enter)
+
+    (local.set $n_params (call $len (local.get $params_parser)))
+    (local.set $param_handles (call $make_list (i32.const 0)))
+    (local.set $param_handles (call $list_extend_to (local.get $param_handles) (local.get $n_params)))
+    (local.set $i (i32.const 0))
+    (block $params_done
+      (loop $each_param
+        (br_if $params_done (i32.ge_u (local.get $i) (local.get $n_params)))
+        (local.set $param (call $list_index (local.get $params_parser) (local.get $i)))
+        (local.set $param_name (i32.load offset=4 (local.get $param)))
+        (local.set $param_h (call $graph_fresh_ty
+          (call $reason_make_located (local.get $span)
+            (call $reason_make_inferred (i32.const 4056)))))   ;; "param"
+        (drop (call $list_set (local.get $param_handles) (local.get $i) (local.get $param_h)))
+        (call $env_extend
+          (local.get $param_name)
+          (call $scheme_make_forall
+            (call $make_list (i32.const 0))
+            (call $ty_make_tvar (local.get $param_h)))
+          (call $reason_make_located
+            (local.get $span)
+            (call $reason_make_declared (local.get $param_name)))
+          (call $schemekind_make_fn))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each_param)))
+
+    (local.set $tparam_list (call $walk_expr_build_inferred_params (local.get $param_handles)))
+
     (local.set $row_h (call $graph_fresh_row
       (call $reason_make_inferred (i32.const 3984))))   ;; "lambda"
     (call $walk_expr_inf_enter_fn (local.get $row_h) (local.get $span))
     (local.set $bh (call $infer_walk_expr (local.get $body_node)))
     (call $walk_expr_inf_exit_fn)
-    (local.set $params (call $make_list (i32.const 0)))
+
     (call $graph_bind (local.get $handle)
       (call $ty_make_tfun
-        (local.get $params)
+        (local.get $tparam_list)
         (call $ty_make_tvar (local.get $bh))
         (local.get $row_h))
       (call $reason_make_located (local.get $span)
@@ -13049,31 +13269,39 @@
     (call $graph_bind (local.get $handle) (local.get $fn_ty)
                       (local.get $reason))
     ;; Pre-registered fn_ty is fully polymorphic — quantify over every
-    ;; fresh handle so each call site instantiates fresh TVars rather
+    ;; fresh TY handle so each call site instantiates fresh TVars rather
     ;; than mutating the placeholder. Mirrors generalize() at fn-stmt
     ;; exit; here the body hasn't walked yet so the quantifier is
-    ;; literally [param_handles..., ret_h, row_h].
+    ;; [param_handles..., ret_h]. row_h stays OUT of the quantifier
+    ;; list — it is a NRowFree-tagged handle, not NFree, and feeding it
+    ;; through $build_inst_mapping → $graph_fresh_ty produces a
+    ;; cross-category handle reuse (row slot minted as TY-fresh) that
+    ;; corrupts later chase. Row generalization is the named follow-up
+    ;; Hβ.infer.row-normalize; until it ships, the seed pins row.
+    ;; Wheel canonical: src/infer.nx:96-149 + 1818-1834.
     (call $env_extend
       (local.get $name)
       (call $scheme_make_forall
         (call $infer_pre_register_quantifier
-          (local.get $param_handles) (local.get $ret_h) (local.get $row_h))
+          (local.get $param_handles) (local.get $ret_h))
         (local.get $fn_ty))
       (local.get $reason)
       (call $schemekind_make_fn)))
 
-  ;; $infer_pre_register_quantifier: cons each param handle, ret handle,
-  ;; and row handle into one List<i32>. Quantifying over all of them
-  ;; means every call-site instantiation produces fresh TVars per the
-  ;; Forall→fresh-substitution discipline of $instantiate.
+  ;; $infer_pre_register_quantifier: cons each param handle and ret
+  ;; handle into one List<i32>. Quantifying over them means every
+  ;; call-site instantiation produces fresh TVars per the Forall →
+  ;; fresh-substitution discipline of $instantiate. Row position is
+  ;; pinned (kept verbatim through ty_substitute) and quantified
+  ;; separately when row.wat substrate ships.
   (func $infer_pre_register_quantifier
-        (param $param_handles i32) (param $ret_h i32) (param $row_h i32)
+        (param $param_handles i32) (param $ret_h i32)
         (result i32)
     (local $n i32) (local $out i32) (local $i i32)
     (local.set $n (call $len (local.get $param_handles)))
     (local.set $out
       (call $list_extend_to (call $make_list (i32.const 0))
-                            (i32.add (local.get $n) (i32.const 2))))
+                            (i32.add (local.get $n) (i32.const 1))))
     (local.set $i (i32.const 0))
     (block $copy_done
       (loop $copy
@@ -13083,9 +13311,6 @@
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $copy)))
     (drop (call $list_set (local.get $out) (local.get $n) (local.get $ret_h)))
-    (drop (call $list_set (local.get $out)
-                          (i32.add (local.get $n) (i32.const 1))
-                          (local.get $row_h)))
     (local.get $out))
 
   (func $infer_pre_register_stmt (param $node i32)
@@ -13101,6 +13326,25 @@
     (if (i32.eq (local.get $tag) (i32.const 121))
       (then
         (call $infer_pre_register_fn_sig
+          (local.get $stmt) (local.get $handle) (local.get $span))
+        (return)))
+    (if (i32.eq (local.get $tag) (i32.const 122))
+      (then
+        (call $infer_register_typedef_ctors
+          (i32.load offset=4 (local.get $stmt))
+          (i32.load offset=12 (local.get $stmt))
+          (local.get $span))
+        (return)))
+    (if (i32.eq (local.get $tag) (i32.const 123))
+      (then
+        (call $infer_register_effect_ops
+          (i32.load offset=4 (local.get $stmt))
+          (i32.load offset=8 (local.get $stmt))
+          (local.get $span))
+        (return)))
+    (if (i32.eq (local.get $tag) (i32.const 124))
+      (then
+        (call $infer_walk_stmt_handler_decl
           (local.get $stmt) (local.get $handle) (local.get $span))
         (return)))
     (if (i32.eq (local.get $tag) (i32.const 128))
@@ -13454,19 +13698,15 @@
   ;; False are nullary variants under `type Bool = False | True` per
   ;; types.nx:32 — they get ConstructorScheme(0, 2) and (1, 2) just like
   ;; any other ADT's nullary variants.
-  (func $infer_walk_stmt_typedef
-        (export "infer_walk_stmt_typedef")
-        (param $stmt i32) (param $handle i32) (param $span i32)
-    (local $type_name i32) (local $variants i32) (local $total i32)
+    (func $infer_register_typedef_ctors
+        (param $type_name i32) (param $variants i32) (param $span i32)
+    (local $total i32)
     (local $tag_id i32) (local $variant i32)
     (local $vname i32) (local $field_tys_parser i32)
     (local $field_tys i32) (local $field_count i32)
     (local $result_ty i32) (local $ctor_ty i32)
     (local $row_h i32) (local $scheme i32) (local $reason i32)
-    (drop (local.get $handle))
-    ;; TypeDefStmt: [tag=122][name][targs][variants]
-    (local.set $type_name (i32.load offset=4  (local.get $stmt)))
-    (local.set $variants  (i32.load offset=12 (local.get $stmt)))
+
     (local.set $total (call $len (local.get $variants)))
     ;; Build the result type once: TName(type_name, []) — every variant
     ;; constructor returns this.
@@ -13516,6 +13756,15 @@
         (local.set $tag_id (i32.add (local.get $tag_id) (i32.const 1)))
         (br $each))))
 
+  (func $infer_walk_stmt_typedef
+        (export "infer_walk_stmt_typedef")
+        (param $stmt i32) (param $handle i32) (param $span i32)
+    (drop (local.get $handle))
+    (call $infer_register_typedef_ctors
+      (i32.load offset=4 (local.get $stmt))
+      (i32.load offset=12 (local.get $stmt))
+      (local.get $span)))
+
   ;; ─── EffectDeclStmt arm (tag 123) — Phase B.3 ultimate-form ──────
   ;;
   ;; Per src/infer.nx:215-216 + register_effect_ops 2081-2098.
@@ -13530,17 +13779,12 @@
   ;; The effect-name field on EffectOpScheme is the surface for
   ;; handler-arm matching at handler installation; the wheel's
   ;; row.wat substrate composes on this.
-  (func $infer_walk_stmt_effect_decl
-        (export "infer_walk_stmt_effect_decl")
-        (param $stmt i32) (param $handle i32) (param $span i32)
-    (local $eff_name i32) (local $ops i32) (local $n_ops i32) (local $i i32)
+    (func $infer_register_effect_ops
+        (param $eff_name i32) (param $ops i32) (param $span i32)
+    (local $n_ops i32) (local $i i32)
     (local $op i32) (local $op_name i32) (local $param_tys_parser i32)
     (local $ret_ty_parser i32) (local $param_tys i32) (local $ret_ty i32)
     (local $row_h i32) (local $op_ty i32) (local $scheme i32) (local $reason i32)
-    (drop (local.get $handle))
-    ;; EffectDeclStmt: [tag=123][name][ops]
-    (local.set $eff_name (i32.load offset=4 (local.get $stmt)))
-    (local.set $ops      (i32.load offset=8 (local.get $stmt)))
     (local.set $n_ops (call $len (local.get $ops)))
     (local.set $i (i32.const 0))
     (block $done
@@ -13576,6 +13820,15 @@
           (call $schemekind_make_effectop (local.get $eff_name)))
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $each))))
+
+  (func $infer_walk_stmt_effect_decl
+        (export "infer_walk_stmt_effect_decl")
+        (param $stmt i32) (param $handle i32) (param $span i32)
+    (drop (local.get $handle))
+    (call $infer_register_effect_ops
+      (i32.load offset=4 (local.get $stmt))
+      (i32.load offset=8 (local.get $stmt))
+      (local.get $span)))
 
   ;; ─── HandlerDeclStmt arm (tag 124) — Phase B.4 ultimate-form ─────
   ;;
