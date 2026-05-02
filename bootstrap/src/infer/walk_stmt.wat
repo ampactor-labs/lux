@@ -386,31 +386,39 @@
     (call $graph_bind (local.get $handle) (local.get $fn_ty)
                       (local.get $reason))
     ;; Pre-registered fn_ty is fully polymorphic — quantify over every
-    ;; fresh handle so each call site instantiates fresh TVars rather
+    ;; fresh TY handle so each call site instantiates fresh TVars rather
     ;; than mutating the placeholder. Mirrors generalize() at fn-stmt
     ;; exit; here the body hasn't walked yet so the quantifier is
-    ;; literally [param_handles..., ret_h, row_h].
+    ;; [param_handles..., ret_h]. row_h stays OUT of the quantifier
+    ;; list — it is a NRowFree-tagged handle, not NFree, and feeding it
+    ;; through $build_inst_mapping → $graph_fresh_ty produces a
+    ;; cross-category handle reuse (row slot minted as TY-fresh) that
+    ;; corrupts later chase. Row generalization is the named follow-up
+    ;; Hβ.infer.row-normalize; until it ships, the seed pins row.
+    ;; Wheel canonical: src/infer.nx:96-149 + 1818-1834.
     (call $env_extend
       (local.get $name)
       (call $scheme_make_forall
         (call $infer_pre_register_quantifier
-          (local.get $param_handles) (local.get $ret_h) (local.get $row_h))
+          (local.get $param_handles) (local.get $ret_h))
         (local.get $fn_ty))
       (local.get $reason)
       (call $schemekind_make_fn)))
 
-  ;; $infer_pre_register_quantifier: cons each param handle, ret handle,
-  ;; and row handle into one List<i32>. Quantifying over all of them
-  ;; means every call-site instantiation produces fresh TVars per the
-  ;; Forall→fresh-substitution discipline of $instantiate.
+  ;; $infer_pre_register_quantifier: cons each param handle and ret
+  ;; handle into one List<i32>. Quantifying over them means every
+  ;; call-site instantiation produces fresh TVars per the Forall →
+  ;; fresh-substitution discipline of $instantiate. Row position is
+  ;; pinned (kept verbatim through ty_substitute) and quantified
+  ;; separately when row.wat substrate ships.
   (func $infer_pre_register_quantifier
-        (param $param_handles i32) (param $ret_h i32) (param $row_h i32)
+        (param $param_handles i32) (param $ret_h i32)
         (result i32)
     (local $n i32) (local $out i32) (local $i i32)
     (local.set $n (call $len (local.get $param_handles)))
     (local.set $out
       (call $list_extend_to (call $make_list (i32.const 0))
-                            (i32.add (local.get $n) (i32.const 2))))
+                            (i32.add (local.get $n) (i32.const 1))))
     (local.set $i (i32.const 0))
     (block $copy_done
       (loop $copy
@@ -420,9 +428,6 @@
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $copy)))
     (drop (call $list_set (local.get $out) (local.get $n) (local.get $ret_h)))
-    (drop (call $list_set (local.get $out)
-                          (i32.add (local.get $n) (i32.const 1))
-                          (local.get $row_h)))
     (local.get $out))
 
   (func $infer_pre_register_stmt (param $node i32)
