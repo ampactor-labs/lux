@@ -339,6 +339,109 @@ roadmap** — peer cascades that compose on Phase A-H's substrate:
 
 ---
 
+
+## Phase μ — Mentl active-surface composition
+
+**Opens 2026-05-02 (Hμ.cursor authoring; commit TBD on landing).**
+The kernel-closure follow-on (`protocol_kernel_closure.md`): "the
+next phase is composition, not invention." Phase μ composes the
+sealed kernel into the medium's interactive surface. Each handle
+puts the medium to work; nothing extends the kernel.
+
+Phase μ proceeds in parallel with the remaining Hβ.emit chunks +
+pipeline-wire + first-light-L1 cascade, because Phase μ work
+operates on the wheel canonical (`src/`) rather than the seed
+bootstrap (`bootstrap/src/`). lux3.wasm is not the arbiter (Anchor
+0); first-light-L1 closure is the seed transcribing the wheel,
+which Phase μ landings naturally feed into.
+
+### Hμ.cursor — opening handle
+
+**Status: AUTHORING 2026-05-02.** See
+`docs/specs/simulations/Hμ-cursor.md` (12-section walkthrough),
+`src/cursor.nx` (~250 lines wheel-canonical Inka), SUBSTRATE.md §VI
+"Cursor: The Gradient's Global Argmax" (theorem-set entry),
+`protocol_cursor_is_argmax.md` (discipline crystallization).
+
+Cursor is the gradient's global argmax over the live graph at the
+moment of query, surfaced as one composed read whose eight aspects
+project automatically because the graph already carries all eight at
+every node. The text-caret is one weighted input via proximity bias.
+`??` is the developer's override pinning Cursor to a chosen slot.
+**Mentl IS Cursor IS the gradient argmax IS the graph projected for
+the human; eight tentacles is eight aspects of one read.**
+
+Composition tally: ten substrate pieces (hole substrate / Synth
+effect / gradient_next / Reason DAG / IC cache / Teach effect /
+Verify ledger / ownership tracker / effect row algebra / canonical
+layout); five new ADTs in types.nx (Cursor / CursorView /
+AnnotationSuggestion / SuggestionKind / PipeContext) + one rename
+(MV's `Cursor(Handle, Reason)` → `Caret(Handle, Reason)`); one new
+effect (`Cursor` with three ops); one new handler (`cursor_default
+with !Mutate`). Zero invented kernel substrate.
+
+### Phase μ peer handles (named to prevent drift 9 — deferred-by-omission)
+
+- **Hμ.cursor.transport** — transport handlers (terminal, LSP,
+  web-WASM, vim) that surface `cursor_default`'s `CursorView`
+  through different render targets. Cadence-decision (real-time /
+  idle-debounced ~250ms / on-save / on-explicit-ask) lives here.
+  Per IE-inka-edit.md §0.b "Live everything" + SUBSTRATE.md §III
+  "The Handler IS the Backend." Opens after Hμ.cursor.
+- **Hμ.synth-proposer** — replaces the OneShot stub at
+  `src/mentl.nx:404-438` returning `[]` with the real MultiShot
+  enumeration. Substrate-gated on H7 MultiShot emit completion.
+  Cursor's `propose` field gains real candidates.
+- **Hμ.gradient-delta** — the inverse-direction gradient per GR
+  §2: when a body could be tightened by editing rather than
+  annotating, surface the tightening. Today's `gradient_next` only
+  handles "annotation that unlocks capability."
+- **Hμ.cursor.cache** — extends IC cache from `env` to `(env,
+  oracle_queue)` per `protocol_oracle_is_ic.md` "one extra cached
+  value." Cursor reads cached `oracle_queue` filtered by caret
+  proximity instead of recomputing on each query. Performance only;
+  no semantic change.
+- **Hμ.eight-interrogation-loop** — automation of CLAUDE.md's
+  eight interrogations as a code loop firing on every graph node at
+  compile time. Today the discipline is human-applied. After
+  Hμ.cursor + Hμ.cursor.cache, the substrate is ready.
+- **Hμ.cursor.seed** — the seed's transcription of `src/cursor.nx`
+  into `bootstrap/src/cursor/*.wat`. Per Anchor 0 +
+  `Hβ-bootstrap.md` §12.5 Tier 3 growth pattern + the disposable-
+  bootstrap thesis (DESIGN.md "the bootstrap translator becomes
+  historical"): this transcription is **produced by the seed
+  compiling the wheel at first-light-L1**, NOT handwritten pre-L1.
+  Hand-WAT is the disposable-bootstrap reference soundness artifact
+  scoped to the minimum self-compiling compiler; growth past L1 is
+  via Tier 3 incremental self-hosting where each new line traces
+  byte-for-byte to a wheel line. Cursor is wheel-only until L1
+  closes; at L1 closure, the seed's `$inka_emit` reads
+  `src/cursor.nx` and produces `bootstrap/src/cursor/*.wat`
+  automatically; the diff is audited; the chunks land. One commit;
+  full transcription; byte-for-byte tied to the wheel.
+
+  **Pre-L1 hand-transcription is refused** per Anchor 0 (lux3.wasm
+  is not the arbiter; verification is by walkthrough + audit + Tier
+  3 self-compile) AND per Anchor 4 ("build the wheel; never wrap
+  the axle"): the wheel-canonical `src/cursor.nx` is the substrate,
+  and a parallel handwritten WAT encoding would be drift mode 7 at
+  the architectural level (parallel structures of one thing). The
+  ULTIMATE MEDIUM (Mentl + Cursor + multi-shot + IC + `inka edit`)
+  is wheel-only; its WAT is produced by self-compilation post-L1,
+  never by hand. See `protocol_cursor_is_argmax.md` and
+  `docs/ULTIMATE_MEDIUM.md` for the discipline lock-in.
+
+  The same Tier-3-post-L1 reframe applies to every Phase μ peer
+  handle's seed transcription: `Hμ.cursor.transport.seed`,
+  `Hμ.synth-proposer.seed`, `Hμ.gradient-delta.seed`,
+  `Hμ.cursor.cache.seed`, `Hμ.eight-interrogation-loop.seed` are
+  all produced automatically by the seed compiling the wheel at L1
+  closure, not handwritten. **Closing L1 is the leverage point that
+  unlocks every Phase μ seed transcription simultaneously.**
+
+---
+
+
 ## Critical Path To First-Light
 
 ### Phase A — Hβ Bootstrap Rewrite
