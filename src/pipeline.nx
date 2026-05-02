@@ -357,12 +357,23 @@ fn render_gradients(gradients) =
 
 fn render_gradient_result(result) = match result {
   None => "(no next-step annotation suggested)",
-  Some(annotation) =>
+  Some(suggestion) => {
+    let AnnotationSuggestion(_kind, ann_text, unlocks, _reason) = suggestion
     "→ add "
-      |> str_concat(show_annotation(annotation))
+      |> str_concat(ann_text)
       |> str_concat(" to unlock ")
-      |> str_concat(show_capability(perform teach_unlock(annotation)))
+      |> str_concat(join_unlock_labels(unlocks))
+  }
 }
+
+fn join_unlock_labels(labels) with Pure =
+  if labels.len == 0 { "(no capabilities)" }
+  else {
+    let head = list_head(labels)
+    let tail = list_tail(labels)
+    if tail.len == 0 { head }
+    else { head |> str_concat(", ") |> str_concat(join_unlock_labels(tail)) }
+  }
 
 fn collect_fn_rows(ast) =
   if ast.len == 0 { [] }

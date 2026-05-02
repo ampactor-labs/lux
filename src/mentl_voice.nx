@@ -53,19 +53,16 @@ type Register
   | RPlayful
   | RExplain
 
-/// Every GradientStep is a theorem: Mentl has proved (via the
-/// speculative oracle at src/mentl.nx:134) that annotating `site`
-/// with `annotation` unlocks `capability`. `proof` is the Reason
-/// edge the Why tentacle walks on demand.
+/// Every gradient step is a theorem: Mentl has proved (via the
+/// speculative oracle at src/mentl.nx:134) that annotating a site
+/// with the suggestion's text unlocks the listed capabilities.
+/// Reason walks the Why-tentacle chain on demand.
 /// Primitive: #7 (annotation gradient), with #8 (Reason) carrying proof.
-
-type GradientStep
-  = GradStep({
-      annotation: Annotation,
-      unlocks:    Capability,
-      site:       Span,
-      proof:      Reason
-    })
+///
+/// Substrate per Hμ.cursor §2 + GR §3.2 (live): the public shape IS
+/// `AnnotationSuggestion(SuggestionKind, String, List, Reason)` from
+/// types.nx — kind / annotation_text / unlocks_labels / reason. The
+/// site span lives inside the Reason's outer Located wrapper.
 
 /// Env-entries reach Mentl as snapshots so a turn is stateless w.r.t.
 /// env updates. Name + Scheme + Reason + SchemeKind mirrors Env's
@@ -110,7 +107,7 @@ type Situation
       row_declared:          Option,                // Option<EffRow> — differs from row_at_topic → subsumption diag
       ownership_at_topic:    Option,                // Option<Ownership>
       refinements:           List,                  // List<Predicate>
-      gradient_next:          Option,                // Option<GradientStep>
+      gradient_next:          Option,                // Option<AnnotationSuggestion> per Hμ.cursor §2 + GR §3.2 live
       handlers_installed:    List,                  // List<HandlerEntry>
       prior_turn_topic:      Option,                // Option<Topic> — silence predicate input
       prior_turn_tentacle:   Option,                // Option<Tentacle> — travels with prior_turn_topic for tentacle-different check
@@ -455,7 +452,7 @@ fn proof_derivable(situation) with Pure =
       f.nested_call_depth >= 3
     },
     TentUnlock    =>
-      is_some(s.gradient_next) && gradient_unlocks_capability(s.gradient_next),
+      is_some(s.gradient_next) && suggestion_unlocks_nonempty(s.gradient_next),
     TentTrace     =>
       is_some(s.ownership_at_topic) || row_subsumption_fails(s.row_at_topic, s.row_declared),
     TentVerify    => list_non_empty(s.refinements),
@@ -810,13 +807,13 @@ fn render_unlock_arm(situation) with Pure =
   let Situation(s) = situation
   let body = match s.gradient_next {
     None              => [SLit("")],
-    Some(step)        => {
-      let GradStep(g) = step
+    Some(suggestion)  => {
+      let AnnotationSuggestion(_kind, ann_text, unlocks, _reason) = suggestion
       [
         SLit("Adding "),
-        SAnnot(annotation_label(g.annotation)),
+        SAnnot(ann_text),
         SLit(" unlocks "),
-        SCap(capability_label(g.unlocks))
+        SCap(join_capability_labels(unlocks))
       ]
     }
   }
@@ -868,13 +865,13 @@ fn render_teach_arm(situation) with Pure =
   let Situation(s) = situation
   let body = match s.gradient_next {
     None              => [SLit("")],
-    Some(step)        => {
-      let GradStep(g) = step
+    Some(suggestion)  => {
+      let AnnotationSuggestion(_kind, ann_text, _unlocks, reason) = suggestion
       [
         SLit("Next: add "),
-        SAnnot(annotation_label(g.annotation)),
+        SAnnot(ann_text),
         SLit(" on "),
-        SSpan(g.site)
+        SSpan(suggestion_site_from_reason(reason))
       ]
     }
   }
@@ -1651,6 +1648,47 @@ fn file_handle_eq(a, b) with Pure =
   let FileHandle(ai) = a
   let FileHandle(bi) = b
   ai == bi
+
+/// suggestion_unlocks_nonempty — silence-predicate input for TentUnlock.
+/// Per Hμ.cursor §2: AnnotationSuggestion's unlocks list (List<String>)
+/// is non-empty iff the candidate proves at least one capability gate.
+/// Single-pass: `is_some` already checked at the call site, so the
+/// inner match is exhaustive over the Some branch.
+
+fn suggestion_unlocks_nonempty(opt) with Pure = match opt {
+  None    => false,
+  Some(s) => {
+    let AnnotationSuggestion(_kind, _ann, unlocks, _reason) = s
+    unlocks.len > 0
+  }
+}
+
+/// join_capability_labels — fold List<String> into a comma-joined
+/// String for FCapability rendering. Tail-recursive; allocation
+/// bounded by total label length. The capabilities_for_annotation
+/// substrate produces lists of size ≤ 3 today, so a flat fold is
+/// honest.
+
+fn join_capability_labels(labels) with Pure =
+  if labels.len == 0 { "" }
+  else {
+    let head = list_head(labels)
+    let tail = list_tail(labels)
+    if tail.len == 0 { head }
+    else { head |> str_concat(", ") |> str_concat(join_capability_labels(tail)) }
+  }
+
+/// suggestion_site_from_reason — extract the source Span from an
+/// AnnotationSuggestion's Reason. Per Hμ.cursor §3.5 + mentl.nx
+/// `suggestion_reason`: the outer wrapper IS Located(span, _),
+/// so the span is one peel away. Falls back to span_zero on
+/// non-Located reasons (theoretical; suggestion_reason always
+/// produces Located).
+
+fn suggestion_site_from_reason(reason) with Pure = match reason {
+  Located(sp, _) => sp,
+  _              => span_zero()
+}
 
 handler mentl_voice_filesystem
   with handles_table       = [],
