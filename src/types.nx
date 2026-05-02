@@ -273,6 +273,89 @@ type Reason
   | DocstringReason(String, Span)        // DS.1 — authored /// docstring as intent edge
 
 
+// Caret — the user's text-attention position. ONE input among many to
+// Cursor's argmax computation. Updated by the editor's transport
+// handler on every focus event (mouse, keyboard, drag-select, arrow
+// keys). The caret biases the gradient argmax via proximity weighting;
+// it does NOT define the cursor.
+//
+// (Renamed from MV-mentl-voice.md:373's `Cursor(Handle, Reason)` per
+// Hμ-cursor.md §2.2 — the previous name conflated the user's text
+// position with the gradient's argmax, which is drift mode 5 by
+// SUBSTRATE.md §I "The Heap Has One Story" applied to handler-state
+// shape.)
+
+type Caret
+  = Caret(Handle, Reason)
+
+// Cursor — the gradient's global argmax over the live graph at the
+// moment of query. Cursor is attention, not position. The text-caret
+// biases the locus via proximity weighting; the caret does NOT define
+// the locus. `impact` carries the argmax score: 0.0 for "no
+// suggestion" / fully-annotated positions; positive finite for ranked
+// auto-argmax; 1e308 sentinel for developer-pinned `??` positions per
+// Hμ-cursor.md §6.
+//
+// See SUBSTRATE.md §VI "Cursor: The Gradient's Global Argmax" and
+// `protocol_cursor_is_argmax.md`.
+
+type Cursor
+  = Cursor(Handle, Reason, Float)
+
+// SuggestionKind — exhaustive ADT for the axis of an annotation
+// suggestion. Drift 8 closure: never a string flag; always tagged
+// dispatch. Per GR-gradient-delta.md §3.2 promotion to live.
+
+type SuggestionKind
+  = SuggestEffectRow
+  | SuggestOwnership
+  | SuggestRefinement
+  | SuggestReturnType
+
+// AnnotationSuggestion — promoted from GR-gradient-delta.md §3.2
+// (was shape-only) to live ADT. teach_gradient (mentl.nx) returns
+// Option<AnnotationSuggestion>; CursorView.teach reads the suggestion.
+//
+// Fields:
+//   kind        — which axis (effect-row / ownership / refinement / return)
+//   annotation  — literal source text to add (e.g., "with Pure")
+//   unlocks     — capability labels unlocked (e.g., ["CMemoize", "CCompileTimeEval"])
+//   reason      — why the suggestion is highest-leverage at the position
+
+type AnnotationSuggestion
+  = AnnotationSuggestion(SuggestionKind, String, List, Reason)
+
+// PipeContext — surrounding pipe topology at a position.
+// CursorView.topology reads the context. Reuses existing PipeKind for
+// the InsidePipe variant. Per Hμ-cursor.md §2.1 + §4.
+
+type PipeContext
+  = NoPipe
+  | InsidePipe(PipeKind)
+  | StartingPipe
+  | EndingPipe
+
+// CursorView — what cursor_default projects at the cursor's handle.
+// Each field is one of the eight kernel primitives, read off the
+// graph at the cursor's position. Eight aspects of one read.
+//
+//   query    — primitive #1 (Graph)            — what's bound here (NodeKind)
+//   propose  — primitive #2 (Handlers)         — Synth's candidates
+//   topology — primitive #3 (Five verbs)       — pipe context at the site
+//   row      — primitive #4 (Effect algebra)   — gating row
+//   trace    — primitive #5 (Ownership)        — own/ref/inferred (existing ADT)
+//   verify   — primitive #6 (Refinement)       — pending obligations
+//   teach    — primitive #7 (Gradient)         — one next-step (or None)
+//   why      — primitive #8 (HM + Reasons)     — walkable Reason chain
+//
+// Annotation is mentl.nx's existing ADT (8 variants APure/ANotAlloc/...).
+// Predicate is at types.nx:568.
+
+type CursorView
+  = CursorView(NodeKind, List, PipeContext, EffRow, Ownership, List, Option, Reason)
+                              // query   propose  topology     row     trace      verify  teach    why
+
+
 type Span
   = Span(Int, Int, Int, Int)    // start_line, start_col, end_line, end_col
 

@@ -116,6 +116,11 @@ program pass when the gradient is per-function and per-turn.
 
 ### §3.2 AnnotationSuggestion shape
 
+**Status: LIVE in `src/types.nx` (Hμ.cursor handle landing,
+2026-05-02). Promoted from shape-only spec to live ADT alongside
+the Cursor / CursorView / SuggestionKind / PipeContext additions
+that compose on the suggestion record.**
+
 The suggestion record (all compile-time; no runtime cost):
 
 ```
@@ -126,13 +131,19 @@ type SuggestionKind
   | SuggestReturnType
 
 type AnnotationSuggestion
-  = AnnotationSuggestion(
-      kind: SuggestionKind,
-      annotation: String,         // the literal text to add
-      unlocks: List<String>,      // capabilities enabled
-      reason: Reason              // why this is the highest-leverage
-    )
+  = AnnotationSuggestion(SuggestionKind, String, List, Reason)
+                                  // kind  annotation unlocks reason
+                                  // (positional fields; ADT form
+                                  //  per H6 dispatch discipline)
 ```
+
+Field semantics (positional):
+1. `SuggestionKind` — which axis the suggestion lives on
+2. `String` — the literal source text to add (e.g., `"with Pure"`)
+3. `List<String>` — capability labels unlocked (e.g.,
+   `["CMemoize", "CCompileTimeEval"]`)
+4. `Reason` — provenance edge for the Why chain at the suggestion's
+   handle
 
 Example:
 ```
