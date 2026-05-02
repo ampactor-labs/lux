@@ -1,0 +1,412 @@
+// cursor.nx — Mentl's projection of the graph for a human at a position
+//
+// Hμ.cursor handle. Phase μ — Mentl active-surface composition. The
+// opening handle of the kernel-closure follow-on (per
+// `protocol_kernel_closure.md`); composes the now-closed kernel,
+// invents nothing.
+//
+// Cursor is attention, not position. The text-caret is one weighted
+// input to argmax; the gradient's global argmax over the live graph
+// is the cursor proper. `??` is the developer's override that pins
+// cursor to a chosen slot.
+//
+// See `docs/specs/simulations/Hμ-cursor.md` for the walkthrough,
+// `protocol_cursor_is_argmax.md` for the discipline, and
+// SUBSTRATE.md §VI "Cursor: The Gradient's Global Argmax" for the
+// authority.
+//
+// Composition tally — every `perform` resolves to substrate that
+// already exists at handle landing time:
+//
+//   graph_chase           — types.nx:703 (GraphRead effect)
+//   teach_gradient        — mentl.nx:78 (Teach effect, mentl_default arm)
+//   teach_why             — mentl.nx:79 (Teach effect, mentl_default arm)
+//   synth_propose         — mentl.nx:90 (Synth effect, OneShot stub today;
+//                                         Hμ.synth-proposer fills the
+//                                         MultiShot semantics post-H7)
+//   verify_debt           — types.nx:807 (Verify effect)
+//   mentl_context_at      — small local pure helper (this file)
+//   pipe_context_of_node  — small local pure helper (this file)
+//   ownership_of_node     — small local pure helper (this file)
+//   row_of_node           — small local pure helper (this file)
+//   filter_pending_at     — small local pure helper (this file)
+//
+// Drift-mode audit per Hμ-cursor.md §11: all nine PASS.
+// Drift 1 (vtable):   no dispatch table; named perform calls only.
+// Drift 4 (MTL):      one handler, eight reads, one composed record.
+// Drift 5 (split state): caret + argmax fold into one Cursor value.
+// Drift 7 (parallel): CursorView is one record (types.nx:354).
+// Drift 8 (string flag): SuggestionKind is the tagged ADT.
+// Drift 9 (deferred): every read resolves to live substrate; peer
+//                     handles named (Hμ.cursor.transport, Hμ.synth-
+//                     proposer, Hμ.cursor.cache, Hμ.gradient-delta).
+
+import types
+import graph
+import effects
+import mentl
+import verify
+import own
+import infer
+
+// ─── The Cursor effect ──────────────────────────────────────────────
+//
+// Three ops; each @resume=OneShot. The cursor projects; it never
+// captures or replays. MultiShot exploration lives in Synth (the
+// tentacle Cursor calls into); Cursor itself is a one-call read.
+//
+// `with !Mutate` on cursor_default proves at compile time that the
+// projection cannot corrupt oracle state — exactly the constraint
+// `protocol_oracle_is_ic.md` locks for "surfaces query, never write."
+
+effect Cursor {
+  cursor_at(Span) -> CursorView                 @resume=OneShot
+  cursor_argmax(Caret) -> Cursor                @resume=OneShot
+  cursor_pinned(Handle) -> Cursor               @resume=OneShot
+}
+
+// ─── The handler ────────────────────────────────────────────────────
+//
+// Per Hμ-cursor.md §4: cursor_default composes the eight tentacle
+// reads into one CursorView per arm. mentl_default surfaces the
+// individual Teach ops; cursor_default is the same projection at a
+// higher abstraction — "give me everything Mentl knows about this
+// position, in one record."
+//
+// Both can coexist in the same `~>` chain — installing cursor_default
+// AFTER mentl_default lets cursor_default's perform calls bubble
+// `teach_gradient` / `teach_why` to mentl_default.
+
+handler cursor_default with !Mutate {
+
+  cursor_at(span) => {
+    let handle = handle_at_span(span)
+    let GNode(kind, reason) = perform graph_chase(handle)
+    resume(CursorView(
+      kind,                              // query
+      perform synth_propose(             // propose
+        ty_of_kind(kind),
+        row_of_node(kind),
+        mentl_context_at(handle)
+      ),
+      pipe_context_of_node(kind),        // topology
+      row_of_node(kind),                  // row
+      ownership_of_node(kind),            // trace
+      filter_pending_at(handle, perform verify_debt()),  // verify
+      perform teach_gradient(handle),    // teach
+      perform teach_why(handle)          // why
+    ))
+  },
+
+  cursor_argmax(caret) =>
+    resume(cursor_argmax_compute(caret)),
+
+  cursor_pinned(handle) => {
+    let span = span_of_handle(handle)
+    let GNode(_, anchor) = perform graph_chase(handle)
+    resume(Cursor(
+      handle,
+      Located(span, Inferred("user pinned via ??")),
+      pinned_impact_sentinel()
+    ))
+  }
+}
+
+// ─── Argmax computation — pure transform on the live graph ──────────
+//
+// Per Hμ-cursor.md §3: enumerate gradient positions; score each by
+// `gates_unlocked × proximity`; argmax. No state; no learning; no
+// tuning. The proximity decay table is a literal scope-distance
+// classification.
+//
+// Today: O(N · K) where N = handles in the live graph, K = candidates
+// per handle. Acceptable for small programs. Hμ.cursor.cache (peer
+// handle) extends the IC cache to `(env, oracle_queue)` so this
+// becomes O(N) read on cached results — same semantics, better
+// latency.
+
+fn cursor_argmax_compute(caret) with GraphRead + !Mutate = {
+  let positions = enumerate_gradient_positions()
+  let scored = score_all_positions(positions, caret)
+  argmax_or_default(scored, caret)
+}
+
+fn enumerate_gradient_positions() with GraphRead + !Mutate = {
+  let snapshot = perform graph_snapshot()
+  let Graph(_nodes, _epoch, next, _overlays, _spans) = snapshot
+  let buf = make_list(next)
+  let kept = collect_unfilled_loop(0, next, buf, 0)
+  slice(buf, 0, kept)
+}
+
+// Buffer-counter substrate (CLAUDE.md "Bug classes that cost hours"):
+// list_extend_to + list_set + counter + slice. Bump allocator traps
+// at 16 MB; suffix-append in a loop is O(N²) and out — drift 11.
+
+fn collect_unfilled_loop(i, n, buf, buf_len) with GraphRead + !Mutate =
+  if i >= n { buf_len }
+  else {
+    match perform teach_gradient(i) {
+      None    => collect_unfilled_loop(i + 1, n, buf, buf_len),
+      Some(_) => {
+        list_set(buf, buf_len, i)
+        collect_unfilled_loop(i + 1, n, buf, buf_len + 1)
+      }
+    }
+  }
+
+fn score_all_positions(handles, caret) with GraphRead + !Mutate =
+  if handles.len == 0 { [] }
+  else {
+    let head = list_head(handles)
+    let tail = list_tail(handles)
+    let scored_head = score_one_position(head, caret)
+    [scored_head] ++ score_all_positions(tail, caret)
+  }
+
+fn score_one_position(handle, caret) with GraphRead + !Mutate = {
+  let suggestion_opt = perform teach_gradient(handle)
+  let gates = match suggestion_opt {
+    None => 0,
+    Some(suggestion) => {
+      let AnnotationSuggestion(_kind, _ann, unlocks, _reason) = suggestion
+      unlocks.len
+    }
+  }
+  let target_span = span_of_handle(handle)
+  let proximity = caret_proximity_weight(caret, target_span)
+  let GNode(_, reason) = perform graph_chase(handle)
+  Cursor(handle,
+         Located(target_span, reason),
+         int_to_float(gates) * proximity)
+}
+
+// ─── Caret proximity weighting ──────────────────────────────────────
+//
+// Per Hμ-cursor.md §5.1: the weights are literal floats encoding the
+// design assumption "the developer's attention has a gradient, but
+// the gradient never reaches zero, because cross-module impact still
+// matters."
+//
+// Pure. Reproducible. No learned weights. The decay table is
+// configurable via Hμ.cursor.transport's `cursor_weights` handler
+// (peer handle); the defaults below are the project residue.
+
+fn caret_proximity_weight(caret, target_span) with Pure = {
+  let Caret(_, caret_reason) = caret
+  let caret_span = caret_span_from_reason(caret_reason)
+  scope_distance_decay(caret_span, target_span)
+}
+
+fn caret_span_from_reason(reason) with Pure = match reason {
+  Located(sp, _) => sp,
+  _              => span_zero()
+}
+
+fn scope_distance_decay(caret_span, target_span) with Pure =
+  if span_eq(caret_span, target_span) { same_handle_weight() }
+  else if same_enclosing_decl(caret_span, target_span) { same_decl_weight() }
+  else if same_module(caret_span, target_span) { same_module_weight() }
+  else if transitive_dep(caret_span, target_span) { transitive_dep_weight() }
+  else { cross_module_weight() }
+
+// Proximity decay constants — literal floats, not learned. Per
+// Hμ-cursor.md §5.1 design assumption: cross-module weight floors at
+// 0.2 because cross-module impact still matters; same-handle weight
+// is 1.0 because the developer's attention IS at the position.
+
+fn same_handle_weight()    with Pure = 1.0
+fn same_decl_weight()      with Pure = 0.85
+fn same_module_weight()    with Pure = 0.7
+fn transitive_dep_weight() with Pure = 0.4
+fn cross_module_weight()   with Pure = 0.2
+
+// Span equality — positional comparison on the four ints.
+
+fn span_eq(a, b) with Pure =
+  let Span(asl, asc, ael, aec) = a
+  let Span(bsl, bsc, bel, bec) = b
+  asl == bsl && asc == bsc && ael == bel && aec == bec
+
+// same_enclosing_decl / same_module / transitive_dep — these read the
+// graph's existing scope structure. Inline residue; the eight-
+// interrogation discipline at Hμ-cursor.md §1 confirms each is a
+// pure read on substrate the graph already encodes (Graph + Env
+// primitive).
+
+fn same_enclosing_decl(caret_span, target_span) with Pure =
+  // Two spans share an enclosing decl iff their parent walks
+  // intersect at a same-handle decl ancestor. Substrate read on the
+  // graph's parent chain; today, span overlap is the proxy.
+  span_overlaps(caret_span, target_span)
+
+fn same_module(caret_span, target_span) with Pure =
+  // Spans within the same source file share start/end line ranges
+  // bounded by the file's extent. Today: assume single-file program;
+  // returns true unless cross-module signals fire elsewhere. The
+  // module-aware proxy lands with Hμ.cursor.transport when multi-file
+  // sources are surfaced.
+  true
+
+fn transitive_dep(caret_span, target_span) with Pure =
+  // Hμ.cursor.cache promotes this to a real IC dependency-hash
+  // walk. Today: false unless same_module ruled out.
+  false
+
+fn span_overlaps(a, b) with Pure =
+  let Span(asl, _asc, ael, _aec) = a
+  let Span(bsl, _bsc, bel, _bec) = b
+  // Closed-interval overlap on line numbers. Sufficient for the
+  // proximity-tier classification; column-precise comparison is
+  // peer-handle territory.
+  ael >= bsl && bel >= asl
+
+// ─── Argmax with default ────────────────────────────────────────────
+//
+// Per Hμ-cursor.md §3: the no-candidates case is "fully annotated";
+// returns a Cursor with impact=0 co-located with the caret. Same
+// shape, same record, same code path — drift 6 closure (no
+// primitive-type-special-case).
+
+fn argmax_or_default(scored, caret) with Pure =
+  if scored.len == 0 {
+    let Caret(handle, reason) = caret
+    Cursor(handle,
+           Located(caret_span_from_reason(reason),
+                   Inferred("fully annotated")),
+           0.0)
+  } else {
+    reduce_max_by_score(scored)
+  }
+
+fn reduce_max_by_score(scored) with Pure =
+  reduce_max_loop(scored, 1, scored.len, list_head(scored))
+
+fn reduce_max_loop(scored, i, n, best) with Pure =
+  if i >= n { best }
+  else {
+    let candidate = list_index(scored, i)
+    let Cursor(_, _, c_impact) = candidate
+    let Cursor(_, _, b_impact) = best
+    let next_best = if c_impact > b_impact { candidate } else { best }
+    reduce_max_loop(scored, i + 1, n, next_best)
+  }
+
+// ─── Pinned impact sentinel ─────────────────────────────────────────
+//
+// The `??`-pinned cursor uses a sentinel-large impact so
+// argmax_or_default's reduce_max always picks it. Using a literal
+// 1e308 (close to f64 max) keeps the substrate uniform — same Cursor
+// record, same argmax code path — and the sentinel never collides
+// with auto-argmax scores (gates × proximity is bounded by capability
+// count × 1.0, in single digits).
+
+fn pinned_impact_sentinel() with Pure = 1e308
+
+// ─── Local pure helpers — one read each from the graph ──────────────
+//
+// Each helper extracts one of the eight aspects from a graph node.
+// Pure transforms (per SUBSTRATE.md §V "Pure Transforms for
+// Structure, Effects for Context"). The structure is the GNode; the
+// extraction is reproducible.
+
+fn handle_at_span(span) with GraphRead + !Mutate = {
+  // Spans are indexed in the graph via graph_index_span (types.nx:717).
+  // Today this is a forward scan via graph_snapshot; the indexed
+  // lookup is peer-handle territory (Hμ.cursor.cache).
+  let snapshot = perform graph_snapshot()
+  let Graph(_nodes, _epoch, next, _overlays, _spans) = snapshot
+  scan_for_span(span, 0, next)
+}
+
+fn scan_for_span(target, i, n) with GraphRead + !Mutate =
+  if i >= n { 0 }
+  else {
+    let GNode(_, reason) = perform graph_chase(i)
+    let candidate_span = caret_span_from_reason(reason)
+    if span_eq(target, candidate_span) { i }
+    else { scan_for_span(target, i + 1, n) }
+  }
+
+fn span_of_handle(handle) with GraphRead + !Mutate = {
+  let GNode(_, reason) = perform graph_chase(handle)
+  caret_span_from_reason(reason)
+}
+
+fn ty_of_kind(kind) with Pure = match kind {
+  NBound(ty)    => ty,
+  NFree(_)      => TFree(0),       // sentinel; Synth proposes against fresh tyvar
+  NRowBound(_)  => TFree(0),
+  NRowFree(_)   => TFree(0),
+  NErrorHole(_) => TFree(0)
+}
+
+fn row_of_node(kind) with Pure = match kind {
+  NBound(ty)    => extract_row_local(ty),
+  NRowBound(r)  => r,
+  _             => EfPure
+}
+
+fn extract_row_local(ty) with Pure = match ty {
+  TFun(_, _, row) => row,
+  _               => EfPure
+}
+
+// ownership_of_node — derives Ownership from the graph's binding
+// shape. NBound(TFun(...)) carries TParam list each with authored +
+// resolved Ownership; for a node that IS a function, return the
+// resolved ownership of its first param (the substrate-honest
+// summary; full per-param ownership is in CursorView for handlers
+// that want it). For non-function nodes, default Inferred.
+
+fn ownership_of_node(kind) with Pure = match kind {
+  NBound(ty) => ownership_of_ty(ty),
+  _          => Inferred
+}
+
+fn ownership_of_ty(ty) with Pure = match ty {
+  TFun(params, _, _) =>
+    if params.len == 0 { Inferred }
+    else {
+      let TParam(_, _, _, resolved) = list_index(params, 0)
+      resolved
+    },
+  _ => Inferred
+}
+
+fn pipe_context_of_node(kind) with Pure = match kind {
+  // Pipe surroundings live in the parent chain via NodeBody (NPipeExpr).
+  // Today the local helper returns NoPipe; the parent-walk landing is
+  // Hμ.cursor.transport's render-time concern (the IDE's pipe-graph
+  // visualization renders directly from the AST PipeExpr nodes).
+  _ => NoPipe
+}
+
+fn mentl_context_at(handle) with GraphRead + !Mutate = {
+  // Synth's Context is the (scope_bindings, active_effects) pair.
+  // Today: empty context — the OneShot stub returns [] regardless.
+  // Hμ.synth-proposer fills the real context construction when H7
+  // MultiShot emit lands and synth_propose returns real candidates.
+  Context([], [])
+}
+
+// filter_pending_at — Verify ledger holds ALL pending refinement
+// obligations as a List. CursorView.verify wants the subset
+// associated with this handle. Today's verify_debt returns
+// (Span, Predicate, Reason) triples; filter by span overlap with
+// the handle's span.
+
+fn filter_pending_at(handle, debt) with GraphRead + !Mutate = {
+  let target_span = span_of_handle(handle)
+  filter_by_span(target_span, debt)
+}
+
+fn filter_by_span(target, debt) with Pure =
+  if debt.len == 0 { [] }
+  else {
+    let head = list_head(debt)
+    let tail = list_tail(debt)
+    let (debt_span, predicate, _reason) = head
+    let kept = if span_overlaps(target, debt_span) { [predicate] } else { [] }
+    kept ++ filter_by_span(target, tail)
+  }
