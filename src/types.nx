@@ -359,10 +359,11 @@ type CursorView
 type Span
   = Span(Int, Int, Int, Int)    // start_line, start_col, end_line, end_col
 
-fn span_join(a, b) with Pure =
+fn span_join(a, b) with Pure = {
   let Span(sl, sc, _, _) = a
   let Span(_, _, el, ec) = b
   Span(sl, sc, el, ec)
+}
 
 fn span_zero() with Pure = Span(0, 0, 0, 0)
 
@@ -376,17 +377,19 @@ type TagId = Int where 0 <= self && self <= 255
 type ValidOffset = Int where 0 <= self
 type NonEmptyList<A> = List<A> where len(self) > 0
 
-fn span_valid(s) with Pure =
+fn span_valid(s) with Pure = {
   let Span(sl, sc, el, ec) = s
   sl >= 0 && sc >= 0 && el >= sl && (el > sl || ec >= sc)
+}
 
 type ValidSpan = Span where span_valid(self)
 
-fn span_contains(outer, inner) with Pure =
+fn span_contains(outer, inner) with Pure = {
   let Span(osl, osc, oel, oec) = outer
   let Span(isl, isc, iel, iec) = inner
   (osl < isl || (osl == isl && osc <= isc))
     && (oel > iel || (oel == iel && oec >= iec))
+}
 
 // Tokens are the lexer's output; the parser's input. The wrapper
 // pattern mirrors AST nodes: structured value + positional metadata.
