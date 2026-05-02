@@ -438,19 +438,86 @@
   ;;                   offset 4 → callee N-wrapper
   ;;                   offset 8 → args list
   ;;   offset 12 → handle
+  ;; SchemeKind triage per Hβ.lower.varref-schemekind-dispatch (named
+  ;; follow-up; closing it here): when the callee is a VarRef whose
+  ;; env binding is a ConstructorScheme, route to LMakeVariant
+  ;; (instead of LCall/LSuspend). Same shortcut for EffectOpScheme →
+  ;; LPerform when the parser starts producing PerformExpr at call
+  ;; sites without explicit `perform` keyword (today the seed parses
+  ;; `perform op(...)` separately via parse_perform_expr → tag 94, so
+  ;; the EffectOpScheme branch here is reachable only through
+  ;; user-named direct-call style; harmless to leave unimplemented
+  ;; in this commit and named as Hβ.lower.varref-effectop-dispatch).
+  ;;
+  ;; Eight interrogations on this dispatch site:
+  ;;   1. Graph?      ConstructorScheme tag_id IS recorded in env at
+  ;;                  TypeDef pre-register time (walk_stmt.wat:818-874).
+  ;;   2. Handler?    @resume=OneShot (lookup is read-only).
+  ;;   3. Verb?       N/A — structural dispatch.
+  ;;   4. Row?        Pure read on env; no effects performed beyond
+  ;;                  EnvRead implicit in env_lookup.
+  ;;   5. Ownership?  $callee_node is borrowed; binding handle borrowed
+  ;;                  from env.
+  ;;   6. Refinement? ConstructorScheme(tag_id, total) carries the
+  ;;                  invariant 0 ≤ tag_id < total.
+  ;;   7. Gradient?   The cash-out: nullary ctors emit (i32.const tag_id)
+  ;;                  sentinels; N-ary ctors heap-allocate via
+  ;;                  emit_alloc — same EmitMemory swap surface as the
+  ;;                  rest of the heap.
+  ;;   8. Reason?     LMakeVariant carries the call's handle; Reason
+  ;;                  flows from the env binding's stored Reason.
+  ;;
+  ;; Drift modes refused:
+  ;; - Drift 1 (vtable):  Direct schemekind tag dispatch; no table.
+  ;; - Drift 6 (special): Same dispatch path for nullary AND N-ary
+  ;;                      ctors via $lexpr_make_lmakevariant; no Bool-
+  ;;                      special-case (HB substrate already covers).
+  ;; - Drift 8 (string):  Schemekind tag is i32 (132); not str_eq.
+  ;; - Drift 9 (deferred): All branches bodied; closes
+  ;;                      Hβ.lower.varref-schemekind-dispatch.
+
   (func $lower_call (export "lower_call") (param $node i32) (result i32)
     (local $h i32) (local $body i32) (local $call_struct i32)
     (local $callee_node i32) (local $args_list i32)
     (local $lo_f i32) (local $lo_args i32) (local $fh i32)
+    (local $cb_body i32) (local $cb_expr i32) (local $name i32)
+    (local $binding i32) (local $kind i32) (local $kind_tag i32)
+    (local $tag_id i32)
     (local.set $h           (call $walk_expr_node_handle (local.get $node)))
     (local.set $body        (i32.load offset=4 (local.get $node)))
     (local.set $call_struct (i32.load offset=4 (local.get $body)))
     (local.set $callee_node (i32.load offset=4 (local.get $call_struct)))
     (local.set $args_list   (i32.load offset=8 (local.get $call_struct)))
+    ;; Pre-dispatch: peek at callee_node — if it's a VarRef whose env
+    ;; binding has ConstructorScheme, short-circuit to LMakeVariant.
+    ;; AST navigation: callee_node is N(NodeBody, span, handle).
+    ;;   offset 4 → NodeBody (NExpr wrapper, tag 110 — offset 4 → expr).
+    (local.set $cb_body (i32.load offset=4 (local.get $callee_node)))
+    (if (i32.eq (i32.load (local.get $cb_body)) (i32.const 110))
+      (then
+        (local.set $cb_expr (i32.load offset=4 (local.get $cb_body)))
+        ;; If inner expr is VarRef (tag 85), look up the name in env.
+        (if (i32.eq (i32.load (local.get $cb_expr)) (i32.const 85))
+          (then
+            (local.set $name (i32.load offset=4 (local.get $cb_expr)))
+            (local.set $binding (call $env_lookup (local.get $name)))
+            (if (i32.ne (local.get $binding) (i32.const 0))
+              (then
+                (local.set $kind (call $env_binding_kind (local.get $binding)))
+                (local.set $kind_tag (call $schemekind_tag (local.get $kind)))
+                ;; ConstructorScheme tag is 132 per env.wat:161.
+                (if (i32.eq (local.get $kind_tag) (i32.const 132))
+                  (then
+                    (local.set $tag_id (call $schemekind_ctor_tag_id (local.get $kind)))
+                    (local.set $lo_args (call $lower_args (local.get $args_list)))
+                    (return (call $lexpr_make_lmakevariant
+                                  (local.get $h)
+                                  (local.get $tag_id)
+                                  (local.get $lo_args)))))))))))
+    ;; Default closure-call form per Lock #3.
     (local.set $lo_f    (call $lower_expr (local.get $callee_node)))
     (local.set $lo_args (call $lower_args (local.get $args_list)))
     (local.set $fh      (call $walk_expr_node_handle (local.get $callee_node)))
-    ;; Per Lock #3 seed-deferral: route directly to lower_call_default.
     (call $lower_call_default
       (local.get $h)
       (local.get $lo_f)
