@@ -528,7 +528,7 @@ checks its box and pushes the cursor forward.
 
 **Phase H.1 — Inference completeness (3/3)**
 - [x] H.1.a Hβ.first-light.infer-typedef-ctors — *VERIFIED ALREADY-CLOSED 2026-05-02; walk_stmt.wat:818-874 implemented; chunk-header named follow-up was stale*
-- [ ] H.1.b Hβ.first-light.infer-effect-ops — *partial: walk_stmt.wat:899-948 implements registration; verify cross-module env composition*
+- [x] H.1.b Hβ.first-light.infer-effect-ops — *VERIFIED 2026-05-02 via empirical effect+perform test: `effect Counter { inc() -> Int }; fn main() = perform inc()` infers cleanly + emits `(call $op_inc)` with zero diagnostics. EffectOpScheme env-extension at walk_stmt.wat:899-948 composes correctly across decl/use within one compilation unit.*
 - [ ] H.1.c Hβ.first-light.infer-handler-decls — *partial seed-stub at walk_stmt.wat:966*
 
 **Phase H.2 — Lower completeness (5/5)**
@@ -541,7 +541,7 @@ checks its box and pushes the cursor forward.
 **Phase H.3 — Emit completeness (3/3)**
 - [x] H.3.a Hβ.first-light.emit-match-pattern — *VERIFIED ALREADY-CLOSED; match emit produces real sentinel/heap dispatch*
 - [x] H.3.b Hβ.first-light.emit-float-substrate — *(commit `fb9a329`) lexer scans `.<digits>` + `e/E[+-]?<digits>`; mk_TFloat + mk_LitFloat + mk_LVFloat carry raw decimal text; $emit_f64_const emits `(f64.const <text>)`; emit_const dispatches TFloat (101). All forms (1.5, 1e308, 0.85, 2.5e-3) emit valid f64.*
-- [ ] H.3.c Hβ.first-light.emit-list-runtime-call — *partial: BConcat (153) currently dispatches uniformly to $str_concat — adequate for string concat in wheel; list-side requires $list_concat runtime + per-operand-Ty dispatch (~80 lines) and is gated on first wheel use of `++` over typed lists.*
+- [x] H.3.c Hβ.first-light.emit-list-runtime-call — *(commit `f301d5c`) BConcat (153) dispatches per operand Ty: TList → $list_alloc_concat (lazy tag-3 node, runtime/list.wat:180); TString or fall-through → $str_concat. Tests verified for `[1,2,3]++[4,5]`, `"a"++"b"`, `1+2`.*
 
 **Phase H.4 — First-light fixpoint harness (1/1)**
 - [x] H.4 Hβ.first-light.fixpoint-harness — *(commit `a25b99c`) phase [8/8] of first-light.sh runs pass-2/pass-3 over the wheel and diffs; currently reports 'L1 not yet ready' (2 funcs, 12 NFre); auto-activates fixpoint diff when Phase H surface emerges.*
