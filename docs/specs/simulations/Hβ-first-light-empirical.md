@@ -355,6 +355,51 @@ list because the explore agents and named follow-ups didn't
 surface it. Empirical investigation surfaced it — exactly per the
 empirical-pre-audit discipline this document advocates.
 
+### 4.5.4b Continued landings (2026-05-02 ongoing)
+
+**Hβ.first-light.lambda-body-fn-emit landed (commit `8d3d2f7`).**
+The closure record allocation refers to `$N_idx` for the lambda's
+fn pointer; previously `$N` wasn't actually emitted in the module.
+Added `$emit_functions_walk` recursive descent over LowExpr
+containers (LLet, LBlock, LIf, LCall, LTailCall, LBinOp,
+LMakeVariant, LMakeList, LMakeTuple, LReturn, LMakeClosure,
+LMakeContinuation). Now `fn main() = (x) => x` produces THREE
+functions in the WAT module: `$main`, `$5` (the lambda body), and
+`$_start`. Closures with captures and tuple-form lambdas same.
+
+### 4.5.4c Compounding-failure pattern in the wheel
+
+Empirical state with full src+lib feed (post all three fixes):
+- ERR=12, FUNCS=2, WAT=19 — still stub-shaped
+- Individual files: strings.nx alone produces 78 funcs+649 errs;
+  lists.nx alone produces 24 funcs+343 errs
+- types.nx + memory.nx + strings.nx: 0 funcs (cascading failure
+  from types.nx's `self` refinement bindings + TParam
+  destructure failures)
+
+**The fundamental remaining gap:** `types.nx` introduces complex
+type-system constructs — refinement types (`type X = Y where
+predicate(self)`), TParam record-pattern destructuring (`TParam(_,
+_, _, resolved)`), nested ADT shape constraints — that the seed
+inference can't fully process, causing cascading failures that
+prevent later wheel files from compiling.
+
+When `types.nx` is omitted (e.g., `cat lib/runtime/{strings,lists}.nx`),
+the seed produces 101 funcs (real wheel substrate compiling). The
+whole-wheel compile fails because types.nx's parse/infer cascade
+crashes the env state for everything downstream.
+
+Newly named handles:
+- `Hβ.first-light.refinement-type-self-binding` — `self` in
+  refinement-type where-clauses (`type ValidSpan = Span where
+  span_valid(self)`) needs to be bound during pattern walk
+- `Hβ.first-light.tparam-record-destructure` — TParam record
+  destructure pattern (`TParam(_, _, _, resolved)`) needs proper
+  PCon arm binding for the `resolved` field
+
+These are MEDIUM-scope work — touch infer's pattern walk per
+field; bounded but substantive.
+
 ### 4.5.5 Session running tally (this empirical-execution arc)
 
 Closed THIS session via empirical-driven substrate landings:

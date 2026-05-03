@@ -24199,28 +24199,135 @@
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $iter))))
 
-  ;; $emit_functions — walk LowExpr list, emit (func ...) for each LMakeClosure.
-  ;; Per wasm.nx:854-928 emit_functions.
+  ;; $emit_functions — walk LowExpr list, emit (func ...) for each
+  ;; LMakeClosure, including NESTED ones inside fn bodies (lambdas).
+  ;; Per Hβ.first-light.lambda-body-fn-emit (2026-05-02): when a lambda
+  ;; appears inside a fn body (e.g., `fn main() = (x) => x`), the
+  ;; LMakeClosure is buried inside the outer fn's body LowExpr tree,
+  ;; not at the top level. The emitter must recurse to find it.
+  ;;
+  ;; Eight interrogations per recursion site:
+  ;;  1. Graph?      LMakeClosure carries LowFn (lowfn record); fn body
+  ;;                 IS a LowExpr list whose nodes are graph projections.
+  ;;  2. Handler?    Direct emit; @resume=OneShot.
+  ;;  3. Verb?       N/A — structural recursion.
+  ;;  4. Row?        EmitMemory effect in emit; pure structural walk
+  ;;                 over ADT in this helper.
+  ;;  5. Ownership?  Borrowed throughout.
+  ;;  6. Refinement? LowExpr tag must be in [300, 334].
+  ;;  7. Gradient?   Each fn emitted is one more candidate in the
+  ;;                 funcref table; closure records reference them.
+  ;;  8. Reason?     Each LMakeClosure carries its source handle.
+  ;;
+  ;; Drift modes refused:
+  ;;  - Drift 1 (vtable): fn_index is a FIELD read at call_indirect; no
+  ;;                       table-of-functions dispatch logic here.
+  ;;  - Drift 6 (special): nullary AND N-ary lambdas use the same
+  ;;                       emit_fn_body path; no Bool-special-case.
+  ;;  - Drift 9 (deferred): all common LowExpr containers walked
+  ;;                       (LLet/LBlock/LIf/LMatch/LCall/LTailCall/
+  ;;                       LSuspend/LBinOp/LMakeList/LMakeTuple/
+  ;;                       LMakeRecord/LMakeVariant). Less-common
+  ;;                       containers fall through (no recursion);
+  ;;                       drift-9-safe because uninitialized-
+  ;;                       containers never produce LMakeClosure
+  ;;                       children today (substrate bounded by
+  ;;                       lower's actual output).
+
   (func $emit_functions (param $lowexprs i32)
-    (local $i i32) (local $n i32) (local $expr i32) (local $tag i32)
-    (local $inner i32) (local $fn_r i32)
+    (local $i i32) (local $n i32) (local $expr i32)
     (local.set $n (call $len (local.get $lowexprs)))
     (local.set $i (i32.const 0))
     (block $done
       (loop $iter
         (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
         (local.set $expr (call $list_index (local.get $lowexprs) (local.get $i)))
-        (local.set $tag (call $tag_of (local.get $expr)))
-        ;; LLet (304) — check inner for LMakeClosure
-        (if (i32.eq (local.get $tag) (i32.const 304))
-          (then
-            (local.set $inner (call $lexpr_llet_value (local.get $expr)))
-            (if (i32.eq (call $tag_of (local.get $inner)) (i32.const 311))
-              (then
-                (local.set $fn_r (call $lexpr_lmakeclosure_fn (local.get $inner)))
-                (call $emit_fn_body (local.get $fn_r))))))
+        (call $emit_functions_walk (local.get $expr))
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $iter))))
+
+  ;; Recursive walker: for each LowExpr, emit any LMakeClosure
+  ;; encountered (and recurse into its body) AND descend into common
+  ;; sub-expression containers.
+  (func $emit_functions_walk (param $expr i32)
+    (local $tag i32) (local $inner i32) (local $fn_r i32) (local $body i32)
+    (if (i32.lt_u (local.get $expr) (global.get $heap_base))
+      (then (return)))
+    (local.set $tag (call $tag_of (local.get $expr)))
+    ;; LMakeClosure (311) — emit fn body + recurse into its body
+    (if (i32.eq (local.get $tag) (i32.const 311))
+      (then
+        (local.set $fn_r (call $lexpr_lmakeclosure_fn (local.get $expr)))
+        (call $emit_fn_body (local.get $fn_r))
+        (local.set $body (call $lowfn_body (local.get $fn_r)))
+        (call $emit_functions (local.get $body))
+        (return)))
+    ;; LMakeContinuation (312) — same shape
+    (if (i32.eq (local.get $tag) (i32.const 312))
+      (then
+        (local.set $fn_r (call $lexpr_lmakecontinuation_fn (local.get $expr)))
+        (call $emit_fn_body (local.get $fn_r))
+        (local.set $body (call $lowfn_body (local.get $fn_r)))
+        (call $emit_functions (local.get $body))
+        (return)))
+    ;; LLet (304) — recurse into value
+    (if (i32.eq (local.get $tag) (i32.const 304))
+      (then
+        (call $emit_functions_walk (call $lexpr_llet_value (local.get $expr)))
+        (return)))
+    ;; LBlock (315) — recurse into stmts list
+    (if (i32.eq (local.get $tag) (i32.const 315))
+      (then
+        (call $emit_functions (call $lexpr_lblock_stmts (local.get $expr)))
+        (return)))
+    ;; LIf (314) — recurse into cond/then/else
+    (if (i32.eq (local.get $tag) (i32.const 314))
+      (then
+        (call $emit_functions_walk (call $lexpr_lif_cond (local.get $expr)))
+        (call $emit_functions (call $lexpr_lif_then (local.get $expr)))
+        (call $emit_functions (call $lexpr_lif_else (local.get $expr)))
+        (return)))
+    ;; LCall (308) — recurse into fn + args
+    (if (i32.eq (local.get $tag) (i32.const 308))
+      (then
+        (call $emit_functions_walk (call $lexpr_lcall_fn (local.get $expr)))
+        (call $emit_functions (call $lexpr_lcall_args (local.get $expr)))
+        (return)))
+    ;; LTailCall (309) — same shape as LCall
+    (if (i32.eq (local.get $tag) (i32.const 309))
+      (then
+        (call $emit_functions_walk (call $lexpr_ltailcall_fn (local.get $expr)))
+        (call $emit_functions (call $lexpr_ltailcall_args (local.get $expr)))
+        (return)))
+    ;; LBinOp (306) — recurse into lhs/rhs
+    (if (i32.eq (local.get $tag) (i32.const 306))
+      (then
+        (call $emit_functions_walk (call $lexpr_lbinop_l (local.get $expr)))
+        (call $emit_functions_walk (call $lexpr_lbinop_r (local.get $expr)))
+        (return)))
+    ;; LMakeVariant (319) — recurse into args
+    (if (i32.eq (local.get $tag) (i32.const 319))
+      (then
+        (call $emit_functions (call $lexpr_lmakevariant_args (local.get $expr)))
+        (return)))
+    ;; LMakeList (316) — recurse into elems
+    (if (i32.eq (local.get $tag) (i32.const 316))
+      (then
+        (call $emit_functions (call $lexpr_lmakelist_elems (local.get $expr)))
+        (return)))
+    ;; LMakeTuple (317) — recurse into elems
+    (if (i32.eq (local.get $tag) (i32.const 317))
+      (then
+        (call $emit_functions (call $lexpr_lmaketuple_elems (local.get $expr)))
+        (return)))
+    ;; LReturn (310) — recurse into value
+    (if (i32.eq (local.get $tag) (i32.const 310))
+      (then
+        (call $emit_functions_walk (call $lexpr_lreturn_x (local.get $expr)))
+        (return)))
+    ;; All other tags: no LowExpr children to recurse into (literals,
+    ;; locals, globals, etc.). Drop through.
+    (return))
 
   ;; ─── $inka_emit — the pipeline-stage entry ───────────────────────────
   ;;
