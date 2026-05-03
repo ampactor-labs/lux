@@ -108,10 +108,72 @@ assert_contains "$TWO_SECTIONS" 'Data[2]:' "static closure records are materiali
 assert_contains "$TWO_DISASM" 'global.get 3 <id>' "compiled body loads id closure global"
 assert_contains "$TWO_DISASM" 'call_indirect 0 <fns> (type 2 <ft2>)' "compiled body keeps typed indirect call"
 
-echo "[7/7] Summary..."
+echo "[7/8] Summary..."
 echo "       seed: $(wc -l < "$WAT") WAT lines, $(wc -c < "$WASM") WASM bytes"
 echo "       zero: $(wc -l < "$ZERO_WAT") generated WAT lines"
 echo "       one:  $(wc -l < "$ONE_WAT") generated WAT lines"
 echo "       two:  $(wc -l < "$TWO_WAT") generated WAT lines"
+
+echo "[8/8] L1 fixpoint probe..."
+# Per H.4 Hβ.first-light.fixpoint-harness (PLAN-to-first-light.md §3 + §6):
+# the seed compiles the wheel — and if the seed-produced compiler is
+# byte-identical when re-applied to the wheel, L1 has closed. Until
+# that holds, the probe surfaces the empirical state (wheel-fn count,
+# NFre count, fixpoint diff size) so closures register as visible
+# progress per the plan's §4 ritual closure check.
+L1_INPUT="$WORKDIR/l1-input.nx"
+L1_OUT_2="$WORKDIR/l1-pass2.wat"
+L1_OUT_3="$WORKDIR/l1-pass3.wat"
+L1_ERR_2="$WORKDIR/l1-pass2.err"
+L1_WASM_2="$WORKDIR/l1-pass2.wasm"
+
+# Concatenate the wheel in canonical order (src then lib, same as
+# CLAUDE.md operational essentials).
+{ find src -name '*.nx' -type f | sort | xargs cat
+  find lib -name '*.nx' -type f | sort | xargs cat
+} > "$L1_INPUT"
+
+# Pass 2: seed → wheel → inka2.wat
+wasmtime run "$WASM" < "$L1_INPUT" > "$L1_OUT_2" 2> "$L1_ERR_2" || true
+PASS2_FNS=$(grep -c "^  (func " "$L1_OUT_2" || true)
+PASS2_LINES=$(wc -l < "$L1_OUT_2")
+PASS2_NFRE=$(tr -d '\0' < "$L1_ERR_2" | grep -c "E_UnresolvedType" || true)
+
+echo "       pass2: $PASS2_FNS funcs, $PASS2_LINES lines, $PASS2_NFRE NFre diagnostics"
+
+# If pass-2 output is a stub (only scaffolding $heap_base + $_start
+# from the seed prelude), the wheel hasn't sufficiently emerged for
+# pass-3 to be meaningful — surface state and exit success on the
+# WABT-gate checks alone. Closure of L1 registers when this branch
+# falls through to the fixpoint diff.
+if [ "$PASS2_FNS" -le "2" ]; then
+  echo "       L1 not yet ready — pass-2 emits only seed scaffolding (need more wheel-fn surface)"
+  echo "       NFre diagnostics: $PASS2_NFRE (target 0); fn count: $PASS2_FNS (target ≥ dozens)"
+  echo "       This is the cursor — Phase H handles narrow toward L1 closure per PLAN-to-first-light.md §5."
+else
+  # Pass 2 produced real wheel output. Compile it and run pass 3.
+  wat2wasm "$L1_OUT_2" -o "$L1_WASM_2" --debug-names 2>/dev/null \
+    || { echo "       pass-2 WAT failed wat2wasm — wheel substrate produced invalid WASM"; exit 1; }
+  wasm-validate "$L1_WASM_2" \
+    || { echo "       pass-2 WASM failed wasm-validate — runtime correctness gap"; exit 1; }
+
+  # Pass 3: pass-2.wasm → wheel → inka3.wat
+  wasmtime run "$L1_WASM_2" < "$L1_INPUT" > "$L1_OUT_3" 2>/dev/null || true
+  PASS3_FNS=$(grep -c "^  (func " "$L1_OUT_3" || true)
+  PASS3_LINES=$(wc -l < "$L1_OUT_3")
+  echo "       pass3: $PASS3_FNS funcs, $PASS3_LINES lines"
+
+  if diff -q "$L1_OUT_2" "$L1_OUT_3" >/dev/null; then
+    echo "       L1 FIXPOINT CLOSED — pass-2 ≡ pass-3 byte-identical."
+    echo "       The medium has folded into its seed. Tier 3 begins."
+  else
+    DIFF_LINES=$(diff "$L1_OUT_2" "$L1_OUT_3" | wc -l)
+    echo "       L1 fixpoint NOT closed — diff size: $DIFF_LINES lines."
+    echo "       Pass-3 differs from pass-2; investigate emit determinism or"
+    echo "       inference-order divergence per PLAN-to-first-light.md §6.2."
+    exit 1
+  fi
+fi
+
 echo ""
 echo "=== WABT gate: PASS ==="
