@@ -116,7 +116,7 @@ handler buffer_unpacker(source) with pos = 0 {
 }
 
 /// ensure_capacity — grow-on-demand buffer management.
-fn ensure_capacity(buf, offset, capacity, needed) with Memory + Alloc =
+fn ensure_capacity(buf, offset, capacity, needed) with Memory + Alloc = {
   if capacity == 0 {
     let initial = if needed > 4096 { needed * 2 } else { 4096 }
     let new_buf = perform alloc(4 + initial)
@@ -133,9 +133,11 @@ fn ensure_capacity(buf, offset, capacity, needed) with Memory + Alloc =
     (new_buf, final_cap)
   }
   else { (buf, capacity) }
+}
 
 /// Stamp the final length into the buffer header, returning a proper
 /// Inka string [len:i32][bytes...].
-fn finalize_packed(buf, offset) with Memory =
+fn finalize_packed(buf, offset) with Memory = {
   perform store_i32(buf, offset)
   buf
+}

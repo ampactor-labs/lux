@@ -40,10 +40,11 @@ type LspFrame
 /// §"Scratch layout"). Honest: per-byte syscalls are slow for bulk
 /// data but fine for the ~50-byte LSP header section.
 
-fn read_one_byte() with Memory + Alloc + WASI =
+fn read_one_byte() with Memory + Alloc + WASI = {
   let nread = read_chunk(96, 1)
   if nread == 0 { 0 - 1 }
   else { perform load_i8(96) }
+}
 
 // ─── Header parsing — accumulate bytes into a String until \r\n\r\n ───
 
@@ -51,7 +52,7 @@ fn read_one_byte() with Memory + Alloc + WASI =
 /// parse Content-Length, read body bytes. Returns LspFrameEof if stdin
 /// closes during header read.
 
-fn read_lsp_frame() with Memory + Alloc + WASI =
+fn read_lsp_frame() with Memory + Alloc + WASI = {
   let initial_cap = 256
   let hdr_buf = perform alloc(initial_cap)
   perform store_i32(hdr_buf, 0)
@@ -64,13 +65,14 @@ fn read_lsp_frame() with Memory + Alloc + WASI =
       else { read_body(content_len) }
     }
   }
+}
 
 /// read_headers_until_blank — accumulate stdin bytes into hdr_buf until
 /// the sequence \r\n\r\n is observed. Returns Some(header_string) on
 /// success; None on EOF mid-header. Header string carries the bytes
 /// up to (not including) the terminating \r\n\r\n.
 
-fn read_headers_until_blank(buf, written, cap) with Memory + Alloc + WASI =
+fn read_headers_until_blank(buf, written, cap) with Memory + Alloc + WASI = {
   let b = read_one_byte()
   if b < 0 { None }
   else {
@@ -90,11 +92,12 @@ fn read_headers_until_blank(buf, written, cap) with Memory + Alloc + WASI =
       read_headers_until_blank(buf2, new_written, cap2)
     }
   }
+}
 
 /// header_terminator_seen — does the buffer end in \r\n\r\n (4 bytes)?
 /// Used as the terminator detector in the header read loop.
 
-fn header_terminator_seen(buf, written) with Memory =
+fn header_terminator_seen(buf, written) with Memory = {
   if written < 4 { false }
   else {
     let b3 = perform load_i8(buf + 4 + written - 4)
@@ -103,6 +106,7 @@ fn header_terminator_seen(buf, written) with Memory =
     let b0 = perform load_i8(buf + 4 + written - 1)
     b3 == 13 && b2 == 10 && b1 == 13 && b0 == 10
   }
+}
 
 // ─── parse_content_length — find "Content-Length: N" header value ─────
 
@@ -110,7 +114,7 @@ fn header_terminator_seen(buf, written) with Memory =
 /// per LSP spec). Returns the integer value or -1 if not found.
 /// Honest substrate: doesn't validate other headers; ignores them.
 
-fn parse_content_length(hdr_str) with Memory =
+fn parse_content_length(hdr_str) with Memory = {
   let hdr_len = byte_len(hdr_str)
   let kw = "Content-Length:"
   let kw_len = byte_len(kw)
@@ -120,29 +124,33 @@ fn parse_content_length(hdr_str) with Memory =
     let value_start = skip_header_spaces(hdr_str, hdr_len, pos + kw_len)
     parse_int_from_pos(hdr_str, hdr_len, value_start, 0)
   }
+}
 
-fn find_header(src, src_len, kw, kw_len, pos) with Memory =
+fn find_header(src, src_len, kw, kw_len, pos) with Memory = {
   if pos + kw_len > src_len { 0 - 1 }
   else if header_matches_at(src, kw, kw_len, pos, 0) { pos }
   else { find_header(src, src_len, kw, kw_len, pos + 1) }
+}
 
-fn header_matches_at(src, kw, kw_len, src_pos, i) with Memory =
+fn header_matches_at(src, kw, kw_len, src_pos, i) with Memory = {
   if i >= kw_len { true }
   else if perform load_i8(src + 4 + src_pos + i) == perform load_i8(kw + 4 + i) {
     header_matches_at(src, kw, kw_len, src_pos, i + 1)
   } else {
     false
   }
+}
 
-fn skip_header_spaces(src, src_len, pos) with Memory =
+fn skip_header_spaces(src, src_len, pos) with Memory = {
   if pos >= src_len { pos }
   else {
     let b = perform load_i8(src + 4 + pos)
     if b == 32 || b == 9 { skip_header_spaces(src, src_len, pos + 1) }
     else                 { pos }
   }
+}
 
-fn parse_int_from_pos(src, src_len, pos, acc) with Memory =
+fn parse_int_from_pos(src, src_len, pos, acc) with Memory = {
   if pos >= src_len { acc }
   else {
     let b = perform load_i8(src + 4 + pos)
@@ -152,6 +160,7 @@ fn parse_int_from_pos(src, src_len, pos, acc) with Memory =
       acc
     }
   }
+}
 
 // ─── read_body — read exactly N bytes from stdin ──────────────────────
 
@@ -159,14 +168,15 @@ fn parse_int_from_pos(src, src_len, pos, acc) with Memory =
 /// Returns LspFrame(body) on success; LspFrameEof if stdin closes
 /// before N bytes received (truncated message; protocol error).
 
-fn read_body(n) with Memory + Alloc + WASI =
+fn read_body(n) with Memory + Alloc + WASI = {
   let buf = perform alloc(4 + n)
   perform store_i32(buf, n)
   let total = read_body_loop(buf, 0, n)
   if total < n { LspFrameEof }
   else         { LspFrame(buf) }
+}
 
-fn read_body_loop(buf, written, total) with Memory + Alloc + WASI =
+fn read_body_loop(buf, written, total) with Memory + Alloc + WASI = {
   if written >= total { written }
   else {
     let chunk_size = total - written
@@ -174,6 +184,7 @@ fn read_body_loop(buf, written, total) with Memory + Alloc + WASI =
     if nread == 0 { written }
     else { read_body_loop(buf, written + nread, total) }
   }
+}
 
 // ─── write_lsp_frame — write Content-Length-framed body to stdout ─────
 
@@ -182,7 +193,7 @@ fn read_body_loop(buf, written, total) with Memory + Alloc + WASI =
 /// Builds the header as a String, writes header then body via
 /// fd_write through the existing print_string substrate.
 
-fn write_lsp_frame(body) with Memory + Alloc + WASI =
+fn write_lsp_frame(body) with Memory + Alloc + WASI = {
   let body_len = byte_len(body)
   let hdr = "Content-Length: "
     |> str_concat(int_to_str(body_len))
@@ -190,3 +201,4 @@ fn write_lsp_frame(body) with Memory + Alloc + WASI =
   print_string(hdr)
   print_string(body)
   ()
+}

@@ -179,7 +179,7 @@ handler fork_copy with target_arena = parent_arena() {
 /// recursive accumulator pattern; flat-buffer-plus-counter substrate
 /// (Ω.3).
 
-fn copy_captures(captures_classified, target_local, target_arena, i) with GraphRead + GraphWrite =
+fn copy_captures(captures_classified, target_local, target_arena, i) with GraphRead + GraphWrite = {
   let n = captures_classified.len
   if i >= n { () }
   else {
@@ -197,6 +197,7 @@ fn copy_captures(captures_classified, target_local, target_arena, i) with GraphR
     }
     copy_captures(captures_classified, target_local, target_arena, i + 1)
   }
+}
 
 // ─── RegionClass — per-capture region classification ─────────────────
 
@@ -217,15 +218,17 @@ type RegionClass
 /// next-outer arena handler. If no outer arena, returns the global
 /// heap arena_id (0). Per Q-B.5.2 — the auto default.
 
-fn parent_arena() with GraphRead =
+fn parent_arena() with GraphRead = {
   0   // conservative default; full body walks ~> chain (lands as peer AM.h)
+}
 
 /// fork_deny_message — formats the diagnostic message for
 /// T_ContinuationEscapes. Per AM §1.2 + the docs/errors/ catalog
 /// shape. Stub for V1; full body composes per-span citations.
 
-fn fork_deny_message(_escape_spans) with Pure =
+fn fork_deny_message(_escape_spans) with Pure = {
   "MultiShot continuation captures arena-scoped value; would escape arena's region"
+}
 
 // ─── Connection to the kernel ─────────────────────────────────────────
 

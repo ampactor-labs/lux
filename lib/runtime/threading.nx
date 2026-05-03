@@ -153,17 +153,21 @@ handler sequential_compose with results = [] {
 /// declaration; from Inka's perspective, this fn returns a handle
 /// to the OS thread.
 
-fn ffi_spawn(_task) =
+fn ffi_spawn(_task) = {
   Handle(0)   // V1 conservative default; full body invokes wasi-threads (lands as peer TH.W)
+}
 
-fn ffi_join(_handle) =
+fn ffi_join(_handle) = {
   0   // V1 conservative default; full body waits on wasi-threads handle (TH.W)
+}
 
-fn ffi_current_thread_id() with Pure =
+fn ffi_current_thread_id() with Pure = {
   0   // V1 conservative default; full body reads wasi-threads thread-id (TH.W)
+}
 
-fn ffi_num_cores() with Pure =
+fn ffi_num_cores() with Pure = {
   1   // V1 conservative default; full body queries runtime (TH.W)
+}
 
 // ─── Connection to the kernel ─────────────────────────────────────────
 

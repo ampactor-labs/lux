@@ -103,12 +103,13 @@ handler pick_first {
 /// outer scope's effects to flow. For backtrack's call site, both
 /// thunks are closures over the surrounding `try_each` state.
 
-fn try_with_abort_catch(try_fn, catch_fn) with Abort =
+fn try_with_abort_catch(try_fn, catch_fn) with Abort = {
   let attempted = (try_fn()) ~> catch_abort
   match attempted {
     Some(value)   => value,
     None          => catch_fn()
   }
+}
 
 /// backtrack — MultiShot try-each handler per CE §1.3. For each
 /// option, push a checkpoint, resume the continuation with that

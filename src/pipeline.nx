@@ -55,7 +55,7 @@ import driver
 // every module either loads cached entries or re-infers + writes
 // fresh cache.
 
-fn compile(entry_module) =
+fn compile(entry_module) = {
   {
     driver_check(entry_module)
     let entry_source = perform fs_read_file(driver_module_path(entry_module))
@@ -75,8 +75,9 @@ fn compile(entry_module) =
     ~> env_handler
     ~> graph_handler
     ~> diagnostics_handler
+}
 
-fn check(entry_module) =
+fn check(entry_module) = {
   driver_check(entry_module)
     ~> wasi_filesystem
     ~> mentl_default
@@ -85,10 +86,11 @@ fn check(entry_module) =
     ~> env_handler
     ~> graph_handler
     ~> diagnostics_handler
+}
 
 // Legacy single-source entry — for tests that pass raw source
 // without filesystem layout. No caching; full re-infer each call.
-fn compile_source(source) =
+fn compile_source(source) = {
   source
     |> frontend
     |> infer_program
@@ -107,8 +109,9 @@ fn compile_source(source) =
     ~> env_handler
     ~> graph_handler
     ~> diagnostics_handler
+}
 
-fn check_source(source) =
+fn check_source(source) = {
   source
     |> frontend
     |> infer_program
@@ -118,8 +121,9 @@ fn check_source(source) =
     ~> env_handler
     ~> graph_handler
     ~> diagnostics_handler
+}
 
-fn query(source, question) =
+fn query(source, question) = {
   {
     let ast = source |> frontend
     infer_program(ast)
@@ -134,8 +138,9 @@ fn query(source, question) =
     ~> env_handler
     ~> graph_handler
     ~> diagnostics_handler
+}
 
-fn teach(source) =
+fn teach(source) = {
   {
     let ast = source |> frontend
     infer_program(ast)
@@ -148,8 +153,9 @@ fn teach(source) =
     ~> env_handler
     ~> graph_handler
     ~> diagnostics_handler
+}
 
-fn audit(source) =
+fn audit(source) = {
   {
     let ast = source |> frontend
     infer_program(ast)
@@ -162,13 +168,15 @@ fn audit(source) =
     ~> env_handler
     ~> graph_handler
     ~> diagnostics_handler
+}
 
 // frontend — lex |> parse
 
-fn frontend(source) =
+fn frontend(source) = {
   source
     |> lex
     |> parse_program
+}
 
 // env_handler — scoped binding stack (spec 04)
 // Peer of graph_handler. One writer (inference). Scoping via
@@ -201,17 +209,19 @@ handler env_handler with entries = [], scopes = [] {
     }
 }
 
-fn env_find(entries, name) =
+fn env_find(entries, name) = {
   if entries.len == 0 { None }
   else {
     let (k, scheme, reason, kind) = list_head(entries)
     if str_eq(k, name) { Some((scheme, reason, kind)) }
     else { env_find(list_tail(entries), name) }
   }
+}
 
-fn take_last(lst, n) =
+fn take_last(lst, n) = {
   if lst.len <= n { lst }
   else { take_last(list_tail(lst), n) }
+}
 
 // body_context — H1 emit-time per-fn-body metadata
 // Set at emit_fn_body entry; read by LEvPerform's offset arithmetic
@@ -330,7 +340,7 @@ handler fresh_for_query with next_display = 0 {
 
 // Collection helpers — consumed by teach / audit
 
-fn collect_gradients(ast) =
+fn collect_gradients(ast) = {
   if ast.len == 0 { [] }
   else {
     let node = list_head(ast)
@@ -342,8 +352,9 @@ fn collect_gradients(ast) =
     }
     entry ++ collect_gradients(list_tail(ast))
   }
+}
 
-fn render_gradients(gradients) =
+fn render_gradients(gradients) = {
   if gradients.len == 0 {
     "All functions are at maximum annotation density.\n"
   } else {
@@ -354,6 +365,7 @@ fn render_gradients(gradients) =
       |> str_concat("\n")
       |> str_concat(render_gradients(list_tail(gradients)))
   }
+}
 
 fn render_gradient_result(result) = match result {
   None => "(no next-step annotation suggested)",
@@ -366,7 +378,7 @@ fn render_gradient_result(result) = match result {
   }
 }
 
-fn join_unlock_labels(labels) with Pure =
+fn join_unlock_labels(labels) with Pure = {
   if labels.len == 0 { "(no capabilities)" }
   else {
     let head = list_head(labels)
@@ -374,8 +386,9 @@ fn join_unlock_labels(labels) with Pure =
     if tail.len == 0 { head }
     else { head |> str_concat(", ") |> str_concat(join_unlock_labels(tail)) }
   }
+}
 
-fn collect_fn_rows(ast) =
+fn collect_fn_rows(ast) = {
   if ast.len == 0 { [] }
   else {
     let node = list_head(ast)
@@ -387,6 +400,7 @@ fn collect_fn_rows(ast) =
     }
     entry ++ collect_fn_rows(list_tail(ast))
   }
+}
 
 // H5: AuditReport record per fn — the structured projection Mentl's
 // IDE surfaces (Proof Lens, Gradient ghost text, JSON export). Each
@@ -417,7 +431,7 @@ fn severance_candidates(reached) = {
   filter_not_in(canonical, reached, 0, canonical.len, [])
 }
 
-fn filter_not_in(candidates, present, i, n, acc) =
+fn filter_not_in(candidates, present, i, n, acc) = {
   if i >= n { acc }
   else {
     let c = list_index(candidates, i)
@@ -425,29 +439,34 @@ fn filter_not_in(candidates, present, i, n, acc) =
                else { acc ++ [c] }   // drift-audit: ignore — real drift 11 on small canonical-3-effect list; buffer-counter conversion requires adding Memory+Alloc to fn row rippling through audit walk; tracked for item 11.B buffer-counter sweep
     filter_not_in(candidates, present, i + 1, n, next)
   }
+}
 
-fn name_in_list(names, target) =
+fn name_in_list(names, target) = {
   name_in_list_loop(names, target, 0, names.len)
+}
 
-fn name_in_list_loop(names, target, i, n) =
+fn name_in_list_loop(names, target, i, n) = {
   if i >= n { false }
   else if eff_name_eq(list_index(names, i), target) { true }
   else { name_in_list_loop(names, target, i + 1, n) }
+}
 
-fn severance_unlocks(severable) =
+fn severance_unlocks(severable) = {
   severance_unlocks_loop(severable, 0, severable.len, [])
+}
 
-fn severance_unlocks_loop(severable, i, n, acc) =
+fn severance_unlocks_loop(severable, i, n, acc) = {
   if i >= n { acc }
   else {
     let caps = capabilities_for_severance(list_index(severable, i))
     severance_unlocks_loop(severable, i + 1, n, acc ++ caps)
   }
+}
 
 // Terminal renderer over AuditReport records — reads fields by name.
 // JSON / IDE-projection renderers are peer functions on the same
 // record (one substrate, multiple projections per CLAUDE.md insight 8).
-fn render_audit(entries) =
+fn render_audit(entries) = {
   if entries.len == 0 { "" }
   else {
     let report = list_head(entries)
@@ -468,6 +487,7 @@ fn render_audit(entries) =
       |> str_concat(severance_section)
       |> str_concat(render_audit(list_tail(entries)))
   }
+}
 
 // Query rendering — delegates to query.nx for Question parsing
 
@@ -503,7 +523,7 @@ fn render_query_result(result) = match result {
       |> str_concat(msg)
 }
 
-fn parse_query_string(q) =
+fn parse_query_string(q) = {
   match split(q, " ") {
     []     => QUnknown(q),
     [w0]   => match w0 {
@@ -523,3 +543,4 @@ fn parse_query_string(q) =
     },
     _ => QUnknown(q)
   }
+}

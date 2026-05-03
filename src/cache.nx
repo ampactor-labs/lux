@@ -56,7 +56,7 @@ fn hash_source(s) with Memory = {
   cache_hash_loop(s, 0, n, 2166136261)
 }
 
-fn cache_hash_loop(s, i, n, h) with Memory =
+fn cache_hash_loop(s, i, n, h) with Memory = {
   if i >= n { h }
   else {
     let b = byte_at(s, i)
@@ -65,6 +65,7 @@ fn cache_hash_loop(s, i, n, h) with Memory =
     let mixed = xored * 16777619
     cache_hash_loop(s, i + 1, n, mixed)
   }
+}
 
 // XOR two integers. perform i32_xor(a, b) is a Memory-level
 // intrinsic — the emitter recognizes it by name and lowers
@@ -74,25 +75,28 @@ fn cache_hash_loop(s, i, n, h) with Memory =
 //
 // No bitwise operator in the language. No 64-op arithmetic
 // decomposition. One perform, one WASM instruction.
-fn i32_xor(a, b) with Memory =
+fn i32_xor(a, b) with Memory = {
   perform i32_xor(a, b)
+}
 
 // Cache path conventions — all files under `.inka/cache/`.
 // Slash-flattened: `compiler/infer.nx` → `.inka/cache/compiler__infer.nx.kai`.
 
 fn cache_dir() with Pure = ".inka/cache"
 
-fn cache_path_for(module_name) =
+fn cache_path_for(module_name) = {
   cache_dir()
     |> str_concat("/")
     |> str_concat(cache_flatten(module_name))
     |> str_concat(".kai")
+}
 
 // Replace `/` with `__` so cache filenames stay flat.
-fn cache_flatten(module_name) =
+fn cache_flatten(module_name) = {
   cache_flatten_loop(module_name, 0, byte_len(module_name), "")
+}
 
-fn cache_flatten_loop(s, i, n, acc) with Memory + Alloc =
+fn cache_flatten_loop(s, i, n, acc) with Memory + Alloc = {
   if i >= n { acc }
   else {
     let b = byte_at(s, i)
@@ -100,6 +104,7 @@ fn cache_flatten_loop(s, i, n, acc) with Memory + Alloc =
                   else { str_of_single_byte(b) }
     cache_flatten_loop(s, i + 1, n, str_concat(acc, segment))
   }
+}
 
 // Binary serialization — Pack direction. Tag bytes per variant,
 // exhaustive match, no text assembly.
@@ -128,21 +133,23 @@ fn cache_pack(kai) with Pack + !Unpack = {
   cache_pack_entries(kai.exported_entries, 0, kai.exported_entries.len)
 }
 
-fn cache_pack_string_list(lst, i, n) with Pack + !Unpack =
+fn cache_pack_string_list(lst, i, n) with Pack + !Unpack = {
   if i >= n { () }
   else {
     perform pack_str(list_index(lst, i))
     cache_pack_string_list(lst, i + 1, n)
   }
+}
 
-fn cache_pack_int_list(lst, i, n) with Pack + !Unpack =
+fn cache_pack_int_list(lst, i, n) with Pack + !Unpack = {
   if i >= n { () }
   else {
     perform pack_i32(list_index(lst, i))
     cache_pack_int_list(lst, i + 1, n)
   }
+}
 
-fn cache_pack_entries(entries, i, n) with Pack + !Unpack =
+fn cache_pack_entries(entries, i, n) with Pack + !Unpack = {
   if i >= n { () }
   else {
     let (name, scheme, _reason, kind) = list_index(entries, i)
@@ -151,6 +158,7 @@ fn cache_pack_entries(entries, i, n) with Pack + !Unpack =
     cache_pack_kind(kind)
     cache_pack_entries(entries, i + 1, n)
   }
+}
 
 fn cache_pack_scheme(scheme) with Pack + !Unpack = {
   let Forall(handles, ty) = scheme
@@ -241,14 +249,15 @@ fn cache_pack_ty(ty) with Pack + !Unpack = match ty {
   }
 }
 
-fn cache_pack_ty_list(tys, i, n) with Pack + !Unpack =
+fn cache_pack_ty_list(tys, i, n) with Pack + !Unpack = {
   if i >= n { () }
   else {
     cache_pack_ty(list_index(tys, i))
     cache_pack_ty_list(tys, i + 1, n)
   }
+}
 
-fn cache_pack_fields(fields, i, n) with Pack + !Unpack =
+fn cache_pack_fields(fields, i, n) with Pack + !Unpack = {
   if i >= n { () }
   else {
     let (name, ty) = list_index(fields, i)
@@ -256,8 +265,9 @@ fn cache_pack_fields(fields, i, n) with Pack + !Unpack =
     cache_pack_ty(ty)
     cache_pack_fields(fields, i + 1, n)
   }
+}
 
-fn cache_pack_params(params, i, n) with Pack + !Unpack =
+fn cache_pack_params(params, i, n) with Pack + !Unpack = {
   if i >= n { () }
   else {
     let TParam(name, ty, authored, resolved) = list_index(params, i)
@@ -267,6 +277,7 @@ fn cache_pack_params(params, i, n) with Pack + !Unpack =
     cache_pack_ownership(resolved)
     cache_pack_params(params, i + 1, n)
   }
+}
 
 // Ownership tags: 0=Inferred, 1=Own, 2=Ref
 fn cache_pack_ownership(own) with Pack + !Unpack = match own {
@@ -313,16 +324,17 @@ fn cache_pack_effrow(row) with Pack + !Unpack = match row {
   }
 }
 
-fn cache_pack_effnames(names, i, n) with Pack + !Unpack =
+fn cache_pack_effnames(names, i, n) with Pack + !Unpack = {
   if i >= n { () }
   else {
     cache_pack_effname(list_index(names, i))
     cache_pack_effnames(names, i + 1, n)
   }
+}
 
 // CapabilityScheme payload — `(EffName, Bool)` pairs. The trailing byte
 // records whether the effect was declared negated within the bundle.
-fn cache_pack_eff_pairs(pairs, i, n) with Pack + !Unpack =
+fn cache_pack_eff_pairs(pairs, i, n) with Pack + !Unpack = {
   if i >= n { () }
   else {
     let (name, negated) = list_index(pairs, i)
@@ -330,6 +342,7 @@ fn cache_pack_eff_pairs(pairs, i, n) with Pack + !Unpack =
     perform pack_byte(if negated { 1 } else { 0 })
     cache_pack_eff_pairs(pairs, i + 1, n)
   }
+}
 
 // EffName tags: 0=ENamed, 1=EParameterized
 fn cache_pack_effname(name) with Pack + !Unpack = match name {
@@ -345,12 +358,13 @@ fn cache_pack_effname(name) with Pack + !Unpack = match name {
   }
 }
 
-fn cache_pack_effargs(args, i, n) with Pack + !Unpack =
+fn cache_pack_effargs(args, i, n) with Pack + !Unpack = {
   if i >= n { () }
   else {
     cache_pack_effarg(list_index(args, i))
     cache_pack_effargs(args, i + 1, n)
   }
+}
 
 // EffArg tags: 0=EAInt, 1=EAString
 fn cache_pack_effarg(arg) with Pack + !Unpack = match arg {
@@ -399,21 +413,23 @@ fn cache_unpack() with Unpack + !Pack = {
   }
 }
 
-fn cache_unpack_string_list(n, i, buf) with Unpack + !Pack =
+fn cache_unpack_string_list(n, i, buf) with Unpack + !Pack = {
   if i >= n { slice(buf, 0, n) }
   else {
     let s = perform unpack_str()
     cache_unpack_string_list(n, i + 1, list_set(buf, i, s))
   }
+}
 
-fn cache_unpack_int_list(n, i, buf) with Unpack + !Pack =
+fn cache_unpack_int_list(n, i, buf) with Unpack + !Pack = {
   if i >= n { slice(buf, 0, n) }
   else {
     let v = perform unpack_i32()
     cache_unpack_int_list(n, i + 1, list_set(buf, i, v))
   }
+}
 
-fn cache_unpack_entries(n, i, buf) with Unpack + !Pack =
+fn cache_unpack_entries(n, i, buf) with Unpack + !Pack = {
   if i >= n { slice(buf, 0, n) }
   else {
     let name = perform unpack_str()
@@ -422,6 +438,7 @@ fn cache_unpack_entries(n, i, buf) with Unpack + !Pack =
     let reason = Inferred("loaded from cache")
     cache_unpack_entries(n, i + 1, list_set(buf, i, (name, scheme, reason, kind)))
   }
+}
 
 fn cache_unpack_scheme() with Unpack + !Pack = {
   let n_handles = perform unpack_i32()
@@ -511,22 +528,24 @@ fn cache_unpack_ty() with Unpack + !Pack = {
   else { TUnit }
 }
 
-fn cache_unpack_ty_list(n, i, buf) with Unpack + !Pack =
+fn cache_unpack_ty_list(n, i, buf) with Unpack + !Pack = {
   if i >= n { slice(buf, 0, n) }
   else {
     let ty = cache_unpack_ty()
     cache_unpack_ty_list(n, i + 1, list_set(buf, i, ty))
   }
+}
 
-fn cache_unpack_fields(n, i, buf) with Unpack + !Pack =
+fn cache_unpack_fields(n, i, buf) with Unpack + !Pack = {
   if i >= n { slice(buf, 0, n) }
   else {
     let name = perform unpack_str()
     let ty = cache_unpack_ty()
     cache_unpack_fields(n, i + 1, list_set(buf, i, (name, ty)))
   }
+}
 
-fn cache_unpack_params(n, i, buf) with Unpack + !Pack =
+fn cache_unpack_params(n, i, buf) with Unpack + !Pack = {
   if i >= n { slice(buf, 0, n) }
   else {
     let name = perform unpack_str()
@@ -535,6 +554,7 @@ fn cache_unpack_params(n, i, buf) with Unpack + !Pack =
     let resolved = cache_unpack_ownership()
     cache_unpack_params(n, i + 1, list_set(buf, i, TParam(name, ty, authored, resolved)))
   }
+}
 
 fn cache_unpack_ownership() with Unpack + !Pack = {
   let tag = perform unpack_byte()
@@ -581,14 +601,15 @@ fn cache_unpack_effrow() with Unpack + !Pack = {
   else { EfPure }
 }
 
-fn cache_unpack_effnames(n, i, buf) with Unpack + !Pack =
+fn cache_unpack_effnames(n, i, buf) with Unpack + !Pack = {
   if i >= n { slice(buf, 0, n) }
   else {
     let name = cache_unpack_effname()
     cache_unpack_effnames(n, i + 1, list_set(buf, i, name))
   }
+}
 
-fn cache_unpack_eff_pairs(n, i, buf) with Unpack + !Pack =
+fn cache_unpack_eff_pairs(n, i, buf) with Unpack + !Pack = {
   if i >= n { slice(buf, 0, n) }
   else {
     let name = cache_unpack_effname()
@@ -596,6 +617,7 @@ fn cache_unpack_eff_pairs(n, i, buf) with Unpack + !Pack =
     let negated = neg_byte != 0
     cache_unpack_eff_pairs(n, i + 1, list_set(buf, i, (name, negated)))
   }
+}
 
 fn cache_unpack_effname() with Unpack + !Pack = {
   let tag = perform unpack_byte()
@@ -611,12 +633,13 @@ fn cache_unpack_effname() with Unpack + !Pack = {
   }
 }
 
-fn cache_unpack_effargs(n, i, buf) with Unpack + !Pack =
+fn cache_unpack_effargs(n, i, buf) with Unpack + !Pack = {
   if i >= n { slice(buf, 0, n) }
   else {
     let arg = cache_unpack_effarg()
     cache_unpack_effargs(n, i + 1, list_set(buf, i, arg))
   }
+}
 
 fn cache_unpack_effarg() with Unpack + !Pack = {
   let tag = perform unpack_byte()
@@ -665,6 +688,7 @@ fn cache_read(module_name) with Memory + Alloc + Filesystem = {
   }
 }
 
-fn cache_is_hit(kai, current_source) with Memory =
+fn cache_is_hit(kai, current_source) with Memory = {
   kai.compiler_version == cache_compiler_version() &&
   kai.source_hash == hash_source(current_source)
+}

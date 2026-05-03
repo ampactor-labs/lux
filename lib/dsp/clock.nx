@@ -216,6 +216,7 @@ handler deadline_budget with budget_remaining = 0 {
   remaining() => resume(Duration(budget_remaining))
 }
 
-fn with_deadline(budget_ns, computation) =
+fn with_deadline(budget_ns, computation) = {
   computation()
     ~> deadline_budget
+}

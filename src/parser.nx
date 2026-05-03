@@ -33,14 +33,16 @@ fn nhole(id, span: ValidSpan) = N(NHole(id), span, fresh_ph(span))
 // on TokenKind variants — no string equality at parse time.
 
 // kind_at returns the TokenKind variant at position pos (or TEof if past end).
-fn kind_at(ref tokens, pos) =
+fn kind_at(ref tokens, pos) = {
   if pos >= tokens.len { TEof }
   else { token_kind(tokens[pos]) }
+}
 
 // span_at returns the span of the token at position pos.
-fn span_at(ref tokens, pos) =
+fn span_at(ref tokens, pos) = {
   if pos >= tokens.len { span_zero() }
   else { token_span(tokens[pos]) }
+}
 
 // kind_eq compares two TokenKind values for variant identity. Used
 // at the few sites where dispatch needs a passed-in kind value;
@@ -117,18 +119,20 @@ fn kind_eq(a, b) with Pure = match a {
 // at: predicate form of kind_eq for a position-and-expected pair.
 fn at(ref tokens, pos, kind) = kind_eq(kind_at(tokens, pos), kind)
 
-fn skip_ws(ref tokens, pos) =
+fn skip_ws(ref tokens, pos) = {
   match kind_at(tokens, pos) {
     TNewline => skip_ws(tokens, pos + 1),
     _        => pos
   }
+}
 
-fn skip_sep(ref tokens, pos) =
+fn skip_sep(ref tokens, pos) = {
   match kind_at(tokens, pos) {
     TSemicolon => skip_sep(tokens, pos + 1),
     TNewline   => skip_sep(tokens, pos + 1),
     _          => pos
   }
+}
 
 // show_token_kind: human-readable name for diagnostics.
 fn show_token_kind(k) with Pure = match k {
@@ -160,7 +164,7 @@ fn show_token_kind(k) with Pure = match k {
 }
 
 // expect: consume the given kind or report a parse error.
-fn expect(ref tokens, pos, kind) =
+fn expect(ref tokens, pos, kind) = {
   if at(tokens, pos, kind) { pos + 1 }
   else {
     perform report("parser", "P_ExpectedToken", "ParseError",
@@ -171,6 +175,7 @@ fn expect(ref tokens, pos, kind) =
       span_at(tokens, pos), "MaybeIncorrect")
     pos
   }
+}
 
 // Payload extractors — return defaults if the kind doesn't match.
 // Most call sites should pattern-match directly via `match
@@ -178,29 +183,33 @@ fn expect(ref tokens, pos, kind) =
 // these helpers are for the few sites (e.g., parse_fn extracting
 // the function name after dispatching past TFn) where the parent
 // has already verified the variant and just needs the payload.
-fn ident_at(ref tokens, pos) =
+fn ident_at(ref tokens, pos) = {
   match kind_at(tokens, pos) {
     TIdent(s) => s,
     _         => ""
   }
+}
 
-fn int_at(ref tokens, pos) =
+fn int_at(ref tokens, pos) = {
   match kind_at(tokens, pos) {
     TInt(n) => n,
     _       => 0
   }
+}
 
-fn float_at(ref tokens, pos) =
+fn float_at(ref tokens, pos) = {
   match kind_at(tokens, pos) {
     TFloat(f) => f,
     _         => 0.0
   }
+}
 
-fn string_at(ref tokens, pos) =
+fn string_at(ref tokens, pos) = {
   match kind_at(tokens, pos) {
     TString(s) => s,
     _          => ""
   }
+}
 
 // Operator precedence table — per SYNTAX.md. Higher number = tighter binding.
 
@@ -250,14 +259,16 @@ fn effective_prec(k, saw_newline) with Pure = match k {
   _        => op_prec(k)
 }
 
-fn skip_ws_tracked(ref tokens, pos) =
+fn skip_ws_tracked(ref tokens, pos) = {
   skip_ws_tracked_loop(tokens, pos, false)
+}
 
-fn skip_ws_tracked_loop(ref tokens, pos, saw) =
+fn skip_ws_tracked_loop(ref tokens, pos, saw) = {
   match kind_at(tokens, pos) {
     TNewline => skip_ws_tracked_loop(tokens, pos + 1, true),
     _        => (saw, pos)
   }
+}
 
 /// Map a binop `TokenKind` to `Some(BinOp)`, or `None` if `k` is not
 /// a binop-producing token. Caller matches `Some`/`None` explicitly;
@@ -690,8 +701,9 @@ fn parse_import_path(ref tokens, pos, own acc) = {
 
 // Expressions — precedence-climbing
 
-fn parse_expr(ref tokens, pos) =
+fn parse_expr(ref tokens, pos) = {
   parse_binop(tokens, pos, 1)
+}
 
 fn parse_binop(ref tokens, pos, min_prec) = {
   let (left, p) = parse_postfix(tokens, pos)
@@ -974,17 +986,19 @@ fn parse_record_fields(ref tokens, pos, own buf, count) = {
 
 /// Insertion sort by field name. N≤~16 in practice; insertion is the
 /// natural shape and keeps the parser dependency-free.
-fn sort_record_fields(fields) =
+fn sort_record_fields(fields) = {
   sort_record_fields_loop(fields, 0, fields.len, [])
+}
 
-fn sort_record_fields_loop(fields, i, n, own acc) =
+fn sort_record_fields_loop(fields, i, n, own acc) = {
   if i >= n { acc }
   else {
     sort_record_fields_loop(fields, i + 1, n,
       record_field_insert(acc, list_index(fields, i)))
   }
+}
 
-fn record_field_insert(sorted, entry) =
+fn record_field_insert(sorted, entry) = {
   let (name, _) = entry
   let n = sorted.len
   let pos = record_field_find_pos(sorted, name, 0, n)
@@ -998,8 +1012,9 @@ fn record_field_insert(sorted, entry) =
     let copied = list_copy_into(sorted, buf, 0, n)
     list_set(copied, n, entry)
   }
+}
 
-fn record_field_find_pos(sorted, name, i, n) =
+fn record_field_find_pos(sorted, name, i, n) = {
   if i >= n { n }
   else {
     let (existing, _) = list_index(sorted, i)
@@ -1007,8 +1022,9 @@ fn record_field_find_pos(sorted, name, i, n) =
       record_field_find_pos(sorted, name, i + 1, n)
     } else { i }
   }
+}
 
-fn record_field_copy_suffix(src, dst, src_idx, dst_idx, n) =
+fn record_field_copy_suffix(src, dst, src_idx, dst_idx, n) = {
   if src_idx >= n { dst }
   else {
     record_field_copy_suffix(
@@ -1016,6 +1032,7 @@ fn record_field_copy_suffix(src, dst, src_idx, dst_idx, n) =
       src_idx + 1, dst_idx + 1, n
     )
   }
+}
 
 fn parse_block_expr(ref tokens, pos, start_span) = {
   let buf = make_list(8)
@@ -1124,11 +1141,12 @@ fn parse_handle(ref tokens, pos, span: ValidSpan) = {
   (nexpr(HandleExpr(body, arms), span), p4)
 }
 
-fn skip_past_ident(ref tokens, pos) =
+fn skip_past_ident(ref tokens, pos) = {
   match kind_at(tokens, pos) {
     TIdent(_) => pos + 1,
     _         => pos
   }
+}
 
 fn parse_perform(ref tokens, pos, span: ValidSpan) = {
   let op_name = ident_at(tokens, pos)
@@ -1179,7 +1197,7 @@ fn parse_body(ref tokens, pos) = {
 
 // Patterns
 
-fn parse_pat(ref tokens, pos) =
+fn parse_pat(ref tokens, pos) = {
   match kind_at(tokens, pos) {
     TIdent(v) => {
       if str_eq(v, "_") { (PWild, pos + 1) }
@@ -1218,6 +1236,7 @@ fn parse_pat(ref tokens, pos) =
     },
     _ => (PWild, pos + 1)
   }
+}
 
 /// Parse `{name, age}` or `{name: sub_pat, age: sub_pat}`. Field
 /// puning is the default — `{name}` ≡ `{name: PVar("name")}`.
@@ -1244,8 +1263,9 @@ fn parse_pat_record_fields(ref tokens, pos) = {
   }
 }
 
-fn sort_pat_fields(fields) =
+fn sort_pat_fields(fields) = {
   sort_record_fields_loop(fields, 0, fields.len, [])
+}
 
 fn parse_pat_args(ref tokens, pos) = {
   let p = skip_ws(tokens, pos)
@@ -1277,9 +1297,10 @@ fn parse_pat_list_args(ref tokens, pos) = {
   }
 }
 
-fn first_char_code(s) =
+fn first_char_code(s) = {
   if s.len == 0 { 0 }
   else { char_code(chars(s)[0]) }
+}
 
 // Type expressions
 
@@ -1351,15 +1372,17 @@ fn parse_record_type_fields(ref tokens, pos) = {
   }
 }
 
-fn sort_record_type_fields(fields) =
+fn sort_record_type_fields(fields) = {
   sort_record_type_fields_loop(fields, 0, fields.len, [])
+}
 
-fn sort_record_type_fields_loop(fields, i, n, own acc) =
+fn sort_record_type_fields_loop(fields, i, n, own acc) = {
   if i >= n { acc }
   else {
     sort_record_type_fields_loop(fields, i + 1, n,
       record_field_insert(acc, list_index(fields, i)))
   }
+}
 
 fn parse_type_expr(ref tokens, pos) = {
   let (ty, p) = parse_type_ty(tokens, pos)

@@ -28,7 +28,7 @@ handler verify_ledger with debt = [] {
 
 /// Emit a single diagnostic summarising pending verification debt.
 /// Called at compile end by the driver. Zero debt → no diagnostic.
-fn report_verify_debt(debt) =
+fn report_verify_debt(debt) = {
   if debt.len == 0 { () }
   else {
     perform report("verify", "V_Pending", "VerificationPending",
@@ -36,17 +36,19 @@ fn report_verify_debt(debt) =
         |> str_concat(" verification obligations pending"),
       span_zero(), "MaybeIncorrect")
   }
+}
 
 /// Classify verification debt by predicate shape. Consumed by
 /// `inka query verification` so the developer sees at a glance
 /// which proof classes are pending.
-fn debt_by_kind(debt) =
+fn debt_by_kind(debt) = {
   if debt.len == 0 { [] }
   else {
     let (span, pred, reason) = list_head(debt)
     [(classify_predicate(pred), span, reason)]
       ++ debt_by_kind(list_tail(debt))
   }
+}
 
 fn classify_predicate(pred) with Pure = match pred {
   PTrue        => "trivial",

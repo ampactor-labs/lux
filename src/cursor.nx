@@ -143,7 +143,7 @@ fn enumerate_gradient_positions() with GraphRead + !Mutate = {
 // list_extend_to + list_set + counter + slice. Bump allocator traps
 // at 16 MB; suffix-append in a loop is O(N²) and out — drift 11.
 
-fn collect_unfilled_loop(i, n, buf, buf_len) with GraphRead + !Mutate =
+fn collect_unfilled_loop(i, n, buf, buf_len) with GraphRead + !Mutate = {
   if i >= n { buf_len }
   else {
     match perform teach_gradient(i) {
@@ -154,8 +154,9 @@ fn collect_unfilled_loop(i, n, buf, buf_len) with GraphRead + !Mutate =
       }
     }
   }
+}
 
-fn score_all_positions(handles, caret) with GraphRead + !Mutate =
+fn score_all_positions(handles, caret) with GraphRead + !Mutate = {
   if handles.len == 0 { [] }
   else {
     let head = list_head(handles)
@@ -163,6 +164,7 @@ fn score_all_positions(handles, caret) with GraphRead + !Mutate =
     let scored_head = score_one_position(head, caret)
     [scored_head] ++ score_all_positions(tail, caret)
   }
+}
 
 fn score_one_position(handle, caret) with GraphRead + !Mutate = {
   let suggestion_opt = perform teach_gradient(handle)
@@ -203,12 +205,13 @@ fn caret_span_from_reason(reason) with Pure = match reason {
   _              => span_zero()
 }
 
-fn scope_distance_decay(caret_span, target_span) with Pure =
+fn scope_distance_decay(caret_span, target_span) with Pure = {
   if span_eq(caret_span, target_span) { same_handle_weight() }
   else if same_enclosing_decl(caret_span, target_span) { same_decl_weight() }
   else if same_module(caret_span, target_span) { same_module_weight() }
   else if transitive_dep(caret_span, target_span) { transitive_dep_weight() }
   else { cross_module_weight() }
+}
 
 // Proximity decay constants — literal floats, not learned. Per
 // Hμ-cursor.md §5.1 design assumption: cross-module weight floors at
@@ -223,10 +226,11 @@ fn cross_module_weight()   with Pure = 0.2
 
 // Span equality — positional comparison on the four ints.
 
-fn span_eq(a, b) with Pure =
+fn span_eq(a, b) with Pure = {
   let Span(asl, asc, ael, aec) = a
   let Span(bsl, bsc, bel, bec) = b
   asl == bsl && asc == bsc && ael == bel && aec == bec
+}
 
 // same_enclosing_decl / same_module / transitive_dep — these read the
 // graph's existing scope structure. Inline residue; the eight-
@@ -234,32 +238,36 @@ fn span_eq(a, b) with Pure =
 // pure read on substrate the graph already encodes (Graph + Env
 // primitive).
 
-fn same_enclosing_decl(caret_span, target_span) with Pure =
+fn same_enclosing_decl(caret_span, target_span) with Pure = {
   // Two spans share an enclosing decl iff their parent walks
   // intersect at a same-handle decl ancestor. Substrate read on the
   // graph's parent chain; today, span overlap is the proxy.
   span_overlaps(caret_span, target_span)
+}
 
-fn same_module(caret_span, target_span) with Pure =
+fn same_module(caret_span, target_span) with Pure = {
   // Spans within the same source file share start/end line ranges
   // bounded by the file's extent. Today: assume single-file program;
   // returns true unless cross-module signals fire elsewhere. The
   // module-aware proxy lands with Hμ.cursor.transport when multi-file
   // sources are surfaced.
   true
+}
 
-fn transitive_dep(caret_span, target_span) with Pure =
+fn transitive_dep(caret_span, target_span) with Pure = {
   // Hμ.cursor.cache promotes this to a real IC dependency-hash
   // walk. Today: false unless same_module ruled out.
   false
+}
 
-fn span_overlaps(a, b) with Pure =
+fn span_overlaps(a, b) with Pure = {
   let Span(asl, _asc, ael, _aec) = a
   let Span(bsl, _bsc, bel, _bec) = b
   // Closed-interval overlap on line numbers. Sufficient for the
   // proximity-tier classification; column-precise comparison is
   // peer-handle territory.
   ael >= bsl && bel >= asl
+}
 
 // ─── Argmax with default ────────────────────────────────────────────
 //
@@ -268,7 +276,7 @@ fn span_overlaps(a, b) with Pure =
 // shape, same record, same code path — drift 6 closure (no
 // primitive-type-special-case).
 
-fn argmax_or_default(scored, caret) with Pure =
+fn argmax_or_default(scored, caret) with Pure = {
   if scored.len == 0 {
     let Caret(handle, reason) = caret
     Cursor(handle,
@@ -278,11 +286,13 @@ fn argmax_or_default(scored, caret) with Pure =
   } else {
     reduce_max_by_score(scored)
   }
+}
 
-fn reduce_max_by_score(scored) with Pure =
+fn reduce_max_by_score(scored) with Pure = {
   reduce_max_loop(scored, 1, scored.len, list_head(scored))
+}
 
-fn reduce_max_loop(scored, i, n, best) with Pure =
+fn reduce_max_loop(scored, i, n, best) with Pure = {
   if i >= n { best }
   else {
     let candidate = list_index(scored, i)
@@ -291,6 +301,7 @@ fn reduce_max_loop(scored, i, n, best) with Pure =
     let next_best = if c_impact > b_impact { candidate } else { best }
     reduce_max_loop(scored, i + 1, n, next_best)
   }
+}
 
 // ─── Pinned impact sentinel ─────────────────────────────────────────
 //
@@ -319,7 +330,7 @@ fn handle_at_span(span) with GraphRead + !Mutate = {
   scan_for_span(span, 0, next)
 }
 
-fn scan_for_span(target, i, n) with GraphRead + !Mutate =
+fn scan_for_span(target, i, n) with GraphRead + !Mutate = {
   if i >= n { 0 }
   else {
     let GNode(_, reason) = perform graph_chase(i)
@@ -327,6 +338,7 @@ fn scan_for_span(target, i, n) with GraphRead + !Mutate =
     if span_eq(target, candidate_span) { i }
     else { scan_for_span(target, i + 1, n) }
   }
+}
 
 fn span_of_handle(handle) with GraphRead + !Mutate = {
   let GNode(_, reason) = perform graph_chase(handle)
@@ -401,7 +413,7 @@ fn filter_pending_at(handle, debt) with GraphRead + !Mutate = {
   filter_by_span(target_span, debt)
 }
 
-fn filter_by_span(target, debt) with Pure =
+fn filter_by_span(target, debt) with Pure = {
   if debt.len == 0 { [] }
   else {
     let head = list_head(debt)
@@ -410,3 +422,4 @@ fn filter_by_span(target, debt) with Pure =
     let kept = if span_overlaps(target, debt_span) { [predicate] } else { [] }
     kept ++ filter_by_span(target, tail)
   }
+}

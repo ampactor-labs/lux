@@ -93,40 +93,46 @@ fn drop(n, xs)    = { iterate(xs); result() } ~> drop_h(n)    ~> collector
 // Scalar-producing operations — inline handle form; no drift-11
 // because `acc = f(acc, elem)` is scalar state update, not list append.
 
-fn fold(xs, init, f) =
+fn fold(xs, init, f) = {
   handle { iterate(xs); result() } with acc = init {
     yield(elem) => resume() with acc = f(acc, elem),
     result() => resume(acc)
   }
+}
 
-fn for_each(f, xs) =
+fn for_each(f, xs) = {
   handle { iterate(xs) } {
     yield(elem) => { f(elem); resume() }
   }
+}
 
-fn any(pred, xs) =
+fn any(pred, xs) = {
   handle { iterate(xs); result() } with found = false {
     yield(elem) => if pred(elem) { resume() with found = true } else { resume() },
     result() => resume(found)
   }
+}
 
-fn all(pred, xs) =
+fn all(pred, xs) = {
   handle { iterate(xs); result() } with ok = true {
     yield(elem) => if pred(elem) { resume() } else { resume() with ok = false },
     result() => resume(ok)
   }
+}
 
-fn find(pred, xs) =
+fn find(pred, xs) = {
   handle { iterate(xs); result() } with acc = [] {
     yield(elem) => if pred(elem) { resume() with acc = [elem] } else { resume() },
     result() => resume(acc)
   }
+}
 
-fn count(pred, xs) =
+fn count(pred, xs) = {
   handle { iterate(xs); result() } with n = 0 {
     yield(elem) => if pred(elem) { resume() with n = n + 1 } else { resume() },
     result() => resume(n)
   }
+}
 
 // ─── Derived (built on the handlers above) ──────────────────
 
@@ -197,18 +203,20 @@ fn abs(x) with Pure = if x < 0 { 0 - x } else { x }
 
 // ─── Sort (merge sort — pure, not an Iterate handler) ───────
 
-fn merge(xs, ys) =
+fn merge(xs, ys) = {
   if xs.len == 0 { ys }
   else { if ys.len == 0 { xs }
   else { if xs[0] <= ys[0] { [xs[0]] ++ merge(tail(xs), ys) }
   else { [ys[0]] ++ merge(xs, tail(ys)) } } }
+}
 
-fn sort(xs) =
+fn sort(xs) = {
   if xs.len <= 1 { xs }
   else {
     let mid = xs.len / 2
     merge(sort(slice(xs, 0, mid)), sort(slice(xs, mid, xs.len)))
   }
+}
 
 // ─── String operations (pure Inka) ───────────────────────────
 
@@ -216,9 +224,10 @@ fn sort(xs) =
 // the concat inside `|acc, x| acc ++ sep ++ x` gets committed to list_concat // drift-audit: ignore
 // via prelude-first-use type inference. Explicit str_concat threads the
 // String type directly through the loop, no polymorphism, no ambiguity.
-fn join_loop(xs, sep, i, acc) =
+fn join_loop(xs, sep, i, acc) = {
   if i >= xs.len { acc }
   else { join_loop(xs, sep, i + 1, str_concat(str_concat(acc, sep), xs[i])) }
+}
 fn join(xs, sep) = if xs.len == 0 { "" } else { join_loop(xs, sep, 1, xs[0]) }
 fn words(s) = split(s, " ")
 fn unwords(ws) = join(ws, " ")

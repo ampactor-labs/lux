@@ -152,7 +152,7 @@ handler infer_ctx with stack = [], declared = [], handler_stack = [] {
   }
 }
 
-fn find_handler_for_effect(stack, ename) =
+fn find_handler_for_effect(stack, ename) = {
   if stack.len == 0 { None }
   else {
     let hname = list_head(stack)
@@ -177,23 +177,26 @@ fn find_handler_for_effect(stack, ename) =
       None => find_handler_for_effect(list_tail(stack), ename)
     }
   }
+}
 
 
 /// Entry point — wraps the walk in `infer_ctx` so row accumulation is automatic.
-fn infer_program(stmts) =
+fn infer_program(stmts) = {
   handle {
     pre_register_fn_sigs(stmts)
     infer_stmt_list(stmts)
   } with infer_ctx
+}
 
-fn pre_register_fn_sigs(stmts) =
+fn pre_register_fn_sigs(stmts) = {
   if stmts.len == 0 { () }
   else {
     pre_register_stmt(list_head(stmts))
     pre_register_fn_sigs(list_tail(stmts))
   }
+}
 
-fn pre_register_stmt(ref node) =
+fn pre_register_stmt(ref node) = {
   let N(body, span, handle) = node
   match body {
     NStmt(FnStmt(name, params, _ret_ann, _effs, _body_node)) =>
@@ -202,6 +205,7 @@ fn pre_register_stmt(ref node) =
       pre_register_stmt(inner_node),
     _ => ()
   }
+}
 
 fn pre_register_fn_sig(name, params, handle, span: ValidSpan) = {
   let param_handles = mint_param_placeholders(params, name)
@@ -216,16 +220,17 @@ fn pre_register_fn_sig(name, params, handle, span: ValidSpan) = {
   perform env_extend(name, Forall([], fn_ty), Declared(name), FnScheme)
 }
 
-fn infer_stmt_list(stmts) =
+fn infer_stmt_list(stmts) = {
   if stmts.len == 0 { () }
   else {
     infer_stmt(list_head(stmts))
     infer_stmt_list(list_tail(stmts))
   }
+}
 
 // Statement inference
 
-fn infer_stmt(ref node) =
+fn infer_stmt(ref node) = {
   let N(body, span, handle) = node
   match body {
     NStmt(LetStmt(pat, expr)) => {
@@ -289,6 +294,7 @@ fn infer_stmt(ref node) =
 
     _ => ()
   }
+}
 
 /// Classic let-generalization: allocate fresh handles for params,
 /// bind them in env, enter `InferCtx` for row accumulation, infer body,
@@ -412,7 +418,7 @@ fn infer_fn(name, params, body_node, handle, span: ValidSpan) = {
 // here only via degenerate CallExpr — canonical form is
 // NamedRecordExpr. Either way the result handle deserves region
 // tracking.
-fn call_is_alloc_returning(func) =
+fn call_is_alloc_returning(func) = {
   let N(body, _, _) = func
   match body {
     NExpr(VarRef(name)) => match perform env_lookup(name) {
@@ -428,15 +434,17 @@ fn call_is_alloc_returning(func) =
     },
     _ => false
   }
+}
 
 // H4 helper — does an EffName list include the Alloc effect name?
 // region_enter fires only for HandleExprs that absorb Alloc (the
 // load-bearing alloc-tracking case; non-Alloc handlers don't open
 // regions).
-fn names_include_alloc(names) =
+fn names_include_alloc(names) = {
   names_include_alloc_loop(names, 0, names.len)
+}
 
-fn names_include_alloc_loop(names, i, n) =
+fn names_include_alloc_loop(names, i, n) = {
   if i >= n { false }
   else {
     let name = list_index(names, i)
@@ -447,6 +455,7 @@ fn names_include_alloc_loop(names, i, n) =
     if str_eq(s, "Alloc") { true }   // drift-audit: ignore — real drift mode 8 (EffName should have EAlloc variant, not ENamed(string)); tracked for item 11.B EffName refactor
     else { names_include_alloc_loop(names, i + 1, n) }
   }
+}
 
 /// Build an `EffRow` from a declared `(name, negated)` list. Negated
 /// names produce `EfNeg(EfClosed([name]))` and compose with intersection;
@@ -457,7 +466,7 @@ fn build_declared_row(effs) = {
   build_from_partition(pos, neg)
 }
 
-fn expand_capabilities(effs) =
+fn expand_capabilities(effs) = {
   if effs.len == 0 { [] }
   else {
     let (name, negated) = list_head(effs)
@@ -481,11 +490,13 @@ fn expand_capabilities(effs) =
     }
     expanded_part ++ expand_capabilities(list_tail(effs))
   }
+}
 
-fn has_pure_declared(effs) =
+fn has_pure_declared(effs) = {
   has_pure_declared_loop(effs, 0, effs.len)
+}
 
-fn has_pure_declared_loop(effs, i, n) =
+fn has_pure_declared_loop(effs, i, n) = {
   if i >= n { false }
   else {
     let (name, _) = list_index(effs, i)
@@ -495,8 +506,9 @@ fn has_pure_declared_loop(effs, i, n) =
       _         => has_pure_declared_loop(effs, i + 1, n)
     }
   }
+}
 
-fn partition_declared(effs, pos, neg) =
+fn partition_declared(effs, pos, neg) = {
   if effs.len == 0 { (pos, neg) }
   else {
     let (name, negated) = list_head(effs)
@@ -506,26 +518,29 @@ fn partition_declared(effs, pos, neg) =
       partition_declared(list_tail(effs), push(pos, name), neg)
     }
   }
+}
 
-fn build_from_partition(pos, neg) =
+fn build_from_partition(pos, neg) = {
   if pos.len == 0 && neg.len == 0 { EfPure }
   else if pos.len == 0 { neg_row(mk_ef_closed(neg)) }
   else {
     let base = mk_ef_closed(pos)
     fold_negations(neg, base)
   }
+}
 
-fn fold_negations(neg, own acc) =
+fn fold_negations(neg, own acc) = {
   if neg.len == 0 { acc }
   else {
     let n = list_head(neg)
     let next = inter_row(acc, neg_row(mk_ef_closed([n])))
     fold_negations(list_tail(neg), next)
   }
+}
 
 // Expression inference
 
-fn infer_expr(ref node) =
+fn infer_expr(ref node) = {
   let N(body, span, handle) = node
   match body {
     NExpr(LitInt(_))    => perform graph_bind(handle, TInt,    Located(span, Inferred("int literal"))),
@@ -801,6 +816,7 @@ fn infer_expr(ref node) =
     NPat(_)   => ()                // pattern at expression position — degenerate;
                                    // parser emits in match-arm contexts only
   }
+}
 
 /// Factored out of the `FieldExpr` match arm so the qualified-name
 /// fallback path (modules-as-env-entries) can share this without
@@ -822,7 +838,7 @@ fn infer_field_access_record(rec, field, handle, span: ValidSpan) = {
 /// if the binding is an `own` parameter. The affine-ledger handler
 /// in `own.nx` decides which names are own-marked; `check_consume_at_use`
 /// performs unconditionally and lets the handler decide.
-fn infer_var_ref(name, handle, span: ValidSpan) =
+fn infer_var_ref(name, handle, span: ValidSpan) = {
   match perform env_lookup(name) {
     None => {
       perform report("infer", "E_MissingVariable", "MissingVariable", name, span, "MaybeIncorrect")
@@ -837,6 +853,7 @@ fn infer_var_ref(name, handle, span: ValidSpan) =
       check_consume_at_use(name, span)
     }
   }
+}
 
 fn check_consume_at_use(name, span: ValidSpan) = {
   // Convention: consume is always performed at VarRef; affine_ledger
@@ -847,13 +864,14 @@ fn check_consume_at_use(name, span: ValidSpan) = {
 }
 
 /// RX.4 — extract callee name from func node for Why chain.
-fn callee_name(func_node) with Pure =
+fn callee_name(func_node) with Pure = {
   let N(body, _, _) = func_node
   match body {
     NExpr(VarRef(name)) => name,
     NExpr(FieldExpr(_, field)) => field,
     _ => "<expr>"
   }
+}
 
 fn infer_call(func, args, handle, span: ValidSpan) = {
   let N(_, _, fh) = func
@@ -887,7 +905,7 @@ fn infer_call(func, args, handle, span: ValidSpan) = {
 /// Looks up the op's scheme in env, instantiates, unifies args against
 /// declared params, binds the handle to the return type, and calls
 /// `inf_add_row` with the op's effect row so the enclosing fn accumulates it.
-fn infer_perform(op_name, args, handle, span: ValidSpan) =
+fn infer_perform(op_name, args, handle, span: ValidSpan) = {
   match perform env_lookup(op_name) {
     None => {
       perform report("infer", "E_MissingVariable", "MissingVariable",
@@ -912,8 +930,9 @@ fn infer_perform(op_name, args, handle, span: ValidSpan) =
       }
     }
   }
+}
 
-fn unify_args_to_params(args, params, span: ValidSpan) =
+fn unify_args_to_params(args, params, span: ValidSpan) = {
   if args.len == 0 && params.len == 0 { () }
   else if args.len == 0 || params.len == 0 {
     // Arity mismatch: one list exhausted before the other.
@@ -932,11 +951,12 @@ fn unify_args_to_params(args, params, span: ValidSpan) =
     unify(ah, expected_h, span, Inferred("arg to param"))
     unify_args_to_params(list_tail(args), list_tail(params), span)
   }
+}
 
 /// The five verbs, each inferred by its topology.
 /// `PDiverge` and `PCompose` are handled BEFORE `infer_pipe` fires
 /// (see `PipeExpr` arm in `infer_expr`); their arms here are unreachable stubs.
-fn infer_pipe(kind, left, right, handle, span: ValidSpan) =
+fn infer_pipe(kind, left, right, handle, span: ValidSpan) = {
   let N(_, _, lh) = left
   let N(_, _, rh) = right
   match kind {
@@ -1010,6 +1030,7 @@ fn infer_pipe(kind, left, right, handle, span: ValidSpan) =
       }
     }
   }
+}
 
 /// Branching-verb inference (W2 · W3). `><` and `<|` run their
 /// sub-branches inside an `affine_ledger` branching frame
@@ -1059,13 +1080,14 @@ fn infer_diverge(left, right, handle, span: ValidSpan) = {
     Located(span, Inferred("<| diverge — result type is branch-tuple type")))
 }
 
-fn infer_diverge_branches(branches, span: ValidSpan, i, n) =
+fn infer_diverge_branches(branches, span: ValidSpan, i, n) = {
   if i >= n { () }
   else {
     infer_expr(list_index(branches, i))
     if i + 1 < n { perform branch_divider(span) }
     infer_diverge_branches(branches, span, i + 1, n)
   }
+}
 
 /// Unification — graph-direct, Hazel-productive.
 /// Every unification carries the span of the AST site that triggered
@@ -1073,7 +1095,7 @@ fn infer_diverge_branches(branches, span: ValidSpan, i, n) =
 /// store `Located(span, reason)` so `graph_reason_edge` naturally
 /// returns `Unified(Located, Located)` per DESIGN Ch 8.
 
-fn unify(h_a, h_b, span: ValidSpan, reason) =
+fn unify(h_a, h_b, span: ValidSpan, reason) = {
   if h_a == h_b { () }
   else {
     let na = perform graph_chase(h_a)
@@ -1094,8 +1116,9 @@ fn unify(h_a, h_b, span: ValidSpan, reason) =
       _             => ()
     }
   }
+}
 
-fn unify_types(ref a, ref b, span: ValidSpan, reason) =
+fn unify_types(ref a, ref b, span: ValidSpan, reason) = {
   match a {
     TInt    => expect_same(a, b, span, reason),
     TFloat  => expect_same(a, b, span, reason),
@@ -1211,14 +1234,16 @@ fn unify_types(ref a, ref b, span: ValidSpan, reason) =
         _       => type_mismatch(a, b, span, reason)
       }
   }
+}
 
-fn expect_same(ref a, ref b, span: ValidSpan, reason) =
+fn expect_same(ref a, ref b, span: ValidSpan, reason) = {
   match b {
     TVar(hb) => perform graph_bind(hb, a, Located(span, reason)),
     _ =>
       if same_ground(a, b) { () }
       else { type_mismatch(a, b, span, reason) }
   }
+}
 
 // H6: exhaustive Ty enumeration. Ground scalars match their same-
 // variant; compound types are structurally equal only if their
@@ -1242,7 +1267,7 @@ fn same_ground(ref a, ref b) with Pure = match a {
   TAlias(_, inner)   => is_concrete(inner)
 }
 
-fn unify_type_lists(as_list, bs_list, span: ValidSpan, reason) =
+fn unify_type_lists(as_list, bs_list, span: ValidSpan, reason) = {
   if as_list.len == 0 && bs_list.len == 0 { () }
   else if as_list.len == 0 || bs_list.len == 0 {
     // Arity mismatch: tuple/list lengths differ.
@@ -1257,6 +1282,7 @@ fn unify_type_lists(as_list, bs_list, span: ValidSpan, reason) =
     unify_types(list_head(as_list), list_head(bs_list), span, reason)
     unify_type_lists(list_tail(as_list), list_tail(bs_list), span, reason)
   }
+}
 
 /// Both field lists arrive sorted by name (parser invariant + smart
 /// constructor `mk_record_open`). Closed×closed: pointwise field
@@ -1264,14 +1290,15 @@ fn unify_type_lists(as_list, bs_list, span: ValidSpan, reason) =
 /// the closed record must include every open-side field; remaining
 /// fields bind the open's row variable. Open×open: intersect known
 /// fields; bind one variable to the residual relative to the other.
-fn unify_record_fields_closed(fa, fb, span: ValidSpan, reason) =
+fn unify_record_fields_closed(fa, fb, span: ValidSpan, reason) = {
   if fa.len != fb.len {
     type_mismatch(TRecord(fa), TRecord(fb), span, reason)
   } else {
     unify_record_fields_loop(fa, fb, 0, fa.len, span, reason)
   }
+}
 
-fn unify_record_fields_loop(fa, fb, i, n, span: ValidSpan, reason) =
+fn unify_record_fields_loop(fa, fb, i, n, span: ValidSpan, reason) = {
   if i >= n { () }
   else {
     let (na, ta) = list_index(fa, i)
@@ -1283,6 +1310,7 @@ fn unify_record_fields_loop(fa, fb, i, n, span: ValidSpan, reason) =
       type_mismatch(TRecord(fa), TRecord(fb), span, reason)
     }
   }
+}
 
 fn unify_record_open_against_closed(closed_fields, open_fields, open_var, span: ValidSpan, reason) = {
   // Every open-side field must appear in the closed side. Unify
@@ -1293,7 +1321,7 @@ fn unify_record_open_against_closed(closed_fields, open_fields, open_var, span: 
     Located(span, reason))
 }
 
-fn unify_record_open_subset(needed, available, span: ValidSpan, reason) =
+fn unify_record_open_subset(needed, available, span: ValidSpan, reason) = {
   if needed.len == 0 { () }
   else {
     let (n, t) = list_head(needed)
@@ -1306,6 +1334,7 @@ fn unify_record_open_subset(needed, available, span: ValidSpan, reason) =
       unify_record_open_subset(list_tail(needed), available, span, reason)
     }
   }
+}
 
 fn unify_two_open_records(fa, va, fb, vb, span: ValidSpan, reason) = {
   // Intersect known fields (unify shared types); bind va to a
@@ -1327,7 +1356,7 @@ fn unify_two_open_records(fa, va, fb, vb, span: ValidSpan, reason) = {
   }
 }
 
-fn unify_record_fields_loop_shared(fa, fb, names, span: ValidSpan, reason) =
+fn unify_record_fields_loop_shared(fa, fb, names, span: ValidSpan, reason) = {
   if names.len == 0 { () }
   else {
     let n = list_head(names)
@@ -1340,6 +1369,7 @@ fn unify_record_fields_loop_shared(fa, fb, names, span: ValidSpan, reason) =
     }
     unify_record_fields_loop_shared(fa, fb, list_tail(names), span, reason)
   }
+}
 
 fn intersect_record_fields(fa, fb) = {
   let n = fa.len
@@ -1347,7 +1377,7 @@ fn intersect_record_fields(fa, fb) = {
   slice(buf, 0, count)
 }
 
-fn intersect_record_fields_loop(fa, fb, i, n, own buf, count) =
+fn intersect_record_fields_loop(fa, fb, i, n, own buf, count) = {
   if i >= n { (buf, count) }
   else {
     let (name, _) = list_index(fa, i)
@@ -1360,6 +1390,7 @@ fn intersect_record_fields_loop(fa, fb, i, n, own buf, count) =
     }
     intersect_record_fields_loop(fa, fb, i + 1, n, next_buf, next_count)
   }
+}
 
 fn record_fields_diff(left, right) = {
   let n = left.len
@@ -1367,7 +1398,7 @@ fn record_fields_diff(left, right) = {
   slice(buf, 0, count)
 }
 
-fn record_fields_diff_loop(left, right, i, n, own buf, count) =
+fn record_fields_diff_loop(left, right, i, n, own buf, count) = {
   if i >= n { (buf, count) }
   else {
     let entry = list_index(left, i)
@@ -1381,50 +1412,57 @@ fn record_fields_diff_loop(left, right, i, n, own buf, count) =
     }
     record_fields_diff_loop(left, right, i + 1, n, next_buf, next_count)
   }
+}
 
-fn find_record_field_pos(fields, name) =
+fn find_record_field_pos(fields, name) = {
   find_record_field_pos_loop(fields, name, 0, fields.len)
+}
 
-fn find_record_field_pos_loop(fields, name, i, n) =
+fn find_record_field_pos_loop(fields, name, i, n) = {
   if i >= n { -1 }
   else {
     let (existing, _) = list_index(fields, i)
     if str_eq(existing, name) { i }
     else { find_record_field_pos_loop(fields, name, i + 1, n) }
   }
+}
 
-fn mk_record_row_residual(fields) =
+fn mk_record_row_residual(fields) = {
   if fields.len == 0 { TRecord([]) }
   else { TRecord(fields) }
+}
 
 /// Infer each field's value expression; result handles are used by
 /// callers to build `TRecord` field-type lists and region-join sets.
-fn infer_record_field_values(fields) =
+fn infer_record_field_values(fields) = {
   if fields.len == 0 { () }
   else {
     let (_, value) = list_head(fields)
     infer_expr(value)
     infer_record_field_values(list_tail(fields))
   }
+}
 
-fn build_record_field_types(fields) =
+fn build_record_field_types(fields) = {
   if fields.len == 0 { [] }
   else {
     let (name, value) = list_head(fields)
     let N(_, _, vh) = value
     [(name, TVar(vh))] ++ build_record_field_types(list_tail(fields))
   }
+}
 
 // H4.1 helper — pull the value handles out of a record-field list
 // for region-join lookup. Field names aren't needed for region
 // tracking; only the per-value handles matter.
-fn record_field_handles(fields) =
+fn record_field_handles(fields) = {
   if fields.len == 0 { [] }
   else {
     let (_, value) = list_head(fields)
     let N(_, _, vh) = value
     [vh] ++ record_field_handles(list_tail(fields))
   }
+}
 
 // H2.3: validate a nominal record literal's fields against the
 // declared schema. Both lists arrive sorted by field name (parser
@@ -1432,11 +1470,12 @@ fn record_field_handles(fields) =
 //   - missing declared field    → E_RecordFieldMissing
 //   - extra unknown field       → E_RecordFieldExtra
 //   - matched name              → unify value's handle with declared ty
-fn check_nominal_record_fields(declared, provided, type_name, span: ValidSpan) =
+fn check_nominal_record_fields(declared, provided, type_name, span: ValidSpan) = {
   check_nominal_record_loop(declared, provided, type_name, span, 0, 0,
     declared.len, provided.len)
+}
 
-fn check_nominal_record_loop(declared, provided, type_name, span: ValidSpan, i, j, ni, nj) =
+fn check_nominal_record_loop(declared, provided, type_name, span: ValidSpan, i, j, ni, nj) = {
   if i >= ni && j >= nj { () }
   else if i >= ni {
     // Provided has extras
@@ -1486,8 +1525,9 @@ fn check_nominal_record_loop(declared, provided, type_name, span: ValidSpan, i, 
       check_nominal_record_loop(declared, provided, type_name, span, i, j + 1, ni, nj)
     }
   }
+}
 
-fn unify_param_lists(ref a, ref b, span: ValidSpan, reason) =
+fn unify_param_lists(ref a, ref b, span: ValidSpan, reason) = {
   if a.len == 0 || b.len == 0 { () }
   else {
     let TParam(_, ta, _, _) = list_head(a)
@@ -1495,6 +1535,7 @@ fn unify_param_lists(ref a, ref b, span: ValidSpan, reason) =
     unify_types(ta, tb, span, reason)
     unify_param_lists(list_tail(a), list_tail(b), span, reason)
   }
+}
 
 /// Parameters ARE tuples (DESIGN Ch 2 Insight 7). The one unification
 /// rule that lets `|>` deliver a tuple to an N-ary function without a
@@ -1507,20 +1548,21 @@ fn unify_param_lists(ref a, ref b, span: ValidSpan, reason) =
 ///
 /// Inference reads the shape and pairs structurally — the same discipline
 /// that pairs TInt with TInt or TList(a) with TList(b).
-fn pair_fn_params(pa, pb, span: ValidSpan, reason) =
+fn pair_fn_params(pa, pb, span: ValidSpan, reason) = {
   let la = pa.len
   let lb = pb.len
   if la == lb { unify_param_lists(pa, pb, span, reason) }
   else if la == 1 { try_tuple_decompose(list_head(pa), pb, span, reason) }
   else if lb == 1 { try_tuple_decompose(list_head(pb), pa, span, reason) }
   else { arity_mismatch(la, lb, span) }
+}
 
 /// Given a single param whose type is either a `TTuple` or a `TVar`,
 /// reconcile it against a multi-param list.
 ///   `TTuple(elems)` of matching arity — pair element-wise with params
 ///   `TVar(_)`                         — unify TVar with TTuple of param types
 ///   otherwise                         — arity mismatch
-fn try_tuple_decompose(single_param, many_params, span: ValidSpan, reason) =
+fn try_tuple_decompose(single_param, many_params, span: ValidSpan, reason) = {
   let TParam(_, pty, _, _) = single_param
   let lm = many_params.len
   match pty {
@@ -1536,10 +1578,11 @@ fn try_tuple_decompose(single_param, many_params, span: ValidSpan, reason) =
     },
     _ => arity_mismatch(1, lm, span)
   }
+}
 
 /// Pair tuple element i with param i, flat-indexed to avoid snoc-walk
 /// allocation on either input.
-fn unify_tuple_elems_with_params(elems, params, span: ValidSpan, reason, i, n) =
+fn unify_tuple_elems_with_params(elems, params, span: ValidSpan, reason, i, n) = {
   if i >= n { () }
   else {
     let e = list_index(elems, i)
@@ -1547,22 +1590,25 @@ fn unify_tuple_elems_with_params(elems, params, span: ValidSpan, reason, i, n) =
     unify_types(e, pt, span, reason)
     unify_tuple_elems_with_params(elems, params, span, reason, i + 1, n)
   }
+}
 
 /// Extract param types into a fresh flat list — O(1) amortized per
 /// element via `list_set` into a pre-sized buffer. The resulting list
 /// is tag=0 (flat); any subsequent `list_index` on it is O(1).
-fn param_types_flat(params) =
+fn param_types_flat(params) = {
   let n = params.len
   param_types_loop(params, 0, n, make_list(n))
+}
 
-fn param_types_loop(params, i, n, own acc) =
+fn param_types_loop(params, i, n, own acc) = {
   if i >= n { acc }
   else {
     let TParam(_, t, _, _) = list_index(params, i)
     param_types_loop(params, i + 1, n, list_set(acc, i, t))
   }
+}
 
-fn arity_mismatch(la, lb, span: ValidSpan) =
+fn arity_mismatch(la, lb, span: ValidSpan) = {
   perform report("infer", "E_TypeMismatch", "TypeMismatch",
     "function arity mismatch: "
       |> str_concat(int_to_str(la))
@@ -1570,13 +1616,15 @@ fn arity_mismatch(la, lb, span: ValidSpan) =
       |> str_concat(int_to_str(lb))
       |> str_concat(" param(s)"),
     span, "MachineApplicable")
+}
 
-fn type_mismatch(ref a, ref b, span: ValidSpan, reason) =
+fn type_mismatch(ref a, ref b, span: ValidSpan, reason) = {
   perform report("infer", "E_TypeMismatch", "TypeMismatch",
     show_type(a)
       |> str_concat(" vs ")
       |> str_concat(show_type(b)),
     span, "MachineApplicable")
+}
 
 /// `BinOp` / `UnaryOp` inference — dispatched on `BinOpKind`.
 /// `binop_kind` (declared in `types.nx`) maps each `BinOp` to one of four
@@ -1692,15 +1740,16 @@ fn infer_pat(ref pat, handle, span: ValidSpan) = match pat {
   }
 }
 
-fn build_pat_record_field_specs(flds, span: ValidSpan) =
+fn build_pat_record_field_specs(flds, span: ValidSpan) = {
   if flds.len == 0 { [] }
   else {
     let (name, _) = list_head(flds)
     let h = perform mint(Inferred("record pattern field"))
     [(name, TVar(h))] ++ build_pat_record_field_specs(list_tail(flds), span)
   }
+}
 
-fn infer_pat_record_subs(flds, specs, span: ValidSpan) =
+fn infer_pat_record_subs(flds, specs, span: ValidSpan) = {
   if flds.len == 0 { () }
   else {
     let (_, sub_pat) = list_head(flds)
@@ -1711,20 +1760,22 @@ fn infer_pat_record_subs(flds, specs, span: ValidSpan) =
     }
     infer_pat_record_subs(list_tail(flds), list_tail(specs), span)
   }
+}
 
-fn infer_pat_tuple(pats, parent_handle, span: ValidSpan) =
+fn infer_pat_tuple(pats, parent_handle, span: ValidSpan) = {
   if pats.len == 0 { () }
   else {
     let sub_h = perform mint(Inferred("tuple pattern element"))
     infer_pat(list_head(pats), sub_h, span)
     infer_pat_tuple(list_tail(pats), parent_handle, span)
   }
+}
 
 // Bind each PCon sub-pattern to its corresponding constructor param
 // type. Mints a fresh handle per sub-pat so PVar bindings carry a
 // distinct entry into env. Param-list / sub-pat length mismatch falls
 // through silently — surfaced separately as E_ConstructorArity (TODO).
-fn bind_pcon_subpats(params, sub_pats, span: ValidSpan, reason, ctor_name) =
+fn bind_pcon_subpats(params, sub_pats, span: ValidSpan, reason, ctor_name) = {
   if params.len == 0 || sub_pats.len == 0 { () }
   else {
     let TParam(_, pty, _, _) = list_head(params)
@@ -1735,6 +1786,7 @@ fn bind_pcon_subpats(params, sub_pats, span: ValidSpan, reason, ctor_name) =
     bind_pcon_subpats(list_tail(params), list_tail(sub_pats),
       span, reason, ctor_name)
   }
+}
 
 fn infer_match_arms(arms, scrut, result_h, span: ValidSpan) = {
   infer_match_arm_iter(arms, scrut, result_h, span)
@@ -1756,7 +1808,7 @@ fn infer_match_arms(arms, scrut, result_h, span: ValidSpan) = {
   }
 }
 
-fn infer_match_arm_iter(arms, scrut, result_h, span: ValidSpan) =
+fn infer_match_arm_iter(arms, scrut, result_h, span: ValidSpan) = {
   if arms.len == 0 { () }
   else {
     let (pat, body) = list_head(arms)
@@ -1768,10 +1820,11 @@ fn infer_match_arm_iter(arms, scrut, result_h, span: ValidSpan) =
     perform env_scope_exit()
     infer_match_arm_iter(list_tail(arms), scrut, result_h, span)
   }
+}
 
 // Walk arms, gathering each PCon's tag_id (deduped via set_insert).
 // Non-PCon arms (wildcards, vars, lits) contribute no tag.
-fn collect_arm_tags(arms, own acc) =
+fn collect_arm_tags(arms, own acc) = {
   if arms.len == 0 { acc }
   else {
     let (pat, _body) = list_head(arms)
@@ -1790,12 +1843,13 @@ fn collect_arm_tags(arms, own acc) =
     }
     collect_arm_tags(list_tail(arms), next)
   }
+}
 
 // Read total_variants from any one PCon arm's ConstructorScheme.
 // All variants of a single declaring type carry the same total; the
 // FIRST hit is sufficient. Returns 0 when no PCon arm is present
 // (e.g., literal-only match) — the exhaustiveness check skips.
-fn arms_total_variants(arms) =
+fn arms_total_variants(arms) = {
   if arms.len == 0 { 0 }
   else {
     let (pat, _body) = list_head(arms)
@@ -1813,10 +1867,11 @@ fn arms_total_variants(arms) =
       _ => arms_total_variants(list_tail(arms))
     }
   }
+}
 
 // Wildcard detection: PWild or PVar at the top level catches
 // everything the prior arms don't.
-fn arms_have_wildcard(arms) =
+fn arms_have_wildcard(arms) = {
   if arms.len == 0 { false }
   else {
     let (pat, _body) = list_head(arms)
@@ -1826,11 +1881,12 @@ fn arms_have_wildcard(arms) =
       _        => arms_have_wildcard(list_tail(arms))
     }
   }
+}
 
 /// Handler arm inference — each arm's body is inferred; its type
 /// unifies with the body's type so the `handle` expression has a
 /// single consistent result type.
-fn infer_handler_arms(arms, body_h, span: ValidSpan) =
+fn infer_handler_arms(arms, body_h, span: ValidSpan) = {
   if arms.len == 0 { () }
   else {
     let arm = list_head(arms)
@@ -1841,6 +1897,7 @@ fn infer_handler_arms(arms, body_h, span: ValidSpan) =
     perform env_scope_exit()
     infer_handler_arms(list_tail(arms), body_h, span)
   }
+}
 
 /// Generalization — Damas-Milner let-gen.
 /// Quantify handles that are free in the body but NOT free in env.
@@ -1903,23 +1960,26 @@ fn chase_deep(ty) = match ty {
   TAlias(name, inner)  => TAlias(name, chase_deep(inner))
 }
 
-fn map_chase_ty(tys) =
+fn map_chase_ty(tys) = {
   if tys.len == 0 { [] }
   else { [chase_deep(list_head(tys))] ++ map_chase_ty(list_tail(tys)) }
+}
 
-fn chase_params(params) =
+fn chase_params(params) = {
   if params.len == 0 { [] }
   else {
     let TParam(name, ty, auth, res) = list_head(params)
     [TParam(name, chase_deep(ty), auth, res)] ++ chase_params(list_tail(params))
   }
+}
 
-fn chase_fields(fields) =
+fn chase_fields(fields) = {
   if fields.len == 0 { [] }
   else {
     let (name, ty) = list_head(fields)
     [(name, chase_deep(ty))] ++ chase_fields(list_tail(fields))
   }
+}
 
 // H6: exhaustive Ty enumeration. Scalars have no free handles;
 // aggregates recurse; TVar IS a free handle; TRecordOpen's row
@@ -1942,23 +2002,26 @@ fn free_in_ty(ty) = match ty {
   TAlias(_, inner)       => free_in_ty(inner)
 }
 
-fn free_in_list(tys) =
+fn free_in_list(tys) = {
   if tys.len == 0 { [] }
   else { free_in_ty(list_head(tys)) ++ free_in_list(list_tail(tys)) }
+}
 
-fn free_in_params(params) =
+fn free_in_params(params) = {
   if params.len == 0 { [] }
   else {
     let TParam(_, ty, _, _) = list_head(params)
     free_in_ty(ty) ++ free_in_params(list_tail(params))
   }
+}
 
-fn free_in_fields(fields) =
+fn free_in_fields(fields) = {
   if fields.len == 0 { [] }
   else {
     let (_, ty) = list_head(fields)
     free_in_ty(ty) ++ free_in_fields(list_tail(fields))
   }
+}
 
 /// Instantiation — one function, two handlers.
 /// inference handler: `mint(r) => resume(perform graph_fresh_ty(r))`
@@ -1974,13 +2037,14 @@ fn instantiate(scheme) = {
   }
 }
 
-fn build_inst_mapping(qs) =
+fn build_inst_mapping(qs) = {
   if qs.len == 0 { [] }
   else {
     let old = list_head(qs)
     let fresh = perform mint(Instantiation("inst", Fresh(old)))
     [(old, fresh)] ++ build_inst_mapping(list_tail(qs))
   }
+}
 
 // H6: exhaustive Ty enumeration. Scalars pass through;
 // aggregates recurse. Substitution is identity for unresolved
@@ -2009,48 +2073,55 @@ fn subst_ty(ty, mapping) = match ty {
   TAlias(name, inner)   => TAlias(name, subst_ty(inner, mapping))
 }
 
-fn subst_list(tys, mapping) =
+fn subst_list(tys, mapping) = {
   if tys.len == 0 { [] }
   else { [subst_ty(list_head(tys), mapping)] ++ subst_list(list_tail(tys), mapping) }
+}
 
-fn subst_params(params, mapping) =
+fn subst_params(params, mapping) = {
   if params.len == 0 { [] }
   else {
     let TParam(name, ty, auth, res) = list_head(params)
     [TParam(name, subst_ty(ty, mapping), auth, res)] ++ subst_params(list_tail(params), mapping)
   }
+}
 
-fn subst_fields(fields, mapping) =
+fn subst_fields(fields, mapping) = {
   if fields.len == 0 { [] }
   else {
     let (name, ty) = list_head(fields)
     [(name, subst_ty(ty, mapping))] ++ subst_fields(list_tail(fields), mapping)
   }
+}
 
-fn find_mapping(mapping, id) =
+fn find_mapping(mapping, id) = {
   if mapping.len == 0 { -1 }
   else {
     let (old, fresh) = list_head(mapping)
     if old == id { fresh } else { find_mapping(list_tail(mapping), id) }
   }
+}
 
 // Registration — ADT constructors, effect ops, handlers
 
-fn mint_params(params, owner_name) =
+fn mint_params(params, owner_name) = {
   mint_params_at(params, owner_name, 0)
+}
 
-fn mint_param_placeholders(params, owner_name) =
+fn mint_param_placeholders(params, owner_name) = {
   mint_param_placeholders_at(params, owner_name, 0)
+}
 
-fn mint_param_placeholders_at(params, owner_name, idx) =
+fn mint_param_placeholders_at(params, owner_name, idx) = {
   if params.len == 0 { [] }
   else {
     let TParam(_, _, _, _) = list_head(params)
     let h = perform mint(FnParam(owner_name, idx, Inferred("param of '" |> str_concat(owner_name) |> str_concat("'"))))
     [h] ++ mint_param_placeholders_at(list_tail(params), owner_name, idx + 1)
   }
+}
 
-fn mint_params_at(params, owner_name, idx) =
+fn mint_params_at(params, owner_name, idx) = {
   if params.len == 0 { [] }
   else {
     let TParam(name, _, _, _) = list_head(params)
@@ -2058,31 +2129,36 @@ fn mint_params_at(params, owner_name, idx) =
     perform env_extend(name, Forall([], TVar(h)), Declared(name), FnScheme)
     [h] ++ mint_params_at(list_tail(params), owner_name, idx + 1)
   }
+}
 
-fn build_param_types(params, handles) =
+fn build_param_types(params, handles) = {
   if params.len == 0 { [] }
   else {
     let TParam(name, _, auth, res) = list_head(params)
     let h = list_head(handles)
     [TParam(name, TVar(h), auth, res)] ++ build_param_types(list_tail(params), list_tail(handles))
   }
+}
 
-fn build_inferred_params(handles) =
+fn build_inferred_params(handles) = {
   if handles.len == 0 { [] }
   else {
     let h = list_head(handles)
     [TParam("_", TVar(h), Inferred, Inferred)] ++ build_inferred_params(list_tail(handles))
   }
+}
 
-fn register_type_constructors(type_name, type_args, variants) =
+fn register_type_constructors(type_name, type_args, variants) = {
   register_variants_at(type_name, type_args, variants, 0, variants.len)
+}
 
-fn register_variants_at(type_name, type_args, variants, tag_id, total) =
+fn register_variants_at(type_name, type_args, variants, tag_id, total) = {
   if variants.len == 0 { () }
   else {
     register_one_variant(type_name, type_args, list_head(variants), tag_id, total)
     register_variants_at(type_name, type_args, list_tail(variants), tag_id + 1, total)
   }
+}
 
 fn register_one_variant(type_name, type_args, variant, tag_id, total) = {
   let (ctor_name, field_types) = variant
@@ -2119,20 +2195,22 @@ fn is_record_ty(ty) with Pure = match ty {
   _                 => false
 }
 
-fn build_ctor_params(field_types, idx) =
+fn build_ctor_params(field_types, idx) = {
   if field_types.len == 0 { [] }
   else {
     let ty = list_head(field_types)
     [TParam("_" |> str_concat(int_to_str(idx)), ty, Inferred, Inferred)]
       ++ build_ctor_params(list_tail(field_types), idx + 1)
   }
+}
 
-fn register_effect_ops(effect_name, ops) =
+fn register_effect_ops(effect_name, ops) = {
   if ops.len == 0 { () }
   else {
     register_one_op(effect_name, list_head(ops))
     register_effect_ops(effect_name, list_tail(ops))
   }
+}
 
 fn register_one_op(effect_name, op) = {
   let (op_name, param_types, ret_type) = op
@@ -2159,34 +2237,38 @@ fn register_handler(hname, ename, arms) = {
 
 // Utilities
 
-fn infer_expr_list(ref nodes) =
+fn infer_expr_list(ref nodes) = {
   if nodes.len == 0 { () }
   else {
     infer_expr(list_head(nodes))
     infer_expr_list(list_tail(nodes))
   }
+}
 
-fn collect_handles(ref nodes) =
+fn collect_handles(ref nodes) = {
   if nodes.len == 0 { [] }
   else {
     let N(_, _, h) = list_head(nodes)
     [h] ++ collect_handles(list_tail(nodes))
   }
+}
 
-fn collect_tvar_types(ref nodes) =
+fn collect_tvar_types(ref nodes) = {
   if nodes.len == 0 { [] }
   else {
     let N(_, _, h) = list_head(nodes)
     [TVar(h)] ++ collect_tvar_types(list_tail(nodes))
   }
+}
 
-fn unify_list_elems(elems, target_h, span: ValidSpan) =
+fn unify_list_elems(elems, target_h, span: ValidSpan) = {
   if elems.len == 0 { () }
   else {
     let N(_, _, eh) = list_head(elems)
     unify(eh, target_h, span, ListElement(Inferred("list element")))
     unify_list_elems(list_tail(elems), target_h, span)
   }
+}
 
 // Handler absorption helpers — used by HandleExpr inference. The
 // "handled effects" are the effect NAMES whose ops the arms handle.
@@ -2200,21 +2282,24 @@ fn unify_list_elems(elems, target_h, span: ValidSpan) =
 /// the install position for W4's monomorphic dispatch. Concrete
 /// handler-value identity arrives with evidence reification; the
 /// handled-name set is the marker H1.4 preserves as a fallback.
-fn handler_stack_tag(handled_names) =
+fn handler_stack_tag(handled_names) = {
   "handle:" |> str_concat(show_list(handled_names, show_eff_name, "|"))
+}
 
-fn collect_handled_effects(arms) =
+fn collect_handled_effects(arms) = {
   collect_handled_from(arms, [])
+}
 
-fn collect_handled_from(arms, own acc) =
+fn collect_handled_from(arms, own acc) = {
   if arms.len == 0 { acc }
   else {
     let arm = list_head(arms)
     let names = effect_names_of_op(arm.op_name)
     collect_handled_from(list_tail(arms), acc ++ names)
   }
+}
 
-fn effect_names_of_op(op_name) =
+fn effect_names_of_op(op_name) = {
   match perform env_lookup(op_name) {
     None => [],
     Some(entry) => {
@@ -2226,6 +2311,7 @@ fn effect_names_of_op(op_name) =
       }
     }
   }
+}
 
 fn row_names(row) with Pure = match row {
   EfPure           => [],
@@ -2234,8 +2320,9 @@ fn row_names(row) with Pure = match row {
   _                => []
 }
 
-fn read_bound_row(handle) =
+fn read_bound_row(handle) = {
   match perform graph_chase(handle) {
     GNode(NRowBound(row), _) => row,
     _                        => EfPure
   }
+}

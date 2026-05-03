@@ -183,33 +183,36 @@ fn chase_type_deep(ref ty) with !Mutate = match ty {
   _                      => ty
 }
 
-fn chase_list_deep(ref tys) with !Mutate =
+fn chase_list_deep(ref tys) with !Mutate = {
   if tys.len == 0 { [] }
   else {
     [chase_type_deep(list_head(tys))]
       ++ chase_list_deep(list_tail(tys))
   }
+}
 
-fn chase_params_deep(ref params) with !Mutate =
+fn chase_params_deep(ref params) with !Mutate = {
   if params.len == 0 { [] }
   else {
     let TParam(name, ty, auth, res) = list_head(params)
     [TParam(name, chase_type_deep(ty), auth, res)]
       ++ chase_params_deep(list_tail(params))
   }
+}
 
-fn chase_fields_deep(ref fields) with !Mutate =
+fn chase_fields_deep(ref fields) with !Mutate = {
   if fields.len == 0 { [] }
   else {
     let (name, ty) = list_head(fields)
     [(name, chase_type_deep(ty))]
       ++ chase_fields_deep(list_tail(fields))
   }
+}
 
 /// Collect all env entries whose type still chases to a free `TVar`.
 /// Returned by `QUnresolved` — the set of names with incomplete types
 /// after inference.
-fn find_unresolved(ref entries) with !Mutate =
+fn find_unresolved(ref entries) with !Mutate = {
   if entries.len == 0 { [] }
   else {
     let (name, scheme, _reason, _kind) = list_head(entries)
@@ -218,6 +221,7 @@ fn find_unresolved(ref entries) with !Mutate =
     if has_free_tvar(ty) { [(name, ty, [])] ++ rest }
     else { rest }
   }
+}
 
 fn has_free_tvar(ref ty) with !Mutate = match ty {
   TVar(h) => {
@@ -241,31 +245,34 @@ fn has_free_tvar(ref ty) with !Mutate = match ty {
   _                      => false
 }
 
-fn has_free_tvar_list(ref tys) with !Mutate =
+fn has_free_tvar_list(ref tys) with !Mutate = {
   if tys.len == 0 { false }
   else {
     has_free_tvar(list_head(tys))
       || has_free_tvar_list(list_tail(tys))
   }
+}
 
-fn has_free_tvar_params(ref params) with !Mutate =
+fn has_free_tvar_params(ref params) with !Mutate = {
   if params.len == 0 { false }
   else {
     let TParam(_, ty, _, _) = list_head(params)
     has_free_tvar(ty) || has_free_tvar_params(list_tail(params))
   }
+}
 
-fn has_free_tvar_fields(ref fields) with !Mutate =
+fn has_free_tvar_fields(ref fields) with !Mutate = {
   if fields.len == 0 { false }
   else {
     let (_, ty) = list_head(fields)
     has_free_tvar(ty) || has_free_tvar_fields(list_tail(fields))
   }
+}
 
 /// Walk every substitution hop from a starting handle to its terminal.
 /// Returned by `QSubstChain` — useful for tracing cross-module `TVar`
 /// resolution.
-fn walk_chain(handle, depth) with !Mutate =
+fn walk_chain(handle, depth) with !Mutate = {
   if depth > 50 || handle < 0 { [] }
   else {
     let node = perform graph_chase(handle)
@@ -278,15 +285,17 @@ fn walk_chain(handle, depth) with !Mutate =
       _ => [(handle, node)]
     }
   }
+}
 
 // ─── Span Index Search (Arc F.2) ───────────────────────────────────
 
-fn span_area(s: ValidSpan) with Pure =
+fn span_area(s: ValidSpan) with Pure = {
   let Span(sl, sc, el, ec) = s
   if sl == el { ec - sc }
   else { ((el - sl) * 1000) + ec - sc }
+}
 
-fn find_tightest(ref idx, target, best_h, best_area) with Pure =
+fn find_tightest(ref idx, target, best_h, best_area) with Pure = {
   if idx.len == 0 { best_h }
   else {
     let (s, h) = list_head(idx)
@@ -301,11 +310,13 @@ fn find_tightest(ref idx, target, best_h, best_area) with Pure =
       find_tightest(list_tail(idx), target, best_h, best_area)
     }
   }
+}
 
-fn find_intent(ref intent_index, handle, i, n) with !Mutate =
+fn find_intent(ref intent_index, handle, i, n) with !Mutate = {
   if i >= n { None }
   else {
     let (h, effs) = list_index(intent_index, i)
     if h == handle { Some(effs) }
     else { find_intent(intent_index, handle, i + 1, n) }
   }
+}

@@ -65,7 +65,7 @@ fn extract_fn_params(scheme) with Abort = match scheme {
 /// Look up a name's authored ownership annotation.
 /// Returns Some(auth) if the parameter has an explicit own/ref marker,
 /// None if not found or if the graph structure doesn't match.
-fn get_authored_ownership(ref name) with !Mutate =
+fn get_authored_ownership(ref name) with !Mutate = {
   name
     |> lookup_env
     |> unwrap_env
@@ -82,6 +82,7 @@ fn get_authored_ownership(ref name) with !Mutate =
          } else { None }
        }
     ~> catch_abort
+}
 
 handler affine_ledger with used = [], used_sites = [], branches = [] {
 
@@ -157,10 +158,11 @@ handler affine_ledger with used = [], used_sites = [], branches = [] {
 /// Flat-array union across all branch deltas. Every delta is already
 /// a sorted set (maintained by set_insert during consume), so folding
 /// set_union across them preserves the invariant.
-fn union_all_deltas(ref deltas) with !Mutate =
+fn union_all_deltas(ref deltas) with !Mutate = {
   union_all_deltas_loop(deltas, 0, deltas.len, [])
+}
 
-fn union_all_deltas_loop(ref deltas, i, n, own acc) with !Mutate =
+fn union_all_deltas_loop(ref deltas, i, n, own acc) with !Mutate = {
   if i >= n { acc }
   else {
     union_all_deltas_loop(
@@ -168,6 +170,7 @@ fn union_all_deltas_loop(ref deltas, i, n, own acc) with !Mutate =
       set_union(acc, list_index(deltas, i))
     )
   }
+}
 
 /// Pairwise collision check across branch deltas. For each pair
 /// (delta_i, delta_j) with i < j, any name in their intersection was
@@ -176,17 +179,19 @@ fn union_all_deltas_loop(ref deltas, i, n, own acc) with !Mutate =
 /// branches surfaces as (1,2), (1,3), (2,3) triples, each naming the
 /// branch pair in its own diagnostic. Span is the branching verb's
 /// span — the site where the violation becomes observable.
-fn report_branch_collisions(ref deltas, ref span) with !Mutate =
+fn report_branch_collisions(ref deltas, ref span) with !Mutate = {
   report_collisions_outer(deltas, 0, deltas.len, span)
+}
 
-fn report_collisions_outer(ref deltas, i, n, ref span) with !Mutate =
+fn report_collisions_outer(ref deltas, i, n, ref span) with !Mutate = {
   if i >= n { () }
   else {
     report_collisions_inner(deltas, i, i + 1, n, span)
     report_collisions_outer(deltas, i + 1, n, span)
   }
+}
 
-fn report_collisions_inner(ref deltas, i, j, n, ref span) with !Mutate =
+fn report_collisions_inner(ref deltas, i, j, n, ref span) with !Mutate = {
   if j >= n { () }
   else {
     let delta_i = list_index(deltas, i)
@@ -195,6 +200,7 @@ fn report_collisions_inner(ref deltas, i, j, n, ref span) with !Mutate =
     report_each_collision(collisions, 0, collisions.len, span)
     report_collisions_inner(deltas, i, j + 1, n, span)
   }
+}
 
 /// Tofte-Talpin region escape tracker (I12). Installed per-function
 /// body alongside `affine_ledger`. Arms react to Alloc/return
@@ -294,36 +300,41 @@ handler region_tracker with region_stack = [], next_region = 0, tagged_values = 
   }
 }
 
-fn lookup_tag(ref tags, handle) with !Mutate =
+fn lookup_tag(ref tags, handle) with !Mutate = {
   lookup_tag_loop(tags, handle, 0, tags.len)
+}
 
-fn lookup_tag_loop(ref tags, handle, i, n) with !Mutate =
+fn lookup_tag_loop(ref tags, handle, i, n) with !Mutate = {
   if i >= n { None }
   else {
     let tag = list_index(tags, i)
     if tag.handle == handle { Some(tag) }
     else { lookup_tag_loop(tags, handle, i + 1, n) }
   }
+}
 
-fn region_on_stack(ref stack, rid) with !Mutate =
+fn region_on_stack(ref stack, rid) with !Mutate = {
   region_on_stack_loop(stack, rid, 0, stack.len)
+}
 
-fn region_on_stack_loop(ref stack, rid, i, n) with !Mutate =
+fn region_on_stack_loop(ref stack, rid, i, n) with !Mutate = {
   if i >= n { false }
   else {
     let Region(r, _) = list_index(stack, i)
     if r == rid { true }
     else { region_on_stack_loop(stack, rid, i + 1, n) }
   }
+}
 
 /// H4.1: join field regions with current region — returns the MAX
 /// (innermost) region_id. Untagged fields (scalars, never alloc'd)
 /// contribute region 0 (global lifetime, doesn't bound the join).
 /// The result is the composite's pinning region.
-fn join_field_regions(ref tags, ref fields, current) with !Mutate =
+fn join_field_regions(ref tags, ref fields, current) with !Mutate = {
   join_field_regions_loop(tags, fields, current, 0, fields.len)
+}
 
-fn join_field_regions_loop(ref tags, ref fields, current, i, n) with !Mutate =
+fn join_field_regions_loop(ref tags, ref fields, current, i, n) with !Mutate = {
   if i >= n { acc }
   else {
     let fh = list_index(fields, i)
@@ -335,8 +346,9 @@ fn join_field_regions_loop(ref tags, ref fields, current, i, n) with !Mutate =
     let next = if field_rid > acc { field_rid } else { acc }
     join_field_regions_loop(tags, fields, next, i + 1, n)
   }
+}
 
-fn report_each_collision(ref names, i, n, ref span) with !Mutate =
+fn report_each_collision(ref names, i, n, ref span) with !Mutate = {
   if i >= n { () }
   else {
     let name = list_index(names, i)
@@ -347,17 +359,20 @@ fn report_each_collision(ref names, i, n, ref span) with !Mutate =
       span, "MachineApplicable")
     report_each_collision(names, i + 1, n, span)
   }
+}
 
-fn find_first_span(ref sites, ref name) with !Mutate =
+fn find_first_span(ref sites, ref name) with !Mutate = {
   find_first_span_loop(sites, name, 0, sites.len)
+}
 
-fn find_first_span_loop(ref sites, ref name, i, n) with !Mutate =
+fn find_first_span_loop(ref sites, ref name, i, n) with !Mutate = {
   if i >= n { span_zero() }
   else {
     let (entry_name, entry_span) = list_index(sites, i)
     if str_eq(entry_name, name) { entry_span }
     else { find_first_span_loop(sites, name, i + 1, n) }
   }
+}
 
 // W8.2 / Phase-A2: `used` now maintains sort invariant by
 // construction (set_insert in consume), so set_contains runs at
@@ -368,25 +383,27 @@ fn find_first_span_loop(ref sites, ref name, i, n) with !Mutate =
 /// A `ref`-annotated binding cannot appear in return position or be
 /// captured by a closure that outlives its scope. Called by infer.nx
 /// at every `FnStmt` body.
-fn check_ref_escape(ref params, ref body) with !Mutate =
+fn check_ref_escape(ref params, ref body) with !Mutate = {
   params
     |> collect_ref_params
     |> (refs) =>
          if refs.len == 0 { () }
          else { walk_return_positions(refs, body) }
+}
 
 /// Phase-A4: collect_ref_params returns `slice(buf, 0, count)` — a
 /// tag=4 view with len = count. One alloc for the worst-case buffer
 /// + one slice-node alloc; same big-O as pre-trim, but the slice
 /// preserves O(1) read into the original buffer (no copy).
-fn collect_ref_params(ref params) with !Mutate =
+fn collect_ref_params(ref params) with !Mutate = {
   let flat = list_to_flat(params)
   let n = flat.len
   let buf = make_list(n)
   let count = collect_ref_params_loop(flat, 0, n, buf, 0)
   slice(buf, 0, count)
+}
 
-fn collect_ref_params_loop(ref params, i, n, own buf, buf_len) with !Mutate =
+fn collect_ref_params_loop(ref params, i, n, own buf, buf_len) with !Mutate = {
   if i >= n { buf_len }
   else {
     let TParam(name, _, auth, res) = list_index(params, i)
@@ -398,8 +415,9 @@ fn collect_ref_params_loop(ref params, i, n, own buf, buf_len) with !Mutate =
       _ => collect_ref_params_loop(params, i + 1, n, buf, buf_len)
     }
   }
+}
 
-fn walk_return_positions(ref refs, ref node) with !Mutate =
+fn walk_return_positions(ref refs, ref node) with !Mutate = {
   let N(body, span, _) = node
   match body {
     NExpr(VarRef(name)) =>
@@ -452,28 +470,32 @@ fn walk_return_positions(ref refs, ref node) with !Mutate =
     NPat(_)  => (),
     NHole(_) => ()
   }
+}
 
-fn walk_match_arms(ref refs, ref arms) with !Mutate =
+fn walk_match_arms(ref refs, ref arms) with !Mutate = {
   walk_match_arms_loop(refs, arms, 0, arms.len)
+}
 
-fn walk_match_arms_loop(ref refs, ref arms, i, n) with !Mutate =
+fn walk_match_arms_loop(ref refs, ref arms, i, n) with !Mutate = {
   if i >= n { () }
   else {
     let (_, body) = list_index(arms, i)
     walk_return_positions(refs, body)
     walk_match_arms_loop(refs, arms, i + 1, n)
   }
+}
 
 /// Deduce `Own` vs `Ref` for `Inferred`-marked parameters by counting
 /// uses in the function body: 0 uses → `Inferred` (mark stays),
 /// 1 use → `Own` (consumed once — affine), ≥ 2 uses → `Ref`
 /// (borrowed multiple times).
-fn infer_ownership(ref params, ref body) with !Mutate =
+fn infer_ownership(ref params, ref body) with !Mutate = {
   let flat = list_to_flat(params)
   let n = flat.len
   infer_ownership_loop(flat, body, 0, n, make_list(n))
+}
 
-fn infer_ownership_loop(ref params, ref body, i, n, own acc) with !Mutate =
+fn infer_ownership_loop(ref params, ref body, i, n, own acc) with !Mutate = {
   if i >= n { acc }
   else {
     let TParam(name, ty, authored, _old_resolved) = list_index(params, i)
@@ -486,6 +508,7 @@ fn infer_ownership_loop(ref params, ref body, i, n, own acc) with !Mutate =
       list_set(acc, i, TParam(name, ty, authored, inferred))
     )
   }
+}
 
 fn classify_usage(ref name, ref body) with !Mutate = {
   let count = count_uses(name, body)
@@ -494,7 +517,7 @@ fn classify_usage(ref name, ref body) with !Mutate = {
   else               { Ref }
 }
 
-fn count_uses(ref name, ref node) with !Mutate =
+fn count_uses(ref name, ref node) with !Mutate = {
   let N(body, _, _) = node
   match body {
     NExpr(VarRef(n)) =>
@@ -540,14 +563,17 @@ fn count_uses(ref name, ref node) with !Mutate =
     NPat(_)  => 0,
     NHole(_) => 0
   }
+}
 
-fn count_uses_list(ref name, ref nodes) with !Mutate =
+fn count_uses_list(ref name, ref nodes) with !Mutate = {
   count_uses_list_loop(name, nodes, 0, nodes.len, 0)
+}
 
-fn count_uses_record_fields(ref name, ref flds) with !Mutate =
+fn count_uses_record_fields(ref name, ref flds) with !Mutate = {
   count_uses_record_fields_loop(name, flds, 0, flds.len, 0)
+}
 
-fn count_uses_record_fields_loop(ref name, ref flds, i, n, acc) with !Mutate =
+fn count_uses_record_fields_loop(ref name, ref flds, i, n, acc) with !Mutate = {
   if i >= n { acc }
   else {
     let (_, value) = list_index(flds, i)
@@ -555,8 +581,9 @@ fn count_uses_record_fields_loop(ref name, ref flds, i, n, acc) with !Mutate =
       name, flds, i + 1, n, acc + count_uses(name, value)
     )
   }
+}
 
-fn count_uses_list_loop(ref name, ref nodes, i, n, acc) with !Mutate =
+fn count_uses_list_loop(ref name, ref nodes, i, n, acc) with !Mutate = {
   if i >= n { acc }
   else {
     count_uses_list_loop(
@@ -564,11 +591,13 @@ fn count_uses_list_loop(ref name, ref nodes, i, n, acc) with !Mutate =
       acc + count_uses(name, list_index(nodes, i))
     )
   }
+}
 
-fn count_match_arms(ref name, ref arms) with !Mutate =
+fn count_match_arms(ref name, ref arms) with !Mutate = {
   count_match_arms_loop(name, arms, 0, arms.len, 0)
+}
 
-fn count_match_arms_loop(ref name, ref arms, i, n, acc) with !Mutate =
+fn count_match_arms_loop(ref name, ref arms, i, n, acc) with !Mutate = {
   if i >= n { acc }
   else {
     let (_, body) = list_index(arms, i)
@@ -577,3 +606,4 @@ fn count_match_arms_loop(ref name, ref arms, i, n, acc) with !Mutate =
       acc + count_uses(name, body)
     )
   }
+}

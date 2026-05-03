@@ -16,19 +16,23 @@ effect Test {
 
 // ─── Convenience ─────────────────────────────────────────────
 
-fn expect_eq(actual, expected) =
+fn expect_eq(actual, expected) = {
   check(actual == expected,
     "expected " ++ to_string(expected) ++ " got " ++ to_string(actual))
+}
 
-fn expect_ne(actual, expected) =
+fn expect_ne(actual, expected) = {
   check(actual != expected,
     "expected not " ++ to_string(expected))
+}
 
-fn expect_true(value) =
+fn expect_true(value) = {
   check(value, "expected true")
+}
 
-fn expect_false(value) =
+fn expect_false(value) = {
   check(!value, "expected false")
+}
 
 // ─── run_tests: compact output ───────────────────────────────
 

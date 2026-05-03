@@ -15,18 +15,21 @@ import types
 
 /// make_tuple — allocate `arity` 4-byte slots (uninitialized).
 /// Callers fill slots immediately via tuple_set before the tuple escapes.
-fn make_tuple(arity) with Memory + Alloc =
+fn make_tuple(arity) with Memory + Alloc = {
   perform alloc(arity * 4)
+}
 
 // Access
 
 /// tuple_set — store val into slot idx (0-indexed). Returns the tuple
 /// pointer so calls can be chained:
 ///   make_tuple(2) |> tuple_set(0, a) |> tuple_set(1, b)
-fn tuple_set(t, idx, val) with Memory =
+fn tuple_set(t, idx, val) with Memory = {
   perform store_i32(t + idx * 4, val)
   t
+}
 
 /// tuple_get — load the value at slot idx.
-fn tuple_get(t, idx) with Memory =
+fn tuple_get(t, idx) with Memory = {
   perform load_i32(t + idx * 4)
+}

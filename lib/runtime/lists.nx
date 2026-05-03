@@ -25,11 +25,12 @@ import types
 
 /// make_list — allocate a flat tag=0 list of `count` slots (uninitialized).
 /// Callers must fill slots with list_set before the list escapes.
-fn make_list(count) with Memory + Alloc =
+fn make_list(count) with Memory + Alloc = {
   let t = perform alloc(8 + count * 4)
   perform store_i32(t, count)
   perform store_i32(t + 4, 0)
   t
+}
 
 // Mutation and access (tag-dispatched)
 
@@ -37,9 +38,10 @@ fn make_list(count) with Memory + Alloc =
 /// list pointer so callers can chain: make_list(3) |> list_set(0, a) ...
 /// Caller asserts tag=0 — calling list_set on a snoc/concat/slice is
 /// a structural contract violation (the list should be list_to_flat'd first).
-fn list_set(l, idx, val) with Memory =
+fn list_set(l, idx, val) with Memory = {
   perform store_i32(l + 8 + idx * 4, val)
   l
+}
 
 /// list_extend_to — ensure `list` has capacity ≥ min_size. If already
 /// large enough, returns `list` unchanged. Otherwise allocates a new
@@ -57,7 +59,7 @@ fn list_set(l, idx, val) with Memory =
 /// CONTRACT: slots in [list.len, new_cap) are zero-initialized by
 /// the allocator but carry no semantic meaning. Callers must track
 /// logical length separately and never read uninitialized slots.
-fn list_extend_to(list, min_size) with Memory + Alloc =
+fn list_extend_to(list, min_size) with Memory + Alloc = {
   let cur_len = list.len
   if cur_len >= min_size { list }
   else {
@@ -65,20 +67,22 @@ fn list_extend_to(list, min_size) with Memory + Alloc =
     let fresh = make_list(new_cap)
     list_copy_into(list, fresh, 0, cur_len)
   }
+}
 
 /// list_copy_into — copy src[0..count) into dst[0..count). Dispatches
 /// through list_index so src may be any tag; dst must be tag=0.
 /// Callers should keep src tag=0 for O(count) cost; non-flat sources
 /// pay list_index dispatch per element.
-fn list_copy_into(src, dst, i, count) with Memory + Alloc =
+fn list_copy_into(src, dst, i, count) with Memory + Alloc = {
   if i >= count { dst }
   else {
     list_copy_into(src, list_set(dst, i, list_index(src, i)), i + 1, count)
   }
+}
 
 /// list_index — O(1) for tag=0, O(log N) for snoc chains, O(depth) for
 /// concat/slice. Exhaustive on all four tags — no fallback sentinel.
-fn list_index(list, i) with Memory =
+fn list_index(list, i) with Memory = {
   let tag = perform load_i32(list + 4)
   match tag {
     0 => perform load_i32(list + 8 + i * 4),
@@ -100,6 +104,7 @@ fn list_index(list, i) with Memory =
       list_index(base, start + i)
     }
   }
+}
 
 // Push — O(1) snoc
 
@@ -107,7 +112,7 @@ fn list_index(list, i) with Memory =
 /// Ownership-aware path: if the list is tag=0 AND owned AND has capacity,
 /// list_set is preferred by the caller (no node allocation). Otherwise
 /// push allocates a 16-byte snoc node.
-fn push(list, val) with Memory + Alloc =
+fn push(list, val) with Memory + Alloc = {
   let old_len = perform load_i32(list)
   let snoc = perform alloc(16)
   perform store_i32(snoc, old_len + 1)
@@ -115,12 +120,13 @@ fn push(list, val) with Memory + Alloc =
   perform store_i32(snoc + 8, list)
   perform store_i32(snoc + 12, val)
   snoc
+}
 
 // Concatenation — O(1) concat node
 
 /// list_concat — join two lists. Returns either input directly if the other
 /// is empty (no allocation), otherwise allocates a 16-byte concat node (tag=3).
-fn list_concat(a, b) with Memory + Alloc =
+fn list_concat(a, b) with Memory + Alloc = {
   let len_a = perform load_i32(a)
   let len_b = perform load_i32(b)
   if len_a == 0 { b }
@@ -134,13 +140,14 @@ fn list_concat(a, b) with Memory + Alloc =
     perform store_i32(node + 12, b)
     node
   }
+}
 
 // Slice — O(1) view
 
 /// slice — return a view into list[start..end) (exclusive end).
 /// Clamps to valid range. Returns make_list(0) for empty range.
 /// Allocates a 16-byte slice node (tag=4) — no copying.
-fn slice(list, start, end) with Memory + Alloc =
+fn slice(list, start, end) with Memory + Alloc = {
   let total = perform load_i32(list)
   let cstart = if start < 0 { 0 } else if start > total { total } else { start }
   let cend   = if end < cstart { cstart } else if end > total { total } else { end }
@@ -154,6 +161,7 @@ fn slice(list, start, end) with Memory + Alloc =
     perform store_i32(node + 12, cstart)
     node
   }
+}
 
 // Head and tail
 //
@@ -163,7 +171,7 @@ fn slice(list, start, end) with Memory + Alloc =
 // head of the snoc stack.
 
 /// list_head — return the last element. O(1) for snoc nodes.
-fn list_head(list) with Memory =
+fn list_head(list) with Memory = {
   let list_len = perform load_i32(list)
   let tag      = perform load_i32(list + 4)
   match tag {
@@ -172,11 +180,12 @@ fn list_head(list) with Memory =
     3 => list_index(list, list_len - 1),
     4 => list_index(list, list_len - 1)
   }
+}
 
 /// list_tail — return the list without its last element.
 /// O(1) for snoc nodes (reads the left pointer). Creates a slice for
 /// other tag variants — still O(1) allocation, O(1) by-reference.
-fn list_tail(list) with Memory + Alloc =
+fn list_tail(list) with Memory + Alloc = {
   let list_len = perform load_i32(list)
   let tag      = perform load_i32(list + 4)
   match tag {
@@ -185,13 +194,14 @@ fn list_tail(list) with Memory + Alloc =
     3 => slice(list, 0, list_len - 1),
     4 => slice(list, 0, list_len - 1)
   }
+}
 
 // Materialization
 
 /// list_to_flat — convert any list tree to a contiguous tag=0 array.
 /// O(N) time, O(N) space. Returns the input unchanged if already flat.
 /// Call this at hot-path entrances when O(1) random access is required.
-fn list_to_flat(list) with Memory + Alloc =
+fn list_to_flat(list) with Memory + Alloc = {
   let n = perform load_i32(list)
   if n == 0 { list }
   else {
@@ -203,11 +213,12 @@ fn list_to_flat(list) with Memory + Alloc =
       flat
     }
   }
+}
 
 /// flat_fill — walk the tree in forward order, storing each element into
 /// the flat array. Dispatches on tag to exploit snoc structure where
 /// possible, falls back to list_index for concat/slice nodes.
-fn flat_fill(flat, tree, i, n) with Memory + Alloc =
+fn flat_fill(flat, tree, i, n) with Memory + Alloc = {
   if i >= n { () }
   else {
     let tag = perform load_i32(tree + 4)
@@ -218,15 +229,17 @@ fn flat_fill(flat, tree, i, n) with Memory + Alloc =
       4 => flat_fill_slice(flat, tree, i, n)
     }
   }
+}
 
-fn flat_fill_flat_src(flat, src, i, n) with Memory + Alloc =
+fn flat_fill_flat_src(flat, src, i, n) with Memory + Alloc = {
   if i >= n { () }
   else {
     perform store_i32(flat + 8 + i * 4, perform load_i32(src + 8 + i * 4))
     flat_fill_flat_src(flat, src, i + 1, n)
   }
+}
 
-fn flat_fill_snoc(flat, tree, i, n) with Memory + Alloc =
+fn flat_fill_snoc(flat, tree, i, n) with Memory + Alloc = {
   // snoc node: [count][tag=1][left:ptr][last:i32]
   // Write from right: the last element goes at position n-1,
   // then recurse into left for positions 0..n-2.
@@ -236,15 +249,17 @@ fn flat_fill_snoc(flat, tree, i, n) with Memory + Alloc =
   perform store_i32(flat + 8 + last_pos * 4, last_val)
   let left = perform load_i32(tree + 8)
   flat_fill(flat, left, i, last_pos)
+}
 
-fn flat_fill_concat(flat, tree, i, n) with Memory + Alloc =
+fn flat_fill_concat(flat, tree, i, n) with Memory + Alloc = {
   let left     = perform load_i32(tree + 8)
   let right    = perform load_i32(tree + 12)
   let left_len = perform load_i32(left)
   flat_fill(flat, left, 0, left_len)
   flat_fill_at_offset(flat, right, left_len, perform load_i32(right))
+}
 
-fn flat_fill_at_offset(flat, src, offset, n) with Memory + Alloc =
+fn flat_fill_at_offset(flat, src, offset, n) with Memory + Alloc = {
   if n == 0 { () }
   else {
     let tag = perform load_i32(src + 4)
@@ -255,51 +270,59 @@ fn flat_fill_at_offset(flat, src, offset, n) with Memory + Alloc =
       4 => flat_fill_slice_offset(flat, src, offset, n)
     }
   }
+}
 
-fn flat_fill_flat_src_offset(flat, src, offset, n) with Memory + Alloc =
+fn flat_fill_flat_src_offset(flat, src, offset, n) with Memory + Alloc = {
   if n == 0 { () }
   else {
     let src_len = perform load_i32(src)
     copy_range(flat, src, offset, 0, src_len)
   }
+}
 
-fn copy_range(flat, src, dest_off, src_off, n) with Memory + Alloc =
+fn copy_range(flat, src, dest_off, src_off, n) with Memory + Alloc = {
   if n == 0 { () }
   else {
     perform store_i32(flat + 8 + dest_off * 4, perform load_i32(src + 8 + src_off * 4))
     copy_range(flat, src, dest_off + 1, src_off + 1, n - 1)
   }
+}
 
-fn flat_fill_snoc_offset(flat, src, offset, n) with Memory + Alloc =
+fn flat_fill_snoc_offset(flat, src, offset, n) with Memory + Alloc = {
   let count    = perform load_i32(src)
   let last_val = perform load_i32(src + 12)
   perform store_i32(flat + 8 + (offset + count - 1) * 4, last_val)
   let left = perform load_i32(src + 8)
   flat_fill_at_offset(flat, left, offset, count - 1)
+}
 
-fn flat_fill_concat_offset(flat, src, offset, n) with Memory + Alloc =
+fn flat_fill_concat_offset(flat, src, offset, n) with Memory + Alloc = {
   let left     = perform load_i32(src + 8)
   let right    = perform load_i32(src + 12)
   let left_len = perform load_i32(left)
   flat_fill_at_offset(flat, left, offset, left_len)
   flat_fill_at_offset(flat, right, offset + left_len, perform load_i32(right))
+}
 
-fn flat_fill_slice_offset(flat, src, offset, n) with Memory + Alloc =
+fn flat_fill_slice_offset(flat, src, offset, n) with Memory + Alloc = {
   let base       = perform load_i32(src + 8)
   let slice_start = perform load_i32(src + 12)
   let slice_len  = perform load_i32(src)
   flat_fill_slice_range(flat, base, offset, slice_start, slice_len)
+}
 
-fn flat_fill_slice_range(flat, base, dest_off, src_start, n) with Memory + Alloc =
+fn flat_fill_slice_range(flat, base, dest_off, src_start, n) with Memory + Alloc = {
   if n == 0 { () }
   else {
     let val = list_index(base, src_start)
     perform store_i32(flat + 8 + dest_off * 4, val)
     flat_fill_slice_range(flat, base, dest_off + 1, src_start + 1, n - 1)
   }
+}
 
-fn flat_fill_slice(flat, tree, i, n) with Memory + Alloc =
+fn flat_fill_slice(flat, tree, i, n) with Memory + Alloc = {
   let base        = perform load_i32(tree + 8)
   let slice_start = perform load_i32(tree + 12)
   let slice_len   = perform load_i32(tree)
   flat_fill_slice_range(flat, base, i, slice_start, slice_len)
+}

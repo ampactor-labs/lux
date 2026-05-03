@@ -276,12 +276,13 @@ handler project_queue_merger
 /// second" lands at this point — speculative forks per position run
 /// concurrently, survivors merge into the queue).
 
-fn run_oracle(env, module_path) with Verify =
+fn run_oracle(env, module_path) with Verify = {
   let positions = collect_positions_with_dependents(env)
   let n         = positions.len
   let buf       = make_list(n * 4)        // generous estimate; over-alloc fine
   let count     = explore_positions(positions, 0, n, env, module_path, buf, 0)
   OracleQueue(sort_by_priority(slice(buf, 0, count)))
+}
 
 /// explore_positions — fold over positions; per-position, enumerate
 /// candidates and try each. Tail-recursive accumulator; flat-buffer-
@@ -289,7 +290,7 @@ fn run_oracle(env, module_path) with Verify =
 /// slice; the substrate idiom that avoids the appended-bracket-x
 /// O(N²) loop pattern).
 
-fn explore_positions(positions, i, n, env, module_path, buf, count) with Verify =
+fn explore_positions(positions, i, n, env, module_path, buf, count) with Verify = {
   if i >= n { count }
   else {
     let handle = list_index(positions, i)
@@ -297,6 +298,7 @@ fn explore_positions(positions, i, n, env, module_path, buf, count) with Verify 
     let new_count  = try_each_candidate_to_queue(handle, candidates, env, module_path, buf, count)
     explore_positions(positions, i + 1, n, env, module_path, buf, new_count)
   }
+}
 
 /// try_each_candidate_to_queue — for each candidate at a position,
 /// checkpoint → tentative apply → verify → rollback → on success,
@@ -304,11 +306,12 @@ fn explore_positions(positions, i, n, env, module_path, buf, count) with Verify 
 /// src/mentl.nx try_each_annotation_loop to write to the queue
 /// instead of returning a tuple list.
 
-fn try_each_candidate_to_queue(handle, candidates, env, module_path, buf, count) with Verify =
+fn try_each_candidate_to_queue(handle, candidates, env, module_path, buf, count) with Verify = {
   let n = candidates.len
   try_each_candidate_loop(handle, candidates, 0, n, env, module_path, buf, count)
+}
 
-fn try_each_candidate_loop(handle, candidates, i, n, env, module_path, buf, count) with Verify =
+fn try_each_candidate_loop(handle, candidates, i, n, env, module_path, buf, count) with Verify = {
   if i >= n { count }
   else {
     let cand    = list_index(candidates, i)
@@ -334,6 +337,7 @@ fn try_each_candidate_loop(handle, candidates, i, n, env, module_path, buf, coun
       try_each_candidate_loop(handle, candidates, i + 1, n, env, module_path, buf, count)
     }
   }
+}
 
 // ─── silence_predicate (revised per Q-Morgan-B) ──────────────────────
 
@@ -351,12 +355,13 @@ fn try_each_candidate_loop(handle, candidates, i, n, env, module_path, buf, coun
 /// predicate gates is the STRONG silence: no more proven next-steps
 /// anywhere in the project.
 
-fn silence_predicate_oracle(situation) with OracleQuery =
+fn silence_predicate_oracle(situation) with OracleQuery = {
   let queue = perform query_project_queue()
   match queue {
     []        => true,    // gradient at top — full silence
     [_ | _]   => false    // queue has items — Mentl surfaces something
   }
+}
 
 // ─── Priority function — total order over OraclePriority ─────────────
 
@@ -364,36 +369,41 @@ fn silence_predicate_oracle(situation) with OracleQuery =
 /// intent_weight wins; among same-intent, surface_area wins; among
 /// same-surface, locality wins (closer to cursor wins).
 
-fn priority_lt(a, b) with Pure =
+fn priority_lt(a, b) with Pure = {
   let OraclePriority(pa) = a
   let OraclePriority(pb) = b
   if !tier_eq(pa.tier, pb.tier)                 { tier_lt(pa.tier, pb.tier) }
   else if pa.intent_weight != pb.intent_weight  { pa.intent_weight > pb.intent_weight }
   else if pa.surface_area != pb.surface_area    { pa.surface_area > pb.surface_area }
   else                                          { pa.locality_bias < pb.locality_bias }
+}
 
 /// priority_gt — descending order; just !priority_lt for non-equal.
-fn priority_gt(a, b) with Pure =
+fn priority_gt(a, b) with Pure = {
   !priority_lt(a, b) && !priority_eq(a, b)
+}
 
-fn priority_eq(a, b) with Pure =
+fn priority_eq(a, b) with Pure = {
   let OraclePriority(pa) = a
   let OraclePriority(pb) = b
   tier_eq(pa.tier, pb.tier)
     && pa.intent_weight == pb.intent_weight
     && pa.surface_area  == pb.surface_area
     && pa.locality_bias == pb.locality_bias
+}
 
 /// tier_lt — total order over PriorityTier (TBlocking < TViolation <
 /// TPending < TUnlock < TStyle). H6 exhaustive 5-arm match via tier_rank.
 
-fn tier_lt(a, b) with Pure =
+fn tier_lt(a, b) with Pure = {
   tier_rank(a) < tier_rank(b)
+}
 
-fn tier_eq(a, b) with Pure =
+fn tier_eq(a, b) with Pure = {
   tier_rank(a) == tier_rank(b)
+}
 
-fn tier_rank(t) with Pure =
+fn tier_rank(t) with Pure = {
   match t {
     TBlocking   => 0,
     TViolation  => 1,
@@ -401,6 +411,7 @@ fn tier_rank(t) with Pure =
     TUnlock     => 3,
     TStyle      => 4
   }
+}
 
 // ─── Helper interfaces (bodies live in their primitive's home file) ──
 
@@ -408,24 +419,27 @@ fn tier_rank(t) with Pure =
 /// handler_chain + intent. Body lives in src/cache.nx alongside
 /// existing IC keys. Declared here for the contract.
 
-fn oracle_cache_key(ast) with Memory =
+fn oracle_cache_key(ast) with Memory = {
   perform compute_oracle_cache_key(ast)
+}
 
 /// invalidation_walk — given a graph mutation, compute the set of
 /// per-module cache keys that should be invalidated. Walks the
 /// dependency graph IC already uses (per Q-2 (B) scope rule). Body
 /// in src/cache.nx.
 
-fn invalidation_walk(cache, mutation) with GraphRead =
+fn invalidation_walk(cache, mutation) with GraphRead = {
   perform compute_invalidation_set(cache, mutation)
+}
 
 /// merge_priority_queues — sorted merge of List<OracleQueue>.
 /// Body in lib/runtime/lists.nx (or this file extends if no good home).
 /// O(N log M) where N = total items, M = module count.
 
-fn merge_priority_queues(queues) with Memory =
+fn merge_priority_queues(queues) with Memory = {
   // Implemented by merge_sorted_lists with priority_gt as comparator.
   perform merge_lists_by(queues, priority_gt)
+}
 
 /// filter_at_position / filter_by_locality / collect_module_queues /
 /// compute_cache_hash_set / cache_get_module_entry / module_owning /

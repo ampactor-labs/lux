@@ -38,7 +38,7 @@ import mentl_lsp
 /// lsp_adapter and wasi_filesystem) instead of the wat-emitting chain
 /// the other modes share. Per Insight #1 (handler chain IS capability
 /// stack): lsp_adapter is OUTERMOST = least trusted = sandbox boundary.
-fn main(argv) =
+fn main(argv) = {
   if argv.len >= 2 && str_eq(argv[1], "lsp") {
     inka_lsp_session()
       ~> lsp_adapter
@@ -61,6 +61,7 @@ fn main(argv) =
           ~> graph_handler
     }
   }
+}
 
 // path_to_module: accept either a module name ("main") or
 // a file path ("src/main.nx"). Strip "src/" or "lib/" prefix and
@@ -76,7 +77,7 @@ fn path_to_module(arg) = {
   } else { stripped_prefix }
 }
 
-fn dispatch_mode(argv) =
+fn dispatch_mode(argv) = {
   if argv.len < 2 { None }
   else {
     let mode = argv[1]
@@ -96,6 +97,7 @@ fn dispatch_mode(argv) =
       None
     }
   }
+}
 
 fn print_help() = {
   eprint_string("inka — the compiler is the oracle\n\n")

@@ -260,7 +260,7 @@ handler graph_handler
 
 /// Follow NBound / NRowBound links until terminal. Amortized O(1) —
 /// chains shallow in practice, depth-limited for cycle safety.
-fn chase_node(ref nodes, handle, depth) with !Mutate =
+fn chase_node(ref nodes, handle, depth) with !Mutate = {
   if depth > 100 {
     GNode(NErrorHole(Inferred("chase depth exceeded")), Fresh(handle))
   } else {
@@ -281,12 +281,13 @@ fn chase_node(ref nodes, handle, depth) with !Mutate =
       _ => GNode(kind, reason)
     }
   }
+}
 
 /// When chasing an EfOpen row that points to another row handle,
 /// fold the known names forward through the chain. free_handle is the
 /// handle we chased INTO — needed to reconstruct EfOpen when the
 /// chain terminates at NRowFree (the free variable).
-fn merge_chased_row(ref chased, ref names, free_handle) with !Mutate =
+fn merge_chased_row(ref chased, ref names, free_handle) with !Mutate = {
   let GNode(ck, cr) = chased
   match ck {
     NRowFree(_) =>
@@ -298,8 +299,9 @@ fn merge_chased_row(ref chased, ref names, free_handle) with !Mutate =
     NRowBound(inner) => GNode(NRowBound(merge_row(names, inner)), cr),
     _ => chased
   }
+}
 
-fn merge_row(ref names, ref row) with !Mutate =
+fn merge_row(ref names, ref row) with !Mutate = {
   match row {
     EfPure =>
       if names.len == 0 { EfPure }
@@ -308,17 +310,20 @@ fn merge_row(ref names, ref row) with !Mutate =
     EfOpen(inner, v) => mk_ef_open(name_set_union(names, inner), v),
     _ => row
   }
+}
 
 /// Returns node at handle, or synthesizes NFree for out-of-range
 /// handles (defensive — should not happen in well-formed compilation).
-fn graph_node_at(ref nodes, idx) with !Mutate =
+fn graph_node_at(ref nodes, idx) with !Mutate = {
   if idx >= nodes.len { GNode(NFree(0), Fresh(idx)) }
   else { nodes[idx] }
+}
 
 /// O(1) in-place write. list_set stores at list + 8 + idx*4 directly.
 /// Caller must ensure idx < nodes.len; graph_extend_to enforces the bound.
-fn graph_set_node(own nodes, idx, own node) =
+fn graph_set_node(own nodes, idx, own node) = {
   list_set(graph_extend_to(nodes, idx + 1), idx, node)
+}
 
 /// Ensure nodes has at least min_size slots. Uses capacity doubling so
 /// amortized cost per fresh allocation is O(1). When growth is needed,
@@ -330,7 +335,7 @@ fn graph_set_node(own nodes, idx, own node) =
 /// well-formed NFree for extended-but-unwritten slots. Generic flat-buffer
 /// callers (trail, overlays, evidence vectors) use list_extend_to directly
 /// — they never read above their logical length counter.
-fn graph_extend_to(own nodes, min_size) =
+fn graph_extend_to(own nodes, min_size) = {
   if nodes.len >= min_size { nodes }
   else {
     let old_len = nodes.len
@@ -339,9 +344,10 @@ fn graph_extend_to(own nodes, min_size) =
     let filled  = list_copy_into(nodes, fresh, 0, old_len)
     graph_fill_free(filled, old_len, new_cap)
   }
+}
 
 /// Fill dst[start..cap) with NFree sentinel nodes.
-fn graph_fill_free(own dst, start, cap) =
+fn graph_fill_free(own dst, start, cap) = {
   if start >= cap { dst }
   else {
     graph_fill_free(
@@ -349,6 +355,7 @@ fn graph_fill_free(own dst, start, cap) =
       start + 1, cap
     )
   }
+}
 
 // Occurs check
 // Before graph_bind(h, ty, r): walk ty for free handles containing h.
@@ -365,7 +372,7 @@ fn graph_fill_free(own dst, start, cap) =
 /// admits infinite types. Every current Ty variant is named; any
 /// future variant fails to compile until its containment semantics
 /// are decided explicitly.
-fn occurs_in(handle, ref ty) with !Mutate =
+fn occurs_in(handle, ref ty) with !Mutate = {
   match ty {
     TInt             => false,
     TFloat           => false,
@@ -383,41 +390,48 @@ fn occurs_in(handle, ref ty) with !Mutate =
     TRefined(base, _) => occurs_in(handle, base),
     TCont(ret, _)    => occurs_in(handle, ret)
   }
+}
 
-fn occurs_in_params(handle, ref params) with !Mutate =
+fn occurs_in_params(handle, ref params) with !Mutate = {
   let flat = list_to_flat(params)
   occurs_in_params_loop(handle, flat, 0, flat.len)
+}
 
-fn occurs_in_params_loop(handle, ref params, i, n) with !Mutate =
+fn occurs_in_params_loop(handle, ref params, i, n) with !Mutate = {
   if i >= n { false }
   else {
     let TParam(_, ty, _, _) = list_index(params, i)
     if occurs_in(handle, ty) { true }
     else { occurs_in_params_loop(handle, params, i + 1, n) }
   }
+}
 
-fn occurs_in_list(handle, ref tys) with !Mutate =
+fn occurs_in_list(handle, ref tys) with !Mutate = {
   let flat = list_to_flat(tys)
   occurs_in_list_loop(handle, flat, 0, flat.len)
+}
 
-fn occurs_in_list_loop(handle, ref tys, i, n) with !Mutate =
+fn occurs_in_list_loop(handle, ref tys, i, n) with !Mutate = {
   if i >= n { false }
   else {
     if occurs_in(handle, list_index(tys, i)) { true }
     else { occurs_in_list_loop(handle, tys, i + 1, n) }
   }
+}
 
-fn occurs_in_fields(handle, ref fields) with !Mutate =
+fn occurs_in_fields(handle, ref fields) with !Mutate = {
   let flat = list_to_flat(fields)
   occurs_in_fields_loop(handle, flat, 0, flat.len)
+}
 
-fn occurs_in_fields_loop(handle, ref fields, i, n) with !Mutate =
+fn occurs_in_fields_loop(handle, ref fields, i, n) with !Mutate = {
   if i >= n { false }
   else {
     let (_, ty) = list_index(fields, i)
     if occurs_in(handle, ty) { true }
     else { occurs_in_fields_loop(handle, fields, i + 1, n) }
   }
+}
 
 // Trail buffer — flat array + length counter
 // Mirrors the nodes buffer substrate (DESIGN Ch 4 Salsa 3.0 shape).
@@ -427,7 +441,7 @@ fn occurs_in_fields_loop(handle, ref fields, i, n) with !Mutate =
 // and get overwritten on next append. No snoc, no concat, no linked
 // walk. This is the substrate on which Mentl's oracle runs.
 
-fn revert_trail(own nodes, ref trail, current, target, next_handle) =
+fn revert_trail(own nodes, ref trail, current, target, next_handle) = {
   if current <= target { (nodes, next_handle) }
   else {
     let idx = current - 1
@@ -447,11 +461,13 @@ fn revert_trail(own nodes, ref trail, current, target, next_handle) =
         revert_trail(nodes, trail, idx, target, next_handle - 1)
     }
   }
+}
 
-fn trail_append(own trail, trail_len, own mutation) =
+fn trail_append(own trail, trail_len, own mutation) = {
   trail
     |> list_extend_to(trail_len + 1)
     |> list_set(trail_len, mutation)
+}
 
 // Overlay registration — flat-substrate per-module handle set
 // Three parallel arrays — names, bufs, lens — keyed by overlay index.
@@ -461,7 +477,7 @@ fn trail_append(own trail, trail_len, own mutation) =
 // graph_snapshot / F11 cross-module consumers using slice views (no
 // copying of the handle buffers).
 
-fn overlay_register_at(own overlay_bufs, own overlay_lens, idx, handle) =
+fn overlay_register_at(own overlay_bufs, own overlay_lens, idx, handle) = {
   let handles_buf = list_index(overlay_bufs, idx)
   let handles_len = list_index(overlay_lens, idx)
   let new_handles = handles_buf
@@ -470,21 +486,25 @@ fn overlay_register_at(own overlay_bufs, own overlay_lens, idx, handle) =
   let new_bufs = list_set(overlay_bufs, idx, new_handles)
   let new_lens = list_set(overlay_lens, idx, handles_len + 1)
   (new_bufs, new_lens)
+}
 
-fn overlay_find(ref names, count, ref target) with !Mutate =
+fn overlay_find(ref names, count, ref target) with !Mutate = {
   overlay_find_loop(names, count, target, 0)
+}
 
 /// Not-found sentinel is `count` (one past the last valid index).
 /// Callers test `existing_idx < count` to branch on found/missing.
-fn overlay_find_loop(ref names, count, ref target, i) with !Mutate =
+fn overlay_find_loop(ref names, count, ref target, i) with !Mutate = {
   if i >= count { count }
   else if str_eq(list_index(names, i), target) { i }
   else { overlay_find_loop(names, count, target, i + 1) }
+}
 
-fn overlays_to_pairs(ref names, ref bufs, ref lens, count) with !Mutate =
+fn overlays_to_pairs(ref names, ref bufs, ref lens, count) with !Mutate = {
   overlays_to_pairs_loop(names, bufs, lens, count, 0, make_list(count))
+}
 
-fn overlays_to_pairs_loop(ref names, ref bufs, ref lens, count, i, own acc) =
+fn overlays_to_pairs_loop(ref names, ref bufs, ref lens, count, i, own acc) = {
   if i >= count { acc }
   else {
     let handles_view = slice(list_index(bufs, i), 0, list_index(lens, i))
@@ -494,6 +514,7 @@ fn overlays_to_pairs_loop(ref names, ref bufs, ref lens, count, i, own acc) =
       list_set(acc, i, pair)
     )
   }
+}
 
 // Effect-name set ops (H3.1)
 // merge_row routes through `name_set_union` from effects.nx — the

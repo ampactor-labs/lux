@@ -33,17 +33,19 @@ type CacheMap
 /// empty_cache — the identity element. Returns a fresh empty CacheMap.
 /// Pure; no allocation needed (uses the empty-list literal).
 
-fn empty_cache() with Pure =
+fn empty_cache() with Pure = {
   CacheMap([])
+}
 
 /// cache_lookup — O(log N) binary search by key. Returns Some(value)
 /// if found; None otherwise. Pure over the map.
 
-fn cache_lookup(map, key) with Pure =
+fn cache_lookup(map, key) with Pure = {
   let CacheMap(entries) = map
   cache_lookup_loop(entries, key, 0, entries.len)
+}
 
-fn cache_lookup_loop(entries, key, lo, hi) with Pure =
+fn cache_lookup_loop(entries, key, lo, hi) with Pure = {
   if lo >= hi { None }
   else {
     let mid = (lo + hi) / 2
@@ -52,13 +54,14 @@ fn cache_lookup_loop(entries, key, lo, hi) with Pure =
     else if k < key   { cache_lookup_loop(entries, key, mid + 1, hi) }
     else              { cache_lookup_loop(entries, key, lo, mid) }
   }
+}
 
 /// cache_store — insert (key, value) into the map, maintaining sorted
 /// invariant. If the key exists, updates the value; otherwise inserts.
 /// Returns updated CacheMap. O(N) worst case (insertion shift); O(log N)
 /// for the find.
 
-fn cache_store(map, key, value) with Memory + Alloc =
+fn cache_store(map, key, value) with Memory + Alloc = {
   let CacheMap(entries) = map
   let n = entries.len
   let pos = cache_find_insert_pos(entries, key, 0, n)
@@ -81,8 +84,9 @@ fn cache_store(map, key, value) with Memory + Alloc =
     let _ = cache_copy_with_insert(entries, n, n, key, value, buf, 0)
     CacheMap(slice(buf, 0, n + 1))
   }
+}
 
-fn cache_find_insert_pos(entries, key, lo, hi) with Pure =
+fn cache_find_insert_pos(entries, key, lo, hi) with Pure = {
   if lo >= hi { lo }
   else {
     let mid = (lo + hi) / 2
@@ -90,8 +94,9 @@ fn cache_find_insert_pos(entries, key, lo, hi) with Pure =
     if k < key  { cache_find_insert_pos(entries, key, mid + 1, hi) }
     else        { cache_find_insert_pos(entries, key, lo, mid) }
   }
+}
 
-fn cache_copy_with_replace(entries, n, replace_at, new_key, new_val, buf, i) with Memory + Alloc =
+fn cache_copy_with_replace(entries, n, replace_at, new_key, new_val, buf, i) with Memory + Alloc = {
   if i >= n { i }
   else {
     let entry = if i == replace_at { (new_key, new_val) }
@@ -100,8 +105,9 @@ fn cache_copy_with_replace(entries, n, replace_at, new_key, new_val, buf, i) wit
     let written  = list_set(extended, i, entry)
     cache_copy_with_replace(entries, n, replace_at, new_key, new_val, written, i + 1)
   }
+}
 
-fn cache_copy_with_insert(entries, n, insert_at, new_key, new_val, buf, i) with Memory + Alloc =
+fn cache_copy_with_insert(entries, n, insert_at, new_key, new_val, buf, i) with Memory + Alloc = {
   if i > n { i }
   else if i < insert_at {
     let entry    = list_index(entries, i)
@@ -120,21 +126,23 @@ fn cache_copy_with_insert(entries, n, insert_at, new_key, new_val, buf, i) with 
     let written  = list_set(extended, i, entry)
     cache_copy_with_insert(entries, n, insert_at, new_key, new_val, written, i + 1)
   }
+}
 
 /// cache_invalidate_set — remove a set of keys from the map. The keys
 /// argument is a sorted List<Int> (per the same invariant the map uses).
 /// O(N + M) merge-style — walk both lists, drop entries whose keys are
 /// in the invalidation set.
 
-fn cache_invalidate_set(map, keys) with Memory + Alloc =
+fn cache_invalidate_set(map, keys) with Memory + Alloc = {
   let CacheMap(entries) = map
   let n = entries.len
   let m = keys.len
   let buf = make_list(n)
   let kept = cache_filter_loop(entries, n, 0, keys, m, 0, buf, 0)
   CacheMap(slice(buf, 0, kept))
+}
 
-fn cache_filter_loop(entries, n, ei, keys, m, ki, buf, count) with Memory + Alloc =
+fn cache_filter_loop(entries, n, ei, keys, m, ki, buf, count) with Memory + Alloc = {
   if ei >= n { count }
   else {
     let (entry_key, entry_val) = list_index(entries, ei)
@@ -150,28 +158,32 @@ fn cache_filter_loop(entries, n, ei, keys, m, ki, buf, count) with Memory + Allo
       cache_filter_loop(entries, n, ei + 1, keys, m, new_ki, written, count + 1)
     }
   }
+}
 
-fn cache_advance_ki(keys, m, ki, target) with Pure =
+fn cache_advance_ki(keys, m, ki, target) with Pure = {
   if ki >= m { ki }
   else if list_index(keys, ki) >= target { ki }
   else { cache_advance_ki(keys, m, ki + 1, target) }
+}
 
 /// cache_size — number of entries in the map. O(1) — list_len-direct.
 
-fn cache_size(map) with Pure =
+fn cache_size(map) with Pure = {
   let CacheMap(entries) = map
   entries.len
+}
 
 /// cache_keys — return List<Int> of all keys in the map (sorted, by
 /// invariant). O(N). Used by surface-side debugging + by snapshotting.
 
-fn cache_keys(map) with Memory + Alloc =
+fn cache_keys(map) with Memory + Alloc = {
   let CacheMap(entries) = map
   let n = entries.len
   let buf = make_list(n)
   cache_keys_loop(entries, n, 0, buf, 0)
+}
 
-fn cache_keys_loop(entries, n, i, buf, count) with Memory + Alloc =
+fn cache_keys_loop(entries, n, i, buf, count) with Memory + Alloc = {
   if i >= n { slice(buf, 0, count) }
   else {
     let (k, _) = list_index(entries, i)
@@ -179,6 +191,7 @@ fn cache_keys_loop(entries, n, i, buf, count) with Memory + Alloc =
     let written  = list_set(extended, count, k)
     cache_keys_loop(entries, n, i + 1, written, count + 1)
   }
+}
 
 // ─── Connection to the kernel ─────────────────────────────────────────
 
