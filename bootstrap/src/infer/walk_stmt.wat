@@ -947,37 +947,90 @@
       (i32.load offset=8 (local.get $stmt))
       (local.get $span)))
 
-  ;; ─── HandlerDeclStmt arm (tag 124) — Phase B.4 ultimate-form ─────
+  ;; ─── HandlerDeclStmt arm (tag 124) — H.1.c register_handler ────────
   ;;
-  ;; Per src/infer.nx:222-223 + register_handler 2100-2109.
+  ;; Per src/infer.nx:2227-2236 register_handler — wheel canonical:
+  ;;   fn register_handler(hname, ename, arms) = {
+  ;;     let row_h = perform graph_fresh_row(Inferred("handler row"))
+  ;;     perform env_extend(hname,
+  ;;       Forall([], TName("Handler", [TName(ename, [])])),
+  ;;       Declared(hname),
+  ;;       FnScheme)
+  ;;   }
   ;;
-  ;; The seed's parser emits HandlerDeclStmt as [tag=124][name][effect=
-  ;; ""][arms=[]] (parser_toplevel.wat:65-72) — a stub shape until
-  ;; parser_handler.wat lands the full handler-arm parsing. With this
-  ;; minimal shape the seed's discipline is: env-extend with the
-  ;; handler name bound to TVar(fresh) under FnScheme so subsequent
-  ;; references to the handler name don't miss env_lookup.
+  ;; The wheel's full type for a handler is `Handler[Effect]` where the
+  ;; effect-name argument is the effect this handler intercepts. Per arm
+  ;; bodies are processed by HandleExpr's inference (walk_expr_handle)
+  ;; at install sites — NOT here at decl sites. So this arm's discipline
+  ;; reduces to env-registration with the canonical `Handler[ename]` Ty.
   ;;
-  ;; When parser_handler.wat surfaces the full handler shape (effect-
-  ;; intercepted + per-arm bodies + resume disciplines), this arm
-  ;; expands to the full register_handler logic. That expansion is the
-  ;; named peer cascade `Hβ-infer-handler-decls-full.md` (requires
-  ;; walkthrough).
+  ;; Seed parser's HandlerDeclStmt layout: [tag=124][name][effect][arms]
+  ;; (parser_toplevel.wat:94-100 mk_handler_decl). The current parser
+  ;; produces effect="" (empty string) and arms=[] until parser_handler
+  ;; surfaces the full shape (Hβ.first-light.parser-handler-arms named
+  ;; follow-up). For the seed register_handler, the empty effect-name
+  ;; produces TName("", []) — a placeholder TName that resolves uniformly
+  ;; through unify; the per-arm typing is the named peer cascade
+  ;; Hβ-infer-handler-decls-full.md, gated on parser surface.
+  ;;
+  ;; Eight interrogations:
+  ;;   1. Graph?      env_extend writes the handler name binding once;
+  ;;                  no graph_bind on a handle (handler decls type the
+  ;;                  NAME, not an AST handle).
+  ;;   2. Handler?    Direct seed call.
+  ;;   3. Verb?       N/A — structural.
+  ;;   4. Row?        Wheel's row_h (line 2231) is currently unused in
+  ;;                  the body — pure stub for future row substrate. The
+  ;;                  seed mirrors: no row work here. Hβ.infer.row-
+  ;;                  normalize peer cascade extends.
+  ;;   5. Ownership?  env_extend's binding is `ref` (handlers passed
+  ;;                  by reference, not consumed at decl).
+  ;;   6. Refinement? N/A at this layer; Refinement on Handler types
+  ;;                  is post-L1 cascade (Hβ-emit-refinement-typed-
+  ;;                  layout.md per PLAN-to-first-light §3 post-Tier-3).
+  ;;   7. Gradient?   The Forall([], TName(...)) is monomorphic — fully-
+  ;;                  ground at decl site; instantiation is identity.
+  ;;   8. Reason?     Located(span, Declared(hname)) per the canonical
+  ;;                  pattern from register_one_op (line 2245+).
+  ;;
+  ;; Drift modes refused:
+  ;;   - Drift 6 (special): Handler type is just TName("Handler", [...])
+  ;;                        — no carve-out for "handlers are special".
+  ;;   - Drift 8 (mode): No string-keyed dispatch on handler shape;
+  ;;                     uniform TName construction.
+  ;;   - Drift 9 (deferred): The empty-arms scope is named in positive
+  ;;                         form as Hβ-infer-handler-decls-full.md (the
+  ;;                         per-arm typing peer cascade).
+  ;;
+  ;; HEAP_BASE invariant: TName(ename, []) where ename is a string ptr
+  ;; that may live in the data segment (offset < HEAP_BASE) or the heap
+  ;; (>= HEAP_BASE). The TName record itself heap-allocates.
   (func $infer_walk_stmt_handler_decl
         (export "infer_walk_stmt_handler_decl")
         (param $stmt i32) (param $handle i32) (param $span i32)
-    (local $handler_name i32) (local $tvar_h i32) (local $tvar_ty i32)
+    (local $handler_name i32) (local $effect_name i32)
+    (local $effect_ty i32) (local $handler_ty i32)
     (local $scheme i32) (local $reason i32)
     (drop (local.get $handle))
-    ;; HandlerDeclStmt: [tag=124][name][effect][arms]
+    ;; HandlerDeclStmt: [tag=124][name][effect][arms] (offsets 0/4/8/12)
     (local.set $handler_name (i32.load offset=4 (local.get $stmt)))
-    (local.set $tvar_h (call $graph_fresh_ty
-      (call $reason_make_located (local.get $span)
-        (call $reason_make_declared (local.get $handler_name)))))
-    (local.set $tvar_ty (call $ty_make_tvar (local.get $tvar_h)))
+    (local.set $effect_name  (i32.load offset=8 (local.get $stmt)))
+    ;; Build TName(ename, []) — the inner effect-name Ty.
+    (local.set $effect_ty
+      (call $ty_make_tname
+        (local.get $effect_name)
+        (call $make_list (i32.const 0))))
+    ;; Build TName("Handler", [TName(ename, [])]) — the outer Handler Ty
+    ;; with the effect-name as its single type argument. "Handler" is at
+    ;; offset 4112 in the data segment per data-offset audit (lives near
+    ;; "Bool" at 3504). Allocated below if not already present.
+    (local.set $handler_ty
+      (call $ty_make_tname
+        (call $handler_decl_handler_name_ptr)
+        (call $handler_decl_args_list (local.get $effect_ty))))
     (local.set $scheme (call $scheme_make_forall
       (call $make_list (i32.const 0))
-      (local.get $tvar_ty)))
+      (local.get $handler_ty)))
     (local.set $reason (call $reason_make_located
       (local.get $span)
       (call $reason_make_declared (local.get $handler_name))))
@@ -986,6 +1039,27 @@
       (local.get $scheme)
       (local.get $reason)
       (call $schemekind_make_fn)))
+
+  ;; "Handler" name as length-prefixed string — used by handler_decl arm.
+  ;; Per the data-offset audit: 4320 sits past parser_infra.wat's
+  ;; "list_index" at 4288 (10 bytes payload + 4 prefix = 14 → 4302) and
+  ;; emit_data.wat's "(f64.const " at 4304 (11 bytes raw → 4315). 4320
+  ;; is 16-aligned and clear of all sub-HEAP_BASE static segments.
+  ;; Length-prefixed for consistency with other named-Ty strings.
+  (data (i32.const 4320) "\07\00\00\00Handler")
+
+  (func $handler_decl_handler_name_ptr (result i32)
+    (i32.const 4320))
+
+  ;; Build a singleton args list containing the effect_ty Ty pointer.
+  ;; Buffer-counter substrate per CLAUDE.md memory model (Drift 11
+  ;; refusal: NO `acc ++ [X]` O(N²) pattern — direct list_set on a
+  ;; size-1 list).
+  (func $handler_decl_args_list (param $effect_ty i32) (result i32)
+    (local $args i32)
+    (local.set $args (call $make_list (i32.const 1)))
+    (drop (call $list_set (local.get $args) (i32.const 0) (local.get $effect_ty)))
+    (local.get $args))
 
   ;; ExprStmt arm (tag 125) — src/infer.nx:225-226. Wraps a bare
   ;; expression at statement position. Layout: [tag=125][node]. Walk the
