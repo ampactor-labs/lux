@@ -529,7 +529,7 @@ checks its box and pushes the cursor forward.
 **Phase H.1 — Inference completeness (3/3)**
 - [x] H.1.a Hβ.first-light.infer-typedef-ctors — *VERIFIED ALREADY-CLOSED 2026-05-02; walk_stmt.wat:818-874 implemented; chunk-header named follow-up was stale*
 - [x] H.1.b Hβ.first-light.infer-effect-ops — *VERIFIED 2026-05-02 via empirical effect+perform test: `effect Counter { inc() -> Int }; fn main() = perform inc()` infers cleanly + emits `(call $op_inc)` with zero diagnostics. EffectOpScheme env-extension at walk_stmt.wat:899-948 composes correctly across decl/use within one compilation unit.*
-- [ ] H.1.c Hβ.first-light.infer-handler-decls — *partial seed-stub at walk_stmt.wat:966*
+- [x] H.1.c Hβ.first-light.infer-handler-decls — *(commit `4496530`) register_handler mirrors wheel canonical (src/infer.nx:2227-2236): env_extend with Forall([], TName("Handler", [TName(ename, [])])) under FnScheme. Per-arm typing happens at HandleExpr install sites; per-arm substrate is named peer Hβ-infer-handler-decls-full.md gated on parser_handler.wat.*
 
 **Phase H.2 — Lower completeness (5/5)**
 - [x] H.2.a Hβ.first-light.lower-letstmt-destructure — *(commits `b625ce6` PCon + `61a7d5f` PTuple) PCon let-statements lower to LBlock with field-load LLets at offset 4+4*i; PTuple let-statements lower with offset 4*i; PVar binds, PWild skips; nested forms named follow-up. Verified empirically.*
