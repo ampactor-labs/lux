@@ -142,6 +142,15 @@
   ;; top-level FnStmt names are globals, not locals in later function bodies.
   (global $lower_function_depth_g  (mut i32) (i32.const 0))
 
+  ;; H.2.e frame-start: index in $lower_locals_ptr where the CURRENT
+  ;; function's locals begin. Lookups search only [frame_start, len),
+  ;; so a lambda body's $ls_lookup_local doesn't "see" the enclosing
+  ;; function's locals as its own (those become captures via
+  ;; $ls_lookup_or_capture's outer-scope path). Approximation of the
+  ;; wheel's ls_enter_frame/ls_exit_frame frame-stack ADT (named
+  ;; follow-up Hβ.lower.lambda-nested-frame for the full discipline).
+  (global $lower_frame_start_g     (mut i32) (i32.const 0))
+
   ;; ─── Idempotent initializer (mirrors $infer_init / $graph_init) ────
   ;; Per the seed's discipline for module-level state chunks: every
   ;; public entry calls $lower_init first; subsequent calls no-op.
@@ -157,6 +166,7 @@
         (global.set $lower_globals_ptr    (call $make_list (i32.const 8)))
         (global.set $lower_globals_len_g  (i32.const 0))
         (global.set $lower_function_depth_g (i32.const 0))
+        (global.set $lower_frame_start_g    (i32.const 0))
         (global.set $lower_initialized    (i32.const 1)))))
 
   ;; ─── $ls_register_globals — install top-level names for this walk ──
@@ -231,7 +241,11 @@
     (local.set $i (global.get $lower_locals_len_g))
     (block $done
       (loop $iter
-        (br_if $done (i32.eqz (local.get $i)))
+        ;; H.2.e frame-start: stop scanning at frame_start so outer-fn
+        ;; locals are NOT visible to a lambda body's lookup. Names not
+        ;; in the lambda's own frame fall through to
+        ;; $ls_lookup_or_capture and become captures.
+        (br_if $done (i32.le_u (local.get $i) (global.get $lower_frame_start_g)))
         (local.set $i (i32.sub (local.get $i) (i32.const 1)))
         (local.set $entry
           (call $list_index (global.get $lower_locals_ptr) (local.get $i)))
@@ -272,13 +286,37 @@
           (then (return (local.get $i))))
         (br $cap_iter)))
     ;; Not local, not yet a capture — check outer-scope reachability
-    ;; via the explicit top-level set first, then env.wat. If the name
-    ;; is top-level, return -1 so caller falls through to LGlobal.
+    ;; via three paths (any positive → capture):
+    ;;   (a) top-level globals set → return -1 (caller emits LGlobal)
+    ;;   (b) OUTER FRAMES of lower's locals ledger (indices
+    ;;       [0, frame_start)) — H.2.e closure-capture path.
+    ;;   (c) infer's env (env_contains) — preserves the contract used
+    ;;       by lower/state_init.wat harness + standalone lookups.
+    ;; If neither (b) nor (c), return -1 (productive-under-error per
+    ;; Hazel — caller emits LGlobal; emit_diag fires if genuinely
+    ;; missing).
     (if (call $ls_is_global (local.get $name))
       (then (return (i32.const -1))))
-    ;; If $env_contains returns 0, name is global/foreign; return -1.
-    (if (i32.eqz (call $env_contains (local.get $name)))
-      (then (return (i32.const -1))))
+    ;; (b) Outer-frame locals scan.
+    (local.set $local_slot (i32.const -1))   ;; reuse as "found" flag
+    (local.set $i (global.get $lower_frame_start_g))
+    (block $outer_done
+      (loop $outer_iter
+        (br_if $outer_done (i32.eqz (local.get $i)))
+        (local.set $i (i32.sub (local.get $i) (i32.const 1)))
+        (local.set $entry
+          (call $list_index (global.get $lower_locals_ptr) (local.get $i)))
+        (local.set $entry_name (call $record_get (local.get $entry) (i32.const 0)))
+        (if (call $str_eq (local.get $entry_name) (local.get $name))
+          (then
+            (local.set $local_slot (i32.const 0))   ;; sentinel "found"
+            (br $outer_done)))
+        (br $outer_iter)))
+    ;; (c) env fallback if outer-frame scan didn't find it.
+    (if (i32.lt_s (local.get $local_slot) (i32.const 0))
+      (then
+        (if (i32.eqz (call $env_contains (local.get $name)))
+          (then (return (i32.const -1))))))
     ;; Record a fresh CAPTURE_ENTRY. src_slot_idx = 0 sentinel pending
     ;; Hβ.lower.upval-slot-resolution.
     (local.set $cap_idx (global.get $lower_captures_len_g))
@@ -321,6 +359,44 @@
     (global.set $lower_next_slot_g     (i32.const 0))
     (global.set $lower_captures_len_g  (i32.const 0))
     (global.set $lower_function_depth_g (i32.const 0)))
+
+  ;; ─── $ls_enter_frame — push a new frame for nested fn (lambda) ─────
+  ;; Per H.2.e: when entering a lambda, the lambda's body should see
+  ;; only its own locals, not the enclosing fn's. Returns the previous
+  ;; $lower_frame_start_g so the caller can restore it on exit.
+  (func $ls_enter_frame (result i32)
+    (local $prev i32)
+    (call $lower_init)
+    (local.set $prev (global.get $lower_frame_start_g))
+    (global.set $lower_frame_start_g (global.get $lower_locals_len_g))
+    (local.get $prev))
+
+  ;; ─── $ls_exit_frame — restore frame_start after nested fn exits ────
+  (func $ls_exit_frame (param $prev_frame_start i32)
+    (call $lower_init)
+    (global.set $lower_frame_start_g (local.get $prev_frame_start)))
+
+  ;; ─── $lower_captures_ptr_get — read-only access to captures buffer ─
+  ;; Per H.2.e: $lower_lambda iterates captures appended during body
+  ;; walk to materialize caps_exprs. The captures buffer is module-
+  ;; private; this accessor exposes it without making the global itself
+  ;; cross-chunk-mutable.
+  (func $lower_captures_ptr_get (result i32)
+    (call $lower_init)
+    (global.get $lower_captures_ptr))
+
+  ;; ─── $ls_truncate_captures — restore captures_len to a snapshot ────
+  ;; Per H.2.e step 6: after a lambda's body walk consumes new
+  ;; captures, the lambda OWNS them in its LMakeClosure caps list.
+  ;; Restoring length to the pre-lambda snapshot keeps the outer fn's
+  ;; captures-ledger clean (frame-stack-stack discipline approximation;
+  ;; full ADT is named follow-up Hβ.lower.lambda-nested-frame). Buffer
+  ;; capacity preserved per buffer-counter substrate.
+  (func $ls_truncate_captures (param $checkpoint i32)
+    (call $lower_init)
+    (if (i32.le_u (local.get $checkpoint) (global.get $lower_captures_len_g))
+      (then
+        (global.set $lower_captures_len_g (local.get $checkpoint)))))
 
   ;; ─── Read-only length surfaces (for harness + downstream chunks) ───
   (func $lower_locals_len (result i32)
