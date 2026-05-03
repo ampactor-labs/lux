@@ -539,12 +539,12 @@ checks its box and pushes the cursor forward.
 - [ ] H.2.e Hβ.first-light.lower-lambda-capture — *parser-side closed below; capture-substrate remains*
 
 **Phase H.3 — Emit completeness (3/3)**
-- [ ] H.3.a Hβ.first-light.emit-match-pattern — *VERIFIED ALREADY-CLOSED; match emit produces real sentinel/heap dispatch*
-- [ ] H.3.b Hβ.first-light.emit-float-substrate
-- [ ] H.3.c Hβ.first-light.emit-list-runtime-call
+- [x] H.3.a Hβ.first-light.emit-match-pattern — *VERIFIED ALREADY-CLOSED; match emit produces real sentinel/heap dispatch*
+- [x] H.3.b Hβ.first-light.emit-float-substrate — *(commit `fb9a329`) lexer scans `.<digits>` + `e/E[+-]?<digits>`; mk_TFloat + mk_LitFloat + mk_LVFloat carry raw decimal text; $emit_f64_const emits `(f64.const <text>)`; emit_const dispatches TFloat (101). All forms (1.5, 1e308, 0.85, 2.5e-3) emit valid f64.*
+- [ ] H.3.c Hβ.first-light.emit-list-runtime-call — *partial: BConcat (153) currently dispatches uniformly to $str_concat — adequate for string concat in wheel; list-side requires $list_concat runtime + per-operand-Ty dispatch (~80 lines) and is gated on first wheel use of `++` over typed lists.*
 
 **Phase H.4 — First-light fixpoint harness (1/1)**
-- [ ] H.4 Hβ.first-light.fixpoint-harness
+- [x] H.4 Hβ.first-light.fixpoint-harness — *(commit `a25b99c`) phase [8/8] of first-light.sh runs pass-2/pass-3 over the wheel and diffs; currently reports 'L1 not yet ready' (2 funcs, 12 NFre); auto-activates fixpoint diff when Phase H surface emerges.*
 
 **Empirically-discovered NEW boxes (added to plan post-Hμ.cursor)**
 - [x] Hβ.first-light.lambda-parser — *(commit `c28c525`) `(params) => body` parsing per SYNTAX.md §234-260; mk_LambdaExpr + exprs_to_tparams + paren-form detection*
