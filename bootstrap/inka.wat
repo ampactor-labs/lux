@@ -24547,39 +24547,131 @@
 
   ;; $collect_fn_names — walk LowExpr list, collect LMakeClosure fn names.
   ;; Returns a flat list of name ptrs. Per wasm.nx:848-928 emit_fns_expr.
+  ;; Per Hβ.emit.nested-fn-idx-globals: recurses into common LowExpr
+  ;; containers (LLet, LBlock, LIf, LCall, LBinOp, LMakeVariant,
+  ;; LMakeList, LMakeTuple, LReturn) to collect EVERY LMakeClosure's
+  ;; fn name — including nested lambdas. The $emit_functions_walk
+  ;; recursion already emits each nested fn body; this collector
+  ;; mirrors that walk so the funcref table + $name_idx globals stay
+  ;; consistent with emit_functions's actual emissions.
   (func $collect_fn_names (param $lowexprs i32) (result i32)
-    (local $names i32) (local $count i32)
-    (local $i i32) (local $n i32) (local $expr i32) (local $tag i32)
-    (local $inner i32) (local $fn_r i32)
+    (local $names i32) (local $count_buf i32)
     (local.set $names (call $make_list (i32.const 16)))
-    (local.set $count (i32.const 0))
+    ;; count tracked in offset 0 of names list (length-prefix). We
+    ;; mutate via $cfn_append helper.
+    (i32.store (local.get $names) (i32.const 0))
+    (local.set $names (call $cfn_walk_list (local.get $names) (local.get $lowexprs)))
+    (local.get $names))
+
+  ;; $cfn_walk_list — iterate top-level lowexprs.
+  (func $cfn_walk_list (param $names i32) (param $lowexprs i32) (result i32)
+    (local $i i32) (local $n i32)
     (local.set $n (call $len (local.get $lowexprs)))
     (local.set $i (i32.const 0))
     (block $done
       (loop $iter
         (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
-        (local.set $expr (call $list_index (local.get $lowexprs) (local.get $i)))
-        (local.set $tag (call $tag_of (local.get $expr)))
-        ;; LLet (304) — check inner for LMakeClosure
-        (if (i32.eq (local.get $tag) (i32.const 304))
-          (then
-            (local.set $inner (call $lexpr_llet_value (local.get $expr)))
-            (if (i32.eq (call $tag_of (local.get $inner)) (i32.const 311))
-              (then
-                (local.set $fn_r (call $lexpr_lmakeclosure_fn (local.get $inner)))
-                (local.set $names
-                  (call $list_set
-                    (call $list_extend_to (local.get $names)
-                      (i32.add (local.get $count) (i32.const 1)))
-                    (local.get $count)
-                    (call $lowfn_name (local.get $fn_r))))
-                (local.set $count (i32.add (local.get $count) (i32.const 1)))))))
+        (local.set $names
+          (call $cfn_walk (local.get $names)
+            (call $list_index (local.get $lowexprs) (local.get $i))))
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $iter)))
-  ;; Fix list size: $make_list(16) set len=16, but we only filled $count.
-  ;; Overwrite the count field (offset 0) to reflect actual used count.
-  (i32.store (local.get $names) (local.get $count))
-  (local.get $names))
+    (local.get $names))
+
+  ;; $cfn_walk — recurse into one LowExpr; collect LMakeClosure fn
+  ;; names at any depth. Mirrors $emit_functions_walk structurally so
+  ;; funcref table entries match emit_fn_body invocations 1:1.
+  (func $cfn_walk (param $names i32) (param $expr i32) (result i32)
+    (local $tag i32) (local $fn_r i32) (local $body i32) (local $count i32)
+    (if (i32.lt_u (local.get $expr) (global.get $heap_base))
+      (then (return (local.get $names))))
+    (local.set $tag (call $tag_of (local.get $expr)))
+    ;; LMakeClosure (311) — append fn name + recurse into body.
+    (if (i32.eq (local.get $tag) (i32.const 311))
+      (then
+        (local.set $fn_r (call $lexpr_lmakeclosure_fn (local.get $expr)))
+        (local.set $count (i32.load (local.get $names)))
+        (local.set $names (call $list_extend_to (local.get $names)
+                            (i32.add (local.get $count) (i32.const 1))))
+        (drop (call $list_set (local.get $names) (local.get $count)
+                              (call $lowfn_name (local.get $fn_r))))
+        (i32.store (local.get $names) (i32.add (local.get $count) (i32.const 1)))
+        (local.set $body (call $lowfn_body (local.get $fn_r)))
+        (return (call $cfn_walk_list (local.get $names) (local.get $body)))))
+    ;; LMakeContinuation (312) — same shape.
+    (if (i32.eq (local.get $tag) (i32.const 312))
+      (then
+        (local.set $fn_r (call $lexpr_lmakecontinuation_fn (local.get $expr)))
+        (local.set $count (i32.load (local.get $names)))
+        (local.set $names (call $list_extend_to (local.get $names)
+                            (i32.add (local.get $count) (i32.const 1))))
+        (drop (call $list_set (local.get $names) (local.get $count)
+                              (call $lowfn_name (local.get $fn_r))))
+        (i32.store (local.get $names) (i32.add (local.get $count) (i32.const 1)))
+        (local.set $body (call $lowfn_body (local.get $fn_r)))
+        (return (call $cfn_walk_list (local.get $names) (local.get $body)))))
+    ;; LLet (304) — recurse into value.
+    (if (i32.eq (local.get $tag) (i32.const 304))
+      (then
+        (return (call $cfn_walk (local.get $names)
+                  (call $lexpr_llet_value (local.get $expr))))))
+    ;; LBlock (315) — recurse into stmts.
+    (if (i32.eq (local.get $tag) (i32.const 315))
+      (then
+        (return (call $cfn_walk_list (local.get $names)
+                  (call $lexpr_lblock_stmts (local.get $expr))))))
+    ;; LIf (314).
+    (if (i32.eq (local.get $tag) (i32.const 314))
+      (then
+        (local.set $names (call $cfn_walk (local.get $names)
+                            (call $lexpr_lif_cond (local.get $expr))))
+        (local.set $names (call $cfn_walk_list (local.get $names)
+                            (call $lexpr_lif_then (local.get $expr))))
+        (return (call $cfn_walk_list (local.get $names)
+                  (call $lexpr_lif_else (local.get $expr))))))
+    ;; LCall (308).
+    (if (i32.eq (local.get $tag) (i32.const 308))
+      (then
+        (local.set $names (call $cfn_walk (local.get $names)
+                            (call $lexpr_lcall_fn (local.get $expr))))
+        (return (call $cfn_walk_list (local.get $names)
+                  (call $lexpr_lcall_args (local.get $expr))))))
+    ;; LTailCall (309).
+    (if (i32.eq (local.get $tag) (i32.const 309))
+      (then
+        (local.set $names (call $cfn_walk (local.get $names)
+                            (call $lexpr_ltailcall_fn (local.get $expr))))
+        (return (call $cfn_walk_list (local.get $names)
+                  (call $lexpr_ltailcall_args (local.get $expr))))))
+    ;; LBinOp (306).
+    (if (i32.eq (local.get $tag) (i32.const 306))
+      (then
+        (local.set $names (call $cfn_walk (local.get $names)
+                            (call $lexpr_lbinop_l (local.get $expr))))
+        (return (call $cfn_walk (local.get $names)
+                  (call $lexpr_lbinop_r (local.get $expr))))))
+    ;; LMakeVariant (319).
+    (if (i32.eq (local.get $tag) (i32.const 319))
+      (then
+        (return (call $cfn_walk_list (local.get $names)
+                  (call $lexpr_lmakevariant_args (local.get $expr))))))
+    ;; LMakeList (316).
+    (if (i32.eq (local.get $tag) (i32.const 316))
+      (then
+        (return (call $cfn_walk_list (local.get $names)
+                  (call $lexpr_lmakelist_elems (local.get $expr))))))
+    ;; LMakeTuple (317).
+    (if (i32.eq (local.get $tag) (i32.const 317))
+      (then
+        (return (call $cfn_walk_list (local.get $names)
+                  (call $lexpr_lmaketuple_elems (local.get $expr))))))
+    ;; LReturn (310).
+    (if (i32.eq (local.get $tag) (i32.const 310))
+      (then
+        (return (call $cfn_walk (local.get $names)
+                  (call $lexpr_lreturn_x (local.get $expr))))))
+    ;; All other tags: no LowExpr children to recurse into.
+    (local.get $names))
 
   ;; $collect_top_level_fn_names — top-level LLet-wrapped closures only.
   ;; Inline closures still allocate at their expression site; module-level
