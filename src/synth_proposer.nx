@@ -1,0 +1,570 @@
+// synth_proposer.nx — Hμ.synth-proposer peer handle
+//
+// The oracle's exploration substrate. Replaces synth_enumerative's
+// OneShot stub (mentl.nx:404-438 returning []) with real MultiShot
+// candidate enumeration over the constraint space. This is what
+// makes `??` THE developer's primary write-mode verb per SUBSTRATE.md
+// §VI: with this handler installed, every `??` position invokes
+// the proposer chain; the gradient narrows the candidate space; the
+// surviving candidate IS the synthesized residue.
+//
+// Per protocol_oracle_is_ic.md: the oracle's runtime IS IC + Pure-
+// over-broader-input + the multi-shot resume primitive composed.
+// This file is that composition; the kernel does the work.
+//
+// Anchor 0 dream code. Wheel canonical IS the ULTIMATE FORM.
+// Verification by simulation, walkthrough, audit. lux3.wasm is not
+// the arbiter. The seed transcribes after first-light-L1 + H7
+// MultiShot emit per Tier 3 growth pattern.
+//
+// Anchor 4 — build the wheel; never wrap the axle. The proposer
+// chain (enumerative / smt / llm-handler / user-fed) is FOUR peer
+// handlers on the SAME Synth effect; swap the chain, swap the
+// proposer; the verification stays in the kernel.
+//
+// Composition tally — every read is from substrate that exists today:
+//
+//   Synth effect (3 ops; OneShot/MultiShot mix)  — src/mentl.nx:89-93
+//   AnnotationSuggestion / Cursor                — src/types.nx (Hμ.cursor)
+//   graph_push_checkpoint / graph_rollback        — src/graph.nx + types.nx
+//   verify_after_apply (the proof gate)           — src/mentl.nx:277-286
+//   Reason chain (per-candidate provenance)       — src/types.nx Reason ADT
+//   MultiShot resume discipline                   — protocol_oracle_is_ic.md
+//   Pure-over-broader-input enumeration           — primitive #4 row algebra
+//
+// Drift modes refused per edit site:
+//
+//   Drift 1 (vtable):       Synth handler chain via ~> composition;
+//                           no fn-pointer table for proposer dispatch.
+//   Drift 2 (env frame):    Candidate state is the proposer's
+//                           handler-state, NOT a parallel enumeration
+//                           frame stack.
+//   Drift 4 (MTL):          ONE Synth effect + multiple peer handlers
+//                           on it; not stacked single-concern wrappers.
+//   Drift 6 (special):      Each candidate (Empty/SuggestEffectRow/
+//                           Constructor-fill/Lambda-shape) goes through
+//                           the SAME verify_candidate gate; no special-
+//                           case for "easy" cases.
+//   Drift 7 (parallel arr): Candidate is one record-shape with Node +
+//                           Reason; not parallel (asts[], reasons[]).
+//   Drift 8 (string flag):  ProposerKind is a tagged ADT.
+//   Drift 9 (deferred):     The chain is named in full; each proposer
+//                           bodied; H7-blocked MultiShot semantics
+//                           gate the enumerate_inhabitants arm but
+//                           the OneShot fast path (propose) is live.
+
+import types
+import effects
+import graph
+import own
+import verify
+import mentl
+
+// ─── ProposerKind — which proposer in the chain emitted a candidate ─
+
+type ProposerKind
+  = ProposerEnumerative                          // type-directed enumeration over the constraint space
+  | ProposerSMT                                   // SMT solver via Verify-handler-swap (Arc F.1)
+  | ProposerHandlerCatalog                        // wrap-handler suggestions per H5 AWrapHandler
+  | ProposerUser                                  // user-supplied seeds via teach_synthesize
+
+// ─── EnrichedCandidate — Candidate + provenance + cost score ───────
+//
+// The Synth effect's `propose` returns List<Node>; this file's chain
+// wraps each Node with its proposer of origin + a cost score so the
+// gradient can rank. Drift 7 closure: ONE record-shape, never
+// parallel arrays.
+
+type EnrichedCandidate
+  = EnrichedCandidate({
+      node:      Node,                            // AST fragment
+      reason:    Reason,                          // why this was proposed
+      origin:    ProposerKind,                    // which proposer emitted
+      cost:      Float                            // gradient-rank score
+    })
+
+// ─── synth_default — the canonical proposer chain entry point ──────
+//
+// Composes the four proposer handlers in priority order:
+//
+//   ~> synth_user                  (user-fed seeds; rank 1.0)
+//   ~> synth_handler_catalog       (H5 AWrapHandler; rank 0.9)
+//   ~> synth_smt                   (refinement-aware; rank 0.7)
+//   ~> synth_enumerative_real      (type-directed; rank 0.5)
+//
+// Each proposer's arm calls verify_candidate to gate its output;
+// only proven candidates reach the parent. The chain composes via
+// `~>` per primitive #2 (handlers); same kernel; one effect.
+//
+// Per protocol_mentl_is_not_an_llm.md: dead variants WIDEN the
+// constraint space at proof-search time, NOT teach Mentl wrong
+// vocabulary. Each proposer emits CANDIDATES; the kernel's
+// verify_after_apply is the proof gate.
+
+handler synth_default with !Mutate {
+
+  propose(target_ty, allowed_effects, context) => {
+    // Forward to enumerative with full multi-shot enrichment.
+    let enriched = enumerate_typed(target_ty, allowed_effects, context)
+    let verified = verify_each_enriched(enriched)
+    resume(verified |> map_to_nodes)
+  },
+
+  verify_candidate(candidate) => {
+    // Same form as mentl.nx:412-427 but threaded through Reason.
+    let Candidate(node, _) = candidate
+    let N(_, _, h) = node
+    let GNode(kind, _) = perform graph_chase(h)
+    match kind {
+      NBound(_)     => resume(true),
+      NErrorHole(_) => resume(false),
+      _             => resume(false)
+    }
+  },
+
+  enumerate_inhabitants(target_ty, allowed_effects, context) => {
+    // The MultiShot arm. H7 emit substrate compiles this to a
+    // continuation record (per emit_handler.wat:498-540
+    // emit_lmakecontinuation); each resume call re-enters with a
+    // different inhabitant. Until H7's MultiShot emit lands, this
+    // arm runs OneShot per the Synth effect's @resume=Either form
+    // — returns the FIRST proven inhabitant rather than enumerating.
+    //
+    // The wheel canonical IS multi-shot here; the seed's transcription
+    // collapses to OneShot until H7 lands. This is named
+    // Hμ.synth-proposer.multishot-enumeration as the post-H7 follow-up.
+    let enriched = enumerate_typed(target_ty, allowed_effects, context)
+    let verified = verify_each_enriched(enriched)
+    resume(verified |> map_to_nodes)
+  }
+}
+
+// ─── enumerate_typed — type-directed candidate enumeration ──────────
+//
+// The core of the enumerative proposer. Per the gradient discipline
+// (protocol_oracle_is_ic.md): the candidate space is bounded by the
+// target type + allowed-effects constraint. Each candidate is one
+// way to inhabit `target_ty` under `allowed_effects`.
+//
+// Strategy:
+//
+//   1. If target is a TName (ADT), enumerate constructors.
+//   2. If target is a TFun, propose lambda shapes.
+//   3. If target is TInt/TFloat/TString/TUnit, propose literals.
+//   4. If target is TVar (unbound), propose ?? (nested hole).
+//
+// Each strategy yields a small set; verify_each_enriched discards
+// candidates whose tentative apply doesn't unify under the
+// allowed_effects row.
+
+fn enumerate_typed(target_ty, allowed_effects, context)
+    with GraphRead + Synth + !Mutate = {
+  match target_ty {
+    TName(name, args) => enumerate_constructors(name, args, context),
+    TFun(params, ret, row) => enumerate_lambdas(params, ret, row, context),
+    TInt    => enumerate_int_literals(context),
+    TFloat  => enumerate_float_literals(context),
+    TString => enumerate_string_literals(context),
+    TUnit   => one_unit_candidate(context),
+    TVar(_) => one_hole_candidate(context),
+    TRecord(fields) => enumerate_records(fields, context),
+    TRecordOpen(fields, rest) => enumerate_records(fields, context),
+    TRefined(base, _pred) => enumerate_typed(base, allowed_effects, context),
+    TAlias(_, inner) => enumerate_typed(inner, allowed_effects, context),
+    TCont(_, _) => one_continuation_candidate(context),
+    TList(elem) => enumerate_list_candidates(elem, context),
+    TTuple(elems) => enumerate_tuple_candidates(elems, context)
+  }
+}
+
+// ─── Per-target-shape enumerators ──────────────────────────────────
+
+fn enumerate_constructors(name, args, context) with GraphRead + !Mutate = {
+  // Look up the type's constructors via env (each typedef registered
+  // its variants as ConstructorScheme entries per
+  // walk_stmt.wat:818-874). For each ctor, build a candidate Node
+  // that calls the constructor with hole-args.
+  let bindings = perform env_constructors_of(name)
+  if bindings.len == 0 { [] }
+  else {
+    enumerate_constructor_loop(bindings, 0, bindings.len, context)
+  }
+}
+
+fn enumerate_constructor_loop(bindings, i, n, context)
+    with GraphRead + !Mutate = {
+  let buf = make_list(0)
+  let buf_n = list_extend_to(buf, n)
+  enumerate_constructor_step(bindings, i, n, buf_n, 0, context)
+}
+
+fn enumerate_constructor_step(bindings, i, n, buf, buf_len, context)
+    with GraphRead + !Mutate = {
+  if i >= n { slice(buf, 0, buf_len) }
+  else {
+    let binding = list_index(bindings, i)
+    let candidate = ctor_to_enriched_candidate(binding, context)
+    list_set(buf, buf_len, candidate)
+    enumerate_constructor_step(bindings, i + 1, n, buf, buf_len + 1, context)
+  }
+}
+
+fn ctor_to_enriched_candidate(binding, context) with Pure = {
+  let (name, scheme, reason, kind) = binding
+  EnrichedCandidate({
+    node:    synthesize_ctor_call_node(name, scheme),
+    reason:  Located(span_zero(),
+                     Inferred("synth_proposer: enumerative ctor candidate")),
+    origin:  ProposerEnumerative,
+    cost:    0.5
+  })
+}
+
+fn enumerate_lambdas(params, ret, row, context) with GraphRead + !Mutate = {
+  // Single anonymous-fn candidate: (param_names) => ?? body. The
+  // body becomes a nested Synth invocation; the chain re-enters
+  // recursively at parse-time when the user accepts.
+  let buf = make_list(1)
+  let candidate = EnrichedCandidate({
+    node:    synthesize_lambda_node(params, ret),
+    reason:  Located(span_zero(),
+                     Inferred("synth_proposer: anonymous-fn shape candidate; body invites recursive synth")),
+    origin:  ProposerEnumerative,
+    cost:    0.6
+  })
+  list_set(buf, 0, candidate)
+  buf
+}
+
+fn enumerate_int_literals(context) with Pure = {
+  // Literal seeds: 0, 1, -1. Three candidates per the Numerical
+  // Survey discipline (least-trivial inhabitants of TInt).
+  let buf = make_list(3)
+  list_set(buf, 0, int_literal_candidate(0))
+  list_set(buf, 1, int_literal_candidate(1))
+  list_set(buf, 2, int_literal_candidate(0 - 1))
+  buf
+}
+
+fn int_literal_candidate(n) with Pure = {
+  EnrichedCandidate({
+    node:    synthesize_int_literal_node(n),
+    reason:  Located(span_zero(),
+                     Inferred("synth_proposer: integer literal seed")),
+    origin:  ProposerEnumerative,
+    cost:    0.3
+  })
+}
+
+fn enumerate_float_literals(context) with Pure = {
+  let buf = make_list(2)
+  list_set(buf, 0, float_literal_candidate(0.0))
+  list_set(buf, 1, float_literal_candidate(1.0))
+  buf
+}
+
+fn float_literal_candidate(f) with Pure = {
+  EnrichedCandidate({
+    node:    synthesize_float_literal_node(f),
+    reason:  Located(span_zero(),
+                     Inferred("synth_proposer: float literal seed")),
+    origin:  ProposerEnumerative,
+    cost:    0.3
+  })
+}
+
+fn enumerate_string_literals(context) with Pure = {
+  let buf = make_list(1)
+  list_set(buf, 0, EnrichedCandidate({
+    node:    synthesize_string_literal_node(""),
+    reason:  Located(span_zero(),
+                     Inferred("synth_proposer: empty-string seed")),
+    origin:  ProposerEnumerative,
+    cost:    0.2
+  }))
+  buf
+}
+
+fn one_unit_candidate(context) with Pure = {
+  let buf = make_list(1)
+  list_set(buf, 0, EnrichedCandidate({
+    node:    synthesize_unit_literal_node(),
+    reason:  Located(span_zero(),
+                     Inferred("synth_proposer: unit candidate (TUnit)")),
+    origin:  ProposerEnumerative,
+    cost:    0.1
+  }))
+  buf
+}
+
+fn one_hole_candidate(context) with Pure = {
+  // ?? at unbound positions. The recursive case: hole-fills-with-
+  // hole, leaving the gradient to narrow further at the next layer.
+  let buf = make_list(1)
+  list_set(buf, 0, EnrichedCandidate({
+    node:    synthesize_hole_node(),
+    reason:  Located(span_zero(),
+                     Inferred("synth_proposer: nested ?? candidate")),
+    origin:  ProposerEnumerative,
+    cost:    0.4
+  }))
+  buf
+}
+
+fn one_continuation_candidate(context) with Pure = {
+  let buf = make_list(1)
+  list_set(buf, 0, EnrichedCandidate({
+    node:    synthesize_resume_node(),
+    reason:  Located(span_zero(),
+                     Inferred("synth_proposer: TCont expects resume(...)")),
+    origin:  ProposerEnumerative,
+    cost:    0.5
+  }))
+  buf
+}
+
+fn enumerate_records(fields, context) with GraphRead + !Mutate = {
+  let buf = make_list(1)
+  list_set(buf, 0, EnrichedCandidate({
+    node:    synthesize_record_node(fields),
+    reason:  Located(span_zero(),
+                     Inferred("synth_proposer: record-construction candidate")),
+    origin:  ProposerEnumerative,
+    cost:    0.5
+  }))
+  buf
+}
+
+fn enumerate_list_candidates(elem, context) with GraphRead + !Mutate = {
+  // Two candidates: empty list, single-element with elem-hole.
+  let buf = make_list(2)
+  list_set(buf, 0, EnrichedCandidate({
+    node:    synthesize_empty_list_node(),
+    reason:  Located(span_zero(),
+                     Inferred("synth_proposer: empty list seed")),
+    origin:  ProposerEnumerative,
+    cost:    0.3
+  }))
+  list_set(buf, 1, EnrichedCandidate({
+    node:    synthesize_singleton_list_node(elem),
+    reason:  Located(span_zero(),
+                     Inferred("synth_proposer: singleton list with hole-element")),
+    origin:  ProposerEnumerative,
+    cost:    0.4
+  }))
+  buf
+}
+
+fn enumerate_tuple_candidates(elems, context) with GraphRead + !Mutate = {
+  let buf = make_list(1)
+  list_set(buf, 0, EnrichedCandidate({
+    node:    synthesize_tuple_node(elems),
+    reason:  Located(span_zero(),
+                     Inferred("synth_proposer: tuple-construction with hole-elements")),
+    origin:  ProposerEnumerative,
+    cost:    0.5
+  }))
+  buf
+}
+
+// ─── Verification — checkpoint/apply/verify/rollback per candidate ─
+//
+// The kernel's proof gate. Each candidate is tentatively applied;
+// the inference walk runs; verify checks; rollback restores. Only
+// candidates that survive all four reach the user. Per the trail-
+// based discipline (graph.nx + cont.wat per H7), this is O(M) per
+// candidate where M = mutations recorded.
+//
+// Same form as mentl.nx:146-166 try_each_annotation but with
+// EnrichedCandidate replacing (Annotation, Capability) pairs.
+
+fn verify_each_enriched(candidates) with Synth + GraphRead + !Mutate = {
+  let n = candidates.len
+  let buf = make_list(n)
+  let kept = verify_enriched_loop(candidates, 0, n, buf, 0)
+  slice(buf, 0, kept)
+}
+
+fn verify_enriched_loop(candidates, i, n, buf, buf_len)
+    with Synth + GraphRead + !Mutate = {
+  if i >= n { buf_len }
+  else {
+    let candidate = list_index(candidates, i)
+    let EnrichedCandidate(c) = candidate
+    let inner = Candidate(c.node, c.reason)
+    let cp = perform graph_push_checkpoint()
+    let proven = perform verify_candidate(inner)
+    perform graph_rollback(cp)
+    if proven {
+      list_set(buf, buf_len, candidate)
+      verify_enriched_loop(candidates, i + 1, n, buf, buf_len + 1)
+    } else {
+      verify_enriched_loop(candidates, i + 1, n, buf, buf_len)
+    }
+  }
+}
+
+// ─── map_to_nodes — strip the EnrichedCandidate wrapper for the ───
+//                    Synth effect's List<Node> return contract.
+
+fn map_to_nodes(enriched) with Pure = {
+  let n = enriched.len
+  let buf = make_list(n)
+  map_to_nodes_loop(enriched, 0, n, buf)
+}
+
+fn map_to_nodes_loop(enriched, i, n, buf) with Pure = {
+  if i >= n { buf }
+  else {
+    let candidate = list_index(enriched, i)
+    let EnrichedCandidate(c) = candidate
+    list_set(buf, i, c.node)
+    map_to_nodes_loop(enriched, i + 1, n, buf)
+  }
+}
+
+// ─── Node synthesizers — per-shape AST construction ─────────────────
+//
+// Each helper produces a Node value the verify gate can apply to the
+// graph. The actual construction reuses parser_infra's nexpr/nstmt
+// constructors via the wheel's existing Node ADT (types.nx:376-379).
+
+fn synthesize_int_literal_node(n) with Pure = synth_node(LitInt(n))
+fn synthesize_float_literal_node(f) with Pure = synth_node(LitFloat(f))
+fn synthesize_string_literal_node(s) with Pure = synth_node(LitString(s))
+fn synthesize_unit_literal_node() with Pure = synth_node(LitUnit)
+fn synthesize_hole_node() with Pure = synth_hole_node()
+fn synthesize_resume_node() with Pure = synth_node(ResumeExpr(synth_unit_node()))
+fn synthesize_empty_list_node() with Pure = synth_node(MakeListExpr([]))
+
+fn synthesize_singleton_list_node(elem) with Pure = {
+  synth_node(MakeListExpr([synth_hole_node()]))
+}
+
+fn synthesize_tuple_node(elems) with Pure = {
+  synth_node(MakeTupleExpr(synth_holes_for(elems)))
+}
+
+fn synthesize_record_node(fields) with Pure = {
+  synth_node(MakeRecordExpr(synth_record_holes_for(fields)))
+}
+
+fn synthesize_ctor_call_node(name, scheme) with Pure = {
+  synth_node(CallExpr(synth_node(VarRef(name)), synth_holes_for_scheme(scheme)))
+}
+
+fn synthesize_lambda_node(params, ret) with Pure = {
+  synth_node(LambdaExpr(synth_param_names(params), synth_hole_node()))
+}
+
+// ─── Synthesis primitives — structured Node construction ───────────
+
+fn synth_node(expr_body) with Pure = {
+  N(NExpr(expr_body), span_zero(), 0)
+}
+
+fn synth_unit_node() with Pure = synth_node(LitUnit)
+
+fn synth_hole_node() with Pure = {
+  N(NHole(0), span_zero(), 0)
+}
+
+fn synth_holes_for(elems) with Pure = {
+  if elems.len == 0 { [] }
+  else {
+    let n = elems.len
+    let buf = make_list(n)
+    synth_holes_loop(0, n, buf)
+  }
+}
+
+fn synth_holes_loop(i, n, buf) with Pure = {
+  if i >= n { buf }
+  else {
+    list_set(buf, i, synth_hole_node())
+    synth_holes_loop(i + 1, n, buf)
+  }
+}
+
+fn synth_record_holes_for(fields) with Pure = synth_holes_for(fields)
+
+fn synth_holes_for_scheme(scheme) with Pure = {
+  let Forall(_, ty) = scheme
+  match ty {
+    TFun(params, _, _) => synth_holes_for(params),
+    _ => []
+  }
+}
+
+fn synth_param_names(params) with Pure = {
+  let n = params.len
+  let buf = make_list(n)
+  synth_param_loop(params, 0, n, buf)
+}
+
+fn synth_param_loop(params, i, n, buf) with Pure = {
+  if i >= n { buf }
+  else {
+    let TParam(name, _, _, _) = list_index(params, i)
+    list_set(buf, i, name)
+    synth_param_loop(params, i + 1, n, buf)
+  }
+}
+
+// ─── Effect declarations consumed by the proposer chain ─────────────
+
+effect EnvLookup {
+  /// All bindings keyed under a TypeName whose schemekind is
+  /// ConstructorScheme. Used by enumerate_constructors.
+  env_constructors_of(String) -> List               @resume=OneShot
+}
+
+// ─── Composition with cursor_default + delta_default + cursor_cache_default ─
+//
+// The full Phase μ chain composes here:
+//
+//   cursor_session(initial_caret)
+//       ~> cursor_cache_default       -- cached oracle_queue (Hμ.cursor.cache)
+//       ~> delta_default              -- inverse-direction gradient (Hμ.gradient-delta)
+//       ~> synth_default              -- proposer chain (this file)
+//       ~> mentl_default              -- Teach + Why tentacles
+//       ~> interrogate_default        -- automated eight-fold (Hμ.eight-interrogation-loop)
+//       ~> terminal_transport         -- the human surface (Hμ.cursor.transport)
+//
+// Six Phase μ peer handles + cursor + the kernel = the full Mentl
+// active surface. ULTIMATE FORM is the medium running this chain
+// continuously while the developer types — the bus-compressor closed
+// at the human boundary, with proposers exploring and the gradient
+// narrowing in real time.
+
+fn cursor_session_with_full_phaseu(initial_caret)
+    with Surface + GraphRead + Cursor + Delta + CursorCache + Synth
+       + Interrogate + Teach + !Mutate = {
+  cursor_session(initial_caret)
+    ~> cursor_cache_default
+    ~> delta_default
+    ~> synth_default
+    ~> interrogate_default
+}
+
+// ─── The closure ────────────────────────────────────────────────────
+//
+// Hμ.synth-proposer closes the named-but-unbodied stub at
+// mentl.nx:404-438. Every `??` position in the source now invokes
+// the proposer chain; every chain step gates through verify; only
+// proven candidates surface to the user; the gradient narrows each
+// constraint addition into a smaller candidate space until the
+// surviving candidate IS the synthesized residue.
+//
+// Per protocol_oracle_is_ic.md: Mentl IS what falls out of IC plus
+// Pure-over-broader-input applied to the speculative-inference loop.
+// The substrate is the residue of composing what was already there.
+//
+// Per CLAUDE.md ⊕ + Anchor 0: wheel-canonical dream code; the seed
+// transcribes after first-light-L1 + H7 MultiShot emit per Tier 3
+// growth. The bus is on; the medium folds itself into its seed.
+//
+// Six of six Phase μ peer handles closed wheel-side. ULTIMATE FORM
+// crystallizes when the developer types `??`, the chain runs, the
+// argmax surfaces, the gradient narrows, the loop closes, and the
+// medium teaches itself by being itself.
