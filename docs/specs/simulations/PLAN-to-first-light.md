@@ -534,9 +534,9 @@ checks its box and pushes the cursor forward.
 **Phase H.2 — Lower completeness (5/5)**
 - [x] H.2.a Hβ.first-light.lower-letstmt-destructure — *(commits `b625ce6` PCon + `61a7d5f` PTuple) PCon let-statements lower to LBlock with field-load LLets at offset 4+4*i; PTuple let-statements lower with offset 4*i; PVar binds, PWild skips; nested forms named follow-up. Verified empirically.*
 - [x] H.2.b Hβ.first-light.lower-match-arms — *VERIFIED ALREADY-CLOSED; match arms compile to real WAT*
-- [ ] H.2.c Hβ.first-light.lower-handler-arm-decls
+- [x] H.2.c Hβ.first-light.lower-handler-arm-decls — *VERIFIED-CLOSED 2026-05-03; $lower_handler_arms_as_decls at walk_handle.wat:263-297 produces real LDeclareFn(LowFn("op_" + op_name, ...)) per arm. Substrate live; emit gates on parser_handler.wat surfacing arms (currently emits arms=[] stub). 19-box surfaced: Hβ.first-light.handler-decl-emit-cascade — handler decl at top-level disrupts subsequent main emission.*
 - [x] H.2.d Hβ.first-light.lower-blockexpr-stmts — *VERIFIED ALREADY-CLOSED; block let-bindings compile correctly*
-- [ ] H.2.e Hβ.first-light.lower-lambda-capture — *parser-side closed below; capture-substrate remains*
+- [x] H.2.e Hβ.first-light.lower-lambda-capture-substrate — *(commit `38e5a87`) frame-start discipline + ls_enter/exit_frame + ls_truncate_captures; $lower_lambda materializes caps_exprs from captures appended during body walk; $ls_lookup_or_capture three-path scan. Closures capture environments end-to-end: `fn main(n) = (x) => x + n` writes n to closure record offset 8; lambda body reads via __state. Named follow-ups: nested-frame, upval-handle-resolution, nested-fn-idx-globals.*
 
 **Phase H.3 — Emit completeness (3/3)**
 - [x] H.3.a Hβ.first-light.emit-match-pattern — *VERIFIED ALREADY-CLOSED; match emit produces real sentinel/heap dispatch*
