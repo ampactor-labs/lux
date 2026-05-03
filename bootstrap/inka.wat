@@ -14197,6 +14197,22 @@
     (call $graph_init)
     (call $env_init)
     (call $infer_init)
+    ;; E1 fix: parser's $next_handle (parser_infra.wat:5, starts at 1)
+    ;; and graph's $graph_next_handle_g (runtime/graph.wat:113, starts
+    ;; at 0) are independent counters. Parser allocates AST handles
+    ;; from 1..N during parse; graph_fresh_ty during inference would
+    ;; ALSO start at 0 and collide with parser's allocated AST handles
+    ;; — causing graph_fresh_ty to silently mint a handle whose GNode
+    ;; gets clobbered when walks subsequently graph_bind the AST node
+    ;; at the same numeric index. The wheel canonical uses ONE handle
+    ;; counter via the FreshHandle effect (src/parser.nx mint(...) +
+    ;; src/infer.nx graph_fresh_ty share); the seed approximates that
+    ;; with a sync at inference entry: graph counter starts past the
+    ;; parser's high-water mark. Drift mode 8 closure: NO mode flag —
+    ;; one handle counter logically (split mechanically across two
+    ;; globals; sync makes them act as one).
+    (if (i32.lt_u (global.get $graph_next_handle_g) (global.get $next_handle))
+      (then (global.set $graph_next_handle_g (global.get $next_handle))))
     (call $infer_pre_register_fn_sigs (local.get $stmts))
     (call $infer_stmt_list (local.get $stmts)))
 
