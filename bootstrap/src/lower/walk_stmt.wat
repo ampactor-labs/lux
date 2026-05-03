@@ -298,9 +298,23 @@
                        (local.get $val)
                        (local.get $lo)
                        (local.get $expr_h)))))
-    ;; Other pats (PTuple, PList, PRecord) — pass-through; named
-    ;; follow-up Hβ.lower.letstmt-destructure-tuple-list-record extends
-    ;; this arm when those forms surface in wheel parser output.
+    ;; PTuple (134) — tuple destructure per Hβ.first-light.ptuple-let-
+    ;; destructure (closes the empirically-named gap from
+    ;; Hβ-first-light-empirical.md §4.5.4d). Layout:
+    ;; PTuple = [tag=134][sub_pats]; tuples allocate a record with
+    ;; fields at offset 4*i (NO variant tag — emit_const.wat:437-453
+    ;; $emit_lmaketuple). Mirrors $lower_pcon_let with field_offset =
+    ;; 4*i instead of 4 + 4*i.
+    (if (i32.eq (local.get $pat_tag) (i32.const 134))
+      (then
+        (return (call $lower_ptuple_let
+                       (local.get $handle)
+                       (local.get $pat)
+                       (local.get $lo)
+                       (local.get $expr_h)))))
+    ;; Other pats (PList, PRecord) — pass-through; named follow-up
+    ;; Hβ.lower.letstmt-destructure-list-record extends this arm when
+    ;; those forms surface in wheel parser output.
     (local.get $lo))
 
   ;; PCon destructure helper. Generates:
@@ -390,6 +404,93 @@
         (br $each)))
     ;; Wrap all stmts in LBlock so the outer LBlock sees one LowExpr
     ;; that itself contains the destructure sequence.
+    (call $lexpr_make_lblock
+          (local.get $handle)
+          (call $slice (local.get $stmts_buf)
+                       (i32.const 0)
+                       (local.get $stmt_count))))
+
+  ;; PTuple destructure helper. Mirror of $lower_pcon_let with field
+  ;; offsets at 4*i (no variant tag word). Layout per parser_pat.wat:
+  ;; PTuple = [tag=134][sub_pats] (offset 4 = sub_pats list pointer).
+  ;;
+  ;; Generates:
+  ;;   LBlock([
+  ;;     LLet(temp_h, "__pat_<h>", lo_val),
+  ;;     for each PVar sub-pat at index i:
+  ;;       LLet(sub_h, name_i, LFieldLoad(temp_h_local, 4*i))
+  ;;     for each PWild: skip
+  ;;   ])
+  ;;
+  ;; Tuple records have NO variant tag at offset 0 — emit_const.wat:437
+  ;; $emit_lmaketuple stores element i at byte 4*i. Hence offset = 4*i,
+  ;; not 4 + 4*i (the +4 is variant-tag-only per emit_const.wat:507).
+  (func $lower_ptuple_let
+        (param $handle i32) (param $pat i32)
+        (param $lo_val i32) (param $expr_h i32) (result i32)
+    (local $sub_pats i32) (local $n i32) (local $i i32)
+    (local $sub_pat i32) (local $sub_tag i32)
+    (local $temp_name i32) (local $sub_name i32) (local $sub_h i32)
+    (local $field_offset i32)
+    (local $stmts_buf i32) (local $stmt_count i32)
+    (local $temp_local_ref i32) (local $field_load i32) (local $sub_let i32)
+    ;; PTuple layout: [tag=134][sub_pats] — sub_pats at offset 4.
+    (local.set $sub_pats (i32.load offset=4 (local.get $pat)))
+    (local.set $n (call $len (local.get $sub_pats)))
+    (local.set $temp_name (call $str_concat
+                            (call $synth_pat_prefix)
+                            (call $int_to_str (local.get $handle))))
+    (drop (call $ls_bind_local (local.get $temp_name) (local.get $expr_h)))
+    (local.set $stmts_buf (call $make_list (i32.const 0)))
+    (local.set $stmts_buf (call $list_extend_to
+                            (local.get $stmts_buf)
+                            (i32.add (i32.const 1) (local.get $n))))
+    (local.set $stmt_count (i32.const 0))
+    ;; First stmt: LLet(handle, temp_name, lo_val)
+    (drop (call $list_set (local.get $stmts_buf)
+                          (local.get $stmt_count)
+                          (call $lexpr_make_llet
+                                (local.get $handle)
+                                (local.get $temp_name)
+                                (local.get $lo_val))))
+    (local.set $stmt_count (i32.add (local.get $stmt_count) (i32.const 1)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $sub_pat (call $list_index (local.get $sub_pats) (local.get $i)))
+        (local.set $sub_tag (call $tag_of (local.get $sub_pat)))
+        ;; Tuple field offset: 4*i (no variant tag prefix).
+        (local.set $field_offset (i32.mul (local.get $i) (i32.const 4)))
+        ;; PVar (130) — bind the name to the field load.
+        (if (i32.eq (local.get $sub_tag) (i32.const 130))
+          (then
+            (local.set $sub_name (i32.load offset=4 (local.get $sub_pat)))
+            (local.set $sub_h (local.get $expr_h))
+            (drop (call $ls_bind_local (local.get $sub_name) (local.get $sub_h)))
+            (local.set $temp_local_ref
+              (call $lexpr_make_llocal (local.get $expr_h) (local.get $temp_name)))
+            (local.set $field_load
+              (call $lexpr_make_lfieldload
+                    (local.get $sub_h)
+                    (local.get $temp_local_ref)
+                    (local.get $field_offset)))
+            (local.set $sub_let
+              (call $lexpr_make_llet
+                    (local.get $sub_h)
+                    (local.get $sub_name)
+                    (local.get $field_load)))
+            (local.set $stmts_buf (call $list_extend_to
+                                    (local.get $stmts_buf)
+                                    (i32.add (local.get $stmt_count) (i32.const 1))))
+            (drop (call $list_set (local.get $stmts_buf)
+                                  (local.get $stmt_count)
+                                  (local.get $sub_let)))
+            (local.set $stmt_count (i32.add (local.get $stmt_count) (i32.const 1)))))
+        ;; PWild (131) — skip.
+        ;; Nested PTuple/PCon: pass-through; named follow-up extends.
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each)))
     (call $lexpr_make_lblock
           (local.get $handle)
           (call $slice (local.get $stmts_buf)
