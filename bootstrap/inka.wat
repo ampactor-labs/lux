@@ -4559,6 +4559,41 @@
         (return (local.get $tup))))
     ;; Parse variants
     (local.set $variants_r (call $parse_variants (local.get $tokens) (local.get $p)))
+    ;; Skip optional `where <predicate>` per SYNTAX.md §1216-1233.
+    ;; Per Hβ.first-light.refine-predicate-parser (named follow-up):
+    ;; the predicate ADT + verify-emit substrate is the substrate-
+    ;; honest landing. Until that handle lands, the seed pragmatically
+    ;; consumes the where-clause tokens so they don't bleed into the
+    ;; next-statement parser (where they'd surface as
+    ;; E_MissingVariable: self). The refinement predicate is dropped
+    ;; at the parser layer; downstream compilation proceeds.
+    ;;
+    ;; Eight interrogations per edit site:
+    ;;  1. Graph?   Refinement predicate is metadata at graph layer
+    ;;              — the type alias is what's bound (without the
+    ;;              where clause).
+    ;;  2. Handler? @resume=OneShot direct parse.
+    ;;  3. Verb?    N/A.
+    ;;  4. Row?     Pure parse.
+    ;;  5. Ownership? Tokens borrowed.
+    ;;  6. Refinement? PRAGMATICALLY DEFERRED to the named follow-up.
+    ;;              Substrate-honest tag: this is drift-9-safe because
+    ;;              the named handle Hβ.first-light.refine-predicate-
+    ;;              parser will replace this skip with full predicate
+    ;;              parsing + Verify-emit obligation per src/infer.nx
+    ;;              wheel canonical (RefineStmt arm at line 261-266).
+    ;;  7. Gradient? Skipping the predicate doesn't unlock capability
+    ;;              today; the named follow-up wires Verify so adding
+    ;;              `where p` becomes a gradient annotation.
+    ;;  8. Reason?  Predicate-source span available at the where token's
+    ;;              position; named follow-up threads it as DeclaredAt.
+    (local.set $p (call $list_index (local.get $variants_r) (i32.const 1)))
+    (local.set $p (call $skip_ws_p (local.get $tokens) (local.get $p)))
+    (if (call $at (local.get $tokens) (local.get $p) (i32.const 19)) ;; TWhere
+      (then
+        (local.set $p (call $skip_predicate_to_stmt_end
+                            (local.get $tokens)
+                            (i32.add (local.get $p) (i32.const 1))))))
     (local.set $tup (call $make_list (i32.const 2)))
     (drop (call $list_set (local.get $tup) (i32.const 0)
       (call $nstmt
@@ -4566,9 +4601,29 @@
           (call $make_list (i32.const 0))
           (call $list_index (local.get $variants_r) (i32.const 0)))
         (local.get $span))))
-    (drop (call $list_set (local.get $tup) (i32.const 1)
-      (call $list_index (local.get $variants_r) (i32.const 1))))
+    (drop (call $list_set (local.get $tup) (i32.const 1) (local.get $p)))
     (local.get $tup))
+
+  ;; Skip tokens until the next statement boundary — newline, EOF, or
+  ;; a top-level declaration keyword (TFn, TLet, TType, TEffect,
+  ;; THandler, TImport). Used by the where-clause parser
+  ;; until the named follow-up Hβ.first-light.refine-predicate-parser
+  ;; lands the full predicate ADT.
+  (func $skip_predicate_to_stmt_end (param $tokens i32) (param $pos i32) (result i32)
+    (local $k i32)
+    (block $done (loop $scan
+      (local.set $k (call $kind_at (local.get $tokens) (local.get $pos)))
+      (br_if $done (i32.eq (local.get $k) (i32.const 68)))   ;; TNewline
+      (br_if $done (i32.eq (local.get $k) (i32.const 69)))   ;; TEof
+      (br_if $done (i32.eq (local.get $k) (i32.const 0)))    ;; TFn
+      (br_if $done (i32.eq (local.get $k) (i32.const 1)))    ;; TLet
+      (br_if $done (i32.eq (local.get $k) (i32.const 5)))    ;; TType
+      (br_if $done (i32.eq (local.get $k) (i32.const 6)))    ;; TEffect
+      (br_if $done (i32.eq (local.get $k) (i32.const 8)))    ;; THandler
+      (br_if $done (i32.eq (local.get $k) (i32.const 18)))   ;; TImport
+      (local.set $pos (i32.add (local.get $pos) (i32.const 1)))
+      (br $scan)))
+    (local.get $pos))
 
   ;; parse_record_type_fields: field-name/type pairs until RBrace.
   ;; Returns (fields_list, new_pos). Each field is a 2-tuple (name, Ty).
@@ -19028,8 +19083,155 @@
                   (local.get $handle)
                   (local.get $name)
                   (local.get $lo)))))
-    ;; Non-PVar pat: pass-through lo (Lock #5 — destructure named follow-up).
+    ;; PCon (133) — constructor destructure per
+    ;; Hβ.first-light.letstmt-destructure (closes the named follow-up
+    ;; Hβ.lower.letstmt-destructure at line 220-222).
+    ;;
+    ;; Eight interrogations on this destructure site:
+    ;;  1. Graph?      LMakeVariant carries field offsets at 4, 8, 12,
+    ;;                 ... per variant_record layout (emit_const.wat:493).
+    ;;  2. Handler?    @resume=OneShot — direct lowering.
+    ;;  3. Verb?       N/A — structural.
+    ;;  4. Row?        Pure with respect to env binding.
+    ;;  5. Ownership?  Each binding is `own` at its first use; refined
+    ;;                 by the gradient.
+    ;;  6. Refinement? PCon's tag_id is checked at infer-time
+    ;;                 (walk_expr.wat:984+); destructure is unconditional
+    ;;                 because the let-form admits no fall-through.
+    ;;  7. Gradient?   Field-load offset is compile-time-resolved.
+    ;;  8. Reason?     Each binding's Reason chain walks back to
+    ;;                 LetBinding(name, …) per infer's PCon arm.
+    ;;
+    ;; Drift modes refused:
+    ;;  - Drift 1 (vtable): no dispatch table; positional field loads.
+    ;;  - Drift 6 (special): one-deep AND nested PCon use the same
+    ;;                       recursive shape (recursion into sub-pats).
+    ;;  - Drift 9 (deferred): all sub-pat tags handled (PVar binds; PWild
+    ;;                       skips; nested PCon recurses; PLit skips —
+    ;;                       refutable patterns are caller's problem in
+    ;;                       irrefutable let-context).
+    ;;  - Drift 11 (acc++[x]): buffer-counter substrate via
+    ;;                       list_extend_to + list_set + slice.
+    ;;
+    ;; Layout per parser_pat.wat: PCon = [tag=133][ctor_name][sub_pats].
+    (if (i32.eq (local.get $pat_tag) (i32.const 133))
+      (then
+        (return (call $lower_pcon_let
+                       (local.get $handle)
+                       (local.get $pat)
+                       (local.get $val)
+                       (local.get $lo)
+                       (local.get $expr_h)))))
+    ;; Other pats (PTuple, PList, PRecord) — pass-through; named
+    ;; follow-up Hβ.lower.letstmt-destructure-tuple-list-record extends
+    ;; this arm when those forms surface in wheel parser output.
     (local.get $lo))
+
+  ;; PCon destructure helper. Generates:
+  ;;   LBlock([
+  ;;     LLet(temp_h, "__pat_<h>", lo_val),
+  ;;     for each PVar sub-pat at index i:
+  ;;       LLet(sub_h, name_i, LFieldLoad(temp_h_local, 4 + 4*i))
+  ;;     for each PWild: skip
+  ;;     for each nested PCon: recurse (chain another LBlock)
+  ;;   ])
+  (func $lower_pcon_let
+        (param $handle i32) (param $pat i32) (param $val i32)
+        (param $lo_val i32) (param $expr_h i32) (result i32)
+    (local $sub_pats i32) (local $n i32) (local $i i32)
+    (local $sub_pat i32) (local $sub_tag i32)
+    (local $temp_name i32) (local $sub_name i32) (local $sub_h i32)
+    (local $field_offset i32)
+    (local $stmts_buf i32) (local $stmt_count i32)
+    (local $temp_local_ref i32) (local $field_load i32) (local $sub_let i32)
+    (local.set $sub_pats (i32.load offset=8 (local.get $pat)))
+    (local.set $n (call $len (local.get $sub_pats)))
+    ;; Bind the value into a synthesized temp local. Name is "__pat_<h>"
+    ;; using $int_to_str so each destructure site gets a unique label.
+    (local.set $temp_name (call $str_concat
+                            (call $synth_pat_prefix)
+                            (call $int_to_str (local.get $handle))))
+    (drop (call $ls_bind_local (local.get $temp_name) (local.get $expr_h)))
+    ;; Pre-size the buffer: 1 (temp let) + n (worst case all PVar).
+    (local.set $stmts_buf (call $make_list (i32.const 0)))
+    (local.set $stmts_buf (call $list_extend_to
+                            (local.get $stmts_buf)
+                            (i32.add (i32.const 1) (local.get $n))))
+    (local.set $stmt_count (i32.const 0))
+    ;; First stmt: LLet(handle, temp_name, lo_val)
+    (drop (call $list_set (local.get $stmts_buf)
+                          (local.get $stmt_count)
+                          (call $lexpr_make_llet
+                                (local.get $handle)
+                                (local.get $temp_name)
+                                (local.get $lo_val))))
+    (local.set $stmt_count (i32.add (local.get $stmt_count) (i32.const 1)))
+    ;; For each sub-pat:
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $sub_pat (call $list_index (local.get $sub_pats) (local.get $i)))
+        (local.set $sub_tag (call $tag_of (local.get $sub_pat)))
+        ;; Field offset: 4 + 4*i (variant tag at 0, fields at 4 onward).
+        (local.set $field_offset
+          (i32.add (i32.const 4) (i32.mul (local.get $i) (i32.const 4))))
+        ;; PVar (130) — bind the name to the field load.
+        (if (i32.eq (local.get $sub_tag) (i32.const 130))
+          (then
+            (local.set $sub_name (i32.load offset=4 (local.get $sub_pat)))
+            ;; Mint a fresh handle for the binding's type. Per the
+            ;; productive-under-error discipline (walk_expr.wat:957-974),
+            ;; PCon-with-no-ctor-binding still binds sub-pats with fresh
+            ;; handles; we mirror that at lower-time using the parent
+            ;; expr_h since the actual sub-handles aren't threaded.
+            (local.set $sub_h (local.get $expr_h))
+            (drop (call $ls_bind_local (local.get $sub_name) (local.get $sub_h)))
+            ;; LFieldLoad(sub_h, LLocal(expr_h, temp_name), field_offset)
+            (local.set $temp_local_ref
+              (call $lexpr_make_llocal (local.get $expr_h) (local.get $temp_name)))
+            (local.set $field_load
+              (call $lexpr_make_lfieldload
+                    (local.get $sub_h)
+                    (local.get $temp_local_ref)
+                    (local.get $field_offset)))
+            (local.set $sub_let
+              (call $lexpr_make_llet
+                    (local.get $sub_h)
+                    (local.get $sub_name)
+                    (local.get $field_load)))
+            (local.set $stmts_buf (call $list_extend_to
+                                    (local.get $stmts_buf)
+                                    (i32.add (local.get $stmt_count) (i32.const 1))))
+            (drop (call $list_set (local.get $stmts_buf)
+                                  (local.get $stmt_count)
+                                  (local.get $sub_let)))
+            (local.set $stmt_count (i32.add (local.get $stmt_count) (i32.const 1)))))
+        ;; PWild (131) — skip; no binding to emit.
+        ;; Nested PCon and other pats — drift-9-safe pass for now;
+        ;; when wheel needs nested let-destructure, this arm extends.
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each)))
+    ;; Wrap all stmts in LBlock so the outer LBlock sees one LowExpr
+    ;; that itself contains the destructure sequence.
+    (call $lexpr_make_lblock
+          (local.get $handle)
+          (call $slice (local.get $stmts_buf)
+                       (i32.const 0)
+                       (local.get $stmt_count))))
+
+  ;; "__pat_" prefix as a length-prefixed string. Allocated once per
+  ;; call site; cheap.
+  (func $synth_pat_prefix (result i32)
+    (local $s i32)
+    (local.set $s (call $str_alloc (i32.const 6)))
+    (i32.store8 offset=4 (local.get $s) (i32.const 95))   ;; '_'
+    (i32.store8 offset=5 (local.get $s) (i32.const 95))   ;; '_'
+    (i32.store8 offset=6 (local.get $s) (i32.const 112))  ;; 'p'
+    (i32.store8 offset=7 (local.get $s) (i32.const 97))   ;; 'a'
+    (i32.store8 offset=8 (local.get $s) (i32.const 116))  ;; 't'
+    (i32.store8 offset=9 (local.get $s) (i32.const 95))   ;; '_'
+    (local.get $s))
 
   ;; ─── $lower_walk_stmt_fn — FnStmt arm (parser tag 121) ──────────────
   ;; Per src/lower.nx:590-613 + Lock #1/#2/#3/#4.
@@ -24177,8 +24379,29 @@
     (call $emit_nl))
 
   ;; $emit_let_locals — walk body LowExpr list, emit (local $name i32)
-  ;; for each LLet. Stops at LMakeClosure boundaries (those are other fns).
-  ;; Per wasm.nx:965-1030.
+  ;; for each LLet (including nested ones inside LBlock containers
+  ;; per Hβ.first-light.letstmt-destructure-let-locals: PCon
+  ;; destructure produces LBlock containing LLet sequences). Stops
+  ;; at LMakeClosure / LMakeContinuation boundaries — those are
+  ;; SEPARATE function bodies; their locals belong to their own
+  ;; emit_fn_body call.
+  ;;
+  ;; Eight interrogations on this descent site:
+  ;;  1. Graph?      LLet's name is the local label; LBlock's stmts
+  ;;                 list is the structure to recurse into.
+  ;;  2. Handler?    Direct emit; @resume=OneShot.
+  ;;  3. Verb?       N/A — structural walk.
+  ;;  4. Row?        EmitMemory effect performed (writes to output).
+  ;;  5. Ownership?  exprs borrowed throughout.
+  ;;  6. Refinement? LLet's handle ≥ 0.
+  ;;  7. Gradient?   N/A — orthogonal to gradient.
+  ;;  8. Reason?     N/A at emit-time.
+  ;;
+  ;; Drift modes refused:
+  ;;  - Drift 1 (vtable): direct tag-int dispatch; no table.
+  ;;  - Drift 6 (special): same descent for outer block AND nested
+  ;;                       LBlock; no special-case for first-level.
+  ;;  - Drift 9 (deferred): all emit-relevant containers walked.
   (func $emit_let_locals (param $exprs i32)
     (local $i i32) (local $n i32) (local $expr i32) (local $tag i32)
     (local.set $n (call $len (local.get $exprs)))
@@ -24188,16 +24411,50 @@
         (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
         (local.set $expr (call $list_index (local.get $exprs) (local.get $i)))
         (local.set $tag (call $tag_of (local.get $expr)))
-        ;; LLet (304) — declare local and recurse into value
+        ;; LLet (304) — declare local AND recurse into value
+        ;; (since the value may itself contain nested LLets via PCon
+        ;; destructure or block expressions).
         (if (i32.eq (local.get $tag) (i32.const 304))
           (then
             (call $emit_cstr (i32.const 4146) (i32.const 9)) ;; " (local $"
             (call $emit_str (call $lexpr_llet_name (local.get $expr)))
-            (call $emit_cstr (i32.const 4155) (i32.const 5)))) ;; " i32)"
-        ;; LMakeClosure (311) / LMakeContinuation (312) — fn boundary, stop
-        ;; All other tags: no locals to declare at this level
+            (call $emit_cstr (i32.const 4155) (i32.const 5)) ;; " i32)"
+            ;; Recurse into the value (may contain nested LBlocks via
+            ;; PCon destructure or other compound expressions).
+            (call $emit_let_locals_walk
+                  (call $lexpr_llet_value (local.get $expr)))))
+        ;; LBlock (315) — recurse into stmts list to find nested LLets.
+        (if (i32.eq (local.get $tag) (i32.const 315))
+          (then
+            (call $emit_let_locals (call $lexpr_lblock_stmts (local.get $expr)))))
+        ;; LIf (314) — recurse into branches.
+        (if (i32.eq (local.get $tag) (i32.const 314))
+          (then
+            (call $emit_let_locals (call $lexpr_lif_then (local.get $expr)))
+            (call $emit_let_locals (call $lexpr_lif_else (local.get $expr)))))
+        ;; LMakeClosure (311) / LMakeContinuation (312) — fn boundary,
+        ;; their LLets belong to their own fn body's emit_let_locals.
+        ;; All other tags: no LowExpr children with LLet to declare.
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $iter))))
+
+  ;; Single-expr walker companion to $emit_let_locals (which takes a
+  ;; list). Used when recursing into LLet's value (a single expr).
+  (func $emit_let_locals_walk (param $expr i32)
+    (local $tag i32)
+    (if (i32.lt_u (local.get $expr) (global.get $heap_base))
+      (then (return)))
+    (local.set $tag (call $tag_of (local.get $expr)))
+    (if (i32.eq (local.get $tag) (i32.const 315))
+      (then
+        (call $emit_let_locals (call $lexpr_lblock_stmts (local.get $expr)))
+        (return)))
+    (if (i32.eq (local.get $tag) (i32.const 314))
+      (then
+        (call $emit_let_locals (call $lexpr_lif_then (local.get $expr)))
+        (call $emit_let_locals (call $lexpr_lif_else (local.get $expr)))
+        (return)))
+    (return))
 
   ;; $emit_functions — walk LowExpr list, emit (func ...) for each
   ;; LMakeClosure, including NESTED ones inside fn bodies (lambdas).
