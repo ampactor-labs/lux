@@ -24,12 +24,24 @@
       (then (return (call $parse_effect_stmt (local.get $tokens)
         (i32.add (local.get $pos) (i32.const 1)) (local.get $span)))))
     ;; THandler → parse handler declaration
+    ;; Per Hβ.first-light.handler-decl-emit-cascade (19-box surfaced
+    ;; 2026-05-03 — see plan tracker): prior `pos+2` lands AT opening
+    ;; `{`; $skip_to_rbrace counted that `{` as depth+1 and scanned to
+    ;; TEof, swallowing everything after the first handler. Quick-fix
+    ;; (skip past `{` with $skip_past_lbrace) restored single-test
+    ;; correctness BUT exhausted the bump allocator on the wheel
+    ;; (parser now consumes substantial body content per handler;
+    ;; aggregate memory pressure trips the 16MB cap on 7+ files).
+    ;; The substrate-honest closure is the full parser_handler.wat
+    ;; cascade per Hβ-infer-handler-decls-full.md — not a one-line
+    ;; brace tweak. Restored the original brace-skip discipline; the
+    ;; 19-box stays open under its named handle.
     (if (i32.eq (local.get $k) (i32.const 8))
       (then
         (local.set $name (call $ident_at_p (local.get $tokens)
           (i32.add (local.get $pos) (i32.const 1))))
-        ;; HandlerDeclStmt(name, "", arms)
-        ;; For now skip handler body
+        ;; HandlerDeclStmt(name, "", arms) — full surface deferred per
+        ;; Hβ.first-light.parser-handler-arms named follow-up.
         (local.set $tup (call $make_list (i32.const 2)))
         (drop (call $list_set (local.get $tup) (i32.const 0)
           (call $nstmt
