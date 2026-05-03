@@ -265,13 +265,39 @@
 
   ;; ─── $emit_lbinop — LBinOp tag 306 emit arm per §2.4 ───────────────
   ;; Per src/backends/wasm.nx:1163-1167 + emit_binop at 1646-1661.
-  ;; Tags 140-153 (parser_infra.wat:329-342) map 1:1 to WAT i32 ops.
-  ;; BConcat (153) calls $str_concat runtime fn.
+  ;; Tags 140-153 (parser_infra.wat:329-342) map 1:1 to WAT i32 ops
+  ;; for BAdd-BOr (140-152). BConcat (153) dispatches per operand Ty:
+  ;;   - TString (102)  → $str_concat
+  ;;   - TList   (105)  → $list_alloc_concat (lazy concat tag-3 node)
+  ;;   - other          → $str_concat (fall-through; preserves current
+  ;;                                    behavior pre H.3.c when type
+  ;;                                    inference doesn't resolve to a
+  ;;                                    distinguishing Ty).
+  ;;
+  ;; Per H.3.c: the wheel uses `++` for both strings AND lists. Using
+  ;; the operand handle's looked-up Ty as the dispatch key is the
+  ;; substrate-honest move (drift 8 refusal — type-tag dispatch, not
+  ;; mode-flag); the LowExpr's `_l` operand carries its source handle
+  ;; via $lexpr_handle, and $lookup_ty (emit/lookup.wat) resolves the
+  ;; current chase-deep Ty from the inference graph.
   (func $emit_lbinop (param $r i32)
-    (local $op i32)
-    (call $emit_lexpr (call $lexpr_lbinop_l (local.get $r)))
+    (local $op i32) (local $left_lexpr i32)
+    (local $left_h i32) (local $left_ty i32) (local $left_ty_tag i32)
+    (local.set $left_lexpr (call $lexpr_lbinop_l (local.get $r)))
+    (call $emit_lexpr (local.get $left_lexpr))
     (call $emit_lexpr (call $lexpr_lbinop_r (local.get $r)))
     (local.set $op (call $lexpr_lbinop_op (local.get $r)))
+    ;; BConcat (153): operand-Ty dispatch.
+    (if (i32.eq (local.get $op) (i32.const 153))
+      (then
+        (local.set $left_h (call $lexpr_handle (local.get $left_lexpr)))
+        (local.set $left_ty (call $lookup_ty (local.get $left_h)))
+        (local.set $left_ty_tag (call $ty_tag (local.get $left_ty)))
+        (if (i32.eq (local.get $left_ty_tag) (i32.const 105))   ;; TList
+          (then (call $ec6_emit_call_list_alloc_concat) (return)))
+        ;; Fall-through (TString, unresolved, or other): str_concat.
+        (call $ec6_emit_call_str_concat)
+        (return)))
     (call $ec6_emit_binop_op (local.get $op)))
 
   ;; ─── $ec6_emit_binop_op — dispatch on integer tag 140-153 ──────────
@@ -425,6 +451,27 @@
     (call $emit_byte (i32.const 111)) (call $emit_byte (i32.const 110))
     (call $emit_byte (i32.const 99)) (call $emit_byte (i32.const 97))
     (call $emit_byte (i32.const 116)) (call $emit_byte (i32.const 41)))
+
+  ;; Per H.3.c emit-list-runtime-call: BConcat over TList operands
+  ;; emits a call to runtime $list_alloc_concat (runtime/list.wat:180-188)
+  ;; — allocates a tag=3 lazy concat node with both operand pointers.
+  ;; Length is the sum of left.len + right.len, computed lazily on
+  ;; access via $list_index / $list_to_flat (handled by runtime).
+  (func $ec6_emit_call_list_alloc_concat
+    ;; emits: (call $list_alloc_concat)
+    (call $emit_byte (i32.const 40))  (call $emit_byte (i32.const 99))   ;; '(' 'c'
+    (call $emit_byte (i32.const 97))  (call $emit_byte (i32.const 108))  ;; 'a' 'l'
+    (call $emit_byte (i32.const 108)) (call $emit_byte (i32.const 32))   ;; 'l' ' '
+    (call $emit_byte (i32.const 36))  (call $emit_byte (i32.const 108))  ;; '$' 'l'
+    (call $emit_byte (i32.const 105)) (call $emit_byte (i32.const 115))  ;; 'i' 's'
+    (call $emit_byte (i32.const 116)) (call $emit_byte (i32.const 95))   ;; 't' '_'
+    (call $emit_byte (i32.const 97))  (call $emit_byte (i32.const 108))  ;; 'a' 'l'
+    (call $emit_byte (i32.const 108)) (call $emit_byte (i32.const 111))  ;; 'l' 'o'
+    (call $emit_byte (i32.const 99))  (call $emit_byte (i32.const 95))   ;; 'c' '_'
+    (call $emit_byte (i32.const 99))  (call $emit_byte (i32.const 111))  ;; 'c' 'o'
+    (call $emit_byte (i32.const 110)) (call $emit_byte (i32.const 99))   ;; 'n' 'c'
+    (call $emit_byte (i32.const 97))  (call $emit_byte (i32.const 116))  ;; 'a' 't'
+    (call $emit_byte (i32.const 41)))                                    ;; ')'
 
   ;; ─── $emit_lunaryop — LUnaryOp tag 307 emit arm per §2.4 ───────────
   ;; Per src/backends/wasm.nx:1163-1166 + emit_unaryop at 1663-1666.
