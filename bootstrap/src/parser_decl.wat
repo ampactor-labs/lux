@@ -40,6 +40,41 @@
         (return (local.get $tup))))
     ;; Parse variants
     (local.set $variants_r (call $parse_variants (local.get $tokens) (local.get $p)))
+    ;; Skip optional `where <predicate>` per SYNTAX.md §1216-1233.
+    ;; Per Hβ.first-light.refine-predicate-parser (named follow-up):
+    ;; the predicate ADT + verify-emit substrate is the substrate-
+    ;; honest landing. Until that handle lands, the seed pragmatically
+    ;; consumes the where-clause tokens so they don't bleed into the
+    ;; next-statement parser (where they'd surface as
+    ;; E_MissingVariable: self). The refinement predicate is dropped
+    ;; at the parser layer; downstream compilation proceeds.
+    ;;
+    ;; Eight interrogations per edit site:
+    ;;  1. Graph?   Refinement predicate is metadata at graph layer
+    ;;              — the type alias is what's bound (without the
+    ;;              where clause).
+    ;;  2. Handler? @resume=OneShot direct parse.
+    ;;  3. Verb?    N/A.
+    ;;  4. Row?     Pure parse.
+    ;;  5. Ownership? Tokens borrowed.
+    ;;  6. Refinement? PRAGMATICALLY DEFERRED to the named follow-up.
+    ;;              Substrate-honest tag: this is drift-9-safe because
+    ;;              the named handle Hβ.first-light.refine-predicate-
+    ;;              parser will replace this skip with full predicate
+    ;;              parsing + Verify-emit obligation per src/infer.nx
+    ;;              wheel canonical (RefineStmt arm at line 261-266).
+    ;;  7. Gradient? Skipping the predicate doesn't unlock capability
+    ;;              today; the named follow-up wires Verify so adding
+    ;;              `where p` becomes a gradient annotation.
+    ;;  8. Reason?  Predicate-source span available at the where token's
+    ;;              position; named follow-up threads it as DeclaredAt.
+    (local.set $p (call $list_index (local.get $variants_r) (i32.const 1)))
+    (local.set $p (call $skip_ws_p (local.get $tokens) (local.get $p)))
+    (if (call $at (local.get $tokens) (local.get $p) (i32.const 19)) ;; TWhere
+      (then
+        (local.set $p (call $skip_predicate_to_stmt_end
+                            (local.get $tokens)
+                            (i32.add (local.get $p) (i32.const 1))))))
     (local.set $tup (call $make_list (i32.const 2)))
     (drop (call $list_set (local.get $tup) (i32.const 0)
       (call $nstmt
@@ -47,9 +82,29 @@
           (call $make_list (i32.const 0))
           (call $list_index (local.get $variants_r) (i32.const 0)))
         (local.get $span))))
-    (drop (call $list_set (local.get $tup) (i32.const 1)
-      (call $list_index (local.get $variants_r) (i32.const 1))))
+    (drop (call $list_set (local.get $tup) (i32.const 1) (local.get $p)))
     (local.get $tup))
+
+  ;; Skip tokens until the next statement boundary — newline, EOF, or
+  ;; a top-level declaration keyword (TFn, TLet, TType, TEffect,
+  ;; THandler, TImport). Used by the where-clause parser
+  ;; until the named follow-up Hβ.first-light.refine-predicate-parser
+  ;; lands the full predicate ADT.
+  (func $skip_predicate_to_stmt_end (param $tokens i32) (param $pos i32) (result i32)
+    (local $k i32)
+    (block $done (loop $scan
+      (local.set $k (call $kind_at (local.get $tokens) (local.get $pos)))
+      (br_if $done (i32.eq (local.get $k) (i32.const 68)))   ;; TNewline
+      (br_if $done (i32.eq (local.get $k) (i32.const 69)))   ;; TEof
+      (br_if $done (i32.eq (local.get $k) (i32.const 0)))    ;; TFn
+      (br_if $done (i32.eq (local.get $k) (i32.const 1)))    ;; TLet
+      (br_if $done (i32.eq (local.get $k) (i32.const 5)))    ;; TType
+      (br_if $done (i32.eq (local.get $k) (i32.const 6)))    ;; TEffect
+      (br_if $done (i32.eq (local.get $k) (i32.const 8)))    ;; THandler
+      (br_if $done (i32.eq (local.get $k) (i32.const 18)))   ;; TImport
+      (local.set $pos (i32.add (local.get $pos) (i32.const 1)))
+      (br $scan)))
+    (local.get $pos))
 
   ;; parse_record_type_fields: field-name/type pairs until RBrace.
   ;; Returns (fields_list, new_pos). Each field is a 2-tuple (name, Ty).
