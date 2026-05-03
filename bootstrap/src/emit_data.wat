@@ -199,6 +199,15 @@
 
   (data (i32.const 1491) "_start_fn")
   (data (i32.const 1500) " (export \22_start\22)")
+
+  ;; H.3.b emit-float-substrate: `(f64.const ` (11 bytes payload).
+  ;; Sits at offset 4304 — above parser_infra.wat's last segment
+  ;; (4288, "list_index", 14 bytes total → ends at 4302). The full
+  ;; range [4302, 1048576) is free until the bump allocator's heap
+  ;; (init 1 MiB). Used by $emit_f64_const in emit_infra.wat.
+  (data (i32.const 4304) "(f64.const ")
+
   ;; Next free in emit_data.wat: 1519 (but 1520+ is claimed by
   ;; emit/emit_const.wat — see emit_const.wat:143). Phase F strings
   ;; live in emit/main.wat's own segment range (1584+).
+  ;; H.3.b reserved [4304, 4315): `(f64.const ` data string.

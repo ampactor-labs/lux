@@ -133,6 +133,17 @@
     (call $emit_int (local.get $n))
     (call $emit_close))
 
+  ;; emit_f64_const(s): emits `(f64.const <text>)` where <text> is the
+  ;; raw decimal float literal preserved through lex → parse → lower.
+  ;; Per H.3.b: the seed round-trips text rather than parsing/binary;
+  ;; the WAT validator accepts decimal float literals natively. Data
+  ;; lives at offset 4304 (verified clear of all other static segments
+  ;; that occupy [0, 4302)).
+  (func $emit_f64_const (param $s i32)
+    (call $emit_cstr (i32.const 4304) (i32.const 11))
+    (call $emit_str (local.get $s))
+    (call $emit_close))
+
   (func $emit_call_open (param $name i32)
     (call $emit_cstr (i32.const 572) (i32.const 6))
     (call $emit_dollar_name (local.get $name)))

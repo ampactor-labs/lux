@@ -66,6 +66,20 @@
     (i32.store offset=4 (local.get $ptr) (local.get $n))
     (local.get $ptr))
 
+  ;; TFloat(s) → [tag=27][str_ptr]
+  ;; Per Hβ.first-light.emit-float-substrate (H.3.b): float literals
+  ;; carry their raw decimal text (e.g., "1.5", "1e308", "0.85"). Emit
+  ;; passes the text verbatim into `(f64.const <text>)`. Avoids binary
+  ;; float parsing in the seed (which would couple the bootstrap to a
+  ;; full IEEE-754 decoder); the seed's job is to ROUND-TRIP the text
+  ;; from source through to the WAT output.
+  (func $mk_TFloat (param $s i32) (result i32)
+    (local $ptr i32)
+    (local.set $ptr (call $alloc (i32.const 8)))
+    (i32.store (local.get $ptr) (i32.const 27))
+    (i32.store offset=4 (local.get $ptr) (local.get $s))
+    (local.get $ptr))
+
   ;; TString(s) → [tag=28][str_ptr]
   (func $mk_TString (param $s i32) (result i32)
     (local $ptr i32)
@@ -312,18 +326,88 @@
         (br $scan)))
     (local.get $pos))
 
-  ;; scan_number: advance over digits and optional decimal point.
-  ;; Returns new_pos. (Float detection deferred for simplicity.)
+  ;; scan_number: advance over a numeric literal — digits, optional
+  ;; decimal `.<digits>`, optional exponent `e`/`E` `[+-]?<digits>`.
+  ;; Returns new_pos. Caller (lex_main.wat) inspects the slice for `.`
+  ;; or `e/E` to distinguish TFloat from TInt.
+  ;;
+  ;; Per Hβ.first-light.emit-float-substrate (H.3.b): the seed lexer
+  ;; must accept all wheel-canonical float forms — `1.5`, `0.85`,
+  ;; `1e308`, `1.5e-3`, `2.0E10`. Decimal-only (`123`) stays integer.
   (func $scan_number (param $src i32) (param $n i32) (param $pos i32) (result i32)
     (local $b i32)
+    ;; Phase 1: leading digits.
+    (block $done_int
+      (loop $scan_int
+        (br_if $done_int (i32.ge_u (local.get $pos) (local.get $n)))
+        (local.set $b (call $byte_at (local.get $src) (local.get $pos)))
+        (br_if $done_int (i32.eqz (call $is_digit (local.get $b))))
+        (local.set $pos (i32.add (local.get $pos) (i32.const 1)))
+        (br $scan_int)))
+    ;; Phase 2: optional `.<digits>` — but only if `.` is followed by a
+    ;; digit (otherwise let the parser handle `.` as field access).
+    (if (i32.lt_u (local.get $pos) (local.get $n))
+      (then
+        (if (i32.and
+              (i32.eq (call $byte_at (local.get $src) (local.get $pos)) (i32.const 46))   ;; '.'
+              (if (result i32) (i32.lt_u (i32.add (local.get $pos) (i32.const 1)) (local.get $n))
+                (then (call $is_digit (call $byte_at (local.get $src)
+                  (i32.add (local.get $pos) (i32.const 1)))))
+                (else (i32.const 0))))
+          (then
+            (local.set $pos (i32.add (local.get $pos) (i32.const 1)))   ;; consume '.'
+            (block $done_frac
+              (loop $scan_frac
+                (br_if $done_frac (i32.ge_u (local.get $pos) (local.get $n)))
+                (local.set $b (call $byte_at (local.get $src) (local.get $pos)))
+                (br_if $done_frac (i32.eqz (call $is_digit (local.get $b))))
+                (local.set $pos (i32.add (local.get $pos) (i32.const 1)))
+                (br $scan_frac)))))))
+    ;; Phase 3: optional exponent `e`/`E` `[+-]?<digits>`.
+    (if (i32.lt_u (local.get $pos) (local.get $n))
+      (then
+        (local.set $b (call $byte_at (local.get $src) (local.get $pos)))
+        (if (i32.or
+              (i32.eq (local.get $b) (i32.const 101))    ;; 'e'
+              (i32.eq (local.get $b) (i32.const 69)))    ;; 'E'
+          (then
+            (local.set $pos (i32.add (local.get $pos) (i32.const 1)))   ;; consume 'e'/'E'
+            ;; Optional sign
+            (if (i32.lt_u (local.get $pos) (local.get $n))
+              (then
+                (local.set $b (call $byte_at (local.get $src) (local.get $pos)))
+                (if (i32.or
+                      (i32.eq (local.get $b) (i32.const 43))    ;; '+'
+                      (i32.eq (local.get $b) (i32.const 45)))   ;; '-'
+                  (then (local.set $pos (i32.add (local.get $pos) (i32.const 1)))))))
+            ;; Exponent digits.
+            (block $done_exp
+              (loop $scan_exp
+                (br_if $done_exp (i32.ge_u (local.get $pos) (local.get $n)))
+                (local.set $b (call $byte_at (local.get $src) (local.get $pos)))
+                (br_if $done_exp (i32.eqz (call $is_digit (local.get $b))))
+                (local.set $pos (i32.add (local.get $pos) (i32.const 1)))
+                (br $scan_exp)))))))
+    (local.get $pos))
+
+  ;; contains_float_marker: returns 1 if the string contains `.`, `e`,
+  ;; or `E` — the three markers that distinguish a float literal from an
+  ;; int. Per H.3.b: scan_number consumes both shapes; the slice content
+  ;; is the discriminator.
+  (func $contains_float_marker (param $s i32) (result i32)
+    (local $len i32) (local $i i32) (local $b i32)
+    (local.set $len (call $str_len (local.get $s)))
+    (local.set $i (i32.const 0))
     (block $done
       (loop $scan
-        (br_if $done (i32.ge_u (local.get $pos) (local.get $n)))
-        (local.set $b (call $byte_at (local.get $src) (local.get $pos)))
-        (br_if $done (i32.eqz (call $is_digit (local.get $b))))
-        (local.set $pos (i32.add (local.get $pos) (i32.const 1)))
+        (br_if $done (i32.ge_u (local.get $i) (local.get $len)))
+        (local.set $b (call $byte_at (local.get $s) (local.get $i)))
+        (if (i32.eq (local.get $b) (i32.const 46)) (then (return (i32.const 1))))   ;; '.'
+        (if (i32.eq (local.get $b) (i32.const 101)) (then (return (i32.const 1))))  ;; 'e'
+        (if (i32.eq (local.get $b) (i32.const 69)) (then (return (i32.const 1))))   ;; 'E'
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $scan)))
-    (local.get $pos))
+    (i32.const 0))
 
   ;; scan_string: advance past closing quote. Returns new_pos.
   ;; (Escape handling simplified — copies bytes without interpreting escapes.)

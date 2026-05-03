@@ -77,6 +77,16 @@
     (i32.store offset=4 (local.get $p) (local.get $n))
     (local.get $p))
 
+  ;; LitFloat(s) → [tag=81][str_ptr]
+  ;; Per H.3.b emit-float-substrate: payload is the raw decimal text,
+  ;; not parsed binary. Emit's TFloat arm in $emit_lconst uses the str
+  ;; verbatim inside `(f64.const <text>)`.
+  (func $mk_LitFloat (param $s i32) (result i32)
+    (local $p i32) (local.set $p (call $alloc (i32.const 8)))
+    (i32.store (local.get $p) (i32.const 81))
+    (i32.store offset=4 (local.get $p) (local.get $s))
+    (local.get $p))
+
   ;; LitString(s) → [tag=82][s]
   (func $mk_LitString (param $s i32) (result i32)
     (local $p i32) (local.set $p (call $alloc (i32.const 8)))

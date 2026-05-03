@@ -122,9 +122,17 @@
               (local.get $pos) (local.get $new_pos)))
             (local.set $end_col (i32.add (local.get $col)
               (i32.sub (local.get $new_pos) (local.get $pos))))
-            (local.set $tok (call $mk_tok
-              (call $mk_TInt (call $parse_int (local.get $str_val)))
-              (local.get $line) (local.get $col) (local.get $line) (local.get $end_col)))
+            ;; Per H.3.b: if the slice contains `.`, `e`, or `E`, it's a
+            ;; float literal; emit TFloat carrying the raw text. Else TInt.
+            (if (call $contains_float_marker (local.get $str_val))
+              (then
+                (local.set $tok (call $mk_tok
+                  (call $mk_TFloat (local.get $str_val))
+                  (local.get $line) (local.get $col) (local.get $line) (local.get $end_col))))
+              (else
+                (local.set $tok (call $mk_tok
+                  (call $mk_TInt (call $parse_int (local.get $str_val)))
+                  (local.get $line) (local.get $col) (local.get $line) (local.get $end_col)))))
             (local.set $tup (call $push_tok (local.get $buf) (local.get $count) (local.get $tok)))
             (local.set $buf (call $list_index (local.get $tup) (i32.const 0)))
             (local.set $count (call $list_index (local.get $tup) (i32.const 1)))

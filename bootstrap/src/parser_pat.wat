@@ -39,6 +39,12 @@
     (i32.store offset=4 (local.get $p) (local.get $n))
     (local.get $p))
 
+  (func $mk_LVFloat (param $s i32) (result i32)
+    (local $p i32) (local.set $p (call $alloc (i32.const 8)))
+    (i32.store (local.get $p) (i32.const 181))
+    (i32.store offset=4 (local.get $p) (local.get $s))
+    (local.get $p))
+
   (func $mk_LVString (param $s i32) (result i32)
     (local $p i32) (local.set $p (call $alloc (i32.const 8)))
     (i32.store (local.get $p) (i32.const 182))
@@ -214,6 +220,16 @@
         (local.set $tup (call $make_list (i32.const 2)))
         (drop (call $list_set (local.get $tup) (i32.const 0)
           (call $mk_PLit (call $mk_LVInt (i32.load offset=4 (local.get $k))))))
+        (drop (call $list_set (local.get $tup) (i32.const 1)
+          (i32.add (local.get $pos) (i32.const 1))))
+        (return (local.get $tup))))
+
+    ;; TFloat (tag=27) → PLit(LVFloat(s)) — payload is raw decimal text.
+    (if (i32.eq (call $tag_of (local.get $k)) (i32.const 27))
+      (then
+        (local.set $tup (call $make_list (i32.const 2)))
+        (drop (call $list_set (local.get $tup) (i32.const 0)
+          (call $mk_PLit (call $mk_LVFloat (i32.load offset=4 (local.get $k))))))
         (drop (call $list_set (local.get $tup) (i32.const 1)
           (i32.add (local.get $pos) (i32.const 1))))
         (return (local.get $tup))))

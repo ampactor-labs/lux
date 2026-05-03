@@ -232,6 +232,14 @@
           (call $nexpr (call $mk_LitInt (i32.load offset=4 (local.get $k))) (local.get $span))))
         (drop (call $list_set (local.get $tup) (i32.const 1) (i32.add (local.get $pos) (i32.const 1))))
         (return (local.get $tup))))
+    ;; TFloat (27) — payload is the raw decimal text per H.3.b.
+    (if (i32.eq (local.get $n) (i32.const 27))
+      (then
+        (local.set $tup (call $make_list (i32.const 2)))
+        (drop (call $list_set (local.get $tup) (i32.const 0)
+          (call $nexpr (call $mk_LitFloat (i32.load offset=4 (local.get $k))) (local.get $span))))
+        (drop (call $list_set (local.get $tup) (i32.const 1) (i32.add (local.get $pos) (i32.const 1))))
+        (return (local.get $tup))))
     ;; TString (28)
     (if (i32.eq (local.get $n) (i32.const 28))
       (then

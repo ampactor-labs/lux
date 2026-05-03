@@ -166,6 +166,17 @@
 
     (local.set $ty_tag_v (call $ty_tag (local.get $ty)))
 
+    ;; TFloat (101) → "(f64.const <text>)". H.3.b emit-float-substrate.
+    ;; The LConst's value field IS the str ptr to the raw decimal text
+    ;; (set by parser's mk_LitFloat at offset 4; threaded through lower
+    ;; via $walk_const_payload_i32 reading offset 4). Emit passes the
+    ;; text verbatim — WAT accepts decimal float literals natively, so
+    ;; the seed avoids implementing a full IEEE-754 decoder.
+    (if (i32.eq (local.get $ty_tag_v) (i32.const 101))
+      (then
+        (call $emit_f64_const (local.get $value))
+        (return)))
+
     ;; TString (102) → intern + emit "(i32.const <offset>)".
     (if (i32.eq (local.get $ty_tag_v) (i32.const 102))
       (then
@@ -178,7 +189,7 @@
       (then (call $emit_i32_const (i32.const 0)) (return)))
 
     ;; TInt (100) AND fall-through (TBool variant tag_id, nullary
-    ;; variants, TFloat-as-int per follow-up, etc.) → "(i32.const <value>)".
+    ;; variants, etc.) → "(i32.const <value>)".
     ;; The uniform-i32 emission per DESIGN.md §0.5 "the heap has one
     ;; story" + γ §IX: every value at the seed layer IS an i32, so
     ;; emitting (i32.const N) round-trips for any ground value.
