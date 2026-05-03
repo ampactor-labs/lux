@@ -562,6 +562,13 @@ checks its box and pushes the cursor forward.
 - [x] **Hμ.gradient-delta** (wheel-side; commit `78ae3f8`) — `src/gradient_delta.nx`; inverse-direction gradient. Delta effect + delta_default handler; effect-row + ownership + refinement deltas. The gradient is bidirectional; the bus-compressor response curve covers both annotation-add AND body-tighten directions.
 - [x] **Hμ.cursor.cache** (wheel-side; commit `2999d7c`) — `src/cursor_cache.nx`; ExtendedKaiFile = KaiFile + oracle_queue per protocol_oracle_is_ic.md "one extra cached value." CursorCache effect + cursor_cache_default handler + Pack/Unpack round-trip + buffer-counter substrate. Cursor argmax becomes O(N) cached read instead of O(N·K) recompute.
 - [x] **Hμ.eight-interrogation-loop** (wheel-side; commit `9c80f4b`) — `src/eight_loop.nx`; the eight interrogations as automated runtime substrate. InterrogationKind ADT + InterrogationVerdict ADT + InterrogationReport record + Interrogate effect + interrogate_default handler + project_gradient_density aggregate. SAME EIGHT, FIVE ROLES — CLAUDE.md authoring + SUBSTRATE.md kernel + 09-mentl.md tentacles + Hμ.cursor's CursorView + this automated substrate. One method, every level.
+- [x] **Hμ.synth-proposer** (wheel-side; commit `884c571`) — `src/synth_proposer.nx`; replaces synth_enumerative's OneShot stub with real candidate enumeration. ProposerKind ADT + EnrichedCandidate record + enumerate_typed (per-target-type-shape) + verify_each_enriched (kernel proof gate) + Node synthesizers + cursor_session_with_full_phaseu wrapper composing all six Phase μ peer handlers in one chain. Closes Phase μ wheel-side.
+
+═══ PHASE μ WHEEL-SIDE CLOSED ═══ 2026-05-02
+All six named Phase μ peer handles authored as wheel-canonical
+dream code (commits 3b2b5de + 4c9a44f + 78ae3f8 + 2999d7c +
+9c80f4b + 884c571). Tier 3 produces every .seed transcription
+automatically post-first-light-L1.
 - [ ] T3.c Hμ.cursor.transport.seed (Tier 3; produced post-L1 by self-compile)
 - [ ] T3.d Hμ.cursor.cache.seed
 - [ ] T3.e Hμ.gradient-delta.seed
