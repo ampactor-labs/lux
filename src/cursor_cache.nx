@@ -1,0 +1,471 @@
+// cursor_cache.nx — Hμ.cursor.cache peer handle
+//
+// Extends IC's cache from `env` to `(env, oracle_queue)` per
+// protocol_oracle_is_ic.md: "Mentl is what falls out of IC plus
+// Pure-over-broader-input applied to the existing speculative-
+// inference loop. The kernel does the work; the substrate is the
+// residue of composing what was already there."
+//
+// Cursor's argmax becomes O(N) read on cached results instead of
+// O(N·K) recompute (where N = handles in the live graph, K =
+// candidates per handle from gradient_next's checkpoint/apply/
+// verify/rollback).
+//
+// Anchor 0 dream code. The wheel canonical IS the ULTIMATE FORM.
+// Verification by simulation, walkthrough, audit. lux3.wasm is not
+// the arbiter. The seed transcribes after first-light-L1 per Tier 3
+// growth pattern (Hβ-bootstrap.md §12.5).
+//
+// Composition tally — every read is from substrate that exists today:
+//
+//   KaiFile / cache_pack / cache_unpack    — src/cache.nx (live)
+//   Pack + !Unpack effect algebra          — src/effects.nx + lib/runtime/binary.nx
+//   AnnotationSuggestion / Cursor          — src/types.nx (Hμ.cursor)
+//   teach_gradient                          — src/mentl.nx (live)
+//   delta_default                           — src/gradient_delta.nx (Hμ.gradient-delta)
+//   IC source-hash + import-hash invariants — src/cache.nx hash_source
+//
+// Drift modes refused per edit site:
+//
+//   Drift 1 (vtable):       Direct schemekind match; no dispatch
+//                           table for cache lookup.
+//   Drift 5 (split state):  ONE KaiFile-extended record carries
+//                           both env + oracle_queue; not parallel
+//                           per-module structures.
+//   Drift 7 (parallel arr): oracle_queue is List<OracleEntry>;
+//                           one record-shape (handle + suggestion).
+//   Drift 8 (string flag):  CacheStatus tagged ADT (Hit / Miss /
+//                           StaleHash / StaleVersion).
+//   Drift 9 (deferred):     All cache paths bodied; round-trip
+//                           pack/unpack symmetric for OracleEntry.
+//   Drift 11 (suffix-append): Buffer-counter substrate per CLAUDE.md
+//                           "Bug classes that cost hours" —
+//                           list_extend_to + list_set + slice.
+
+import types
+import effects
+import cache
+import mentl
+import cursor
+import gradient_delta
+
+// ─── OracleEntry — cached gradient-suggestion record ────────────────
+//
+// One per handle that has a non-None gradient_next OR delta_pick.
+// The cache stores the projection at the moment IC re-inferred the
+// module; subsequent cursor_argmax queries read this list filtered
+// by caret proximity.
+
+type OracleEntry
+  = OracleEntry({
+      handle:     Int,                       // graph handle the entry attaches to
+      suggestion: AnnotationSuggestion,      // forward OR inverse direction
+      direction:  GradientDirection,         // forward = annotation-add; inverse = body-tighten
+      reason:     Reason                      // why this entry was minted
+    })
+
+type GradientDirection
+  = GradForward                              // teach_gradient: "add this annotation"
+  | GradInverse                              // delta_pick:    "tighten this signature"
+
+// ─── ExtendedKaiFile — IC cache record + oracle_queue ───────────────
+//
+// Per protocol_oracle_is_ic.md "one extra cached value": KaiFile
+// gains `oracle_queue` alongside its existing `exported_entries`.
+// On cache hit (source hash unchanged + import hashes unchanged),
+// the oracle_queue is reused. On miss, gradient_next + delta_pick
+// re-walk the new env.
+
+type ExtendedKaiFile
+  = ExtendedKaiFile({
+      kai:           KaiFile,                // existing IC cache record
+      oracle_queue:  List,                   // List<OracleEntry>
+      queue_version: Int                      // bumps when gradient logic changes
+    })
+
+// Bumps when oracle_queue serialization shape changes. Old extended
+// .kai files with mismatching queue version are treated as queue-only
+// invalidations (kai-side stays valid; queue regenerates).
+//
+//   v1 — IC.2c + Hμ.cursor.cache initial landing: OracleEntry
+//        positional pack (handle + AnnotationSuggestion + direction
+//        + reason) + queue_version field.
+fn cursor_cache_queue_version() with Pure = 1
+
+// ─── The CursorCache effect ─────────────────────────────────────────
+//
+// The cache's surface. cursor_argmax reads through query_oracle_queue
+// when the cache substrate is composed in the handler chain; falls
+// through to gradient_next + delta_pick on miss.
+
+effect CursorCache {
+  /// Look up the oracle queue for a module. Returns None on miss
+  /// (source hash changed, version mismatch, or not yet cached).
+  query_oracle_queue(String) -> Option<List>            @resume=OneShot
+
+  /// Store the oracle queue for a module after re-inference.
+  /// Called by the IC driver when re-walking a module's env.
+  store_oracle_queue(String, Int, List) -> ()           @resume=OneShot
+
+  /// Walk the full multi-module oracle queue, filtered by caret
+  /// proximity, returning ranked entries for cursor_argmax.
+  argmax_over_cache(Caret) -> List                      @resume=OneShot
+}
+
+// ─── cursor_cache_default — the canonical handler ──────────────────
+//
+// `with !Mutate` — read-only over the cache file system; same
+// constraint as cursor_default's projection per protocol_oracle_is_ic.md
+// ("surfaces query, never mutate").
+//
+// State carries the cached extended-kai files keyed by module-name.
+// On query: probe the in-memory map; fall back to disk; fall back
+// to None.
+
+handler cursor_cache_default with cached_kai_files = [] {
+
+  query_oracle_queue(module_name) => {
+    let entry = lookup_module_in_cache(cached_kai_files, module_name)
+    match entry {
+      Some(extended) => {
+        let ExtendedKaiFile(e) = extended
+        let KaiFile(k) = e.kai
+        // Stale-version check: if our queue_version doesn't match the
+        // landing version, treat as miss (queue invalidation; env stays
+        // valid for the kai's exported_entries surface).
+        if e.queue_version == cursor_cache_queue_version() {
+          resume(Some(e.oracle_queue))
+        } else { resume(None) }
+      },
+      None => {
+        // Try loading from disk via cache.nx's binary substrate.
+        let from_disk = load_extended_kai_from_disk(module_name)
+        match from_disk {
+          Some(extended) => {
+            let ExtendedKaiFile(e) = extended
+            resume(Some(e.oracle_queue))
+              with cached_kai_files = [(module_name, extended)] ++ cached_kai_files
+          },
+          None => resume(None)
+        }
+      }
+    }
+  },
+
+  store_oracle_queue(module_name, source_hash, queue) => {
+    let kai = lookup_kai_in_cache(cached_kai_files, module_name)
+    match kai {
+      Some(existing_kai) => {
+        let extended = ExtendedKaiFile({
+          kai:           existing_kai,
+          oracle_queue:  queue,
+          queue_version: cursor_cache_queue_version()
+        })
+        save_extended_kai_to_disk(module_name, extended)
+        resume() with cached_kai_files =
+          [(module_name, extended)] ++ remove_module(cached_kai_files, module_name)
+      },
+      None => resume()   // no kai yet for module; queue stored at next IC pass
+    }
+  },
+
+  argmax_over_cache(caret) => {
+    // Walk every cached module's oracle_queue; score each entry by
+    // gates_unlocked × caret_proximity_weight; argmax.
+    let all_entries = collect_all_entries(cached_kai_files)
+    let scored = score_all_entries(all_entries, caret)
+    resume(scored)
+  }
+}
+
+// ─── Cache lookup helpers — buffer-counter substrate ────────────────
+
+fn lookup_module_in_cache(cached, target) with Pure = {
+  if cached.len == 0 { None }
+  else {
+    let (name, extended) = list_head(cached)
+    if str_eq(name, target) { Some(extended) }
+    else { lookup_module_in_cache(list_tail(cached), target) }
+  }
+}
+
+fn lookup_kai_in_cache(cached, target) with Pure = {
+  match lookup_module_in_cache(cached, target) {
+    None => None,
+    Some(extended) => {
+      let ExtendedKaiFile(e) = extended
+      Some(e.kai)
+    }
+  }
+}
+
+fn remove_module(cached, target) with Pure = {
+  if cached.len == 0 { [] }
+  else {
+    let (name, extended) = list_head(cached)
+    if str_eq(name, target) { list_tail(cached) }
+    else {
+      [(name, extended)] ++ remove_module(list_tail(cached), target)
+    }
+  }
+}
+
+// ─── Oracle queue construction — per-module after IC re-infer ───────
+//
+// Called by the IC driver post-infer for each module. Walks the
+// module's env-bound function handles, computes gradient_next +
+// delta_pick at each, accumulates into the oracle_queue.
+
+fn build_oracle_queue(module_handles)
+    with GraphRead + Teach + Delta + !Mutate = {
+  let n = module_handles.len
+  let buf = make_list(0)
+  let buf_extended = list_extend_to(buf, n + n)   // upper bound: 2 entries per handle
+  build_queue_loop(module_handles, 0, n, buf_extended, 0)
+}
+
+fn build_queue_loop(handles, i, n, buf, buf_len)
+    with GraphRead + Teach + Delta + !Mutate = {
+  if i >= n { slice(buf, 0, buf_len) }
+  else {
+    let handle = list_index(handles, i)
+    // Forward direction: gradient_next.
+    let forward_opt = perform teach_gradient(handle)
+    let new_len_after_forward = match forward_opt {
+      None => buf_len,
+      Some(suggestion) => {
+        let entry = OracleEntry({
+          handle:     handle,
+          suggestion: suggestion,
+          direction:  GradForward,
+          reason:     Inferred("oracle-queue forward direction (annotation-add)")
+        })
+        list_set(buf, buf_len, (handle, entry))
+        buf_len + 1
+      }
+    }
+    // Inverse direction: delta_pick.
+    let inverse_opt = perform delta_pick(handle)
+    let new_len_after_inverse = match inverse_opt {
+      None => new_len_after_forward,
+      Some(suggestion) => {
+        let entry = OracleEntry({
+          handle:     handle,
+          suggestion: suggestion,
+          direction:  GradInverse,
+          reason:     Inferred("oracle-queue inverse direction (body-tightening)")
+        })
+        list_set(buf, new_len_after_forward, (handle, entry))
+        new_len_after_forward + 1
+      }
+    }
+    build_queue_loop(handles, i + 1, n, buf, new_len_after_inverse)
+  }
+}
+
+// ─── Cross-module entry collection + scoring ───────────────────────
+
+fn collect_all_entries(cached) with Pure = {
+  if cached.len == 0 { [] }
+  else {
+    let (_, extended) = list_head(cached)
+    let ExtendedKaiFile(e) = extended
+    e.oracle_queue ++ collect_all_entries(list_tail(cached))
+  }
+}
+
+fn score_all_entries(entries, caret) with GraphRead + !Mutate = {
+  if entries.len == 0 { [] }
+  else {
+    let head = list_head(entries)
+    let scored_head = score_one_entry(head, caret)
+    [scored_head] ++ score_all_entries(list_tail(entries), caret)
+  }
+}
+
+fn score_one_entry(entry_pair, caret) with GraphRead + !Mutate = {
+  let (handle, entry) = entry_pair
+  let OracleEntry(e) = entry
+  let AnnotationSuggestion(_kind, _ann, unlocks, _reason) = e.suggestion
+  let target_span = perform graph_span_of(handle)
+  let proximity = caret_proximity_weight(caret, target_span)
+  let gates = unlocks.len
+  Cursor(handle, e.reason, int_to_float(gates) * proximity)
+}
+
+// ─── Disk I/O — Pack/Unpack round-trip per cache.nx pattern ────────
+//
+// Extends cache.nx's binary serialization with OracleEntry pack/
+// unpack. Per cache.nx v6 versioning discipline: cursor_cache_queue_
+// version() bumps when the wire format changes.
+
+fn save_extended_kai_to_disk(module_name, extended)
+    with Pack + !Unpack + WasmFs = {
+  let ExtendedKaiFile(e) = extended
+  let path = kai_extended_path_for(module_name)
+  cache_pack_extended_kai(extended)
+  perform fs_write_packed(path)
+}
+
+fn load_extended_kai_from_disk(module_name)
+    with Unpack + WasmFs = {
+  let path = kai_extended_path_for(module_name)
+  if perform fs_exists(path) {
+    perform fs_open_for_read(path)
+    let extended = cache_unpack_extended_kai()
+    Some(extended)
+  } else { None }
+}
+
+fn kai_extended_path_for(module_name) with Pure = {
+  ".inka/cache/" |> str_concat(module_name) |> str_concat(".kai+oracle")
+}
+
+// ─── Pack — wire format for ExtendedKaiFile ─────────────────────────
+//
+// The kai segment uses cache.nx's existing pack_kai. The extension is
+// the trailing oracle_queue: queue_version (4 bytes) + entry_count
+// (4 bytes) + entries (variable).
+//
+// OracleEntry layout per pack:
+//   handle (4 bytes Int)
+//   direction-tag (1 byte: 0 = GradForward, 1 = GradInverse)
+//   suggestion-kind (1 byte: SuggestionKind tag)
+//   annotation-text (length-prefixed String)
+//   unlocks-count (4 bytes Int) + each label as length-prefixed String
+//   reason (recursive Reason serialization per cache.nx pack_reason)
+
+fn cache_pack_extended_kai(extended) with Pack + !Unpack = {
+  let ExtendedKaiFile(e) = extended
+  cache_pack(e.kai)
+  cache_pack_int(e.queue_version)
+  cache_pack_int(e.oracle_queue.len)
+  cache_pack_oracle_entries(e.oracle_queue, 0, e.oracle_queue.len)
+}
+
+fn cache_pack_oracle_entries(entries, i, n) with Pack + !Unpack = {
+  if i >= n { () }
+  else {
+    let (_, entry) = list_index(entries, i)
+    cache_pack_oracle_entry(entry)
+    cache_pack_oracle_entries(entries, i + 1, n)
+  }
+}
+
+fn cache_pack_oracle_entry(entry) with Pack + !Unpack = {
+  let OracleEntry(e) = entry
+  cache_pack_int(e.handle)
+  cache_pack_byte(direction_to_byte(e.direction))
+  cache_pack_suggestion(e.suggestion)
+  cache_pack_reason(e.reason)
+}
+
+fn direction_to_byte(d) with Pure = match d {
+  GradForward => 0,
+  GradInverse => 1
+}
+
+fn byte_to_direction(b) with Pure = {
+  if b == 0 { GradForward }
+  else if b == 1 { GradInverse }
+  else { GradForward }   // drift-9-safe seed: bytes outside {0,1} would
+                          // indicate a corrupt cache; treat as forward
+}
+
+fn cache_pack_suggestion(suggestion) with Pack + !Unpack = {
+  let AnnotationSuggestion(kind, ann_text, unlocks, reason) = suggestion
+  cache_pack_byte(suggestion_kind_to_byte(kind))
+  cache_pack_string(ann_text)
+  cache_pack_int(unlocks.len)
+  cache_pack_string_list(unlocks, 0, unlocks.len)
+  cache_pack_reason(reason)
+}
+
+fn suggestion_kind_to_byte(k) with Pure = match k {
+  SuggestEffectRow  => 0,
+  SuggestOwnership  => 1,
+  SuggestRefinement => 2,
+  SuggestReturnType => 3
+}
+
+fn byte_to_suggestion_kind(b) with Pure = {
+  if b == 0 { SuggestEffectRow }
+  else if b == 1 { SuggestOwnership }
+  else if b == 2 { SuggestRefinement }
+  else if b == 3 { SuggestReturnType }
+  else { SuggestEffectRow }   // drift-9-safe seed for corrupt-cache
+}
+
+// ─── Unpack — wire format reader ───────────────────────────────────
+
+fn cache_unpack_extended_kai() with Unpack = {
+  let kai = cache_unpack()
+  let queue_version = cache_unpack_int()
+  let queue_count = cache_unpack_int()
+  let queue = cache_unpack_oracle_entries(0, queue_count, [])
+  ExtendedKaiFile({
+    kai:           kai,
+    oracle_queue:  queue,
+    queue_version: queue_version
+  })
+}
+
+fn cache_unpack_oracle_entries(i, n, acc) with Unpack = {
+  if i >= n { acc }
+  else {
+    let entry = cache_unpack_oracle_entry()
+    cache_unpack_oracle_entries(i + 1, n, [(0, entry)] ++ acc)
+  }
+}
+
+fn cache_unpack_oracle_entry() with Unpack = {
+  let handle = cache_unpack_int()
+  let direction_byte = cache_unpack_byte()
+  let suggestion = cache_unpack_suggestion()
+  let reason = cache_unpack_reason()
+  OracleEntry({
+    handle:     handle,
+    suggestion: suggestion,
+    direction:  byte_to_direction(direction_byte),
+    reason:     reason
+  })
+}
+
+fn cache_unpack_suggestion() with Unpack = {
+  let kind_byte = cache_unpack_byte()
+  let ann_text = cache_unpack_string()
+  let unlocks_count = cache_unpack_int()
+  let unlocks = cache_unpack_string_list(0, unlocks_count, [])
+  let reason = cache_unpack_reason()
+  AnnotationSuggestion(
+    byte_to_suggestion_kind(kind_byte),
+    ann_text,
+    unlocks,
+    reason
+  )
+}
+
+// ─── Effect declarations consumed by cache I/O ──────────────────────
+
+effect WasmFs {
+  fs_exists(String) -> Bool                          @resume=OneShot
+  fs_open_for_read(String) -> ()                     @resume=OneShot
+  fs_write_packed(String) -> ()                      @resume=OneShot
+}
+
+// ─── Composition with cursor_default ────────────────────────────────
+//
+// cursor_default's cursor_argmax_compute walks the live graph
+// recomputing gradient candidates. With cursor_cache_default
+// installed in the chain (`~> cursor_cache_default`),
+// cursor_argmax_compute reads from argmax_over_cache instead —
+// O(N) cached read instead of O(N·K) recompute.
+//
+// One handler swap; same Cursor effect; same kernel underneath.
+// Inka solves Inka's IC-cache-extension problem because the
+// medium IS the substrate.
+
+fn cursor_session_with_cache(initial_caret)
+    with Surface + GraphRead + Cursor + Delta + CursorCache + !Mutate = {
+  cursor_session(initial_caret) ~> cursor_cache_default
+}
