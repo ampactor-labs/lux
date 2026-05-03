@@ -532,10 +532,10 @@ checks its box and pushes the cursor forward.
 - [ ] H.1.c Hβ.first-light.infer-handler-decls — *partial seed-stub at walk_stmt.wat:966*
 
 **Phase H.2 — Lower completeness (5/5)**
-- [ ] H.2.a Hβ.first-light.lower-letstmt-destructure
-- [ ] H.2.b Hβ.first-light.lower-match-arms — *VERIFIED ALREADY-CLOSED; match arms compile to real WAT*
+- [x] H.2.a Hβ.first-light.lower-letstmt-destructure — *(commits `b625ce6` PCon + `61a7d5f` PTuple) PCon let-statements lower to LBlock with field-load LLets at offset 4+4*i; PTuple let-statements lower with offset 4*i; PVar binds, PWild skips; nested forms named follow-up. Verified empirically.*
+- [x] H.2.b Hβ.first-light.lower-match-arms — *VERIFIED ALREADY-CLOSED; match arms compile to real WAT*
 - [ ] H.2.c Hβ.first-light.lower-handler-arm-decls
-- [ ] H.2.d Hβ.first-light.lower-blockexpr-stmts — *VERIFIED ALREADY-CLOSED; block let-bindings compile correctly*
+- [x] H.2.d Hβ.first-light.lower-blockexpr-stmts — *VERIFIED ALREADY-CLOSED; block let-bindings compile correctly*
 - [ ] H.2.e Hβ.first-light.lower-lambda-capture — *parser-side closed below; capture-substrate remains*
 
 **Phase H.3 — Emit completeness (3/3)**
