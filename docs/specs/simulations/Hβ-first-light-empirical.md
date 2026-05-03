@@ -457,6 +457,40 @@ Newly named handles:
   list_index(...)` PTuple destructure missing (PCon was done;
   PTuple is its own arm).
 
+### 4.5.4e Anchor 0 reorientation — back to dream-code (2026-05-02 closing)
+
+The user's reminder "remember. dream-code ;)" pulled the cursor
+back from seed-bug-chasing to wheel-ward composition.
+
+Per Anchor 0: **lux3.wasm is not the arbiter.** The wheel canonical
+(src/*.nx) is the ULTIMATE FORM. The seed transcribes the wheel
+after first-light-L1 per Tier 3 growth pattern. Verification is by
+simulation, walkthrough, and audit — not compilation.
+
+Per Anchor 4: **build the wheel; never wrap the axle.** Each
+substrate-honest move is wheel-ward. Patching the seed to compile
+the wheel-as-it-is is wrap-the-axle behavior. The discipline says:
+write the wheel's dream code; the seed grows toward it.
+
+Hμ.cursor.transport landed (commit `4c9a44f`):
+
+- src/cursor_transport.nx (~430 lines, ~52 files in the wheel now)
+- Surface effect: surface_render + surface_action + surface_handshake
+- Four transport handlers: terminal / lsp / web / vim
+- TransportState record (drift 5 + 7 closure)
+- Action ADT (4 arms exhaustive per Hμ-cursor.md §5.3)
+- Cadence ADT (drift 8 closure)
+- cursor_session + cursor_loop: the bus-compressor `<~` at the
+  human-medium boundary
+
+Eight interrogations cleared per edit site (inline). Drift modes
+1/2/3/4/5/6/7/8/9 all refused with named rationale.
+
+This ALSO closes the seed-side Hμ.cursor.transport.seed
+automatically post-L1 — the seed compiles the wheel and produces
+the .seed transcription as compilation output. Per ROADMAP Phase μ
+peer handle list.
+
 ### 4.5.5 Session running tally (this empirical-execution arc)
 
 Closed THIS session via empirical-driven substrate landings:

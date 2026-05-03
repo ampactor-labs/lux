@@ -558,7 +558,8 @@ checks its box and pushes the cursor forward.
 **Tier 3 — Wheel growth post-L1 (6 handles automatic)**
 - [ ] T3.a Hμ.cursor.seed
 - [ ] T3.b Hμ.synth-proposer.seed
-- [ ] T3.c Hμ.cursor.transport.seed
+- [x] **Hμ.cursor.transport** (wheel-side; commit `4c9a44f`) — `src/cursor_transport.nx` ULTIMATE-FORM authoring; Surface effect + Action/Cadence/TransportState ADTs + four transport handlers (terminal/lsp/web/vim) + cursor_loop bus-compressor. Tier 3 .seed transcription falls out at L1.
+- [ ] T3.c Hμ.cursor.transport.seed (Tier 3; produced post-L1 by self-compile)
 - [ ] T3.d Hμ.cursor.cache.seed
 - [ ] T3.e Hμ.gradient-delta.seed
 - [ ] T3.f Hμ.eight-interrogation-loop.seed
