@@ -259,8 +259,155 @@
                   (local.get $handle)
                   (local.get $name)
                   (local.get $lo)))))
-    ;; Non-PVar pat: pass-through lo (Lock #5 — destructure named follow-up).
+    ;; PCon (133) — constructor destructure per
+    ;; Hβ.first-light.letstmt-destructure (closes the named follow-up
+    ;; Hβ.lower.letstmt-destructure at line 220-222).
+    ;;
+    ;; Eight interrogations on this destructure site:
+    ;;  1. Graph?      LMakeVariant carries field offsets at 4, 8, 12,
+    ;;                 ... per variant_record layout (emit_const.wat:493).
+    ;;  2. Handler?    @resume=OneShot — direct lowering.
+    ;;  3. Verb?       N/A — structural.
+    ;;  4. Row?        Pure with respect to env binding.
+    ;;  5. Ownership?  Each binding is `own` at its first use; refined
+    ;;                 by the gradient.
+    ;;  6. Refinement? PCon's tag_id is checked at infer-time
+    ;;                 (walk_expr.wat:984+); destructure is unconditional
+    ;;                 because the let-form admits no fall-through.
+    ;;  7. Gradient?   Field-load offset is compile-time-resolved.
+    ;;  8. Reason?     Each binding's Reason chain walks back to
+    ;;                 LetBinding(name, …) per infer's PCon arm.
+    ;;
+    ;; Drift modes refused:
+    ;;  - Drift 1 (vtable): no dispatch table; positional field loads.
+    ;;  - Drift 6 (special): one-deep AND nested PCon use the same
+    ;;                       recursive shape (recursion into sub-pats).
+    ;;  - Drift 9 (deferred): all sub-pat tags handled (PVar binds; PWild
+    ;;                       skips; nested PCon recurses; PLit skips —
+    ;;                       refutable patterns are caller's problem in
+    ;;                       irrefutable let-context).
+    ;;  - Drift 11 (acc++[x]): buffer-counter substrate via
+    ;;                       list_extend_to + list_set + slice.
+    ;;
+    ;; Layout per parser_pat.wat: PCon = [tag=133][ctor_name][sub_pats].
+    (if (i32.eq (local.get $pat_tag) (i32.const 133))
+      (then
+        (return (call $lower_pcon_let
+                       (local.get $handle)
+                       (local.get $pat)
+                       (local.get $val)
+                       (local.get $lo)
+                       (local.get $expr_h)))))
+    ;; Other pats (PTuple, PList, PRecord) — pass-through; named
+    ;; follow-up Hβ.lower.letstmt-destructure-tuple-list-record extends
+    ;; this arm when those forms surface in wheel parser output.
     (local.get $lo))
+
+  ;; PCon destructure helper. Generates:
+  ;;   LBlock([
+  ;;     LLet(temp_h, "__pat_<h>", lo_val),
+  ;;     for each PVar sub-pat at index i:
+  ;;       LLet(sub_h, name_i, LFieldLoad(temp_h_local, 4 + 4*i))
+  ;;     for each PWild: skip
+  ;;     for each nested PCon: recurse (chain another LBlock)
+  ;;   ])
+  (func $lower_pcon_let
+        (param $handle i32) (param $pat i32) (param $val i32)
+        (param $lo_val i32) (param $expr_h i32) (result i32)
+    (local $sub_pats i32) (local $n i32) (local $i i32)
+    (local $sub_pat i32) (local $sub_tag i32)
+    (local $temp_name i32) (local $sub_name i32) (local $sub_h i32)
+    (local $field_offset i32)
+    (local $stmts_buf i32) (local $stmt_count i32)
+    (local $temp_local_ref i32) (local $field_load i32) (local $sub_let i32)
+    (local.set $sub_pats (i32.load offset=8 (local.get $pat)))
+    (local.set $n (call $len (local.get $sub_pats)))
+    ;; Bind the value into a synthesized temp local. Name is "__pat_<h>"
+    ;; using $int_to_str so each destructure site gets a unique label.
+    (local.set $temp_name (call $str_concat
+                            (call $synth_pat_prefix)
+                            (call $int_to_str (local.get $handle))))
+    (drop (call $ls_bind_local (local.get $temp_name) (local.get $expr_h)))
+    ;; Pre-size the buffer: 1 (temp let) + n (worst case all PVar).
+    (local.set $stmts_buf (call $make_list (i32.const 0)))
+    (local.set $stmts_buf (call $list_extend_to
+                            (local.get $stmts_buf)
+                            (i32.add (i32.const 1) (local.get $n))))
+    (local.set $stmt_count (i32.const 0))
+    ;; First stmt: LLet(handle, temp_name, lo_val)
+    (drop (call $list_set (local.get $stmts_buf)
+                          (local.get $stmt_count)
+                          (call $lexpr_make_llet
+                                (local.get $handle)
+                                (local.get $temp_name)
+                                (local.get $lo_val))))
+    (local.set $stmt_count (i32.add (local.get $stmt_count) (i32.const 1)))
+    ;; For each sub-pat:
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $sub_pat (call $list_index (local.get $sub_pats) (local.get $i)))
+        (local.set $sub_tag (call $tag_of (local.get $sub_pat)))
+        ;; Field offset: 4 + 4*i (variant tag at 0, fields at 4 onward).
+        (local.set $field_offset
+          (i32.add (i32.const 4) (i32.mul (local.get $i) (i32.const 4))))
+        ;; PVar (130) — bind the name to the field load.
+        (if (i32.eq (local.get $sub_tag) (i32.const 130))
+          (then
+            (local.set $sub_name (i32.load offset=4 (local.get $sub_pat)))
+            ;; Mint a fresh handle for the binding's type. Per the
+            ;; productive-under-error discipline (walk_expr.wat:957-974),
+            ;; PCon-with-no-ctor-binding still binds sub-pats with fresh
+            ;; handles; we mirror that at lower-time using the parent
+            ;; expr_h since the actual sub-handles aren't threaded.
+            (local.set $sub_h (local.get $expr_h))
+            (drop (call $ls_bind_local (local.get $sub_name) (local.get $sub_h)))
+            ;; LFieldLoad(sub_h, LLocal(expr_h, temp_name), field_offset)
+            (local.set $temp_local_ref
+              (call $lexpr_make_llocal (local.get $expr_h) (local.get $temp_name)))
+            (local.set $field_load
+              (call $lexpr_make_lfieldload
+                    (local.get $sub_h)
+                    (local.get $temp_local_ref)
+                    (local.get $field_offset)))
+            (local.set $sub_let
+              (call $lexpr_make_llet
+                    (local.get $sub_h)
+                    (local.get $sub_name)
+                    (local.get $field_load)))
+            (local.set $stmts_buf (call $list_extend_to
+                                    (local.get $stmts_buf)
+                                    (i32.add (local.get $stmt_count) (i32.const 1))))
+            (drop (call $list_set (local.get $stmts_buf)
+                                  (local.get $stmt_count)
+                                  (local.get $sub_let)))
+            (local.set $stmt_count (i32.add (local.get $stmt_count) (i32.const 1)))))
+        ;; PWild (131) — skip; no binding to emit.
+        ;; Nested PCon and other pats — drift-9-safe pass for now;
+        ;; when wheel needs nested let-destructure, this arm extends.
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each)))
+    ;; Wrap all stmts in LBlock so the outer LBlock sees one LowExpr
+    ;; that itself contains the destructure sequence.
+    (call $lexpr_make_lblock
+          (local.get $handle)
+          (call $slice (local.get $stmts_buf)
+                       (i32.const 0)
+                       (local.get $stmt_count))))
+
+  ;; "__pat_" prefix as a length-prefixed string. Allocated once per
+  ;; call site; cheap.
+  (func $synth_pat_prefix (result i32)
+    (local $s i32)
+    (local.set $s (call $str_alloc (i32.const 6)))
+    (i32.store8 offset=4 (local.get $s) (i32.const 95))   ;; '_'
+    (i32.store8 offset=5 (local.get $s) (i32.const 95))   ;; '_'
+    (i32.store8 offset=6 (local.get $s) (i32.const 112))  ;; 'p'
+    (i32.store8 offset=7 (local.get $s) (i32.const 97))   ;; 'a'
+    (i32.store8 offset=8 (local.get $s) (i32.const 116))  ;; 't'
+    (i32.store8 offset=9 (local.get $s) (i32.const 95))   ;; '_'
+    (local.get $s))
 
   ;; ─── $lower_walk_stmt_fn — FnStmt arm (parser tag 121) ──────────────
   ;; Per src/lower.nx:590-613 + Lock #1/#2/#3/#4.

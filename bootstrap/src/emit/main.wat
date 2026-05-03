@@ -840,8 +840,29 @@
     (call $emit_nl))
 
   ;; $emit_let_locals — walk body LowExpr list, emit (local $name i32)
-  ;; for each LLet. Stops at LMakeClosure boundaries (those are other fns).
-  ;; Per wasm.nx:965-1030.
+  ;; for each LLet (including nested ones inside LBlock containers
+  ;; per Hβ.first-light.letstmt-destructure-let-locals: PCon
+  ;; destructure produces LBlock containing LLet sequences). Stops
+  ;; at LMakeClosure / LMakeContinuation boundaries — those are
+  ;; SEPARATE function bodies; their locals belong to their own
+  ;; emit_fn_body call.
+  ;;
+  ;; Eight interrogations on this descent site:
+  ;;  1. Graph?      LLet's name is the local label; LBlock's stmts
+  ;;                 list is the structure to recurse into.
+  ;;  2. Handler?    Direct emit; @resume=OneShot.
+  ;;  3. Verb?       N/A — structural walk.
+  ;;  4. Row?        EmitMemory effect performed (writes to output).
+  ;;  5. Ownership?  exprs borrowed throughout.
+  ;;  6. Refinement? LLet's handle ≥ 0.
+  ;;  7. Gradient?   N/A — orthogonal to gradient.
+  ;;  8. Reason?     N/A at emit-time.
+  ;;
+  ;; Drift modes refused:
+  ;;  - Drift 1 (vtable): direct tag-int dispatch; no table.
+  ;;  - Drift 6 (special): same descent for outer block AND nested
+  ;;                       LBlock; no special-case for first-level.
+  ;;  - Drift 9 (deferred): all emit-relevant containers walked.
   (func $emit_let_locals (param $exprs i32)
     (local $i i32) (local $n i32) (local $expr i32) (local $tag i32)
     (local.set $n (call $len (local.get $exprs)))
@@ -851,16 +872,50 @@
         (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
         (local.set $expr (call $list_index (local.get $exprs) (local.get $i)))
         (local.set $tag (call $tag_of (local.get $expr)))
-        ;; LLet (304) — declare local and recurse into value
+        ;; LLet (304) — declare local AND recurse into value
+        ;; (since the value may itself contain nested LLets via PCon
+        ;; destructure or block expressions).
         (if (i32.eq (local.get $tag) (i32.const 304))
           (then
             (call $emit_cstr (i32.const 4146) (i32.const 9)) ;; " (local $"
             (call $emit_str (call $lexpr_llet_name (local.get $expr)))
-            (call $emit_cstr (i32.const 4155) (i32.const 5)))) ;; " i32)"
-        ;; LMakeClosure (311) / LMakeContinuation (312) — fn boundary, stop
-        ;; All other tags: no locals to declare at this level
+            (call $emit_cstr (i32.const 4155) (i32.const 5)) ;; " i32)"
+            ;; Recurse into the value (may contain nested LBlocks via
+            ;; PCon destructure or other compound expressions).
+            (call $emit_let_locals_walk
+                  (call $lexpr_llet_value (local.get $expr)))))
+        ;; LBlock (315) — recurse into stmts list to find nested LLets.
+        (if (i32.eq (local.get $tag) (i32.const 315))
+          (then
+            (call $emit_let_locals (call $lexpr_lblock_stmts (local.get $expr)))))
+        ;; LIf (314) — recurse into branches.
+        (if (i32.eq (local.get $tag) (i32.const 314))
+          (then
+            (call $emit_let_locals (call $lexpr_lif_then (local.get $expr)))
+            (call $emit_let_locals (call $lexpr_lif_else (local.get $expr)))))
+        ;; LMakeClosure (311) / LMakeContinuation (312) — fn boundary,
+        ;; their LLets belong to their own fn body's emit_let_locals.
+        ;; All other tags: no LowExpr children with LLet to declare.
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $iter))))
+
+  ;; Single-expr walker companion to $emit_let_locals (which takes a
+  ;; list). Used when recursing into LLet's value (a single expr).
+  (func $emit_let_locals_walk (param $expr i32)
+    (local $tag i32)
+    (if (i32.lt_u (local.get $expr) (global.get $heap_base))
+      (then (return)))
+    (local.set $tag (call $tag_of (local.get $expr)))
+    (if (i32.eq (local.get $tag) (i32.const 315))
+      (then
+        (call $emit_let_locals (call $lexpr_lblock_stmts (local.get $expr)))
+        (return)))
+    (if (i32.eq (local.get $tag) (i32.const 314))
+      (then
+        (call $emit_let_locals (call $lexpr_lif_then (local.get $expr)))
+        (call $emit_let_locals (call $lexpr_lif_else (local.get $expr)))
+        (return)))
+    (return))
 
   ;; $emit_functions — walk LowExpr list, emit (func ...) for each
   ;; LMakeClosure, including NESTED ones inside fn bodies (lambdas).
