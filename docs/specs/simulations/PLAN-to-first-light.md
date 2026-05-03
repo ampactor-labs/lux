@@ -551,9 +551,10 @@ checks its box and pushes the cursor forward.
 - [x] Hβ.first-light.varref-schemekind-dispatch — *(commit `12cfcac`) ctor calls now emit LMakeVariant via env_binding_kind ConstructorScheme triage in $lower_call*
 - [x] Hβ.first-light.wheel-brace-discipline — *(commit `07a2a99`) types.nx span_join/span_valid/span_contains brace-aligned to SYNTAX.md §126-142; more wheel files remain*
 - [ ] Hβ.first-light.lambda-body-fn-emit — closures lower to LMakeClosure but body fn isn't yet emitted at module level
-- [ ] Hβ.first-light.lmakevariant-literal-args — VERIFIED CLOSED via varref-schemekind-dispatch
-- [ ] Hβ.first-light.nullary-ctor-call-context — type-flow for nullary ctors as call args
-- [ ] Hβ.first-light.import-resolution — cross-module env composition
+- [x] Hβ.first-light.lmakevariant-literal-args — VERIFIED CLOSED via varref-schemekind-dispatch
+- [x] Hβ.first-light.nullary-ctor-call-context — *VERIFIED CLOSED 2026-05-03 (downstream of E1 handle-counter sync `b54df1d`); `unwrap(Nothing, 0)` infers + lowers cleanly*
+- [x] Hβ.first-light.import-resolution — *VERIFIED CLOSED; parser surfaces ImportStmt (slash-paths); infer arm intentionally inert per wheel; cross-module overlay deferred to post-L1 Hβ.infer.overlay*
+- [x] Hβ.first-light.match-arm-result-type-flow — *(commit `b54df1d`) parser/graph handle counter collision repaired via sync at $infer_program entry; previously-failing match-with-non-trivial-body-type tests all clean*
 
 **Tier 3 — Wheel growth post-L1 (6 handles automatic)**
 - [ ] T3.a Hμ.cursor.seed
