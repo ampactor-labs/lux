@@ -400,6 +400,63 @@ Newly named handles:
 These are MEDIUM-scope work — touch infer's pattern walk per
 field; bounded but substantive.
 
+### 4.5.4d Closures + ctor + destructure + brace + where-skip landed; string-interning gap surfaces (2026-05-02 latter)
+
+Subsequent landings (commits c28c525 / 12cfcac / 8d3d2f7 / 07a2a99
+/ b625ce6 / 59c89a7 / 9ec0d6d / 3e9db46):
+
+- Hβ.first-light.lambda-parser
+- Hβ.first-light.varref-schemekind-dispatch
+- Hβ.first-light.lambda-body-fn-emit
+- Hβ.first-light.letstmt-destructure (PCon)
+- Hβ.first-light.where-clause-skip
+- Hβ.first-light.wheel-brace-discipline (full wheel batch — 36 files;
+  +1469/-735 lines; SYNTAX.md §126-142 alignment)
+
+Empirical state post all landings:
+
+- L1 candidate compile (cat src+lib): ERR=12, FUNCS=2, WAT=19 lines
+- 2 funcs emitted: `$heap_base` (real value: 4096) + `$_start`
+- The 12 NFre diagnostics are LATE-EMITTED — inference-side
+  unresolved types that lower wraps as TError-hole sentinels
+- Most wheel functions don't emit because their LowExpr never
+  becomes LLet+LMakeClosure (the shape emit_functions walks)
+
+Empirical drilling reveals string-interning collision + PTuple-let
+destructure as the next-most-impactful gaps:
+
+```inka
+type Ty = TInt | TFloat | TString
+
+fn ty_to_str(ty) = match ty {
+  TInt => "i32",
+  TFloat => "f64",
+  TString => "i32"
+}
+```
+
+emits a function with these arm bodies:
+- TInt → `(i32.const 1116408)` (garbage offset)
+- TFloat → `(unreachable)`
+- TString → `(i32.const 65536)` (real string offset)
+
+Only ONE string is interned (`"i32"` at 65536); the other two
+arms drop. **The string-interning logic doesn't deduplicate; it
+loses literals.**
+
+Plus a type-mismatch: `expected String, found Ty` — match scrutinee
+type-flow gap.
+
+Newly named handles:
+- `Hβ.first-light.string-interning-dedupe` — emit's string-intern
+  table loses literals or assigns colliding offsets when the same
+  string appears multiple times.
+- `Hβ.first-light.match-arm-result-type-flow` — match scrutinee
+  type isn't unifying correctly with arm bodies in some shapes.
+- `Hβ.first-light.ptuple-let-destructure` — `let (s, offset) =
+  list_index(...)` PTuple destructure missing (PCon was done;
+  PTuple is its own arm).
+
 ### 4.5.5 Session running tally (this empirical-execution arc)
 
 Closed THIS session via empirical-driven substrate landings:
