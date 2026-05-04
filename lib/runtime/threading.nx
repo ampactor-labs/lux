@@ -146,28 +146,48 @@ handler sequential_compose with results = [] {
   num_cores() => resume(1)
 }
 
-// ─── FFI surface (declarations; bodies in WASM emit) ─────────────────
+// ─── FFI surface ────────────────────────────────────────────────────
+//
+// wasi-threads provides thread-spawn(start_arg) -> tid as the only
+// import. join is synthesized over SharedMemory: each spawned thread
+// sets a "done" flag in its thread-record slot before exit; ffi_join
+// atomic-waits on that flag then reads the result. current_id reads
+// from the thread-record slot the spawned thread loaded as start_arg;
+// num_cores reads from a runtime-provided memory location populated
+// at module-init.
 
-/// ffi_spawn — invokes the runtime's wasi-threads `thread-spawn`
-/// import. Body lands in src/backends/wasm.nx as a WASM import
-/// declaration; from Inka's perspective, this fn returns a handle
-/// to the OS thread.
-
-fn ffi_spawn(_task) = {
-  Handle(0)   // V1 conservative default; full body invokes wasi-threads (lands as peer TH.W)
+effect WasiThreads {
+  wasi_thread_spawn(Int) -> Int                            @resume=OneShot
+  thread_record_alloc(Int) -> Int                          @resume=OneShot
+  thread_record_pack_task(Int, Int) -> ()                  @resume=OneShot
+  thread_record_done_addr(Int) -> Int                      @resume=OneShot
+  thread_record_result_addr(Int) -> Int                    @resume=OneShot
+  thread_record_self_id() -> Int                           @resume=OneShot
+  wasi_num_cores() -> Int                                  @resume=OneShot
 }
 
-fn ffi_join(_handle) = {
-  0   // V1 conservative default; full body waits on wasi-threads handle (TH.W)
+fn ffi_spawn(ref task) with WasiThreads = {
+  let slot = perform thread_record_alloc(closure_pointer(task))
+  perform thread_record_pack_task(slot, closure_pointer(task))
+  Handle(perform wasi_thread_spawn(slot))
 }
 
-fn ffi_current_thread_id() with Pure = {
-  0   // V1 conservative default; full body reads wasi-threads thread-id (TH.W)
+fn ffi_join(handle) with WasiThreads + SharedMemory = {
+  let Handle(tid) = handle
+  let done_addr = perform thread_record_done_addr(tid)
+  perform wait_i32(done_addr, 0, max_join_timeout())
+  perform atomic_load_i32(perform thread_record_result_addr(tid))
 }
 
-fn ffi_num_cores() with Pure = {
-  1   // V1 conservative default; full body queries runtime (TH.W)
-}
+fn ffi_current_thread_id() with WasiThreads = perform thread_record_self_id()
+
+fn ffi_num_cores() with WasiThreads = perform wasi_num_cores()
+
+fn closure_pointer(ref task) with Pure = closure_pointer_intrinsic(task)
+
+fn closure_pointer_intrinsic(ref task) with Pure = 0
+
+fn max_join_timeout() with Pure = 1000000000
 
 // ─── Connection to the kernel ─────────────────────────────────────────
 
