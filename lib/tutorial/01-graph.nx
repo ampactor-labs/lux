@@ -1,1 +1,49 @@
-// 01-graph.nx — Curriculum primitive
+// 01-graph.nx — Primitive #1: Graph + Env
+//
+// The graph is a flat array; every binding has a Handle (an Int).
+// Inference WRITES through graph_bind; lookup CHASES through
+// substitution. There is no symbol table; there is no second IR
+// layer; the graph IS the type information for every name in the
+// program at every point.
+//
+// Read this alongside SUBSTRATE.md §I "The Graph Has One Story"
+// and `docs/specs/00-graph.md`. To inspect the graph for any
+// binding in this file, run:
+//
+//   inka query tutorial/01-graph node x       — chase x's handle
+//   inka query tutorial/01-graph reason add   — walk why `add`'s row was inferred
+
+import runtime/io
+
+/// `add` — the simplest possible binding. The graph records:
+///   - one handle for `add` itself (typed as `(Int, Int) -> Int`),
+///   - one handle each for `a` and `b` (typed as `Int`),
+///   - one handle for the body's result (unified with the return).
+///
+/// Every Reason edge written during inference is queryable via the
+/// Why tentacle. `add`'s row is `Pure` because the body performs no
+/// effects — the graph proves it without an explicit annotation.
+fn add(a, b) = a + b
+
+/// `compose_two` — closes over `add`. The Env walk resolves `add`
+/// through scope; the Graph chase resolves the type. Two reads, one
+/// surface — the medium's substrate has no symbol table because the
+/// graph IS the symbol table.
+fn compose_two(x) = {
+  let doubled = add(x, x)
+  let tripled = add(doubled, x)
+  tripled
+}
+
+/// `traversal` — demonstrates that the SAME graph holds bindings
+/// from imports (`runtime/io`'s `print_string`) alongside this
+/// module's bindings. Cross-module composition has no special case;
+/// the graph spans the whole compilation unit.
+fn traversal() = {
+  let result = compose_two(7)
+  result
+    |> int_to_str
+    |> print_string
+}
+
+fn main() = traversal()

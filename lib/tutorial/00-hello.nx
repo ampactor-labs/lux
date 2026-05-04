@@ -1,1 +1,41 @@
-// 00-hello.nx — Curriculum primitive
+// 00-hello.nx — Curriculum entry: the kernel surfaces in one program
+//
+// Inka's eight kernel primitives (DESIGN.md §0.5) are not eight
+// features. They are eight ways the same medium reads itself. This
+// program is the smallest one that demonstrates all eight at once.
+// Every line clears the eight interrogations (CLAUDE.md ⌁ Mentl's
+// anchor): Graph? Handler? Verb? Row? Ownership? Refinement? Gradient?
+// Reason?
+//
+// To run:    inka compile tutorial/00-hello | wat2wasm - -o /tmp/h.wasm && wasmtime /tmp/h.wasm
+// To edit:   inka edit tutorial/00-hello       — the medium opens; type ?? to see the gradient narrow
+// To audit:  inka audit tutorial/00-hello      — eight tentacles project the file's capability set
+
+import runtime/io
+
+/// greet — the curriculum's first read.
+///
+/// The eight, in residue form:
+///   #1 Graph + Env   — `name` is a handle; the graph chases it through unification.
+///   #2 Handlers      — `print_string` is performed against the chain (wasi_filesystem absorbs IO).
+///   #3 Verbs         — `|>` flows; `~>` attaches; same source, two reads.
+///   #4 Row algebra   — `with !Alloc` proves zero allocation under inference (real-time eligible).
+///   #5 Ownership     — `ref` borrows the string; greet returns Unit; no ownership transfer.
+///   #6 Refinement    — invariants enforced by construction; verify.nx discharges decidable
+///                       predicates at compile time (see 06-refinement.nx).
+///   #7 Gradient      — `with !Alloc` is a gradient annotation Mentl can propose; type `??`
+///                       on the row to ask "what would this unlock?"
+///   #8 Reasons       — every unification leaves a Located/Inferred edge in the graph; the
+///                       Why Engine walks them on demand via `inka query reason name`.
+fn greet(ref name) with !Alloc = {
+  "Hello, "
+    |> str_concat(name)
+    |> str_concat(". The medium is reading you back.\n")
+    |> print_string
+}
+
+fn main() = {
+  greet("kernel")
+  greet("oracle")
+  greet("octopus")
+}

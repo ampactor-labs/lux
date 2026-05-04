@@ -1,1 +1,65 @@
-// 08-reasons.nx — Curriculum primitive
+// 08-reasons.nx — Primitive #8: HM inference live + Reason chains
+//
+// Inka's inference is HINDLEY-MILNER but PRODUCTIVE under error.
+// Every unification step writes a Reason edge into the graph
+// (Located + Inferred + Unified + VarLookup + ...). When a type
+// error arises, the compiler doesn't fail-fast; it inserts a
+// `NErrorHole` at the conflict site and KEEPS WALKING. Downstream
+// code still typechecks where it can.
+//
+// The Why Engine (mentl.nx render_why) walks the Reason chain on
+// demand — every type, every error, every unification has a
+// queryable provenance. This is what makes Inka's diagnostics
+// reach `MachineApplicable` quality: each error knows exactly why
+// it was inferred.
+//
+// Read this alongside SUBSTRATE.md §VII "Inference Is The Light"
+// and `docs/specs/04-inference.md`.
+
+import runtime/io
+import mentl
+
+/// `safe_call` — clean inference; one Reason edge per unification.
+/// Run `inka query reason safe_call` to walk the chain:
+///
+///   safe_call's row chases to:
+///     Pure (Located src/tutorial/08-reasons.nx:24:1-26:1)
+///       Inferred("body has no perform calls")
+fn safe_call(x) = x + 1
+
+/// `mistake` — would produce E_TypeMismatch in normal HM and STOP.
+/// Inka's productive-under-error continues: `mistake` gets an
+/// NErrorHole at the conflict; downstream `caller` still
+/// typechecks. The Reason chain on the error is queryable:
+///
+///   inka query reason mistake
+///     E_TypeMismatch (Located :30:?)
+///       Unified(
+///         Located(:30:?, Declared("Int"))
+///         Located(:30:?, Inferred("StringLit body"))
+///       )
+///
+/// Commented out so the file remains compilable; uncomment to see
+/// the productive-under-error behavior in `inka edit`.
+// fn mistake() = "this is a string but the body type is Int"
+
+/// `caller` — even with `mistake` having an error, this typechecks.
+/// The error reaches the diagnostics handler at the chain boundary;
+/// the build emits BOTH the diagnostic AND the WAT for healthy
+/// fragments. Inka stays productive while telling you what's wrong.
+fn caller(x) = safe_call(x) + 1
+
+/// `walk_reason` — explicit Why query. Mentl's teach_why returns
+/// the Reason chain rooted at a graph handle; render_why walks it
+/// to indented text suitable for IDE hover or `inka explain` CLI.
+fn walk_reason(handle) = {
+  perform teach_why(handle)
+    |> render_why
+    |> print_string
+}
+
+fn main() = {
+  caller(7)
+    |> int_to_str
+    |> print_string
+}

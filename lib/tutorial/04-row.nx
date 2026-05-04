@@ -1,1 +1,77 @@
-// 04-row.nx — Curriculum primitive
+// 04-row.nx — Primitive #4: Boolean algebra over effect rows
+//
+// An effect row is a sorted set of effect names with optional
+// negation. The algebra is decidable and sound (Flix Boolean
+// unification, OOPSLA 2024); see effects.nx for the four operators
+// (+ union, - difference, & intersection, ! negation) and the
+// canonical normalize/unify rules.
+//
+// One mechanism services every gate in the language:
+//
+//   Pure       memoize / parallelize / compile-time evaluate
+//   !IO        safe for compile-time evaluation
+//   !Alloc     real-time eligible (no heap allocation)
+//   !Network   sandbox eligible
+//
+// The compiler doesn't know what `Alloc` MEANS; the algebra is
+// purely structural. The substrate that gives `Alloc` its meaning
+// is a handler — `mem_bump`, `temp_arena`, etc. The row constraint
+// proves a property over the substrate; the handler delivers the
+// property at runtime.
+
+import runtime/io
+
+/// `safe_double` declares `with Pure` — no effects at all.
+/// Inference checks that the body conforms; if any sub-expression
+/// performed an effect, this would fail at compile time with
+/// E_PurityViolated. Pure unlocks: memoization, automatic
+/// parallelization, compile-time evaluation.
+fn safe_double(x) with Pure = x + x
+
+/// `realtime_clamp` declares `with !Alloc` — the function provably
+/// allocates nothing. Real-time DSP (lib/dsp/) declares `!Alloc` to
+/// guarantee bounded latency; the substrate forbids suffix-append
+/// in loop bodies as drift mode 11. The substrate-honest pattern is
+/// list_extend_to + list_set + counter + slice (buffer-counter
+/// idiom; see CLAUDE.md "Bug classes that cost hours").
+fn realtime_clamp(x, lo, hi) with !Alloc = {
+  if x < lo { lo }
+  else if x > hi { hi }
+  else { x }
+}
+
+/// `with_io_subset` declares `with !Network` — ANY IO is fine
+/// EXCEPT network. The negation in the row excludes network from
+/// the body. `!Network` is the sandbox proof: load this fn into
+/// untrusted-code-handler chain and you cannot reach the network.
+fn with_io_subset() with !Network = {
+  print_string("safely reads/writes files but not network\n")
+}
+
+/// `narrow_then_widen` — handler absorption demonstrates row
+/// arithmetic: `body_row - handled_row + arm_row`. `print_to_file`
+/// performs `IO`; the chain installs a handler that absorbs `IO`;
+/// the resulting row is `Pure` (or whatever the arms add).
+fn narrow_then_widen() = {
+  print_to_file("/tmp/x", "hello")
+    ~> file_io_handler        // absorbs IO; the row narrows toward Pure
+}
+
+fn print_to_file(path, content) with IO = {
+  // bodied per `lib/runtime/io.nx`; the row carries IO until a handler absorbs it.
+  ()
+}
+
+handler file_io_handler {
+  // arm-bodies that absorb IO into a different surface live here.
+  // Drift 4 closure: ONE handler chain via ~>, never an MTL stack.
+  // The arm shape is for illustration; arms-on-effect-decls live in
+  // 02-handlers.nx.
+}
+
+fn main() = {
+  let n = safe_double(21)
+  n
+    |> int_to_str
+    |> print_string
+}

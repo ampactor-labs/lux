@@ -1,1 +1,76 @@
-// 05-ownership.nx — Curriculum primitive
+// 05-ownership.nx — Primitive #5: Ownership as effect
+//
+// Ownership in Inka is not a separate type system. It is the
+// `Consume` effect: passing a value `own` into a function consumes
+// it; passing `ref` borrows it. The compiler proves single-use via
+// the same effect-row machinery that proves `Pure` or `!IO`. There
+// is no second checker; the same row decides everything.
+//
+// Annotations form a continuous gradient (see 07-gradient.nx):
+// `Inferred` (compiler picks), `ref` (explicit borrow), `own`
+// (explicit consume). Inference resolves Inferred toward Ref or
+// Own based on the body's usage; the gradient surfaces upgrades.
+//
+// Read this alongside SUBSTRATE.md §V "Ownership Is The Consume
+// Effect" and `docs/specs/07-ownership.md`.
+
+import runtime/io
+
+// ─── ref — borrow only ──────────────────────────────────────────────
+
+/// `length` reads the string but doesn't consume it. The caller can
+/// still use `s` after the call. `ref` is the explicit borrow
+/// annotation; inference would resolve to Ref here automatically.
+fn length(ref s) = byte_len(s)
+
+/// Calls `length` twice on the same string — both borrow; nothing
+/// is consumed. Compiles cleanly.
+fn use_twice() = {
+  let greeting = "octopus"
+  let a = length(greeting)
+  let b = length(greeting)
+  a + b
+}
+
+// ─── own — consume; the value cannot be used after ──────────────────
+
+/// `archive` takes ownership of `data`. The caller MUST NOT use
+/// `data` after the call site; the compiler proves this via the
+/// `Consume` effect. Reuse after archive produces E_OwnershipViolation.
+fn archive(own data) = {
+  // bodied per a real archival surface; pretend this writes to
+  // long-term storage and the value is no longer addressable.
+  ()
+}
+
+/// Single-use is correct.
+fn correct_single_use() = {
+  let payload = "important record"
+  archive(payload)
+  // payload is consumed here — any further reference would fail at compile time.
+}
+
+// ─── The Consume effect, made visible ───────────────────────────────
+//
+// Ownership IS an effect; the row records consumes. Affine ledger
+// (own.nx affine_ledger handler) tracks per-binding linearity.
+// Branching constructs (<| diverge, match arms) require the SAME
+// consume pattern across branches — branch_enter / branch_exit
+// scopes the ledger so two branches consuming the same `own` value
+// collide.
+
+fn branch_consume_safely(own x) = {
+  // Each branch consumes x exactly once — the ledger sees one
+  // consume per branch, not two cumulative.
+  if length("flag") > 0 {
+    archive(x)
+  } else {
+    archive(x)
+  }
+}
+
+fn main() = {
+  use_twice()
+    |> int_to_str
+    |> print_string
+}
