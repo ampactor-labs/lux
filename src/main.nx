@@ -64,7 +64,7 @@ import mentl_oracle
 fn main(argv) = {
   if argv.len >= 3 && str_eq(argv[1], "edit") {
     inka_edit_session(path_to_module(argv[2]))
-      ~> patch_echo
+      ~> patch_to_file
       ~> terminal_transport
       ~> cursor_cache_default
       ~> delta_default
@@ -99,33 +99,9 @@ fn main(argv) = {
   }
 }
 
-// ─── inka edit — the medium's primary surface ──────────────────────
-//
-// Per ULTIMATE_MEDIUM.md §3.4 + Hμ-cursor.md §10: the cursor IS
-// attention; the gradient's global argmax IS what the medium
-// surfaces; the loop closes at the human boundary. Two-phase
-// activation — type the program, then enter the cursor loop:
-//
-//   1. driver_check populates graph + env from entry_module +
-//      transitive imports. After this returns, every binding has a
-//      handle in the graph; every reason chain is recorded; the
-//      oracle_queue is computable.
-//   2. cursor_session opens the bus-compressor: cursor_argmax →
-//      cursor_at(span) → surface_render → surface_action → recurse.
-//      Loops until the surface returns a halt action OR the project
-//      queue exhausts (silence at gradient top per
-//      protocol_oracle_is_ic.md).
-//
-// Per Anchor 0: dream code; the substrate exists end-to-end in the
-// wheel (Phase μ wheel-side closure 2026-05-02, commit 9f6b616). The
-// seed transcribes after first-light-L1 + Tier 3 growth per
-// `Hβ-bootstrap.md` §12.5 audit-gate sequence.
-//
-// Per primitive #3 (five verbs): the loop IS `<~` applied at the
-// human-medium boundary. The cursor folds the medium into its own
-// seed continuously while the developer types.
 fn inka_edit_session(entry_module) = {
   driver_check(entry_module)
+  perform patch_set_target(entry_module)
   cursor_session(Caret(0, Inferred("inka edit session start")))
 }
 

@@ -57,6 +57,9 @@ import effects
 import cursor
 import mentl
 import mentl_voice
+import driver
+import runtime/strings
+import runtime/io
 
 // ─── The Surface effect ─────────────────────────────────────────────
 //
@@ -364,11 +367,8 @@ fn apply_suggestion(view) with GraphRead + !Mutate = {
   match teach {
     None => (),
     Some(suggestion) => {
-      let AnnotationSuggestion(_kind, ann_text, _unlocks, _reason) = suggestion
-      // Apply the patch via the parser's incremental edit substrate.
-      // Hμ.cursor.cache invalidates the affected oracle_queue entry;
-      // the next cursor_argmax recomputes against the new graph.
-      perform apply_patch_at_cursor(ann_text)
+      let AnnotationSuggestion(_kind, ann_text, _unlocks, reason) = suggestion
+      perform apply_patch_at_cursor(span_of_reason(reason), ann_text)
     }
   }
 }
@@ -459,36 +459,51 @@ effect LspSurface {
 }
 
 effect Patch {
-  apply_patch_at_cursor(String) -> ()                      @resume=OneShot
+  patch_set_target(String) -> ()                            @resume=OneShot
+  apply_patch_at_cursor(Span, String) -> ()                 @resume=OneShot
 }
 
-// ─── patch_echo — first-land Patch handler ──────────────────────────
-//
-// The substrate-honest minimum: action received → surface notified →
-// developer sees what the loop would apply. Per primitive #2, the
-// chain composes; per Anchor 4, the wheel is built; the handler IS
-// the surface for "apply this annotation."
-//
-// Full source-file rewrite (open file at cursor's reason-chain Located
-// span; splice annotation text before the line; write back; trigger
-// IC re-inference via graph_mutated) is the named follow-up
-// `Hμ.cursor.transport.patch-to-file`. That handle composes with
-// cursor_cache_default's invalidation walk: applying a patch performs
-// graph_mutated; cached_check_with_oracle's arm re-infers the affected
-// modules; the next cursor_argmax reads the refreshed oracle_queue.
-// Until it lands, `patch_echo` is the substrate-correct stand-in:
-// the action reaches the surface; the medium responds.
-//
-// Drift 9 closure: the handler IS bodied; the deferred work is named
-// in positive form as a peer follow-up, not a "for now" hedge.
+handler patch_to_file with target_module = "" {
 
-handler patch_echo {
-  apply_patch_at_cursor(text) => {
-    eprint_string("[inka edit] would apply: ")
-    eprint_string(text)
-    eprint_string("\n")
+  patch_set_target(name) =>
+    resume() with target_module = name,
+
+  apply_patch_at_cursor(span, text) => {
+    let path = driver_module_path(target_module)
+    let source = perform fs_read_file(path)
+    let Span(line, _, _, _) = span
+    let edited = splice_before_line(source, line, indent_annotation(text))
+    perform fs_write_file(path, edited)
+    driver_check(target_module)
     resume()
   }
+}
+
+fn indent_annotation(ref text) with Memory + Alloc = {
+  "  " |> str_concat(text) |> str_concat("\n")
+}
+
+fn splice_before_line(ref source, target_line, ref insert) with Memory + Alloc = {
+  let n = byte_len(source)
+  let pos = find_line_start(source, target_line, 1, 0, n)
+  str_slice(source, 0, pos)
+    |> str_concat(insert)
+    |> str_concat(str_slice(source, pos, n))
+}
+
+fn find_line_start(ref source, target, current, idx, n) with Memory = {
+  if current >= target { idx }
+  else if idx >= n { n }
+  else if byte_at(source, idx) == 10 {
+    find_line_start(source, target, current + 1, idx + 1, n)
+  } else {
+    find_line_start(source, target, current, idx + 1, n)
+  }
+}
+
+fn span_of_reason(ref reason) with Pure = match reason {
+  Located(span, _) => span,
+  _                => span_zero()
 }
 
 // ─── ADTs the transport surface uses ────────────────────────────────
