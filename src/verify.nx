@@ -229,3 +229,94 @@ fn classify_predicate(pred) with Pure = match pred {
   PLeq(_, _)   => "ordering",
   PCall(_, _)  => "user-defined"
 }
+
+type SmtResult
+  = SmtSat(String)
+  | SmtUnsat
+  | SmtUnknown
+
+effect SmtSolver {
+  smt_solve(String) -> SmtResult                     @resume=OneShot
+}
+
+handler verify_smt with witnesses = [] {
+
+  verify(span, predicate, reason) =>
+    match predicate_decide(predicate) {
+      Some(true)  => resume(),
+      Some(false) => {
+        report_refinement_rejected(predicate, span, reason)
+        resume()
+      },
+      None        =>
+        match perform smt_solve(predicate_to_smt_lib(predicate)) {
+          SmtSat(witness) =>
+            resume()
+              with witnesses = [(span, predicate, witness)] ++ witnesses,
+          SmtUnsat => {
+            report_refinement_rejected(predicate, span, reason)
+            resume()
+          },
+          SmtUnknown =>
+            resume()
+        }
+    },
+
+  verify_debt() =>
+    resume([])
+}
+
+fn predicate_to_smt_lib(ref pred) with Memory + Alloc = {
+  "(assert " |> str_concat(predicate_to_smt(pred)) |> str_concat(")\n(check-sat)")
+}
+
+fn predicate_to_smt(ref pred) with Memory + Alloc = match pred {
+  PTrue           => "true",
+  PEq(a, b)       => smt_binop("=", a, b),
+  PLt(a, b)       => smt_binop("<", a, b),
+  PLeq(a, b)      => smt_binop("<=", a, b),
+  PAnd(a, b)      => smt_logop("and", a, b),
+  POr(a, b)       => smt_logop("or", a, b),
+  PNot(inner)     => "(not " |> str_concat(predicate_to_smt(inner)) |> str_concat(")"),
+  PCall(name, args) => smt_call(name, args)
+}
+
+fn smt_binop(ref op, ref a, ref b) with Memory + Alloc = {
+  "(" |> str_concat(op)
+      |> str_concat(" ")
+      |> str_concat(pexpr_to_smt(a))
+      |> str_concat(" ")
+      |> str_concat(pexpr_to_smt(b))
+      |> str_concat(")")
+}
+
+fn smt_logop(ref op, ref a, ref b) with Memory + Alloc = {
+  "(" |> str_concat(op)
+      |> str_concat(" ")
+      |> str_concat(predicate_to_smt(a))
+      |> str_concat(" ")
+      |> str_concat(predicate_to_smt(b))
+      |> str_concat(")")
+}
+
+fn smt_call(ref name, ref args) with Memory + Alloc = {
+  "(" |> str_concat(name)
+      |> str_concat(smt_args(args, 0, args.len))
+      |> str_concat(")")
+}
+
+fn smt_args(ref args, i, n) with Memory + Alloc = {
+  if i >= n { "" }
+  else {
+    " " |> str_concat(pexpr_to_smt(list_index(args, i)))
+        |> str_concat(smt_args(args, i + 1, n))
+  }
+}
+
+fn pexpr_to_smt(ref e) with Memory + Alloc = match e {
+  PInt(n)        => int_to_str(n),
+  PFloat(_)      => "0.0",
+  PString(s)     => "\"" |> str_concat(s) |> str_concat("\""),
+  PVar(name)     => name,
+  PApp(name, args) => smt_call(name, args)
+}
