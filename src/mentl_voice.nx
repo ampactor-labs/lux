@@ -14,6 +14,9 @@ import mentl
 import graph
 import own
 import query
+import pipeline
+import driver
+import runtime/strings
 
 /// Topic is the focus of one voice turn. Cursor-of-attention projects
 /// onto a Topic; Mentl reads the graph at that topic. Five variants
@@ -1436,8 +1439,10 @@ handler mentl_voice_default
   // Composition via ~> chain: surface ~> mentl_voice_filesystem ~>
   // mentl_voice_default ~> wasi_filesystem.
 
-  // ─── Edit op (1) — MV.2.e.P ──────────────────────────────────────
-  edit(_fh, _patch)     => resume(unimplemented_arm("edit")),
+  // ─── Edit op (1) — handled by mentl_voice_filesystem ─────────────
+  // Per FX walkthrough §3 + symmetry with project/file ops: edit
+  // lives in mentl_voice_filesystem because it needs handles_table
+  // to look up the FileHandle's path + cached text.
 
   // ─── Attention ops (2) — MV.2.e.Q ─────────────────────────────────
 
@@ -1558,9 +1563,23 @@ handler mentl_voice_default
   },
 
   // ─── Run ops (4) — MV.2.e.V (run_check) + MV.2.e.Run (rest) ──────
-  run_compile(_fh)      => resume(unimplemented_arm("run_compile")),
-  run_check(_fh)        => resume(unimplemented_arm("run_check")),
-  run_audit(_fh)        => resume(unimplemented_arm("run_audit")),
+  run_compile(fh)       => {
+    let text = perform file_text(fh)
+    compile_source(text)
+    resume(CompileOk(Path("emitted")))
+  },
+
+  run_check(fh)         => {
+    let text = perform file_text(fh)
+    check_source(text)
+    resume(CheckOutcome([], []))
+  },
+
+  run_audit(fh)         => {
+    let text = perform file_text(fh)
+    audit(text)
+    resume(AuditReport([]))
+  },
   /// run_query — batch/CLI version of ask. Same composition path as
   /// the ask arm above (compose_minimal_ask_situation →
   /// silence_predicate → render → voiceline_to_answer); different
@@ -1837,6 +1856,81 @@ handler mentl_voice_filesystem
         resume(text)
       }
     }
+  },
+
+  edit(fh, patch)       => {
+    let entry = handles_table_lookup(handles_table, fh)
+    match entry {
+      None              =>
+        resume(EditRejected("E_InvalidFileHandle", span_zero())),
+      Some(triple)      => {
+        let (_, path, old_text) = triple
+        let Patch(span, replacement) = patch
+        let new_text = replace_span_in_text(old_text, span, replacement)
+        let Path(s) = path
+        perform fs_write_file(s, new_text)
+        let new_table = update_file_text(handles_table, fh, path, new_text)
+        driver_check(path_to_module_name(s))
+        resume(EditAccepted(fh))
+          with handles_table = new_table
+      }
+    }
   }
+}
+
+fn replace_span_in_text(ref source, span, ref replacement) with Memory + Alloc = {
+  let n = byte_len(source)
+  let Span(sl, sc, el, ec) = span
+  let start_pos = byte_offset_at(source, sl, sc, 0, 1, 1, n)
+  let end_pos = byte_offset_at(source, el, ec, 0, 1, 1, n)
+  str_slice(source, 0, start_pos)
+    |> str_concat(replacement)
+    |> str_concat(str_slice(source, end_pos, n))
+}
+
+fn byte_offset_at(ref source, target_l, target_c, idx, line, col, n) with Memory = {
+  if line >= target_l && col >= target_c { idx }
+  else if idx >= n { n }
+  else if byte_at(source, idx) == 10 {
+    byte_offset_at(source, target_l, target_c, idx + 1, line + 1, 1, n)
+  } else {
+    byte_offset_at(source, target_l, target_c, idx + 1, line, col + 1, n)
+  }
+}
+
+fn update_file_text(ref table, fh, ref path, ref text) with Memory + Alloc = {
+  let n = table.len
+  let buf = make_list(n)
+  update_file_text_loop(table, fh, path, text, 0, n, buf)
+}
+
+fn update_file_text_loop(ref table, fh, ref path, ref text, i, n, own buf) with Memory + Alloc = {
+  if i >= n { buf }
+  else {
+    let entry = list_index(table, i)
+    let (h, p, t) = entry
+    let replacement = if file_handle_eq(h, fh) {
+      (h, path, text)
+    } else { entry }
+    list_set(buf, i, replacement)
+    update_file_text_loop(table, fh, path, text, i + 1, n, buf)
+  }
+}
+
+fn file_handle_eq(a, b) with Pure = {
+  let FileHandle(ai) = a
+  let FileHandle(bi) = b
+  ai == bi
+}
+
+fn path_to_module_name(ref s) with Memory + Alloc = {
+  let stripped_prefix = if starts_with(s, "src/") {
+    str_slice(s, 4, byte_len(s))
+  } else if starts_with(s, "lib/") {
+    str_slice(s, 5, byte_len(s))
+  } else { s }
+  if ends_with(stripped_prefix, ".nx") {
+    str_slice(stripped_prefix, 0, byte_len(stripped_prefix) - 3)
+  } else { stripped_prefix }
 }
 
