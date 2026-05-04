@@ -123,19 +123,26 @@ handler synth_default with !Mutate {
   },
 
   enumerate_inhabitants(target_ty, allowed_effects, context) => {
-    // The MultiShot arm. H7 emit substrate compiles this to a
-    // continuation record (per emit_handler.wat:498-540
-    // emit_lmakecontinuation); each resume call re-enters with a
-    // different inhabitant. Until H7's MultiShot emit lands, this
-    // arm runs OneShot per the Synth effect's @resume=Either form
-    // — returns the FIRST proven inhabitant rather than enumerating.
-    //
-    // The wheel canonical IS multi-shot here; the seed's transcription
-    // collapses to OneShot until H7 lands. This is named
-    // Hμ.synth-proposer.multishot-enumeration as the post-H7 follow-up.
     let enriched = enumerate_typed(target_ty, allowed_effects, context)
-    let verified = verify_each_enriched(enriched)
-    resume(verified |> map_to_nodes)
+    yield_inhabitants(enriched, 0, enriched.len)
+  }
+}
+
+fn yield_inhabitants(enriched, i, n) with Synth + GraphRead + !Mutate = {
+  if i >= n { resume([]) }
+  else {
+    let cand = list_index(enriched, i)
+    let EnrichedCandidate(c) = cand
+    let inner = Candidate(c.node, c.reason)
+    let cp = perform graph_push_checkpoint()
+    let proven = perform verify_candidate(inner)
+    perform graph_rollback(cp)
+    if proven {
+      resume([c.node])
+      yield_inhabitants(enriched, i + 1, n)
+    } else {
+      yield_inhabitants(enriched, i + 1, n)
+    }
   }
 }
 
