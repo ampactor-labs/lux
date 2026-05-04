@@ -1051,6 +1051,15 @@ fn infer_compose(left, right, handle, span: ValidSpan) = {
   let N(_, _, rh) = right
   perform graph_bind(handle, TTuple([TVar(lh), TVar(rh)]),
     Located(span, Inferred(">< parallel compose — branches affinity-checked")))
+  // `><` × Thread row contribution. Per threading.nx §"parallel_compose"
+  // and primitives #2 (handlers) + #4 (row algebra): the compose verb's
+  // semantics ARE the chosen handler. parallel_compose dispatches each
+  // branch to a real OS thread via ffi_spawn / ffi_join; sequential_
+  // compose runs synchronously; same source, two semantics. The row
+  // constraint enforces the choice at compile time — `><` without
+  // either handler installed produces E_HandlerUninstallable. Drift 1
+  // closure: no vtable; the chain IS the dispatch.
+  perform inf_add_row(mk_ef_closed([ENamed("Thread")]))
 }
 
 fn infer_diverge(left, right, handle, span: ValidSpan) = {

@@ -468,23 +468,38 @@ fn lower_expr_body(e, handle, span) = match e {
     LConst(handle, LInt(0))   // ? — emit lowers to unreachable via NHole check
 }
 
-fn lower_pipe(kind, left, right, handle) = {
-  let lo_l = lower_expr(left)
-  let lo_r = lower_expr(right)
-  match kind {
+fn lower_pipe(kind, left, right, handle) = match kind {
+  // `>< parallel compose — independent tracks dispatched as Thread-effect
+  // spawns. Each branch becomes a 0-arg thunk closure (capture-resolved
+  // exactly as LambdaExpr above); spawn returns a Handle; join retrieves
+  // each branch's result; the joined values tuple back at the `><` site.
+  // Per primitive #2 (handlers): the row constraint at infer_compose
+  // (infer.nx) requires Thread effect — parallel_compose dispatches each
+  // thunk to a real OS thread via wasi-threads; sequential_compose runs
+  // synchronously inline. Same LIR shape, two semantics, one chain
+  // choice. Drift 1 closure: handler chain IS the dispatch table; no
+  // vtable. Drift 5 closure: state lives in the chosen handler's `with`
+  // clause, never in an ad-hoc parallel struct.
+  PCompose =>
+    lower_compose_via_thread(handle, left, right),
+
+  PForward => {
     // |> converge — right(left). Transparent wire; unification at
     // inference time already paired tuple slots with parameters.
-    PForward => LCall(handle, lo_r, [lo_l]),
+    let lo_l = lower_expr(left)
+    let lo_r = lower_expr(right)
+    LCall(handle, lo_r, [lo_l])
+  },
 
+  PDiverge => {
     // <| diverge — input borrowed to each branch; outputs tupled.
     // Ownership affinity checked at inference (E_OwnershipViolation if own flows here).
-    PDiverge =>
-      LMakeTuple(handle, lower_diverge_branches(lo_l, lo_r)),
+    let lo_l = lower_expr(left)
+    let lo_r = lower_expr(right)
+    LMakeTuple(handle, lower_diverge_branches(lo_l, lo_r))
+  },
 
-    // >< parallel compose — independent tracks, outputs tupled.
-    PCompose =>
-      LMakeTuple(handle, [lo_l, lo_r]),
-
+  PTeeBlock => {
     // ~> tee — handler attachment. The parser has already built the
     // correct tree shape: PTeeBlock for newline-before-~> (wraps the
     // whole prior chain), PTeeInline for no-newline (wraps the
@@ -492,16 +507,87 @@ fn lower_pipe(kind, left, right, handle) = {
     // LHandleWith(handle, body, handler) — because the body's shape
     // is already baked into the tree; emit reads the scope from the
     // expression layout, not from a LIR variant.
-    PTeeBlock =>
-      LHandleWith(handle, lo_l, lo_r),
-    PTeeInline =>
-      LHandleWith(handle, lo_l, lo_r),
+    let lo_l = lower_expr(left)
+    let lo_r = lower_expr(right)
+    LHandleWith(handle, lo_l, lo_r)
+  },
 
+  PTeeInline => {
+    let lo_l = lower_expr(left)
+    let lo_r = lower_expr(right)
+    LHandleWith(handle, lo_l, lo_r)
+  },
+
+  PFeedback => {
     // <~ feedback — requires iterative context. Emit desugars to a
     // stateful handler capturing previous output as state.
-    PFeedback =>
-      LFeedback(handle, lo_l, lo_r)
+    let lo_l = lower_expr(left)
+    let lo_r = lower_expr(right)
+    LFeedback(handle, lo_l, lo_r)
   }
+}
+
+/// `><` × Thread effect dispatch. Each branch is synthesized as a
+/// 0-arg thunk closure (mirroring LambdaExpr's capture resolution at
+/// lower.nx:402-428). The spawn op returns a Handle; join retrieves
+/// the branch result; the two joins tuple at the `><` site.
+///
+/// Composition with the multi-shot quartet (per threading.nx §1):
+/// - parallel_compose × race: forks GENUINELY execute across cores
+///   when both installed; race's tiebreak preserves determinism per
+///   Q-B.7.3 (output order preserved regardless of completion order).
+/// - parallel_compose × Choice: backtrack's per-option exploration
+///   parallelizes across threads.
+/// - parallel_compose × arena_ms: per-thread bump_allocator;
+///   replay_safe / fork_deny / fork_copy compose with thread-local
+///   arenas.
+///
+/// Each thunk's free variables resolve via the outer-frame capture
+/// substrate (resolve_captures_outer). Captures flow through closure
+/// records; thread-local data lives in the spawned thread's frame.
+/// Cross-thread shared values require SharedMemory effect explicitly —
+/// `!SharedMemory` proves single-threaded-memory by row at compile
+/// time. Drift 7 closure: captures are one ordered list per thunk,
+/// never parallel arrays.
+fn lower_compose_via_thread(handle, left, right) = {
+  let thunk_l = synthesize_branch_thunk(handle, "l", left)
+  let thunk_r = synthesize_branch_thunk(handle, "r", right)
+  let h_l = LPerform(handle, "spawn", [thunk_l])
+  let h_r = LPerform(handle, "spawn", [thunk_r])
+  LMakeTuple(handle,
+    [ LPerform(handle, "join", [h_l]),
+      LPerform(handle, "join", [h_r]) ])
+}
+
+/// Branch-as-thunk synthesis. Mirrors LambdaExpr's lowering above —
+/// collect_free_vars over an EMPTY bound-set (a thunk has no params,
+/// so every name referenced in the body is a capture), resolve via
+/// outer frame, lower body under a fresh frame, wrap as LMakeClosure.
+/// The synthesized fn_name encodes parent_handle + side so emit's
+/// fn_idx-globals walk lifts each thunk into a distinct WASM function.
+/// Per H.2.e (lower-lambda-capture-substrate): the same machinery that
+/// lowers user-written lambdas covers compiler-synthesized thunks.
+/// Drift 6 closure: same closure substrate — no special-case for
+/// "compiler-synthesized" thunks vs. user-written ones.
+fn synthesize_branch_thunk(parent_handle, side_label, branch_node) = {
+  let thunk_name = "compose_"
+    |> str_concat(side_label)
+    |> str_concat("_")
+    |> str_concat(int_to_str(parent_handle))
+  let free_names = collect_free_vars(branch_node, [])
+  let (captures_names, captures_exprs, captures_handles) =
+    resolve_captures_outer(free_names, parent_handle)
+  perform ls_enter_frame([], [], captures_names, captures_handles)
+  let lo_body = lower_expr(branch_node)
+  perform ls_exit_frame()
+  let fn_ir = LFn(
+    thunk_name,
+    0,
+    [],
+    [lo_body],
+    EfPure
+  )
+  LMakeClosure(parent_handle, fn_ir, captures_exprs, [])
 }
 
 fn lower_diverge_branches(lo_input, lo_branches) = {
