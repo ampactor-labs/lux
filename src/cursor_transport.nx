@@ -462,6 +462,35 @@ effect Patch {
   apply_patch_at_cursor(String) -> ()                      @resume=OneShot
 }
 
+// ─── patch_echo — first-land Patch handler ──────────────────────────
+//
+// The substrate-honest minimum: action received → surface notified →
+// developer sees what the loop would apply. Per primitive #2, the
+// chain composes; per Anchor 4, the wheel is built; the handler IS
+// the surface for "apply this annotation."
+//
+// Full source-file rewrite (open file at cursor's reason-chain Located
+// span; splice annotation text before the line; write back; trigger
+// IC re-inference via graph_mutated) is the named follow-up
+// `Hμ.cursor.transport.patch-to-file`. That handle composes with
+// cursor_cache_default's invalidation walk: applying a patch performs
+// graph_mutated; cached_check_with_oracle's arm re-infers the affected
+// modules; the next cursor_argmax reads the refreshed oracle_queue.
+// Until it lands, `patch_echo` is the substrate-correct stand-in:
+// the action reaches the surface; the medium responds.
+//
+// Drift 9 closure: the handler IS bodied; the deferred work is named
+// in positive form as a peer follow-up, not a "for now" hedge.
+
+handler patch_echo {
+  apply_patch_at_cursor(text) => {
+    eprint_string("[inka edit] would apply: ")
+    eprint_string(text)
+    eprint_string("\n")
+    resume()
+  }
+}
+
 // ─── ADTs the transport surface uses ────────────────────────────────
 
 type WebEvent
