@@ -90,21 +90,24 @@ cat > "$OUT" <<'EOF'
     (func $wasi_fd_readdir (param i32 i32 i32 i64 i32) (result i32)))
 
   ;; ─── Memory & Globals (Layer 0) ───────────────────────────────────
-  ;; 512 MiB total. Wheel size at Phase μ closure (962 KB source ×
-  ;; ~1646 top-level decls × per-fn graph_fresh_ty cascades) demands
-  ;; substantial perm headroom. The pre-Phase-μ 32 MiB layout was
+  ;; 2 GiB total. Wheel size at Phase μ closure (962 KB source ×
+  ;; ~1265 top-level fns × ~188 reason_make_* sites in walk_expr.wat
+  ;; × ~50 expression positions per fn) demands substantial perm
+  ;; headroom — running the seed against the full wheel surfaced
+  ;; perm exhaustion at 384 MiB before lower started. The pre-Phase-μ 32 MiB layout was
   ;; sized when src/+lib/ totaled ~10 KLOC; the wheel grew through
   ;; the Phase μ commits (Mentl + cursor + multishot + threading +
-  ;; verify-smt + tutorials). New partition gives perm 384 MiB
-  ;; (1 MiB-385 MiB), stage 96 MiB (385 MiB-481 MiB), fn 31 MiB
-  ;; (481 MiB-512 MiB). Peer follow-ups address the bump shape
+  ;; verify-smt + tutorials). New partition gives perm 1.5 GiB
+  ;; (1 MiB-1537 MiB), stage 384 MiB (1537 MiB-1921 MiB), fn 127 MiB
+  ;; (1921 MiB-2048 MiB). Peer follow-ups address the bump shape
   ;; structurally:
   ;;   - Hβ.first-light.lexer-stage-alloc-retrofit (lift lex tokens
   ;;     to $stage_alloc — parse-consumed, discardable)
-  ;;   - Hβ.first-light.infer-perm-pressure-substrate (audit
-  ;;     graph_fresh_ty per-fn allocation rate; eliminate any
-  ;;     O(N²) shape in pre_register_fn_sigs)
-  (memory (export "memory") 8192)  ;; 512 MiB
+  ;;   - Hβ.first-light.infer-perm-pressure-substrate (route
+  ;;     transient reasons through stage_alloc; promote-on-bind
+  ;;     for graph-stored reasons; eliminate quadratic shape in
+  ;;     unification reason chains)
+  (memory (export "memory") 32768)  ;; 2 GiB
 
   (global $heap_base i32 (i32.const 4096))
   (global $heap_ptr (mut i32) (i32.const 1048576))

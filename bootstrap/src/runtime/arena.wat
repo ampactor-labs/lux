@@ -24,17 +24,17 @@
   ;;     types over regions (post-L1 substrate) will discharge at compile
   ;;     time.
   ;;
-  ;; ─── Linear memory partition (512 MiB total per Layer 0 shell line 93) ─
+  ;; ─── Linear memory partition (2 GiB total per Layer 0 shell line 93) ─
   ;;   [0, HEAP_BASE=4096)              sentinels + data segments
   ;;   [HEAP_BASE, 1 MiB)                reserved (Layer 0 globals)
-  ;;   [1 MiB, 385 MiB)                  permanent heap ($heap_ptr from
+  ;;   [1 MiB, 1537 MiB)                 permanent heap ($heap_ptr from
   ;;                                     Layer 0 shell; long-lived: graph
   ;;                                     nodes, env entries, Ty/Reason
   ;;                                     records bound to graph state)
-  ;;   [385 MiB, 481 MiB)                per-stage arena ($stage_arena_ptr;
+  ;;   [1537 MiB, 1921 MiB)              per-stage arena ($stage_arena_ptr;
   ;;                                     $stage_reset frees in O(1) at
   ;;                                     pipeline-stage transitions)
-  ;;   [481 MiB, 512 MiB)                per-fn arena ($fn_arena_ptr;
+  ;;   [1921 MiB, 2048 MiB)              per-fn arena ($fn_arena_ptr;
   ;;                                     $fn_reset frees in O(1) at user-
   ;;                                     fn boundaries)
   ;;
@@ -53,8 +53,8 @@
   ;; arena/region/stage/perm-promote. NEVER malloc/free/young-gen/old-gen
   ;; (C/Java drift refused per Hβ-arena §5).
 
-  (global $stage_arena_ptr (mut i32) (i32.const 403701760))  ;; 385 MiB
-  (global $fn_arena_ptr    (mut i32) (i32.const 504365056))  ;; 481 MiB
+  (global $stage_arena_ptr (mut i32) (i32.const 1611137024))  ;; 1537 MiB
+  (global $fn_arena_ptr    (mut i32) (i32.const 2014314496))  ;; 1921 MiB
 
   ;; ─── $perm_alloc — long-lived; survives all stage/fn boundaries ────
   ;; Used for: graph GNodes, env entries, Ty/Reason records bound into
@@ -74,7 +74,7 @@
           (i32.add (local.get $old) (local.get $size))
           (i32.const 7))
         (i32.const -8)))                  ;; 8-byte alignment
-    (if (i32.gt_u (local.get $next) (i32.const 403701760))  ;; 385 MiB
+    (if (i32.gt_u (local.get $next) (i32.const 1611137024))  ;; 1537 MiB
       (then (unreachable)))               ;; perm crosses into stage region
     (global.set $heap_ptr (local.get $next))
     (local.get $old))
@@ -98,7 +98,7 @@
           (i32.add (local.get $old) (local.get $size))
           (i32.const 7))
         (i32.const -8)))
-    (if (i32.gt_u (local.get $next) (i32.const 504365056))  ;; 481 MiB
+    (if (i32.gt_u (local.get $next) (i32.const 2014314496))  ;; 1921 MiB
       (then (unreachable)))               ;; stage crosses into fn region
     (global.set $stage_arena_ptr (local.get $next))
     (local.get $old))
@@ -121,7 +121,7 @@
           (i32.add (local.get $old) (local.get $size))
           (i32.const 7))
         (i32.const -8)))
-    (if (i32.gt_u (local.get $next) (i32.const 536870912))  ;; 512 MiB
+    (if (i32.gt_u (local.get $next) (i32.const 2147483648))  ;; 2048 MiB
       (then (unreachable)))               ;; fn crosses linear-memory cap
     (global.set $fn_arena_ptr (local.get $next))
     (local.get $old))
@@ -132,14 +132,14 @@
   ;; record allocated through $stage_alloc since the last reset is now
   ;; gone; its memory will be re-used by the next stage.
   (func $stage_reset (export "stage_reset")
-    (global.set $stage_arena_ptr (i32.const 403701760)))  ;; 385 MiB
+    (global.set $stage_arena_ptr (i32.const 1611137024)))  ;; 1537 MiB
 
   ;; ─── $fn_reset — frees ALL fn-local allocations in O(1) ───────────
   ;; Called from $ls_reset_function (lower/state.wat) at the per-fn
   ;; boundary, and from infer's FnStmt walk-exit. Bumps $fn_arena_ptr
   ;; back to FN_ARENA_START.
   (func $fn_reset (export "fn_reset")
-    (global.set $fn_arena_ptr (i32.const 504365056)))  ;; 481 MiB
+    (global.set $fn_arena_ptr (i32.const 2014314496)))  ;; 1921 MiB
 
   ;; ─── $perm_promote — ownership-transfer at stage boundary ─────────
   ;; Per Hβ-arena §4 ownership interrogation: stage-arena `own` →
