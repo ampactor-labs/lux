@@ -985,6 +985,16 @@
           (then
             (call $emit_let_locals (call $lexpr_lif_then (local.get $expr)))
             (call $emit_let_locals (call $lexpr_lif_else (local.get $expr)))))
+        ;; LMatch (321) — recurse into scrutinee + each arm. Per
+        ;; Hβ.first-light.match-arm-pat-binding-local-decl Lock #1:
+        ;; arms' patterns introduce LPVar bindings (potentially nested);
+        ;; arms' bodies may contain LLet bindings.
+        (if (i32.eq (local.get $tag) (i32.const 321))
+          (then
+            (call $emit_let_locals_walk
+              (call $lexpr_lmatch_scrut (local.get $expr)))
+            (call $emit_match_arm_locals
+              (call $lexpr_lmatch_arms (local.get $expr)))))
         ;; LMakeClosure (311) / LMakeContinuation (312) — fn boundary,
         ;; their LLets belong to their own fn body's emit_let_locals.
         ;; All other tags: no LowExpr children with LLet to declare.
@@ -1007,6 +1017,151 @@
         (call $emit_let_locals (call $lexpr_lif_then (local.get $expr)))
         (call $emit_let_locals (call $lexpr_lif_else (local.get $expr)))
         (return)))
+    (if (i32.eq (local.get $tag) (i32.const 321))
+      (then
+        (call $emit_let_locals_walk (call $lexpr_lmatch_scrut (local.get $expr)))
+        (call $emit_match_arm_locals (call $lexpr_lmatch_arms (local.get $expr)))
+        (return)))
+    (return))
+
+  ;; ─── $emit_match_arm_locals — iterate match arms; emit pat + body ──
+  ;; locals per arm. Per Hβ.first-light.match-arm-pat-binding-local-decl
+  ;; Lock #2: arm's pat walked via $emit_pat_locals; arm's body recursed
+  ;; via $emit_let_locals_walk.
+  ;;
+  ;; Lock #3: NO de-duplication across arms — WAT uniqueness obligation
+  ;; enforced at lower-time (substrate gap if collisions surface).
+  (func $emit_match_arm_locals (param $arms i32)
+    (local $i i32) (local $n i32) (local $arm i32)
+    (local.set $n (call $len (local.get $arms)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $arm (call $list_index (local.get $arms) (local.get $i)))
+        (call $emit_pat_locals (call $lowpat_lparm_pat (local.get $arm)))
+        (call $emit_let_locals_walk (call $lowpat_lparm_body (local.get $arm)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter))))
+
+  ;; ─── $emit_pat_locals — walk LowPat tree, emit (local $<name> i32) ──
+  ;; for every LPVar binding (direct LPVar OR sub-pattern of LPCon /
+  ;; LPTuple / LPRecord / LPList / LPAs). Per Hβ.first-light.match-arm-
+  ;; pat-binding-local-decl Lock #2: bindings come from LPVar at any
+  ;; pattern depth; the local-decl ledger derives from LowPat structure,
+  ;; not from a parallel name-list (Drift 7 refusal).
+  ;;
+  ;; Eight interrogations:
+  ;;  1. Graph?      LPVar's name field at record offset 1; tag dispatch
+  ;;                 via $tag_of; sub-pattern lists via accessors.
+  ;;  2. Handler?    Direct emit; @resume=OneShot.
+  ;;  3. Verb?       N/A — structural walk.
+  ;;  4. Row?        EmitMemory effect (writes to $out_base via $emit_str).
+  ;;  5. Ownership?  Pat record `ref`-borrowed.
+  ;;  6. Refinement? LPVar.name non-zero string-ptr per arity-2 contract.
+  ;;  7. Gradient?   Local-decl synthesis derived from LowPat substrate.
+  ;;  8. Reason?     LPVar handle preserves chain; this walk does not write.
+  ;;
+  ;; Drift modes refused:
+  ;;  - Drift 1 (vtable): direct tag-int dispatch; no $pat_locals_table.
+  ;;  - Drift 6 (special): every binding-introducing LowPat goes through
+  ;;                       same recurse; LPCon, LPTuple, LPRecord, LPList,
+  ;;                       LPAs treated uniformly.
+  ;;  - Drift 7 (parallel arrays): no body_local_names accumulator.
+  ;;  - Drift 8 (string-keyed): tag-int comparisons.
+  ;;  - Drift 9 (deferred): all binding-introducing LowPat variants walked.
+  (func $emit_pat_locals (param $pat i32)
+    (local $tag i32) (local $sub_pats i32) (local $i i32) (local $n i32)
+    (local $rest i32) (local $fields i32) (local $field i32)
+    (if (i32.lt_u (local.get $pat) (global.get $heap_base))
+      (then (return)))
+    (local.set $tag (call $tag_of (local.get $pat)))
+    ;; LPVar (360) — emit (local $<name> i32).
+    (if (i32.eq (local.get $tag) (i32.const 360))
+      (then
+        (call $emit_cstr (i32.const 4146) (i32.const 9)) ;; " (local $"
+        (call $emit_str (call $lowpat_lpvar_name (local.get $pat)))
+        (call $emit_cstr (i32.const 4155) (i32.const 5)) ;; " i32)"
+        (return)))
+    ;; LPCon (363) — recurse into sub-pats list.
+    (if (i32.eq (local.get $tag) (i32.const 363))
+      (then
+        (local.set $sub_pats (call $lowpat_lpcon_args (local.get $pat)))
+        (local.set $n (call $len (local.get $sub_pats)))
+        (local.set $i (i32.const 0))
+        (block $done_con
+          (loop $iter_con
+            (br_if $done_con (i32.ge_u (local.get $i) (local.get $n)))
+            (call $emit_pat_locals
+              (call $list_index (local.get $sub_pats) (local.get $i)))
+            (local.set $i (i32.add (local.get $i) (i32.const 1)))
+            (br $iter_con)))
+        (return)))
+    ;; LPTuple (364) — recurse into elems.
+    (if (i32.eq (local.get $tag) (i32.const 364))
+      (then
+        (local.set $sub_pats (call $lowpat_lptuple_elems (local.get $pat)))
+        (local.set $n (call $len (local.get $sub_pats)))
+        (local.set $i (i32.const 0))
+        (block $done_tup
+          (loop $iter_tup
+            (br_if $done_tup (i32.ge_u (local.get $i) (local.get $n)))
+            (call $emit_pat_locals
+              (call $list_index (local.get $sub_pats) (local.get $i)))
+            (local.set $i (i32.add (local.get $i) (i32.const 1)))
+            (br $iter_tup)))
+        (return)))
+    ;; LPRecord (366) — fields is list of (name, pat) records.
+    (if (i32.eq (local.get $tag) (i32.const 366))
+      (then
+        (local.set $fields (call $lowpat_lprecord_fields (local.get $pat)))
+        (local.set $n (call $len (local.get $fields)))
+        (local.set $i (i32.const 0))
+        (block $done_rec
+          (loop $iter_rec
+            (br_if $done_rec (i32.ge_u (local.get $i) (local.get $n)))
+            (local.set $field
+              (call $list_index (local.get $fields) (local.get $i)))
+            (call $emit_pat_locals
+              (call $record_get (local.get $field) (i32.const 1)))
+            (local.set $i (i32.add (local.get $i) (i32.const 1)))
+            (br $iter_rec)))
+        (local.set $rest (call $lowpat_lprecord_rest (local.get $pat)))
+        (if (i32.ne (local.get $rest) (i32.const 0))
+          (then
+            (call $emit_cstr (i32.const 4146) (i32.const 9))
+            (call $emit_str (local.get $rest))
+            (call $emit_cstr (i32.const 4155) (i32.const 5))))
+        (return)))
+    ;; LPList (365) — recurse into elems; rest_var is bound-name string.
+    (if (i32.eq (local.get $tag) (i32.const 365))
+      (then
+        (local.set $sub_pats (call $lowpat_lplist_elems (local.get $pat)))
+        (local.set $n (call $len (local.get $sub_pats)))
+        (local.set $i (i32.const 0))
+        (block $done_lst
+          (loop $iter_lst
+            (br_if $done_lst (i32.ge_u (local.get $i) (local.get $n)))
+            (call $emit_pat_locals
+              (call $list_index (local.get $sub_pats) (local.get $i)))
+            (local.set $i (i32.add (local.get $i) (i32.const 1)))
+            (br $iter_lst)))
+        (local.set $rest (call $lowpat_lplist_rest (local.get $pat)))
+        (if (i32.ne (local.get $rest) (i32.const 0))
+          (then
+            (call $emit_cstr (i32.const 4146) (i32.const 9))
+            (call $emit_str (local.get $rest))
+            (call $emit_cstr (i32.const 4155) (i32.const 5))))
+        (return)))
+    ;; LPAs (368) — emit (local $<name> i32) AND recurse inner pat.
+    (if (i32.eq (local.get $tag) (i32.const 368))
+      (then
+        (call $emit_cstr (i32.const 4146) (i32.const 9))
+        (call $emit_str (call $lowpat_lpas_name (local.get $pat)))
+        (call $emit_cstr (i32.const 4155) (i32.const 5))
+        (call $emit_pat_locals (call $lowpat_lpas_pat (local.get $pat)))
+        (return)))
+    ;; LPWild (361) / LPLit (362) / LPAlt (367) — bind nothing.
     (return))
 
   ;; $emit_functions — walk LowExpr list, emit (func ...) for each
