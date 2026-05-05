@@ -189,6 +189,19 @@ Possibly fewer than 12 boxes; possibly different boxes than named.
    `$emit_lmakevariant` for the gap; author the fix as a chunk
    addendum.
 
+   **CLOSED 2026-05-04.** Empirical re-verification under the
+   inka-implementer dispatch (planner-authored §A pre-audit gate)
+   confirms `Just(42)` now emits the canonical heap-alloc + tag
+   store + literal-arg store + variant return sequence verbatim.
+   The seed compiles `Just(42)` as `(global.get $heap_ptr)
+   (local.set $variant_tmp) (global.get $heap_ptr)(i32.const 8)
+   (i32.add)(global.set $heap_ptr) (local.get $variant_tmp)
+   (i32.const 0)(i32.store offset=0) (local.get $variant_tmp)
+   (i32.const 42)(i32.store offset=4) (local.get $variant_tmp)`.
+   No `(unreachable)` between `(local.get $state_tmp)` tokens;
+   exit 0; empty stderr. Bug closed by some intervening commit
+   between audit authoring (2026-05-02) and re-verification.
+
 2. **Nullary-ctor type-flow into CallExpr context** — the result
    type of a nullary constructor (which is `TName(type_name, [])`,
    not a function type) doesn't unify correctly when used as a
@@ -196,9 +209,23 @@ Possibly fewer than 12 boxes; possibly different boxes than named.
    argument-type unification needs to handle nullary-ctor
    value-context. New handle: `Hβ.first-light.nullary-ctor-call-context`.
 
-These two specific, empirically-verified bugs are the actual
-residue this session's work has surfaced. They are the corrected
-cursor of attention.
+   **EMPIRICALLY CONFIRMED REAL 2026-05-04.** Test:
+   `fn unwrap(m, d) = match m { Just(x) => x, Nothing => d }
+   fn main() = unwrap(Nothing, 5)` produces a `$main` body where
+   `Nothing` is emitted as `(local.get $__state)(i32.load offset=8)`
+   instead of `(i32.const 1)` (Nothing's tag_id). The arg path
+   treats the nullary-ctor reference as a closure capture rather
+   than a literal sentinel value. Bug REPRODUCES; cursor of
+   attention.
+
+3. **Match-arm pattern-binding local-decl missing (newly named)** —
+   `Hβ.first-light.match-arm-pat-binding-local-decl`. Same test as
+   item 2: `$unwrap` body has `(local.set $x)` and `(local.get $x)`
+   in the `Just(x) => x` arm, but `$x` is NOT declared in unwrap's
+   `(local ...)` list. wat2wasm rejects the output with
+   `undefined local variable "$x"`. The match-arm PCon binding
+   substrate produces the local-set/get tokens but emit doesn't
+   register the binding in the function's local declarations.
 
 ---
 
