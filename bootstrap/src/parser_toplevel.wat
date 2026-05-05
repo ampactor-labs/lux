@@ -7,6 +7,16 @@
     (local $name i32)
     (local.set $k (call $kind_at (local.get $tokens) (local.get $pos)))
     (local.set $span (call $span_at_p (local.get $tokens) (local.get $pos)))
+    ;; TDocComment — wheel surface attaches `///` doc strings before each
+    ;; top-level decl. Seed first-light surface drops the docstring and
+    ;; re-dispatches on the next stmt; the named follow-up
+    ;; Hβ.first-light.documented-stmt-substrate wraps the next stmt in
+    ;; the Documented(doc, inner) tag-128 ADT (the infer-side arm at
+    ;; walk_stmt.wat:467-471 already recurses through that wrapper).
+    (if (i32.eq (local.get $k) (i32.const 29))  ;; TDocComment
+      (then (return (call $parse_stmt_p (local.get $tokens)
+        (call $skip_ws_p (local.get $tokens)
+          (i32.add (local.get $pos) (i32.const 1)))))))
     ;; TFn → parse_fn_stmt
     (if (i32.eq (local.get $k) (i32.const 0))
       (then (return (call $parse_fn_stmt (local.get $tokens)
