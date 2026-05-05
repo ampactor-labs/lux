@@ -492,11 +492,17 @@ fn lower_pipe(kind, left, right, handle) = match kind {
   },
 
   PDiverge => {
-    // <| diverge — input borrowed to each branch; outputs tupled.
-    // Ownership affinity checked at inference (E_OwnershipViolation if own flows here).
-    let lo_l = lower_expr(left)
-    let lo_r = lower_expr(right)
-    LMakeTuple(handle, lower_diverge_branches(lo_l, lo_r))
+    // <| diverge — input ref-borrowed to each branch; outputs tupled.
+    // SUBSTRATE.md §431: structural difference from >< is ownership,
+    // NOT serial-vs-parallel; both verbs route through Thread effect.
+    // Each branch lowers as a 0-arg thunk closure capturing the
+    // shared input by let-local handle; spawn/join per thunk; join
+    // results tuple at the <| site. Drift 5 closure: shared input
+    // is closure-state, not a hidden `__shared_input` parameter.
+    // Ownership affinity (own values cannot flow through <|) is
+    // checked at infer time (E_OwnershipViolation); lower trusts
+    // the infer-side proof. Hβ.lower.diverge-via-thread walkthrough.
+    lower_diverge_via_thread(handle, left, right)
   },
 
   PTeeBlock => {
@@ -559,6 +565,94 @@ fn lower_compose_via_thread(handle, left, right) = {
       LPerform(handle, "join", [h_r]) ])
 }
 
+/// `<|` × Thread effect dispatch. Symmetric peer to
+/// `lower_compose_via_thread`. The structural difference: `<|`
+/// branches share ONE input (ref-borrowed per SUBSTRATE.md §431);
+/// each thunk closure captures the same `__diverge_input` let-local.
+///
+/// Lowering:
+///   1. Lower the input expression once; bind it as let-local
+///      `__diverge_input_<handle>`.
+///   2. Per branch_node in `right` (a parser-level MakeTupleExpr):
+///      synthesize a 0-arg thunk closure whose body is
+///      `Call(branch_node, [__diverge_input])` — applying the
+///      branch fn to the shared input. Each thunk captures the
+///      let-local by handle (one capture; uniform across branches).
+///   3. Spawn each thunk; join each handle; tuple the joined
+///      results in source-branch order (Q-B.7.3 determinism).
+///
+/// Composition (per threading.nx §1):
+/// - parallel_compose × <|: each branch dispatched to a distinct
+///   OS thread; per-thread bump_allocator; tuple order preserved.
+/// - sequential_compose × <|: each thunk evaluated synchronously
+///   inline (Q-B.7.1 graceful fallback).
+/// - <| × race: orthogonal topologies (race per branch is fine;
+///   race over <| outputs is |> composition, not handler stacking).
+///
+/// Drift 5 closure: shared input is closure-state via __diverge_input
+/// capture, NOT a hidden parameter to spawn. Drift 7 closure:
+/// per-branch thunks are List<LowExpr>, not parallel arrays.
+/// Drift 9 closure: this commit lands the let-local + per-branch
+/// thunks + spawn/join tuple atomically; row enforcement
+/// (`Hβ.infer.diverge-shared-memory-row`) and Reason variant
+/// (`Reason.branch-spawned-verb-tagged`) are named PEER handles.
+fn lower_diverge_via_thread(handle, left, right) = {
+  let lo_input = lower_expr(left)
+  let input_local_name = "__diverge_input_" |> str_concat(int_to_str(handle))
+  let N(_, _, input_h) = left
+  let N(rbody, _, _) = right
+  let branch_nodes = match rbody {
+    NExpr(MakeTupleExpr(elems)) => elems,
+    _                            => [right]
+  }
+  let thunks = synthesize_diverge_thunks(handle, input_h, input_local_name, branch_nodes, 0)
+  let spawn_joins = spawn_join_each(handle, thunks)
+  LBlock(handle, [
+    LLet(input_h, input_local_name, lo_input),
+    LMakeTuple(handle, spawn_joins)
+  ])
+}
+
+/// Walk branch_nodes producing one LMakeClosure per branch. Each
+/// thunk's body is `LCall(branch_h, lower_expr(branch_node),
+/// [LLocal(input_h, input_local_name)])` — the branch fn applied
+/// to the shared input. Captures = [LLocal(input_h, input_local_name)]
+/// (one capture; uniform across branches).
+///
+/// Per H.2.e (lower-lambda-capture-substrate): the closure
+/// machinery used here is the same machinery that lowers user-
+/// written lambdas; compiler-synthesized thunks reuse it.
+fn synthesize_diverge_thunks(parent_handle, input_h, input_local_name, branch_nodes, idx) = {
+  if branch_nodes.len == 0 { [] }
+  else {
+    let branch_node = list_head(branch_nodes)
+    let N(_, _, branch_h) = branch_node
+    let thunk_name = "diverge_" |> str_concat(int_to_str(idx))
+                                |> str_concat("_")
+                                |> str_concat(int_to_str(parent_handle))
+    let lo_branch = lower_expr(branch_node)
+    let input_ref = LLocal(input_h, input_local_name)
+    let thunk_body = LCall(branch_h, lo_branch, [input_ref])
+    let fn_ir = LFn(thunk_name, 0, [], [thunk_body], EfPure)
+    let captures_exprs = [LLocal(input_h, input_local_name)]
+    let thunk = LMakeClosure(parent_handle, fn_ir, captures_exprs, [])
+    [thunk] ++ synthesize_diverge_thunks(parent_handle, input_h, input_local_name, list_tail(branch_nodes), idx + 1)
+  }
+}
+
+/// Per-thunk: spawn the thunk, join the resulting handle. Returns
+/// the list of LPerform("join", [LPerform("spawn", [thunk_i])]).
+/// Source-branch order preserved per Q-B.7.3 determinism.
+fn spawn_join_each(handle, thunks) = {
+  if thunks.len == 0 { [] }
+  else {
+    let thunk = list_head(thunks)
+    let h_spawn = LPerform(handle, "spawn", [thunk])
+    let r_join = LPerform(handle, "join", [h_spawn])
+    [r_join] ++ spawn_join_each(handle, list_tail(thunks))
+  }
+}
+
 /// Branch-as-thunk synthesis. Mirrors LambdaExpr's lowering above —
 /// collect_free_vars over an EMPTY bound-set (a thunk has no params,
 /// so every name referenced in the body is a capture), resolve via
@@ -588,21 +682,6 @@ fn synthesize_branch_thunk(parent_handle, side_label, branch_node) = {
     EfPure
   )
   LMakeClosure(parent_handle, fn_ir, captures_exprs, [])
-}
-
-fn lower_diverge_branches(lo_input, lo_branches) = {
-  match lo_branches {
-    LMakeTuple(_, branches) => apply_each_branch(lo_input, branches),
-    _ => [LCall(0, lo_branches, [lo_input])]
-  }
-}
-
-fn apply_each_branch(lo_input, branches) = {
-  if branches.len == 0 { [] }
-  else {
-    [LCall(0, list_head(branches), [lo_input])]
-      ++ apply_each_branch(lo_input, list_tail(branches))
-  }
 }
 
 /// W6 — resolve a field's byte offset from the record's live type.

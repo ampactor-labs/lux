@@ -352,9 +352,15 @@ handlers operate within them.
 
 ### 8.3 Verb?
 
-`><` IS the verb that draws parallel topology. TH doesn't add
-a verb; TH adds the handler that gives `><` multi-core
-semantics. One source shape; handler decides dispatch.
+`><` AND `<|` are the parallelism verbs (SUBSTRATE.md §"`<|`
+vs `><`: Ownership Is the Structural Difference" — both are
+parallelism; the structural distinction is input ownership,
+not serial-vs-parallel). TH doesn't add a verb; TH adds the
+handler that gives BOTH verbs multi-core semantics. One source
+shape per verb; handler decides dispatch. Per Hβ.lower.diverge-
+via-thread, PDiverge lowers as per-branch thunk closures over
+a shared captured input + spawn/join, symmetric to PCompose's
+per-branch thunks over independent inputs.
 
 ### 8.4 Row?
 
@@ -531,3 +537,32 @@ dispatch; the runtime provides threads; the user writes `><`.
 handler on the substrate. The embarrassing universe is the one
 where we forgot to install the handler; the real universe is the
 one where adding one `~>` line lights up the rest of the CPU.*
+
+
+---
+
+## Addendum 2026-05-05 — `<|` is parallelism too
+
+When TH was authored (2026-04-23) §3 + §8.3 named `><` as the
+parallel-compose verb. SUBSTRATE.md §"`<|` vs `><`: Ownership
+Is the Structural Difference" (commit during Hμ.cursor cascade)
+established that BOTH `<|` and `><` are parallelism verbs; the
+structural distinction is INPUT OWNERSHIP, not serial-vs-parallel.
+
+Hβ.lower.diverge-via-thread (this addendum's referent) closes
+the asymmetry at the lowering layer. After this commit:
+
+- `<|` branches lower as per-branch thunk closures sharing one
+  captured input by handle; spawn/join per thunk; tuple results.
+- `><` branches lower as per-branch thunk closures with
+  independent captures (existing path, unchanged).
+- `parallel_compose` intercepts spawn/join uniformly across both
+  verbs.
+
+Sections §0.2, §3, §8.3, §10 of this walkthrough now read
+"both `<|` and `><`" wherever they previously read "`><`."
+The crucible (`crucible_parallel.nx`) gains a `<|`-shaped sibling
+(`crucible_diverge_parallel.nx`) named as peer follow-up.
+
+This addendum is the riffle-back closure (Anchor 7 step 4) for
+TH against the Hβ.lower.diverge-via-thread landing.

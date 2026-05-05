@@ -3,8 +3,13 @@
 // Per TH walkthrough §1: threading is an effect. Inka has no
 // thread keyword, no concurrent-runtime layer, no special syntax.
 // `Thread` declares spawn/join; `SharedMemory` declares atomics;
-// the `parallel_compose` handler intercepts `><` branches and
-// dispatches them to OS threads.
+// the `parallel_compose` handler intercepts BOTH `><` and `<|`
+// branches and dispatches them to OS threads. Per SUBSTRATE.md
+// §"`<|` vs `><`: Ownership Is the Structural Difference" the
+// two verbs are both parallelism; the structural difference is
+// input ownership (`<|` ref-borrows shared; `><` own-consumes
+// independent), not serial-vs-parallel. Both lower as spawn/join
+// per branch; same handler dispatches both.
 //
 // Per INSIGHTS L1346 ("Handler IS the Backend"): there are no
 // backends, only handlers. The threading "library" is two effects
@@ -199,10 +204,17 @@ fn max_join_timeout() with Pure = 1000000000
 /// Thread effect's resume discipline. Per Q-B.7.2: OS threads
 /// direct for v1; pool_compose is peer handler post-first-light.
 ///
-/// Primitive #3 (Five verbs) — `><` is the topology; parallel_compose
-/// is the handler that gives `><` multi-core semantics. Same source
-/// `><` whether single-threaded baseline OR multi-core; only the
-/// installed handler differs.
+/// Primitive #3 (Five verbs) — `><` AND `<|` are the parallel
+/// topologies (SUBSTRATE.md §"`<|` vs `><`: Ownership Is the
+/// Structural Difference"); parallel_compose is the handler that
+/// gives BOTH verbs multi-core semantics. Same source — single-
+/// threaded baseline OR multi-core scale-out — depending only
+/// on the installed handler. The verbs differ in input ownership
+/// (`<|` ref-borrowed shared; `><` own-consumed independent),
+/// not in dispatch story. Per Hβ.lower.diverge-via-thread:
+/// PDiverge lowers as per-branch thunk closures over a shared
+/// captured input + spawn/join, symmetric to PCompose's per-
+/// branch thunks over independent inputs.
 ///
 /// Primitive #4 (Effect row algebra) — `Thread + !SharedMemory` for
 /// isolated tracks; `SharedMemory` for atomic-sync ops. `!Thread`
