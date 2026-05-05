@@ -45,22 +45,26 @@ more impactful than any single peer handle pre-L1.
 
 ---
 
-## §1 The cursor today (commit `95d8ce5`, 2026-05-02)
+## §1 The cursor today (commit `b95500d`, 2026-05-04)
 
-**Closed (this session):**
+**Closed (this session arc):**
 - ✓ Hμ.cursor wheel-side (7 commits; src/cursor.nx + types.nx + mentl.nx + mentl_voice.nx + pipeline.nx + walkthrough + ULTIMATE_MEDIUM)
 - ✓ Authority docs aligned (CLAUDE.md + SUBSTRATE.md + DESIGN.md + 09-mentl + MV + IE + GR)
 - ✓ ROADMAP.md Phase μ section + 6 peer handles named
 - ✓ Memory protocols: `protocol_cursor_is_argmax.md` + `protocol_ultimate_medium.md`
 - ✓ Hβ-first-light-residue.md (empirical L1 state + 12-handle cascade decomposition)
+- ✓ **Hβ.first-light.handler-decl-emit-cascade — 19-box closure (`b95500d`, 2026-05-04)**
+  - `bootstrap/src/parser_handler.wat` lands the full handler-decl arm parser; replaces the broken `$skip_to_rbrace` stub at parser_toplevel.wat.
+  - HandlerDeclStmt extends to 5 fields (`[tag][name][effect][arms][state_fields]`); arms are populated `make_record(0, 3)` records with `{args, body, op_name}`.
+  - Arena partition bumped from 32 MiB to 512 MiB to admit the Phase μ wheel (1646 top-level decls); peer follow-ups named for proper structural fix:
+    `Hβ.first-light.lexer-stage-alloc-retrofit` + `Hβ.first-light.infer-perm-pressure-substrate`.
+  - Verified end-to-end on src/verify.nx (2 handlers, 11 arms → 73 KB WAT, no trap) and lib/runtime/threading.nx (2 handlers + with-state → 4 KB, no trap).
 
-**Empirical L1 stage-1 state:**
-- `cat src+lib | wasmtime run inka.wasm` → exit 0 + 19-line stub module + 13 E_UnresolvedType diagnostics
-- Stub form: 1 function (`heap_base`, body `(unreachable)`); `_start` exits immediately
-- Real wheel substrate is silently dropped under Hazel productive-under-error
-- L1 acceptance: stub → real compilation → byte-fixpoint under self-application
+**Empirical L1 stage-1 state (post-19-box):**
+- `cat src+lib | wasmtime run inka.wasm` parses cleanly through the full pipeline. Diagnostics now flow from the H.1.a/b/c (infer-completeness) handles, NOT from the parser. The 19-box was a parser-side blocker masking the actual H.1 cascade.
+- Phase H.1 cursor opens: Hβ.first-light.infer-typedef-ctors / infer-effect-ops / infer-handler-decls. The 19-box closure unlocks visibility into these.
 
-**Working tree:** clean. Bootstrap unchanged from committed state.
+**Working tree:** clean. Bootstrap rebuilt at b95500d.
 
 ---
 
