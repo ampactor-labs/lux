@@ -90,7 +90,21 @@ cat > "$OUT" <<'EOF'
     (func $wasi_fd_readdir (param i32 i32 i32 i64 i32) (result i32)))
 
   ;; ─── Memory & Globals (Layer 0) ───────────────────────────────────
-  (memory (export "memory") 512)  ;; 32 MiB — room for heap + output buffer
+  ;; 512 MiB total. Wheel size at Phase μ closure (962 KB source ×
+  ;; ~1646 top-level decls × per-fn graph_fresh_ty cascades) demands
+  ;; substantial perm headroom. The pre-Phase-μ 32 MiB layout was
+  ;; sized when src/+lib/ totaled ~10 KLOC; the wheel grew through
+  ;; the Phase μ commits (Mentl + cursor + multishot + threading +
+  ;; verify-smt + tutorials). New partition gives perm 384 MiB
+  ;; (1 MiB-385 MiB), stage 96 MiB (385 MiB-481 MiB), fn 31 MiB
+  ;; (481 MiB-512 MiB). Peer follow-ups address the bump shape
+  ;; structurally:
+  ;;   - Hβ.first-light.lexer-stage-alloc-retrofit (lift lex tokens
+  ;;     to $stage_alloc — parse-consumed, discardable)
+  ;;   - Hβ.first-light.infer-perm-pressure-substrate (audit
+  ;;     graph_fresh_ty per-fn allocation rate; eliminate any
+  ;;     O(N²) shape in pre_register_fn_sigs)
+  (memory (export "memory") 8192)  ;; 512 MiB
 
   (global $heap_base i32 (i32.const 4096))
   (global $heap_ptr (mut i32) (i32.const 1048576))

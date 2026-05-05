@@ -44,6 +44,7 @@ CHUNKS=(
   "bootstrap/src/parser_decl.wat"
   "bootstrap/src/parser_expr.wat"
   "bootstrap/src/parser_compound.wat"
+  "bootstrap/src/parser_handler.wat"     # 19-box: full handler-decl arm parser; replaces parser_toplevel.wat $skip_to_rbrace stub. Provides $parse_handler_decl_full + $mk_handler_decl_full + $parse_handler_arms / $parse_handler_arm / $parse_handler_arm_args / $parse_handler_state / $skip_to_arm_terminator. Depends on $parse_pat (parser_pat.wat) + $parse_expr (parser_expr.wat) + $skip_ws_p / $expect / $at / $kind_at / $ident_at_p / $nstmt (parser_infra.wat) + $make_record / $record_set (runtime/record.wat); consumed by parser_toplevel.wat below.
   "bootstrap/src/parser_toplevel.wat"
 
   # ── Layer 4: Inference (per Hβ-infer-substrate.md) ──

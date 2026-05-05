@@ -23,35 +23,13 @@
     (if (i32.eq (local.get $k) (i32.const 6))
       (then (return (call $parse_effect_stmt (local.get $tokens)
         (i32.add (local.get $pos) (i32.const 1)) (local.get $span)))))
-    ;; THandler → parse handler declaration
-    ;; Per Hβ.first-light.handler-decl-emit-cascade (19-box surfaced
-    ;; 2026-05-03 — see plan tracker): prior `pos+2` lands AT opening
-    ;; `{`; $skip_to_rbrace counted that `{` as depth+1 and scanned to
-    ;; TEof, swallowing everything after the first handler. Quick-fix
-    ;; (skip past `{` with $skip_past_lbrace) restored single-test
-    ;; correctness BUT exhausted the bump allocator on the wheel
-    ;; (parser now consumes substantial body content per handler;
-    ;; aggregate memory pressure trips the 16MB cap on 7+ files).
-    ;; The substrate-honest closure is the full parser_handler.wat
-    ;; cascade per Hβ-infer-handler-decls-full.md — not a one-line
-    ;; brace tweak. Restored the original brace-skip discipline; the
-    ;; 19-box stays open under its named handle.
+    ;; THandler → parse handler declaration via parser_handler.wat
+    ;; Closes the 19-box per Hβ.first-light.handler-decl-emit-cascade —
+    ;; the full arm parser lives in parser_handler.wat; this dispatch
+    ;; site just delegates and returns the canonical 2-tuple shape.
     (if (i32.eq (local.get $k) (i32.const 8))
-      (then
-        (local.set $name (call $ident_at_p (local.get $tokens)
-          (i32.add (local.get $pos) (i32.const 1))))
-        ;; HandlerDeclStmt(name, "", arms) — full surface deferred per
-        ;; Hβ.first-light.parser-handler-arms named follow-up.
-        (local.set $tup (call $make_list (i32.const 2)))
-        (drop (call $list_set (local.get $tup) (i32.const 0)
-          (call $nstmt
-            (call $mk_handler_decl (local.get $name))
-            (local.get $span))))
-        (drop (call $list_set (local.get $tup) (i32.const 1)
-          (call $skip_to_rbrace (local.get $tokens)
-            (call $skip_ws_p (local.get $tokens)
-              (i32.add (local.get $pos) (i32.const 2))))))
-        (return (local.get $tup))))
+      (then (return (call $parse_handler_decl_full (local.get $tokens)
+        (local.get $pos) (local.get $span)))))
     ;; TImport → parse import
     (if (i32.eq (local.get $k) (i32.const 18))
       (then
@@ -77,7 +55,12 @@
       (call $list_index (local.get $result) (i32.const 1))))
     (local.get $tup))
 
-  ;; HandlerDeclStmt stub: [tag=124][name][effect=""][arms=[]]
+  ;; HandlerDeclStmt construction lives in parser_handler.wat
+  ;; ($mk_handler_decl_full) per the 19-box closure. The 1-arg shell
+  ;; that previously sat at this site is deleted to refuse drift 9
+  ;; (deferred-by-omission); both effect_name and arms are now
+  ;; populated at parse time.
+  ;;
   ;; parse_import_path: slash-separated module name per SYNTAX.md
   ;; `import path/to/module`. Returns [path, next_pos].
   (func $parse_import_path (param $tokens i32) (param $pos i32) (result i32)
@@ -102,14 +85,6 @@
     (drop (call $list_set (local.get $tup) (i32.const 0) (local.get $acc)))
     (drop (call $list_set (local.get $tup) (i32.const 1) (local.get $p)))
     (local.get $tup))
-
-  (func $mk_handler_decl (param $name i32) (result i32)
-    (local $p i32) (local.set $p (call $alloc (i32.const 16)))
-    (i32.store (local.get $p) (i32.const 124))
-    (i32.store offset=4 (local.get $p) (local.get $name))
-    (i32.store offset=8 (local.get $p) (call $str_alloc (i32.const 0)))
-    (i32.store offset=12 (local.get $p) (call $make_list (i32.const 0)))
-    (local.get $p))
 
   ;; ─── parse_let_stmt (with pattern support) ────────────────────────
   ;; let pat = expr

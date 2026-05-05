@@ -24,26 +24,37 @@
   ;;     types over regions (post-L1 substrate) will discharge at compile
   ;;     time.
   ;;
-  ;; ─── Linear memory partition (32 MiB total per Layer 0 shell line 93) ─
+  ;; ─── Linear memory partition (512 MiB total per Layer 0 shell line 93) ─
   ;;   [0, HEAP_BASE=4096)              sentinels + data segments
   ;;   [HEAP_BASE, 1 MiB)                reserved (Layer 0 globals)
-  ;;   [1 MiB, 16 MiB)                   permanent heap ($heap_ptr from
+  ;;   [1 MiB, 385 MiB)                  permanent heap ($heap_ptr from
   ;;                                     Layer 0 shell; long-lived: graph
   ;;                                     nodes, env entries, Ty/Reason
   ;;                                     records bound to graph state)
-  ;;   [16 MiB, 28 MiB)                  per-stage arena ($stage_arena_ptr;
+  ;;   [385 MiB, 481 MiB)                per-stage arena ($stage_arena_ptr;
   ;;                                     $stage_reset frees in O(1) at
   ;;                                     pipeline-stage transitions)
-  ;;   [28 MiB, 32 MiB)                  per-fn arena ($fn_arena_ptr;
+  ;;   [481 MiB, 512 MiB)                per-fn arena ($fn_arena_ptr;
   ;;                                     $fn_reset frees in O(1) at user-
   ;;                                     fn boundaries)
+  ;;
+  ;; Wheel Phase μ size (962 KB source; ~1646 top-level decls × per-fn
+  ;; graph_fresh_ty cascades) demands substantial perm headroom. The
+  ;; pre-Phase-μ 32 MiB layout was sized when src/+lib/ totaled
+  ;; ~10 KLOC; the wheel grew through the Phase μ commits (Mentl +
+  ;; cursor + multishot + threading + verify-smt + tutorials). Peer
+  ;; follow-ups address the bump shape structurally:
+  ;;   - Hβ.first-light.lexer-stage-alloc-retrofit (token stream
+  ;;     parse-consumed; lift to $stage_alloc)
+  ;;   - Hβ.first-light.infer-perm-pressure-substrate (audit
+  ;;     graph_fresh_ty per-fn allocation rate)
   ;;
   ;; ─── Vocabulary lock ─────────────────────────────────────────────────
   ;; arena/region/stage/perm-promote. NEVER malloc/free/young-gen/old-gen
   ;; (C/Java drift refused per Hβ-arena §5).
 
-  (global $stage_arena_ptr (mut i32) (i32.const 16777216))
-  (global $fn_arena_ptr    (mut i32) (i32.const 29360128))
+  (global $stage_arena_ptr (mut i32) (i32.const 403701760))  ;; 385 MiB
+  (global $fn_arena_ptr    (mut i32) (i32.const 504365056))  ;; 481 MiB
 
   ;; ─── $perm_alloc — long-lived; survives all stage/fn boundaries ────
   ;; Used for: graph GNodes, env entries, Ty/Reason records bound into
@@ -63,7 +74,7 @@
           (i32.add (local.get $old) (local.get $size))
           (i32.const 7))
         (i32.const -8)))                  ;; 8-byte alignment
-    (if (i32.gt_u (local.get $next) (i32.const 16777216))
+    (if (i32.gt_u (local.get $next) (i32.const 403701760))  ;; 385 MiB
       (then (unreachable)))               ;; perm crosses into stage region
     (global.set $heap_ptr (local.get $next))
     (local.get $old))
@@ -87,7 +98,7 @@
           (i32.add (local.get $old) (local.get $size))
           (i32.const 7))
         (i32.const -8)))
-    (if (i32.gt_u (local.get $next) (i32.const 29360128))
+    (if (i32.gt_u (local.get $next) (i32.const 504365056))  ;; 481 MiB
       (then (unreachable)))               ;; stage crosses into fn region
     (global.set $stage_arena_ptr (local.get $next))
     (local.get $old))
@@ -110,8 +121,8 @@
           (i32.add (local.get $old) (local.get $size))
           (i32.const 7))
         (i32.const -8)))
-    (if (i32.gt_u (local.get $next) (i32.const 33554432))
-      (then (unreachable)))               ;; fn crosses 32 MiB linear-memory
+    (if (i32.gt_u (local.get $next) (i32.const 536870912))  ;; 512 MiB
+      (then (unreachable)))               ;; fn crosses linear-memory cap
     (global.set $fn_arena_ptr (local.get $next))
     (local.get $old))
 
@@ -121,14 +132,14 @@
   ;; record allocated through $stage_alloc since the last reset is now
   ;; gone; its memory will be re-used by the next stage.
   (func $stage_reset (export "stage_reset")
-    (global.set $stage_arena_ptr (i32.const 16777216)))
+    (global.set $stage_arena_ptr (i32.const 403701760)))  ;; 385 MiB
 
   ;; ─── $fn_reset — frees ALL fn-local allocations in O(1) ───────────
   ;; Called from $ls_reset_function (lower/state.wat) at the per-fn
   ;; boundary, and from infer's FnStmt walk-exit. Bumps $fn_arena_ptr
   ;; back to FN_ARENA_START.
   (func $fn_reset (export "fn_reset")
-    (global.set $fn_arena_ptr (i32.const 29360128)))
+    (global.set $fn_arena_ptr (i32.const 504365056)))  ;; 481 MiB
 
   ;; ─── $perm_promote — ownership-transfer at stage boundary ─────────
   ;; Per Hβ-arena §4 ownership interrogation: stage-arena `own` →
