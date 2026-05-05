@@ -51,10 +51,14 @@
     (local.set $failed (i32.const 0))
 
     ;; ─── Phase 1: $alloc (= $perm_alloc) returns a perm-region ptr ──
+    ;; Range constants track arena.wat's partition (2 GiB layout):
+    ;;   perm  [1 MiB, 1537 MiB) = [1048576, 1611137024)
+    ;;   stage [1537 MiB, 1921 MiB) = [1611137024, 2014314496)
+    ;;   fn    [1921 MiB, 2048 MiB) = [2014314496, 2147483648)
     (local.set $p1 (call $alloc (i32.const 16)))
     (if (i32.or
           (i32.lt_u (local.get $p1) (i32.const 1048576))
-          (i32.ge_u (local.get $p1) (i32.const 16777216)))
+          (i32.ge_u (local.get $p1) (i32.const 1611137024)))
       (then (call $eprint_string (i32.const 3168))
             (call $eprint_string (i32.const 3104))
             (local.set $failed (i32.const 1))))
@@ -62,8 +66,8 @@
     ;; ─── Phase 2: $stage_alloc returns a stage-region ptr ───────────
     (local.set $p2a (call $stage_alloc (i32.const 32)))
     (if (i32.or
-          (i32.lt_u (local.get $p2a) (i32.const 16777216))
-          (i32.ge_u (local.get $p2a) (i32.const 29360128)))
+          (i32.lt_u (local.get $p2a) (i32.const 1611137024))
+          (i32.ge_u (local.get $p2a) (i32.const 2014314496)))
       (then (call $eprint_string (i32.const 3200))
             (call $eprint_string (i32.const 3104))
             (local.set $failed (i32.const 1))))
@@ -81,8 +85,8 @@
     ;; ─── Phase 4: $fn_alloc returns a fn-region ptr ────────────────
     (local.set $p4a (call $fn_alloc (i32.const 64)))
     (if (i32.or
-          (i32.lt_u (local.get $p4a) (i32.const 29360128))
-          (i32.ge_u (local.get $p4a) (i32.const 33554432)))
+          (i32.lt_u (local.get $p4a) (i32.const 2014314496))
+          (i32.ge_u (local.get $p4a) (i32.const 2147483648)))
       (then (call $eprint_string (i32.const 3264))
             (call $eprint_string (i32.const 3104))
             (local.set $failed (i32.const 1))))
@@ -107,10 +111,10 @@
     ;; Promote the 16-byte record to perm.
     (local.set $perm_dst (call $perm_promote (local.get $stage_src) (i32.const 16)))
 
-    ;; Expect $perm_dst in [1 MiB, 16 MiB) — perm region.
+    ;; Expect $perm_dst in [1 MiB, 1537 MiB) — perm region.
     (if (i32.or
           (i32.lt_u (local.get $perm_dst) (i32.const 1048576))
-          (i32.ge_u (local.get $perm_dst) (i32.const 16777216)))
+          (i32.ge_u (local.get $perm_dst) (i32.const 1611137024)))
       (then (call $eprint_string (i32.const 3328))
             (call $eprint_string (i32.const 3104))
             (local.set $failed (i32.const 1))))

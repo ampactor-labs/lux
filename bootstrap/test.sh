@@ -74,7 +74,14 @@ write_shell() {
     (func $wasi_fd_readdir (param i32 i32 i32 i64 i32) (result i32)))
 
   ;; ─── Memory & Globals (Layer 0) ───────────────────────────────────
-  (memory (export "memory") 512)  ;; 32 MiB — room for heap + output buffer
+  ;; 2 GiB — must match bootstrap/build.sh:110 verbatim. arena.wat's
+  ;; partition constants ($stage_arena_ptr at 1537 MiB / $fn_arena_ptr
+  ;; at 1921 MiB) live in the runtime chunk — harness inherits them
+  ;; via the assembled chunk-list. If memory is smaller than the
+  ;; partition, $stage_alloc / $fn_alloc range checks read into
+  ;; out-of-bounds linear memory — exactly what runtime/arena_smoke.wat
+  ;; surfaced when this declaration drifted from build.sh's bump.
+  (memory (export "memory") 32768)  ;; 2 GiB
 
   (global $heap_base i32 (i32.const 4096))
   (global $heap_ptr (mut i32) (i32.const 1048576))
