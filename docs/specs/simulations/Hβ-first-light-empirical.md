@@ -218,6 +218,33 @@ Possibly fewer than 12 boxes; possibly different boxes than named.
    than a literal sentinel value. Bug REPRODUCES; cursor of
    attention.
 
+   **CLOSED 2026-05-05.** Substrate landed at
+   `bootstrap/src/lower/walk_const.wat` (`$lower_var_ref` Lock #2.0
+   SchemeKind dispatch). The fix consults the env binding's
+   SchemeKind BEFORE the locals/captures/global triage; nullary
+   ConstructorScheme bindings (where the scheme body Ty is
+   `TName(_, [])` tag 108) short-circuit to
+   `LMakeVariant(h, tag_id, [])` per wheel parity
+   `src/lower.nx:333-337`. Drift 6 closure: Bool's True/False flow
+   through the SAME arm because their scheme bodies are
+   `TName("Bool", [])`. Post-fix `$main` body emits `(i32.const 1)`
+   for the Nothing arg verbatim:
+   ```
+   (global.get $unwrap)(local.set $state_tmp)
+   (local.get $state_tmp)(i32.const 1)
+   (i32.const 5)
+   (local.get $state_tmp)(i32.load offset=0)(call_indirect (type $ft3))
+   ```
+   wat2wasm validates clean; wasmtime exits 0. The named follow-up
+   `Hβ.lower.varref-schemekind-dispatch` is now CLOSED in
+   `walk_const.wat`'s chunk-header. Six Locks block extended with
+   Lock #2.0 (extension) + Lock #6 (shadow-discipline lock — env
+   wins over local shadow; future shadow-resolution lands as
+   `Hβ.lower.ctor-shadow-discipline` if surfaces). Trace harness
+   `bootstrap/test/lower/walk_const_var_ref_nullary_ctor.wat` PASS.
+   Peer follow-ups named: `Hβ.lower.unsaturated-ctor` (N-ary ctor
+   as fn-value), `Hβ.lower.varref-effectop-dispatch`.
+
 3. **Match-arm pattern-binding local-decl missing (newly named)** —
    `Hβ.first-light.match-arm-pat-binding-local-decl`. Same test as
    item 2: `$unwrap` body has `(local.set $x)` and `(local.get $x)`

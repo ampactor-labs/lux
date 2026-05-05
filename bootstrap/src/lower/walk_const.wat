@@ -19,14 +19,22 @@
   ;; literal + VarRef arms), 309-315 (LitBool → LMakeVariant per HB),
   ;; 318-339 (VarRef → RLocal/RUpval/RGlobal triage), 96-150 (LowExpr ADT).
   ;;
-  ;; Five Locks (plan §2 — override walkthrough §4.2 prose where it conflicts):
+  ;; Six Locks (plan §2 — override walkthrough §4.2 prose where it conflicts):
   ;;   Lock #1  LLocal field 0 IS local_h (BINDING-SITE handle from LOCAL_ENTRY
   ;;            field 2), NOT the VarRef's own AST handle.
   ;;   Lock #2  $ls_lookup_local first; then $ls_lookup_or_capture; -1 = global.
+  ;;            EXTENDED by Lock #2.0 (Hβ.first-light.nullary-ctor-call-context):
+  ;;            $env_binding_kind ConstructorScheme + nullary scheme Ty
+  ;;            short-circuits to LMakeVariant(h, tag_id, []) BEFORE local
+  ;;            triage. Wheel parity src/lower.nx:333-337.
   ;;   Lock #3  LitBool → LMakeVariant(h, b, []) — NOT $lexpr_make_lconst.
   ;;   Lock #4  LowValue is opaque i32; no LowValue wrapper today.
   ;;   Lock #5  LitFloat/LitUnit arms land this commit; harnesses deferred to
   ;;            named follow-up Hβ.lower.litfloat-litunit-harness.
+  ;;   Lock #6  (Hβ.first-light.nullary-ctor-call-context) Env SchemeKind
+  ;;            dispatch wins over local shadow — wheel divergence is
+  ;;            intentional. Future shadow-discipline ADT lands as named
+  ;;            follow-up Hβ.lower.ctor-shadow-discipline if surfaces.
   ;;
   ;; Exports:  $lower_lit_int $lower_lit_float $lower_lit_string
   ;;           $lower_lit_bool $lower_lit_unit $lower_var_ref
@@ -39,7 +47,14 @@
   ;;           $lower_locals_ptr (lower/state.wat global — direct read per Lock #2;
   ;;             named follow-up Hβ.lower.state-entry-accessor for future factor),
   ;;           $list_index $record_get (runtime/list.wat + runtime/record.wat),
-  ;;           $make_list (runtime/list.wat — empty args list for LMakeVariant)
+  ;;           $make_list (runtime/list.wat — empty args list for LMakeVariant),
+  ;;           $env_lookup $env_binding_kind $env_binding_scheme (runtime/env.wat —
+  ;;             cross-layer reuse for SchemeKind dispatch per Lock #6),
+  ;;           $schemekind_tag $schemekind_ctor_tag_id (runtime/env.wat —
+  ;;             ConstructorScheme tag is 132; tag_id field is record offset 0),
+  ;;           $scheme_body (infer/scheme.wat — Forall body Ty accessor),
+  ;;           $ty_tag (infer/ty.wat — TName tag 108 nullary discriminator vs
+  ;;             TFun tag 107 N-ary)
   ;; Test:     bootstrap/test/lower/walk_const_lit_int.wat
   ;;           bootstrap/test/lower/walk_const_var_ref_local.wat
   ;;           bootstrap/test/lower/walk_const_var_ref_global.wat
@@ -148,11 +163,15 @@
   ;;                              LMakeClosure population wires the
   ;;                              capture-index → binding-site handle map.
   ;;
-  ;;   - Hβ.lower.varref-schemekind-dispatch:
-  ;;                              RGlobal-with-ConstructorScheme short-circuit
-  ;;                              to LMakeVariant (src/lower.nx:333-337).
-  ;;                              Lands when scheme.wat/kind substrate grows
-  ;;                              to support constructor-kind discrimination.
+  ;;   - Hβ.lower.varref-schemekind-dispatch: LANDED (Hβ.first-light.nullary-
+  ;;                              ctor-call-context). $lower_var_ref dispatches
+  ;;                              env-binding SchemeKind FIRST: nullary
+  ;;                              ConstructorScheme → LMakeVariant(h, tag_id, [])
+  ;;                              short-circuit (matches wheel src/lower.nx:
+  ;;                              333-337 RGlobal-with-ConstructorScheme arm).
+  ;;                              N-ary ctor + EffectOpScheme dispatch named
+  ;;                              as peer follow-up Hβ.lower.unsaturated-ctor /
+  ;;                              Hβ.lower.varref-effectop-dispatch.
   ;;
   ;;   - Hβ.lower.state-entry-accessor:
   ;;                              $ls_local_entry_at(slot) factor when the
@@ -277,9 +296,39 @@
     (local $cap_idx i32)
     (local $entry i32)
     (local $local_h i32)
+    (local $binding i32)
+    (local $kind i32)
+    (local $scheme i32)
+    (local $ctor_ty i32)
+    (local $ctor_ty_tag i32)
+    (local $tag_id i32)
     ;; Extract name (VarRef payload) and h (VarRef's own AST handle).
     (local.set $name (call $walk_const_payload_i32 (local.get $node)))
     (local.set $h    (call $walk_expr_node_handle  (local.get $node)))
+    ;; Lock #2.0 (Hβ.first-light.nullary-ctor-call-context): env-binding
+    ;; SchemeKind dispatch FIRST. Nullary ConstructorScheme short-circuits
+    ;; to LMakeVariant(h, tag_id, []) per wheel src/lower.nx:333-337.
+    ;; Nullary detection: ctor's scheme body Ty is TName(_, []) (tag 108) —
+    ;; N-ary ctor schemes are TFun (tag 107) per walk_stmt.wat:847-860.
+    ;; Avoids Drift 6 (Bool not special — Bool's True/False register as
+    ;; ConstructorScheme(0,2)/(1,2) and flow through this same arm because
+    ;; their scheme bodies are TName("Bool", [])).
+    (local.set $binding (call $env_lookup (local.get $name)))
+    (if (i32.ne (local.get $binding) (i32.const 0))
+      (then
+        (local.set $kind (call $env_binding_kind (local.get $binding)))
+        (if (i32.eq (call $schemekind_tag (local.get $kind)) (i32.const 132))
+          (then
+            (local.set $scheme (call $env_binding_scheme (local.get $binding)))
+            (local.set $ctor_ty (call $scheme_body (local.get $scheme)))
+            (local.set $ctor_ty_tag (call $ty_tag (local.get $ctor_ty)))
+            (if (i32.eq (local.get $ctor_ty_tag) (i32.const 108))
+              (then
+                (local.set $tag_id (call $schemekind_ctor_tag_id (local.get $kind)))
+                (return (call $lexpr_make_lmakevariant
+                  (local.get $h)
+                  (local.get $tag_id)
+                  (call $make_list (i32.const 0))))))))))
     ;; Lock #2 step 1: try locals first.
     (local.set $local_slot (call $ls_lookup_local (local.get $name)))
     (if (i32.ge_s (local.get $local_slot) (i32.const 0))
