@@ -352,6 +352,22 @@
     (local.set $count (i32.const 0))
     (block $done
       (loop $types
+        ;; Optional `name : ` prefix per SYNTAX.md: effect-op params take
+        ;; `name: Type` form (`load_i32(addr: Int) -> Int`). The seed
+        ;; scans past TIdent + TColon when both present so $parse_type_ty
+        ;; lands on the type position; otherwise the bare-type form
+        ;; `load_i32(Int) -> Int` still parses unchanged. Refuses
+        ;; drift mode 9 (deferred-by-omission) on the named-param surface
+        ;; that the wheel's Memory + Alloc effects rely on.
+        (if (i32.and
+              (i32.eq (call $kind_at (local.get $tokens) (local.get $p))
+                      (i32.const 25))   ;; TIdent
+              (i32.eq (call $kind_at (local.get $tokens)
+                        (i32.add (local.get $p) (i32.const 1)))
+                      (i32.const 53)))  ;; TColon
+          (then
+            (local.set $p (call $skip_ws_p (local.get $tokens)
+              (i32.add (local.get $p) (i32.const 2))))))
         (local.set $ty_r (call $parse_type_ty (local.get $tokens) (local.get $p)))
         (local.set $ty (call $list_index (local.get $ty_r) (i32.const 0)))
         (local.set $p2 (call $list_index (local.get $ty_r) (i32.const 1)))
