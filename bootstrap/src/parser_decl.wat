@@ -328,6 +328,15 @@
           (i32.add (local.get $count) (i32.const 1))))
         (drop (call $list_set (local.get $buf) (local.get $count) (local.get $op)))
         (local.set $count (i32.add (local.get $count) (i32.const 1)))
+        ;; Optional @resume=<discipline> annotation per SUBSTRATE.md §IV
+        ;; (one of OneShot / MultiShot / Either). Skipped at parse time;
+        ;; the ResumeDiscipline is encoded into the op's TFun row at the
+        ;; named follow-up Hβ.first-light.effect-op-resume-discipline-substrate
+        ;; — for the seed's first-light surface, the row is computed from
+        ;; the body, not the annotation.
+        (local.set $p4 (call $skip_annotation_to_eol
+                         (local.get $tokens)
+                         (call $skip_ws_p (local.get $tokens) (local.get $p4))))
         ;; Skip separators
         (local.set $p (call $skip_sep (local.get $tokens) (local.get $p4)))
         (br $ops)))
@@ -336,6 +345,26 @@
       (call $slice (local.get $buf) (i32.const 0) (local.get $count))))
     (drop (call $list_set (local.get $tup) (i32.const 1) (local.get $p)))
     (local.get $tup))
+
+  ;; skip_annotation_to_eol: if pos is at TAt, advance past every token
+  ;; up to and including the next newline. The wheel's `@resume=<value>`
+  ;; annotation on effect ops sits on the same source line as the op's
+  ;; signature; the seed first-light surface skips the annotation
+  ;; entirely. If pos is not at TAt, returns pos unchanged.
+  (func $skip_annotation_to_eol (param $tokens i32) (param $pos i32) (result i32)
+    (local $p i32) (local $k i32)
+    (local.set $p (local.get $pos))
+    (if (i32.eqz (call $at (local.get $tokens) (local.get $p) (i32.const 66)))  ;; TAt
+      (then (return (local.get $p))))
+    (block $done
+      (loop $scan
+        (local.set $k (call $kind_at (local.get $tokens) (local.get $p)))
+        (br_if $done (i32.eq (local.get $k) (i32.const 68)))   ;; TNewline → leave for skip_sep
+        (br_if $done (i32.eq (local.get $k) (i32.const 69)))   ;; TEof
+        (br_if $done (i32.eq (local.get $k) (i32.const 48)))   ;; TRBrace → end of effect body
+        (local.set $p (i32.add (local.get $p) (i32.const 1)))
+        (br $scan)))
+    (local.get $p))
 
   ;; parse_op_param_types: comma-sep types until RParen
   (func $parse_op_param_types (param $tokens i32) (param $pos i32) (result i32)
