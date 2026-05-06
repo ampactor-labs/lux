@@ -238,8 +238,17 @@ touch exits in its most powerful Inka form.
 
 ### 7. Cascade discipline — walkthrough first, audit always.
 
-1. **Walkthrough first.** `docs/specs/simulations/` resolves every
-   design question in prose before code freezes.
+1. **Walkthrough density calibrated to handle complexity.** Cascade-
+   opening + substrate-architecture realizations + pre-audit gates
+   earn 300+ line walkthroughs in `docs/specs/simulations/`. Leaf
+   handles in an established cascade get a paragraph in the rolling
+   cascade doc (e.g., `Hβ-first-light-empirical.md` §4.5.X) +
+   chunk-header in code + named peer follow-ups. The substrate
+   decision must be visible somewhere — code + paragraph + commit
+   message is enough. Do NOT author 400-line .md per leaf handle;
+   the walkthrough mostly paraphrases code that already speaks for
+   itself. (`protocol_walkthrough_density_calibration.md`,
+   2026-05-06.)
 2. **Riffle-back audit.** Before each new handle, audit the
    walkthrough against substrate landings since it was written.
 3. **Land whole.** Sub-handles either land in one commit or get
