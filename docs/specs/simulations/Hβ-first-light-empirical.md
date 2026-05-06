@@ -916,6 +916,124 @@ automatically post-L1 — the seed compiles the wheel and produces
 the .seed transcription as compilation output. Per ROADMAP Phase μ
 peer handle list.
 
+### 4.5.13 Tier 1 ULTIMATE FORM — LPerform monomorphic direct-call closure (2026-05-06)
+
+`Hβ.first-light.lperform-handler-discriminator` (wheel commit
+`50a9512`) + `Hβ.first-light.seed-lperform-discriminator-mirror`
+(seed commit `4cce41d`) — Tier 1 dispatch closure landing as
+**canonical ~85% case** per SUBSTRATE.md §"Three Tiers of Effect
+Compilation," NOT transient evidence-passing.
+
+**Why Tier 1 IS canonical, not workaround:** SUBSTRATE.md §III's
+tier table assigns ~85% of real handlers to the tail-resumptive
+direct-call path with "Zero overhead. Direct call via evidence
+passing. No `Resume` opcode at all. The handler runs as a nested
+call, the result pops back directly. It IS a function call." H1
+evidence-reification §"Pure monomorphic chains" reinforces:
+"LPerform direct calls remain canonical for ground row." The
+ground-row monomorphic LPerform path resolved at lower-time via
+the handler-stack walk IS that exact canonical form. Polymorphic
+sites (LEvPerform / closure-fn-ptr-field) are the 15% — peer
+handle `Hβ.first-light.evidence-poly-call-transient` carries the
+Tier 2 substrate when needed.
+
+**Substrate change (wheel `src/lower.nx` + seed
+`bootstrap/src/lower/`):**
+
+- *Lower stage* gains a handler-name stack (`$lower_handler_stack_ptr`,
+  `$lower_handler_count_g`) tracked via `$lower_handler_push` /
+  `$lower_handler_pop` at `~>` lowering boundaries (`HandleExpr`
+  PTee branch + `HandlerDeclStmt`).
+- `$lower_resolve_handler_for_op(op_name) -> handler_name`
+  innermost-first walks the stack, env-looks-up each handler's
+  scheme, unifies its declared effect against the op's
+  `EffectOpScheme(ename)` to find the matching handler.
+- `$lower_perform` (wheel: PerformExpr arm; seed: walk_call.wat)
+  emits discriminated `LPerform(handle, "<handler>_<op>", args)`
+  on match → emit produces `(call $op_<handler>_<op>)` direct.
+  Undiscriminated fallthrough remains for ground rows whose
+  resolution fails (diagnostic chain at upstream cause).
+- `$inf_handler_provider(op_name) -> Option<String>` mirrors
+  wheel-side resolution; seed reads from runtime handler stack.
+- Wheel-canonical pipe-verb chain for fn_name minting:
+  `"op_" |> str_concat(handler) |> str_concat("_") |>
+  str_concat(arm.op_name)`. SUBSTRATE.md §II "the shape on the
+  page IS the computation graph."
+
+**Eight-interrogation alignment per edit site (inline):**
+
+- *Graph?* handler-stack is graph-resident; resolution reads
+  existing graph nodes (handler scheme + EffectOpScheme).
+- *Handler?* `Pure` (lower is structural transformation).
+- *Verb?* `|>` sequential through the str_concat chain.
+- *Row?* `!Mutate / Memory + Alloc` for fresh fn_name allocation;
+  resolution itself is `Pure`.
+- *Ownership?* `own` per fresh String; `ref`-borrowed handler
+  scheme inputs.
+- *Refinement?* Module-level `unique_names(self.functions)`
+  invariant holds by construction (handler+op pair unique
+  per declaration site).
+- *Gradient?* Tier 1 direct-call IS the bottom unlock — zero
+  annotation gives polymorphic indirect; ground-row resolution
+  unlocks compile-time direct-call. SUBSTRATE.md §VI "the
+  compiler shows you the next step."
+- *Reason?* fn_name carries handler+op identifiers → diagnostics
+  walk back via Reason chain to both contributing names.
+
+**Drift-mode audit per edit site:**
+
+- Drift 1 (Rust vtable): refused — no vtable; direct `call`
+  per H1 evidence-reification §"The heap has one story."
+- Drift 5 (parallel state): refused — handler-name stack +
+  handle stack are NOT parallel; the handle stack is for
+  HandleExpr-id discrimination, the handler-name stack is for
+  resolution. Different shape, different consumer.
+- Drift 8 (string-keyed when structured): closed — handler_name
+  IS structured String per ADT (handler-decl carries it); the
+  innermost-first walk uses env_lookup not raw string compare.
+- Drift 9 (deferred-by-omission): closed via
+  `Hβ.first-light.evidence-poly-call-transient` named peer for
+  the Tier 2 path.
+
+**Empirical (sanity preserved):** minimal program
+
+```
+effect E { op() -> Int @resume=OneShot }
+handler h { op() => 42 }
+fn main() = perform op() ~> h
+```
+
+lowers + emits `(call $op_h_op)` with discriminated symbol;
+wat2wasm validates; wasmtime exits 0. 26-line WAT.
+
+**Cursor of attention** post-Tier 1: the wheel-scale empirical
+was about to verify post-discriminator behavior across the 10+
+`yield`-handlers in `lib/prelude.nx` (the prior 84,691 funcref
+duplicate-symbol bloat) when bash flakiness blocked execution.
+Predicted state: each `op_yield_*` symbol unique (e.g.,
+`$op_map_yield`, `$op_filter_yield`, `$op_take_yield`...) per the
+discriminator landing; wheel WAT becomes sane-sized. Next
+verifiable cursor: `Hβ.first-light.tuple-tmp-fn-local-decl`
+(per Hβ-first-light-empirical.md §2.3 + §4.5.5 residue list) —
+emit's `$emit_let_locals` walk needs to descend `LLet` PTuple
+pattern destructures the same way `$emit_match_arm_locals`
+descends LMatch arms (closed in commits `8ebe8fa` + `a0c9baf`).
+Same bug-class; same fix shape.
+
+**Ultimate-medium alignment:**
+
+- ULTIMATE_MEDIUM.md "kernel + projection + cursor + loop = bus-
+  compressor at the human-medium boundary" — Tier 1 IS the
+  fast path the bus runs through; gradient at the top.
+- SUBSTRATE.md §III §"The Three Tiers" — three resume disciplines
+  map to three emit paths on one substrate; Tier 1 closure means
+  the canonical path is fully wired wheel↔seed.
+- CLAUDE.md Anchor 4 "build the wheel; never wrap the axle" —
+  wheel landed FIRST (`50a9512`); seed mirrored (`4cce41d`).
+  Wheel-canonical `src/lower.nx` has `lower_handler_arms_as_decls`
+  in idiomatic Inka with `~>` capability stack + `|>` str_concat
+  pipe-verb chain.
+
 ### 4.5.5 Session running tally (this empirical-execution arc)
 
 Closed THIS session via empirical-driven substrate landings:
@@ -929,6 +1047,15 @@ Closed THIS session via empirical-driven substrate landings:
   (commit `509fd42`)
 - ✓ CLAUDE.md ⊕ session-continuity directive (commit `b5223cd`)
 - ✓ Hβ.first-light.lambda-parser substrate (commit `c28c525`)
+- ✓ Hβ.first-light.handler-arm-fn-name-discriminator (commit
+  `22a4bbc`)
+- ✓ Hβ.runtime.buffer-substrate (commit `0278982`)
+- ✓ Hβ.runtime.buffer-substrate seed mirror + heap-top trick
+  (commit `c4164a5`)
+- ✓ Hβ.first-light.lperform-handler-discriminator (wheel; commit
+  `50a9512`)
+- ✓ Hβ.first-light.seed-lperform-discriminator-mirror (seed;
+  commit `4cce41d`)
 
 Newly named (post-empirical) blocker handles:
 - `Hβ.first-light.lmakevariant-literal-args`
@@ -936,6 +1063,14 @@ Newly named (post-empirical) blocker handles:
 - `Hβ.first-light.wheel-brace-discipline` (THIS finding)
 - `Hβ.first-light.lambda-body-fn-emit` (closures need module-fn
   emit after lambda parser lands)
+- `Hβ.first-light.tuple-tmp-fn-local-decl` (NEXT cursor —
+  emit's local-decl walk extends to LLet PTuple destructures)
+- `Hβ.first-light.evidence-poly-call-transient` (Tier 2
+  substrate; the 15% polymorphic sites)
+- `Hβ.runtime.buffer-substrate-adoption` (migrate other buffer-
+  counter sites to Buffer<A>)
+- `Hβ.runtime.buffer-hashset` (O(log N) membership probe;
+  current `$buf_contains` is linear)
 
 The path to L1 continues. The medium folds into its seed one
 substrate-honest landing at a time.
