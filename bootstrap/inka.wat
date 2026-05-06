@@ -731,13 +731,64 @@
     (local.get $list))
 
   ;; list_extend_to: ensure capacity >= min_size. FLAT lists only.
+  ;;
+  ;; Buffer-counter callers (cfn_walk in emit, ec6_emit_args, etc.)
+  ;; conflate "capacity" and "count" via offset 0 — they read offset 0
+  ;; as count, list_extend_to to count+1, write index, bump count back
+  ;; to offset 0. Pre-substrate this caused O(N²) reallocations: every
+  ;; iteration overwrote the doubled capacity that list_extend_to set
+  ;; via $make_list, so list_extend_to thought the list was small and
+  ;; reallocated again. For wheel-scale N closures this consumed
+  ;; ~O(N²) bytes of perm — at N≈20K this is 1.6 GiB, exhausting the
+  ;; perm cap and trapping at perm_alloc.
+  ;;
+  ;; The canonical bump-allocator fix: when the list is at the heap
+  ;; top (last allocation, no allocations since), we can extend in
+  ;; place by bumping heap_ptr — no realloc, no copy. This converts
+  ;; the buffer-counter pattern to amortized O(1) per insert,
+  ;; preserving the buffer-counter discipline CLAUDE.md "Bug classes"
+  ;; warns about. Symmetric to GMP / glibc / V8 zone allocators.
+  ;;
+  ;; Named peer `Hβ.runtime.buffer-substrate`: wheel-canonical
+  ;; Buffer<A> as a distinct primitive from List<A>, with explicit
+  ;; capacity field. Separates immutable-structural-list from
+  ;; mutable-buffer-with-counter at the type system. Until then,
+  ;; this in-place trick keeps perm-pressure bounded.
   (func $list_extend_to (param $list i32) (param $min_size i32) (result i32)
     (local $cur i32) (local $new_cap i32) (local $fresh i32) (local $i i32)
+    (local $list_end i32) (local $list_end_aligned i32) (local $extra i32)
     (local.set $cur (call $len (local.get $list)))
     (if (result i32) (i32.ge_u (local.get $cur) (local.get $min_size))
       (then (local.get $list))
       (else
-        ;; double or min_size, whichever is larger
+        ;; In-place extend if list is at heap-top. list_end = byte
+        ;; right after the list's logical data; align to 8 (perm_alloc
+        ;; rounds allocation sizes to 8-byte boundary). If aligned end
+        ;; equals heap_ptr, no allocation has happened since this list
+        ;; was made; we can grow it in place by routing through
+        ;; perm_alloc (which respects the perm cap). The new slots
+        ;; come pre-zeroed (WASM linear memory untouched-bytes are 0).
+        ;; Symmetric to GMP / glibc / V8 zone allocators' realloc-from-
+        ;; heap-top trick.
+        (local.set $list_end
+          (i32.add
+            (i32.add (local.get $list) (i32.const 8))
+            (i32.mul (local.get $cur) (i32.const 4))))
+        (local.set $list_end_aligned
+          (i32.and
+            (i32.add (local.get $list_end) (i32.const 7))
+            (i32.const -8)))
+        (if (i32.eq (local.get $list_end_aligned) (global.get $heap_ptr))
+          (then
+            (local.set $extra (i32.sub (local.get $min_size) (local.get $cur)))
+            ;; perm_alloc(extra*4) — bumps heap_ptr with cap check and
+            ;; alignment; we drop the returned ptr (it's our padding/
+            ;; new-slot region; logical addressing comes from the
+            ;; original list pointer).
+            (drop (call $perm_alloc (i32.mul (local.get $extra) (i32.const 4))))
+            (i32.store (local.get $list) (local.get $min_size))
+            (return (local.get $list))))
+        ;; Not at heap-top — reallocate with doubling.
         (local.set $new_cap (i32.mul (local.get $cur) (i32.const 2)))
         (if (i32.gt_u (local.get $min_size) (local.get $new_cap))
           (then (local.set $new_cap (local.get $min_size))))
@@ -25693,8 +25744,26 @@
     (local.get $names))
 
   ;; $cfn_walk_list — iterate top-level lowexprs.
+  ;;
+  ;; Productive-under-error guard: when the input is a sentinel/null
+  ;; pointer (< HEAP_BASE) — typically because an upstream lower
+  ;; accessor returned a sentinel where a list was expected — `$len`
+  ;; would read garbage from low memory addresses, causing the loop
+  ;; to spin for billions of iterations and exhaust perm via
+  ;; cfn_walk's list_extend_to leaks. Pre-substrate this manifested
+  ;; as `perm_alloc → unreachable` after ~1.5 GiB of leaked allocations.
+  ;; Mirror the guard at $cfn_walk (line 487) and $emit_functions
+  ;; (line 1283) — symmetric per Anchor 7 (third caller earns the
+  ;; abstraction; here it's the second peer to lift the same guard).
+  ;;
+  ;; Named peer `Hβ.first-light.cfn-walk-list-malformed-source`:
+  ;; identify which upstream accessor (likely lexpr_lblock_stmts /
+  ;; lexpr_lcall_args / lexpr_lhandle_body when the LowExpr is an
+  ;; LError sentinel) produces the sub-HEAP_BASE pointer.
   (func $cfn_walk_list (param $names i32) (param $lowexprs i32) (result i32)
     (local $i i32) (local $n i32)
+    (if (i32.lt_u (local.get $lowexprs) (global.get $heap_base))
+      (then (return (local.get $names))))
     (local.set $n (call $len (local.get $lowexprs)))
     (local.set $i (i32.const 0))
     (block $done

@@ -465,8 +465,26 @@
     (local.get $names))
 
   ;; $cfn_walk_list — iterate top-level lowexprs.
+  ;;
+  ;; Productive-under-error guard: when the input is a sentinel/null
+  ;; pointer (< HEAP_BASE) — typically because an upstream lower
+  ;; accessor returned a sentinel where a list was expected — `$len`
+  ;; would read garbage from low memory addresses, causing the loop
+  ;; to spin for billions of iterations and exhaust perm via
+  ;; cfn_walk's list_extend_to leaks. Pre-substrate this manifested
+  ;; as `perm_alloc → unreachable` after ~1.5 GiB of leaked allocations.
+  ;; Mirror the guard at $cfn_walk (line 487) and $emit_functions
+  ;; (line 1283) — symmetric per Anchor 7 (third caller earns the
+  ;; abstraction; here it's the second peer to lift the same guard).
+  ;;
+  ;; Named peer `Hβ.first-light.cfn-walk-list-malformed-source`:
+  ;; identify which upstream accessor (likely lexpr_lblock_stmts /
+  ;; lexpr_lcall_args / lexpr_lhandle_body when the LowExpr is an
+  ;; LError sentinel) produces the sub-HEAP_BASE pointer.
   (func $cfn_walk_list (param $names i32) (param $lowexprs i32) (result i32)
     (local $i i32) (local $n i32)
+    (if (i32.lt_u (local.get $lowexprs) (global.get $heap_base))
+      (then (return (local.get $names))))
     (local.set $n (call $len (local.get $lowexprs)))
     (local.set $i (i32.const 0))
     (block $done
