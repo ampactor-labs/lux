@@ -459,11 +459,12 @@
           (i32.load offset=8 (local.get $stmt))
           (local.get $span))
         (return)))
-    (if (i32.eq (local.get $tag) (i32.const 124))
-      (then
-        (call $infer_walk_stmt_handler_decl
-          (local.get $stmt) (local.get $handle) (local.get $span))
-        (return)))
+    ;; tag-124 (HandlerDeclStmt) — pre-register REMOVED per
+    ;; Hβ.first-light.infer-handler-decl-arms-typing: the main-pass
+    ;; $infer_walk_stmt_handler_decl does env_extend + per-arm typing.
+    ;; Pre-registering would double-bind the handler name. EffectDeclStmt
+    ;; (tag 123) pre-registers op names; HandlerDecl walks AFTER those
+    ;; are in env, so op_name lookup resolves in the main pass.
     (if (i32.eq (local.get $tag) (i32.const 128))
       (then
         ;; Documented(doc, inner_node): inner Node at offset 8.
@@ -1038,7 +1039,15 @@
       (local.get $handler_name)
       (local.get $scheme)
       (local.get $reason)
-      (call $schemekind_make_fn)))
+      (call $schemekind_make_fn))
+    ;; ─── Per-arm typing (Hβ.first-light.infer-handler-decl-arms-typing) ──
+    ;; HandlerDeclStmt offset 12 = arms list. Each arm is make_record(0, 3)
+    ;; with {args, body, op_name} at field indices 0/1/2 (Lock #8
+    ;; alphabetical per parser_handler.wat:181-184).
+    (call $infer_handler_decl_arms_walk
+      (i32.load offset=12 (local.get $stmt))
+      (local.get $handler_name)
+      (local.get $span)))
 
   ;; "Handler" name as length-prefixed string — used by handler_decl arm.
   ;; Per the data-offset audit: 4320 sits past parser_infra.wat's
@@ -1060,6 +1069,126 @@
     (local.set $args (call $make_list (i32.const 1)))
     (drop (call $list_set (local.get $args) (i32.const 0) (local.get $effect_ty)))
     (local.get $args))
+
+  ;; ─── Per-arm typing helpers (Hβ.first-light.infer-handler-decl-arms-typing)
+  ;;
+  ;; $infer_handler_decl_arms_walk iterates the arms list. Per arm:
+  ;;   - Read args/body/op_name from the arm record (indices 0/1/2).
+  ;;   - env_lookup(op_name): if miss → productive-under-error skip.
+  ;;   - Extract op's TFun type via scheme_body → params + ret.
+  ;;   - Enter scope; bind args via $infer_walk_pat; walk body;
+  ;;     unify body_h ↔ op ret; exit scope.
+  ;;
+  ;; Composition, not invention: composes $env_lookup + $scheme_body +
+  ;; $ty_tfun_params + $ty_tfun_return + $env_scope_enter/exit +
+  ;; $infer_walk_pat + $infer_walk_expr + $unify — all existing substrate.
+
+  ;; Data segments for handler-arm typing diagnostics.
+  ;; Offsets 4336+ (past "Handler" at 4320+11=4331; 4336 is 16-aligned).
+  (data (i32.const 4336) "\10\00\00\00handler arm body")             ;; 16 bytes
+  (data (i32.const 4360) "\10\00\00\00handler arm arg ")             ;; 16 bytes
+
+  (func $infer_handler_decl_arms_walk
+        (param $arms i32) (param $handler_name i32) (param $span i32)
+    (local $n i32) (local $i i32)
+    (local $arm i32) (local $args i32) (local $body_node i32) (local $op_name i32)
+    (local $binding i32) (local $scheme i32) (local $op_ty i32) (local $op_tag i32)
+    (local $params i32) (local $ret_ty i32)
+    (local $n_args i32) (local $n_params i32)
+    (local $body_h i32) (local $ret_h i32)
+    (local $declared_reason i32)
+    (local.set $n (call $len (local.get $arms)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $arm (call $list_index (local.get $arms) (local.get $i)))
+        ;; Arm record fields: {args=0, body=1, op_name=2} (Lock #8 alphabetical)
+        (local.set $args      (call $record_get (local.get $arm) (i32.const 0)))
+        (local.set $body_node (call $record_get (local.get $arm) (i32.const 1)))
+        (local.set $op_name   (call $record_get (local.get $arm) (i32.const 2)))
+        ;; Look up op_name in env — registered by prior EffectDeclStmt.
+        (local.set $binding (call $env_lookup (local.get $op_name)))
+        (if (i32.eqz (local.get $binding))
+          (then
+            ;; Productive-under-error: op not declared by any in-scope
+            ;; effect. Skip this arm; continue to next.
+            (local.set $i (i32.add (local.get $i) (i32.const 1)))
+            (br $each)))
+        ;; Extract op's type: scheme_body gives the TFun directly
+        ;; (monomorphic Forall([], op_ty) per $infer_register_effect_ops).
+        (local.set $scheme (call $env_binding_scheme (local.get $binding)))
+        (local.set $op_ty (call $scheme_body (local.get $scheme)))
+        ;; Verify it's a TFun (tag 107). If not, skip (productive-under-error).
+        (local.set $op_tag (call $ty_tag (local.get $op_ty)))
+        (if (i32.ne (local.get $op_tag) (i32.const 107))
+          (then
+            (local.set $i (i32.add (local.get $i) (i32.const 1)))
+            (br $each)))
+        ;; Extract params list + return type from the op's TFun.
+        (local.set $params (call $ty_tfun_params (local.get $op_ty)))
+        (local.set $ret_ty (call $ty_tfun_return (local.get $op_ty)))
+        ;; Arity check: len(args) vs len(params). Skip arm on mismatch
+        ;; (productive-under-error — arity diagnostic is post-L1).
+        (local.set $n_args (call $len (local.get $args)))
+        (local.set $n_params (call $len (local.get $params)))
+        (if (i32.ne (local.get $n_args) (local.get $n_params))
+          (then
+            (local.set $i (i32.add (local.get $i) (i32.const 1)))
+            (br $each)))
+        ;; Enter arm scope — arg bindings live here.
+        (call $env_scope_enter)
+        (local.set $declared_reason (call $reason_make_located
+          (local.get $span)
+          (call $reason_make_declared (local.get $op_name))))
+        ;; Bind each arg pattern to its corresponding op param type.
+        (call $infer_handler_arm_bind_args
+          (local.get $args) (local.get $params)
+          (local.get $declared_reason) (local.get $span))
+        ;; Walk arm body expression.
+        (local.set $body_h (call $infer_walk_expr (local.get $body_node)))
+        ;; Unify body result ↔ op return type.
+        (local.set $ret_h (call $graph_fresh_ty
+          (call $reason_make_located (local.get $span)
+            (call $reason_make_inferred (i32.const 4336)))))   ;; "handler arm body"
+        (call $graph_bind (local.get $ret_h) (local.get $ret_ty)
+          (local.get $declared_reason))
+        (call $unify
+          (local.get $body_h) (local.get $ret_h) (local.get $span)
+          (call $reason_make_located (local.get $span)
+            (call $reason_make_inferred (i32.const 4336))))    ;; "handler arm body"
+        ;; Exit arm scope.
+        (call $env_scope_exit)
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each))))
+
+  ;; $infer_handler_arm_bind_args — binds each PVar arg pattern to the
+  ;; corresponding op parameter type from the effect declaration.
+  ;; Mirrors the FnStmt param-binding loop (walk_stmt.wat:582-600).
+  (func $infer_handler_arm_bind_args
+        (param $args i32) (param $params i32)
+        (param $reason i32) (param $span i32)
+    (local $n i32) (local $i i32)
+    (local $arg i32) (local $tp i32) (local $param_ty i32)
+    (local $arg_h i32)
+    (local.set $n (call $len (local.get $args)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $arg (call $list_index (local.get $args) (local.get $i)))
+        (local.set $tp (call $list_index (local.get $params) (local.get $i)))
+        (local.set $param_ty (call $tparam_ty (local.get $tp)))
+        ;; Mint fresh graph handle for this arg, bind to param's type.
+        (local.set $arg_h (call $graph_fresh_ty
+          (call $reason_make_located (local.get $span)
+            (call $reason_make_inferred (i32.const 4360)))))   ;; "handler arm arg "
+        (call $graph_bind (local.get $arg_h) (local.get $param_ty)
+          (local.get $reason))
+        ;; Walk pattern — handles PVar binding, PWild no-op, etc.
+        (call $infer_walk_pat (local.get $arg) (local.get $arg_h) (local.get $span))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter))))
 
   ;; ExprStmt arm (tag 125) — src/infer.nx:225-226. Wraps a bare
   ;; expression at statement position. Layout: [tag=125][node]. Walk the

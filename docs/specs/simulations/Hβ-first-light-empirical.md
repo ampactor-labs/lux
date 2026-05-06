@@ -468,6 +468,41 @@ Empirical re-test of §4.5.4d named handles against current seed (HEAD ≈ aac0d
 
 **Cursor of attention** post-diverge-via-thread closure: `Hβ.first-light.tuple-tmp-fn-local-decl`. Same bug-class as match-arm-pat-binding-local-decl; same emit-side fix path (extend `$emit_pat_locals`); likely 30-line walkthrough + 5-line substrate.
 
+### 4.5.6 Handler-arm typing + lower-name-extract land (2026-05-06)
+
+Two paired closures advance the cursor past handler-decl arm-body
+typing:
+
+| Handle | Substrate | Empirical signal |
+|---|---|---|
+| `Hβ.first-light.infer-handler-decl-arms-typing` | `bootstrap/src/infer/walk_stmt.wat` — extend `$infer_walk_stmt_handler_decl` to walk each arm: lookup op via `$env_lookup`, extract TFun via `$scheme_body` + `$ty_tfun_params`/`$ty_tfun_return`, enter scope, bind args via `$infer_walk_pat`, walk body via `$infer_walk_expr`, unify body_h ↔ op_ret_ty, exit scope. Pre-register tag-124 removed (was double-binding handler name). | Wheel histogram: `−126 E_MissingVariable` (forward-references resolve once arm bodies type), `+61 E_TypeMismatch` (productive-under-error: real wheel arm-result-vs-op-return mismatches surface), `0` E_UnresolvedType still. Both pre/post produce 0 bytes WAT (other residue ahead). |
+| `Hβ.first-light.lower-handler-arm-names-extract` | `bootstrap/src/lower/walk_handle.wat` — `$lower_handler_arms_as_decls` now extracts arg-name strings from the pat list before passing to `$lower_handler_arm_body` and `$lowfn_make`. Pre-substrate, pat-records were silently treated as name strings by `$bind_handler_arg_names` → `$ls_bind_local`. | No diagnostic regression; closes silent corruption that previously bound pat-records as fn-local-names. |
+
+Per-arm typing skeleton lands; four primitive holes named as
+positive-form peer handles (drift-9 closure):
+
+- `Hβ.first-light.infer-handler-arm-resume-disposition` — `@resume=`
+  discipline check on arm body shape (OneShot consumes resume
+  linearly; MultiShot ref-borrows; Either is the linear-or-affine
+  choice). Substrate: bind synthetic `resume` continuation in arm
+  scope at type `(op_ret_ty) -> arm_body_row_minus_E -> α`.
+- `Hβ.first-light.infer-handler-arm-row-subtract` — arm body row
+  algebra: `body_row_arm = handler_row + (arm_body_walked_row \ {E})`.
+- `Hβ.first-light.infer-handler-arm-resume-ownership` — own/ref
+  per `@resume=` on the synthetic resume binding.
+- `Hβ.first-light.infer-handler-arm-pat-refinement` — refinement
+  predicates on op args flow as verify obligations into arm scope.
+- `Hβ.first-light.infer-handler-arm-op-not-declared` — silent skip
+  → diagnostic via `$emit_diag` (E_HandlerOpUndeclared).
+- `Hβ.first-light.infer-handler-arm-arity-diagnostic` — silent
+  skip → diagnostic (E_HandlerArmArityMismatch).
+
+**Cursor of attention** post-handler-arm-typing closure: empirical
+re-test of full wheel; identify which residue blocks WAT emission
+next (most likely the 14 `$NNNN_idx` undefined-globals
+named follow-up `Hβ.first-light.handler-arm-fn-idx-globals`, OR a
+new wave of E_TypeMismatch the +61 surfaced).
+
 ### 4.5.4d Closures + ctor + destructure + brace + where-skip landed; string-interning gap surfaces (2026-05-02 latter)
 
 Subsequent landings (commits c28c525 / 12cfcac / 8d3d2f7 / 07a2a99
