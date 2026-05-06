@@ -364,9 +364,29 @@
     (local $arm i32) (local $args i32) (local $arg_names i32) (local $body_node i32)
     (local $op_name i32) (local $lo_body i32) (local $fn_name i32)
     (local $fn_body i32) (local $fn_ir i32)
+    (local $outer_cp i32)
     (local.set $n   (call $len (local.get $arms)))
     (local.set $buf (call $make_list (i32.const 0)))
     (local.set $buf (call $list_extend_to (local.get $buf) (local.get $n)))
+    ;; Per Hβ.first-light.handler-arm-capture-substrate (2026-05-06):
+    ;; bind config + state names as locals in the OUTER scope (before
+    ;; per-arm frames). Arm-body var resolution sees these via the
+    ;; outer-frame scan in $ls_lookup_or_capture (state.wat:425-439),
+    ;; which CAPTURES them — emit produces LUpval(slot) reading from
+    ;; __state[8 + 4*slot]. The per-arm frame's frame_start advances
+    ;; past these, so they're not arm-locals but capture-eligible
+    ;; outer-locals. Closes the layer 7 named peer surfaced by p7
+    ;; empirical (`$f` undefined-local-var on map_h's yield arm
+    ;; references config-param `f`). Drift refused: 1 (no vtable —
+    ;; capture mechanism is the existing lambda-style ledger);
+    ;; 5 (config + state both bind in outer; not parallel arrays —
+    ;; one locals ledger holds both); 9 (substrate lands here, not
+    ;; deferred; runtime handler-closure-record substrate that
+    ;; populates __state with config+state values at install IS the
+    ;; complementary peer Hβ.first-light.handler-closure-install).
+    (local.set $outer_cp (call $ls_push_scope))
+    (call $bind_handler_config_names (local.get $config))
+    (call $bind_handler_state_names  (local.get $state))
     (local.set $i   (i32.const 0))
     (block $done
       (loop $each
@@ -376,11 +396,9 @@
         (local.set $arg_names (call $extract_handler_arg_names (local.get $args)))
         (local.set $body_node (call $record_get (local.get $arm) (i32.const 1)))
         (local.set $op_name   (call $record_get (local.get $arm) (i32.const 2)))
-        (local.set $lo_body   (call $lower_handler_arm_body
+        (local.set $lo_body   (call $lower_handler_arm_body_capturing
                                 (local.get $arg_names)
-                                (local.get $body_node)
-                                (local.get $config)
-                                (local.get $state)))
+                                (local.get $body_node)))
         ;; fn_name = "op_" ++ discriminator ++ "_" ++ op_name
         (local.set $fn_name (call $str_concat (i32.const 504) (local.get $discriminator)))
         (local.set $fn_name (call $str_concat (local.get $fn_name) (i32.const 4400)))
@@ -398,7 +416,26 @@
                 (call $lexpr_make_ldeclarefn (local.get $fn_ir))))
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $each)))
+    ;; Pop the outer scope so config + state locals don't leak into
+    ;; sibling handler-decls or top-level decls processed afterward.
+    (call $ls_pop_scope (local.get $outer_cp))
     (local.get $buf))
+
+  ;; $lower_handler_arm_body_capturing — arm-body lower with proper
+  ;; frame-isolation so the outer-frame scan in $ls_lookup_or_capture
+  ;; resolves config + state references as captures. Mirrors
+  ;; $lower_lambda's frame discipline at single-arm granularity.
+  ;; Per Hβ.first-light.handler-arm-capture-substrate.
+  (func $lower_handler_arm_body_capturing
+        (param $args i32) (param $body_node i32) (result i32)
+    (local $cp i32) (local $prev_frame i32) (local $lo_body i32)
+    (local.set $cp (call $ls_push_scope))
+    (local.set $prev_frame (call $ls_enter_frame))
+    (call $bind_handler_arg_names (local.get $args))
+    (local.set $lo_body (call $lower_expr (local.get $body_node)))
+    (call $ls_exit_frame (local.get $prev_frame))
+    (call $ls_pop_scope (local.get $cp))
+    (local.get $lo_body))
 
   ;; ─── $lower_handler_arms_records — chunk-private arm-record list ──
   ;; Per src/lower.mn:732-744 wheel canonical. Returns list of

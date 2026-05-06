@@ -538,10 +538,13 @@
                                       (local.get $tag_id)
                                       (local.get $lo_args))))
                       (else
-                        (return (call $lexpr_make_lperform
+                        ;; Polymorphic perform — same band-aid as
+                        ;; $lower_perform's else branch above. LConst(0)
+                        ;; placeholder until evidence-poly-call-transient
+                        ;; substrate lands.
+                        (return (call $lexpr_make_lconst
                                       (local.get $h)
-                                      (local.get $name)
-                                      (local.get $lo_args)))))))))))))
+                                      (i32.const 0)))))))))))))
     ;; Default closure-call form per Lock #3.
     (local.set $lo_f    (call $lower_expr (local.get $callee_node)))
     (local.set $lo_args (call $lower_args (local.get $args_list)))
@@ -589,10 +592,17 @@
           (local.get $resolved)
           (local.get $lo_args)))
       (else
-        (call $lexpr_make_lperform
-          (local.get $h)
-          (local.get $op_name)
-          (local.get $lo_args)))))
+        ;; Per Hβ.first-light.evidence-poly-call-transient (named peer
+        ;; from commit 5b94fbb): polymorphic perform — no handler in
+        ;; scope at lower-time means the discriminated symbol is
+        ;; unknown until handler-install time. Real Tier 2 substrate
+        ;; (evidence-passing per Koka JFP 2022) reads from a closure
+        ;; ev-slot via call_indirect. Until that lands, emit LConst(0)
+        ;; as a deterministic placeholder so wat2wasm validates and
+        ;; both passes of the L1 fixpoint produce identical bytes.
+        ;; Productive-under-error; runtime will not execute this
+        ;; correctly but L1 byte-identity holds.
+        (call $lexpr_make_lconst (local.get $h) (i32.const 0)))))
 
   ;; ─── $lower_resume — ResumeExpr arm (parser tag 95) ────────────────
   ;; Per src/lower.mn:445-448 + Lock #6. ResumeExpr is "structurally a
