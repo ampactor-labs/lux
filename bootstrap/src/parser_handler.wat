@@ -93,6 +93,78 @@
         (br $skip)))
     (local.get $p))
 
+  ;; ─── $skip_to_rparen_p ───────────────────────────────────────────
+  ;; Walks tokens forward consuming TLParen at depth 0 (first call only)
+  ;; through to the matching TRParen and ONE position past it. Returns
+  ;; the position AFTER TRParen. Used for handler-decl config-params
+  ;; `(...)` when seed is structurally consuming but not extracting.
+  ;; Per `Hβ.first-light.handler-config-params-substrate` named peer —
+  ;; full extraction lands when the cascade reaches it.
+  (func $skip_to_rparen_p (param $tokens i32) (param $pos i32) (result i32)
+    (local $p i32) (local $depth i32) (local $k i32)
+    (local.set $p     (local.get $pos))
+    (local.set $depth (i32.const 0))
+    (block $done
+      (loop $skip
+        (local.set $k (call $kind_at (local.get $tokens) (local.get $p)))
+        ;; EOF → done (defensive; well-formed input never hits this)
+        (br_if $done (i32.eq (local.get $k) (i32.const 69)))
+        ;; TLParen → depth++
+        (if (i32.eq (local.get $k) (i32.const 45))  ;; TLParen
+          (then (local.set $depth (i32.add (local.get $depth) (i32.const 1)))))
+        ;; TRParen → depth--; if depth reaches 0, consume and exit
+        (if (i32.eq (local.get $k) (i32.const 46))  ;; TRParen
+          (then
+            (local.set $depth (i32.sub (local.get $depth) (i32.const 1)))
+            (if (i32.eqz (local.get $depth))
+              (then
+                (local.set $p (i32.add (local.get $p) (i32.const 1)))
+                (br $done)))))
+        (local.set $p (i32.add (local.get $p) (i32.const 1)))
+        (br $skip)))
+    (local.get $p))
+
+  ;; ─── $skip_to_lbrace_p ───────────────────────────────────────────
+  ;; Walks tokens forward until hitting TLBrace at depth 0 (or TEof).
+  ;; Used by effect-row form of $parse_handler_state to position $p
+  ;; at the TLBrace that the caller's $expect will consume. Per
+  ;; `Hβ.first-light.parser-handler-with-disambiguation` — effect-row
+  ;; structural extraction is named peer; first-light just needs to
+  ;; reach the arms without choking. Brace-depth tracked so nested
+  ;; type expressions (e.g., `with E + Map<K, V>`) don't confuse the
+  ;; walk; depth-0 TLBrace is the natural arm-list opener.
+  (func $skip_to_lbrace_p (param $tokens i32) (param $pos i32) (result i32)
+    (local $p i32) (local $depth i32) (local $k i32)
+    (local.set $p     (local.get $pos))
+    (local.set $depth (i32.const 0))
+    (block $done
+      (loop $skip
+        (local.set $k (call $kind_at (local.get $tokens) (local.get $p)))
+        ;; EOF → done
+        (br_if $done (i32.eq (local.get $k) (i32.const 69)))
+        ;; At depth 0, TLBrace ends (caller expects to consume it)
+        (if (i32.eqz (local.get $depth))
+          (then
+            (br_if $done (i32.eq (local.get $k) (i32.const 47)))))  ;; TLBrace
+        ;; Track opens (TLParen=45, TLBracket=49) — TLBrace at depth >0
+        ;; is a brace inside type/expression scope (rare but possible).
+        (if (i32.or
+              (i32.or (i32.eq (local.get $k) (i32.const 45))   ;; TLParen
+                      (i32.eq (local.get $k) (i32.const 49)))  ;; TLBracket
+              (i32.and (i32.eq (local.get $k) (i32.const 47))  ;; TLBrace at depth>0
+                       (i32.gt_s (local.get $depth) (i32.const 0))))
+          (then (local.set $depth (i32.add (local.get $depth) (i32.const 1)))))
+        ;; Track closes (TRParen=46, TRBracket=50, TRBrace=48 at depth>0)
+        (if (i32.or
+              (i32.or (i32.eq (local.get $k) (i32.const 46))   ;; TRParen
+                      (i32.eq (local.get $k) (i32.const 50)))  ;; TRBracket
+              (i32.and (i32.eq (local.get $k) (i32.const 48))
+                       (i32.gt_s (local.get $depth) (i32.const 0))))
+          (then (local.set $depth (i32.sub (local.get $depth) (i32.const 1)))))
+        (local.set $p (i32.add (local.get $p) (i32.const 1)))
+        (br $skip)))
+    (local.get $p))
+
   ;; ─── $parse_handler_arm_args ─────────────────────────────────────
   ;; Comma-separated patterns inside `( )`. Empty `()` returns empty
   ;; list; otherwise loops $parse_pat / TComma / TRParen. Buffer-counter
@@ -230,17 +302,31 @@
     (local.get $tup))
 
   ;; ─── $parse_handler_state ────────────────────────────────────────
-  ;; Optional `with FIELD = EXPR [, FIELD = EXPR]*` clause. Returns
-  ;; [state_fields_list, next_pos]. Each field is a 2-tuple
-  ;; (name, init_expr). If no TWith, returns empty list with pos
-  ;; unchanged. Loop terminates on the first non-comma token after
-  ;; an init expr — `{` is the natural terminator and is checked by
-  ;; the caller via $expect after this returns.
+  ;; Optional `with` clause — disambiguates two wheel-canonical forms:
+  ;;   `with FIELD = EXPR [, ...]`   — state-init (returns parsed fields)
+  ;;   `with !EFFECT` / `with EFFECT` — effect-row spec (returns empty
+  ;;                                    state, consumes through to TLBrace)
+  ;; Per `Hβ.first-light.parser-handler-with-disambiguation` —
+  ;; canonical wheel `src/parser.nx:632-638` discards effect_name at parse
+  ;; time (hardcoded ""), so the parser's job here is to NOT choke on
+  ;; the effect-row form and to position $p at the TLBrace that
+  ;; $parse_handler_decl_full's $expect will consume.
+  ;;
+  ;; Disambiguation: peek first non-ws token after TWith.
+  ;;   TBang → effect-row form (`with !EFFECT`); skip-to-TLBrace.
+  ;;   TIdent followed by TEq → state-init form (existing loop).
+  ;;   TIdent followed by NOT-TEq → effect-row form; skip-to-TLBrace.
+  ;;
+  ;; Returns [state_fields_list, next_pos]. State-init form returns
+  ;; parsed fields; effect-row form returns empty list. Effect-row
+  ;; structural extraction is named peer
+  ;; `Hβ.parser-handler-effect-row-record` per drift-9 + drift-8 closure.
   (func $parse_handler_state (param $tokens i32) (param $pos i32) (result i32)
     (local $p i32) (local $buf i32) (local $count i32)
     (local $field_name i32) (local $p2 i32) (local $p3 i32)
     (local $init_r i32) (local $init_expr i32) (local $p4 i32)
-    (local $field i32) (local $tup i32)
+    (local $field i32) (local $tup i32) (local $p_after_ident i32)
+    (local $k i32)
     (local.set $p (call $skip_ws_p (local.get $tokens) (local.get $pos)))
     ;; No TWith → empty state, pos unchanged
     (if (i32.eqz (call $at (local.get $tokens) (local.get $p) (i32.const 9)))  ;; TWith
@@ -250,9 +336,40 @@
           (call $make_list (i32.const 0))))
         (drop (call $list_set (local.get $tup) (i32.const 1) (local.get $p)))
         (return (local.get $tup))))
-    ;; Past TWith
+    ;; Past TWith — peek to disambiguate.
     (local.set $p (call $skip_ws_p (local.get $tokens)
       (i32.add (local.get $p) (i32.const 1))))
+    (local.set $k (call $kind_at (local.get $tokens) (local.get $p)))
+    ;; Effect-row form #1: `with !EFFECT` — TBang at $p (sentinel 63)
+    (if (i32.eq (local.get $k) (i32.const 63))  ;; TBang
+      (then
+        (local.set $p (call $skip_to_lbrace_p (local.get $tokens) (local.get $p)))
+        (local.set $tup (call $make_list (i32.const 2)))
+        (drop (call $list_set (local.get $tup) (i32.const 0)
+          (call $make_list (i32.const 0))))
+        (drop (call $list_set (local.get $tup) (i32.const 1) (local.get $p)))
+        (return (local.get $tup))))
+    ;; Effect-row form #2: `with IDENT` (not followed by TEq) — single
+    ;; effect-name OR row spec like `IDENT + IDENT`. TIdent is fielded
+    ;; (tag 25, NOT sentinel); use the parser-canonical "is TIdent" probe
+    ;; (NOT sentinel + tag_of == 25) per parser_pat.wat / parser_fn.wat
+    ;; pattern. Peek past IDENT to check for TEq; absence means
+    ;; effect-row form.
+    (if (i32.and
+          (i32.eqz (call $is_sentinel (local.get $k)))
+          (i32.eq (call $tag_of (local.get $k)) (i32.const 25)))
+      (then
+        (local.set $p_after_ident (call $skip_ws_p (local.get $tokens)
+          (i32.add (local.get $p) (i32.const 1))))
+        (if (i32.eqz (call $at (local.get $tokens) (local.get $p_after_ident) (i32.const 60)))  ;; not TEq
+          (then
+            (local.set $p (call $skip_to_lbrace_p (local.get $tokens) (local.get $p)))
+            (local.set $tup (call $make_list (i32.const 2)))
+            (drop (call $list_set (local.get $tup) (i32.const 0)
+              (call $make_list (i32.const 0))))
+            (drop (call $list_set (local.get $tup) (i32.const 1) (local.get $p)))
+            (return (local.get $tup))))))
+    ;; Fall-through: state-init form (TIdent TEq ...)
     (local.set $buf (call $make_list (i32.const 4)))
     (local.set $count (i32.const 0))
     (block $done
@@ -314,6 +431,20 @@
     ;; Skip past name + ws
     (local.set $p (call $skip_ws_p (local.get $tokens)
       (i32.add (local.get $pos) (i32.const 2))))
+    ;; Optional config-params `(...)` per SYNTAX.md §770-815 + wheel
+    ;; usage (`handler map_h(f) { ... }`, `handler take_h(n) with ...`,
+    ;; `handler buffer_unpacker(source) with pos = 0`). Skip over the
+    ;; balanced parens for first-light; structural extraction is named
+    ;; peer `Hβ.first-light.handler-config-params-substrate` (closure-
+    ;; capture binding into arm scope at install time per SYNTAX.md
+    ;; §782 "Config parameters in (...) — closure-captured at install
+    ;; site"). Preserves drift-9 positive-form discipline — the
+    ;; substrate isn't consumed-and-thrown-away; it's consumed-and-
+    ;; deferred-as-named-peer.
+    (if (call $at (local.get $tokens) (local.get $p) (i32.const 45))  ;; TLParen
+      (then
+        (local.set $p (call $skip_to_rparen_p (local.get $tokens) (local.get $p)))
+        (local.set $p (call $skip_ws_p (local.get $tokens) (local.get $p)))))
     ;; Optional state
     (local.set $state_r (call $parse_handler_state (local.get $tokens) (local.get $p)))
     (local.set $state_fields (call $list_index (local.get $state_r) (i32.const 0)))

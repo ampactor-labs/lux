@@ -503,6 +503,52 @@ next (most likely the 14 `$NNNN_idx` undefined-globals
 named follow-up `Hβ.first-light.handler-arm-fn-idx-globals`, OR a
 new wave of E_TypeMismatch the +61 surfaced).
 
+### 4.5.7 Parser handler-decl prelude landed (2026-05-06)
+
+`Hβ.first-light.parser-handler-decl-prelude` — `$parse_handler_state`
+disambiguates `with !EFFECT` (negation guard form, SYNTAX.md §843)
+from `with FIELD = INIT` (state-init form, SYNTAX.md §770-815). Pre-
+substrate the seed always tried state-init, silently consuming
+`with !Mutate { arms }` as if `!Mutate` were a state field name —
+`!Mutate` ate the entire arm body via $parse_expr's brace-handling.
+The negation-guard form is wheel-canonical (`handler cursor_default
+with !Mutate {`, `delta_default`, `synth_default`,
+`interrogate_default`); pre-fix every such handler was producing
+garbage AST.
+
+`$parse_handler_decl_full` now also consumes `(config_params)` per
+SYNTAX.md §782 (config closure-captured at install site). For first-
+light minimum, params are skipped via `$skip_to_rparen_p` — full
+structural extraction is named peer
+`Hβ.first-light.handler-config-params-substrate`. Wheel uses cfg
+params widely (`map_h(f)`, `filter_h(pred)`, `take_h(n)`,
+`drop_h(n)`, `buffer_unpacker(source)`).
+
+Empirical micro-test signals (post-substrate, pre-substrate
+produced 2 E_UnresolvedType + garbage `$op_` empty-named func):
+
+| Input | Stderr | Body shape |
+|---|---|---|
+| `handler h { op() => 42 }` | clean | `$op_op (param $__state i32)` body `(i32.const 42)` |
+| `handler h with !E { op() => 42 }` | clean | identical to above (negation parses + skips) |
+| `handler h(x) { op() => x }` | `E_MissingVariable: x` (productive-under-error: config params parsed but binding peer-deferred) | `$op_op` body `(global.get $x)` |
+| `handler h(x) with state = 0 { op() => x }` | same productive-under-error | same |
+
+The wat2wasm rejection `(call $op_op)` expected [i32] but got [] is
+a separate handle: `$emit_lperform` doesn't pass `__state` to the
+op fn. Named peer: `Hβ.first-light.emit-lperform-state-arg`.
+
+Two new helpers added to parser_handler.wat: `$skip_to_lbrace_p`
+(brace-depth-0 walk to TLBrace), `$skip_to_rparen_p` (depth-0 walk
+through balanced parens to AFTER TRParen). Both use $kind_at +
+sentinel-int compares per parser-canonical pattern.
+
+**Cursor of attention** post-prelude closure: full wheel-scale
+empirical re-test. Most likely next blockers: emit-lperform-state-arg
+(unblocks single-perform programs); handler-arm-fn-idx-globals
+(undefined `$NNNN_idx` globals); the cfg-params-substrate (unblocks
+config-using handlers like `map_h`, `take_h`).
+
 ### 4.5.4d Closures + ctor + destructure + brace + where-skip landed; string-interning gap surfaces (2026-05-02 latter)
 
 Subsequent landings (commits c28c525 / 12cfcac / 8d3d2f7 / 07a2a99
