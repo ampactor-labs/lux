@@ -921,6 +921,13 @@
     (call $emit_cstr (i32.const 4133) (i32.const 13)) ;; " (result i32)"
     ;; Standard locals per W7 + emit arms that lower into scratch slots.
     (call $emit_standard_locals)
+    ;; Per-fn ledger reset — $emit_standard_locals' fixed scratch names
+    ;; are emitted unconditionally above; the ledger tracks only
+    ;; LowPat-bound names that emit_let_locals + emit_pat_locals project.
+    ;; Per Hβ.first-light.match-arm-binding-name-uniqueness Lock #3 —
+    ;; this is the first wiring of $emit_fn_reset (state.wat exports it
+    ;; but no caller existed pre-this-commit).
+    (call $emit_fn_reset)
     ;; Pre-declare LLet locals from body
     (call $emit_let_locals (local.get $body))
     (call $emit_nl)
@@ -965,14 +972,18 @@
         (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
         (local.set $expr (call $list_index (local.get $exprs) (local.get $i)))
         (local.set $tag (call $tag_of (local.get $expr)))
-        ;; LLet (304) — declare local AND recurse into value
-        ;; (since the value may itself contain nested LLets via PCon
+        ;; LLet (304) — declare local IFF not already declared for current
+        ;; fn (Hβ.first-light.match-arm-binding-name-uniqueness Lock #1
+        ;; + §A.5b LLet-cross-block coverage); recurse into value either
+        ;; way (since the value may itself contain nested LLets via PCon
         ;; destructure or block expressions).
         (if (i32.eq (local.get $tag) (i32.const 304))
           (then
-            (call $emit_cstr (i32.const 4146) (i32.const 9)) ;; " (local $"
-            (call $emit_str (call $lexpr_llet_name (local.get $expr)))
-            (call $emit_cstr (i32.const 4155) (i32.const 5)) ;; " i32)"
+            (if (call $emit_fn_local_check (call $lexpr_llet_name (local.get $expr)))
+              (then
+                (call $emit_cstr (i32.const 4146) (i32.const 9)) ;; " (local $"
+                (call $emit_str (call $lexpr_llet_name (local.get $expr)))
+                (call $emit_cstr (i32.const 4155) (i32.const 5)))) ;; " i32)"
             ;; Recurse into the value (may contain nested LBlocks via
             ;; PCon destructure or other compound expressions).
             (call $emit_let_locals_walk
@@ -1077,12 +1088,16 @@
     (if (i32.lt_u (local.get $pat) (global.get $heap_base))
       (then (return)))
     (local.set $tag (call $tag_of (local.get $pat)))
-    ;; LPVar (360) — emit (local $<name> i32).
+    ;; LPVar (360) — emit (local $<name> i32) IFF not already declared
+    ;; for current fn (Hβ.first-light.match-arm-binding-name-uniqueness
+    ;; Lock #1). Source-name fidelity preserved (Lock #5).
     (if (i32.eq (local.get $tag) (i32.const 360))
       (then
-        (call $emit_cstr (i32.const 4146) (i32.const 9)) ;; " (local $"
-        (call $emit_str (call $lowpat_lpvar_name (local.get $pat)))
-        (call $emit_cstr (i32.const 4155) (i32.const 5)) ;; " i32)"
+        (if (call $emit_fn_local_check (call $lowpat_lpvar_name (local.get $pat)))
+          (then
+            (call $emit_cstr (i32.const 4146) (i32.const 9)) ;; " (local $"
+            (call $emit_str (call $lowpat_lpvar_name (local.get $pat)))
+            (call $emit_cstr (i32.const 4155) (i32.const 5)))) ;; " i32)"
         (return)))
     ;; LPCon (363) — recurse into sub-pats list.
     (if (i32.eq (local.get $tag) (i32.const 363))
@@ -1130,9 +1145,11 @@
         (local.set $rest (call $lowpat_lprecord_rest (local.get $pat)))
         (if (i32.ne (local.get $rest) (i32.const 0))
           (then
-            (call $emit_cstr (i32.const 4146) (i32.const 9))
-            (call $emit_str (local.get $rest))
-            (call $emit_cstr (i32.const 4155) (i32.const 5))))
+            (if (call $emit_fn_local_check (local.get $rest))
+              (then
+                (call $emit_cstr (i32.const 4146) (i32.const 9))
+                (call $emit_str (local.get $rest))
+                (call $emit_cstr (i32.const 4155) (i32.const 5))))))
         (return)))
     ;; LPList (365) — recurse into elems; rest_var is bound-name string.
     (if (i32.eq (local.get $tag) (i32.const 365))
@@ -1150,16 +1167,22 @@
         (local.set $rest (call $lowpat_lplist_rest (local.get $pat)))
         (if (i32.ne (local.get $rest) (i32.const 0))
           (then
-            (call $emit_cstr (i32.const 4146) (i32.const 9))
-            (call $emit_str (local.get $rest))
-            (call $emit_cstr (i32.const 4155) (i32.const 5))))
+            (if (call $emit_fn_local_check (local.get $rest))
+              (then
+                (call $emit_cstr (i32.const 4146) (i32.const 9))
+                (call $emit_str (local.get $rest))
+                (call $emit_cstr (i32.const 4155) (i32.const 5))))))
         (return)))
-    ;; LPAs (368) — emit (local $<name> i32) AND recurse inner pat.
+    ;; LPAs (368) — emit (local $<name> i32) IFF not already declared,
+    ;; THEN recurse inner pat (which re-checks its own bindings via
+    ;; $emit_fn_local_check on each LPVar/LPCon/etc. it encounters).
     (if (i32.eq (local.get $tag) (i32.const 368))
       (then
-        (call $emit_cstr (i32.const 4146) (i32.const 9))
-        (call $emit_str (call $lowpat_lpas_name (local.get $pat)))
-        (call $emit_cstr (i32.const 4155) (i32.const 5))
+        (if (call $emit_fn_local_check (call $lowpat_lpas_name (local.get $pat)))
+          (then
+            (call $emit_cstr (i32.const 4146) (i32.const 9))
+            (call $emit_str (call $lowpat_lpas_name (local.get $pat)))
+            (call $emit_cstr (i32.const 4155) (i32.const 5))))
         (call $emit_pat_locals (call $lowpat_lpas_pat (local.get $pat)))
         (return)))
     ;; LPWild (361) / LPLit (362) / LPAlt (367) — bind nothing.

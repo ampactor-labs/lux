@@ -21142,6 +21142,16 @@
   (global $emit_string_table_len_g       (mut i32) (i32.const 0))
   (global $emit_strings_next_offset_g    (mut i32) (i32.const 65536))
 
+  ;; Fn-locals dedupe ledger. Per Hβ.first-light.match-arm-binding-
+  ;; name-uniqueness Lock #4: per-fn-scoped, length-only-reset at
+  ;; $emit_fn_reset; mirrors $emit_funcref_table_ptr shape.
+  ;; $emit_pat_locals consults $emit_fn_local_check before each
+  ;; (local $<name> i32) emission; duplicates short-circuit. The
+  ;; substrate reads LPVar.name directly (Anchor 1) — no parallel
+  ;; name source.
+  (global $emit_fn_locals_ptr            (mut i32) (i32.const 0))
+  (global $emit_fn_locals_len_g          (mut i32) (i32.const 0))
+
   ;; ─── Idempotent initializer (mirrors $lower_init / $infer_init) ────
   ;; Per the seed's discipline for module-level state chunks: every
   ;; public entry calls $emit_init first; subsequent calls no-op.
@@ -21160,6 +21170,8 @@
         (global.set $emit_string_table_ptr      (call $make_list (i32.const 8)))
         (global.set $emit_string_table_len_g    (i32.const 0))
         (global.set $emit_strings_next_offset_g (i32.const 65536))
+        (global.set $emit_fn_locals_ptr         (call $make_list (i32.const 8)))
+        (global.set $emit_fn_locals_len_g       (i32.const 0))
         (global.set $emit_initialized           (i32.const 1)))))
 
   ;; ─── $emit_funcref_register — append name; return assigned index ───
@@ -21216,6 +21228,47 @@
   (func $emit_funcref_at (param $idx i32) (result i32)
     (call $emit_init)
     (call $list_index (global.get $emit_funcref_table_ptr) (local.get $idx)))
+
+  ;; ─── $emit_fn_local_check — register-or-no-op; return "is new" ─────
+  ;; Per Hβ.first-light.match-arm-binding-name-uniqueness Lock #1:
+  ;; returns 1 IFF $name was not previously registered for the current
+  ;; fn AND has just been appended to the ledger. Returns 0 IFF $name
+  ;; was already present (no append performed). Mirrors
+  ;; $emit_funcref_register's idempotent-on-repeat shape.
+  (func $emit_fn_local_check (param $name i32) (result i32)
+    (local $existing i32) (local $new_idx i32) (local $new_len i32)
+    (call $emit_init)
+    (local.set $existing (call $emit_fn_local_lookup (local.get $name)))
+    (if (i32.ge_s (local.get $existing) (i32.const 0))
+      (then (return (i32.const 0))))
+    (local.set $new_idx (global.get $emit_fn_locals_len_g))
+    (local.set $new_len (i32.add (local.get $new_idx) (i32.const 1)))
+    (global.set $emit_fn_locals_ptr
+      (call $list_extend_to (global.get $emit_fn_locals_ptr) (local.get $new_len)))
+    (drop (call $list_set (global.get $emit_fn_locals_ptr)
+                          (local.get $new_idx)
+                          (local.get $name)))
+    (global.set $emit_fn_locals_len_g (local.get $new_len))
+    (i32.const 1))
+
+  ;; ─── $emit_fn_local_lookup — idx if registered; -1 otherwise ───────
+  ;; Mirrors $emit_funcref_lookup. Linear $str_eq scan. Insertion-order
+  ;; preservation is incidental — only presence matters for the dedupe.
+  (func $emit_fn_local_lookup (param $name i32) (result i32)
+    (local $i i32) (local $n i32) (local $entry_name i32)
+    (call $emit_init)
+    (local.set $i (i32.const 0))
+    (local.set $n (global.get $emit_fn_locals_len_g))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $entry_name
+          (call $list_index (global.get $emit_fn_locals_ptr) (local.get $i)))
+        (if (call $str_eq (local.get $entry_name) (local.get $name))
+          (then (return (local.get $i))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter)))
+    (i32.const -1))
 
   ;; ─── $emit_set_body_context — install per-fn captures + evidence ───
   ;; Per Hβ-emit-substrate.md §5.2 + wheel src/backends/wasm.nx:960-961.
@@ -21326,7 +21379,8 @@
   (func $emit_fn_reset
     (call $emit_init)
     (global.set $emit_body_captures_count_g (i32.const 0))
-    (global.set $emit_body_evidence_len_g   (i32.const 0)))
+    (global.set $emit_body_evidence_len_g   (i32.const 0))
+    (global.set $emit_fn_locals_len_g       (i32.const 0)))
 
   ;; ═══ lookup.wat — Hβ.emit type-driven dispatch primitives (Tier 5) ═══
   ;; Implements: Hβ-emit-substrate.md §2.1 (LConst dispatch on Ty —
@@ -25782,6 +25836,13 @@
     (call $emit_cstr (i32.const 4133) (i32.const 13)) ;; " (result i32)"
     ;; Standard locals per W7 + emit arms that lower into scratch slots.
     (call $emit_standard_locals)
+    ;; Per-fn ledger reset — $emit_standard_locals' fixed scratch names
+    ;; are emitted unconditionally above; the ledger tracks only
+    ;; LowPat-bound names that emit_let_locals + emit_pat_locals project.
+    ;; Per Hβ.first-light.match-arm-binding-name-uniqueness Lock #3 —
+    ;; this is the first wiring of $emit_fn_reset (state.wat exports it
+    ;; but no caller existed pre-this-commit).
+    (call $emit_fn_reset)
     ;; Pre-declare LLet locals from body
     (call $emit_let_locals (local.get $body))
     (call $emit_nl)
@@ -25826,14 +25887,18 @@
         (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
         (local.set $expr (call $list_index (local.get $exprs) (local.get $i)))
         (local.set $tag (call $tag_of (local.get $expr)))
-        ;; LLet (304) — declare local AND recurse into value
-        ;; (since the value may itself contain nested LLets via PCon
+        ;; LLet (304) — declare local IFF not already declared for current
+        ;; fn (Hβ.first-light.match-arm-binding-name-uniqueness Lock #1
+        ;; + §A.5b LLet-cross-block coverage); recurse into value either
+        ;; way (since the value may itself contain nested LLets via PCon
         ;; destructure or block expressions).
         (if (i32.eq (local.get $tag) (i32.const 304))
           (then
-            (call $emit_cstr (i32.const 4146) (i32.const 9)) ;; " (local $"
-            (call $emit_str (call $lexpr_llet_name (local.get $expr)))
-            (call $emit_cstr (i32.const 4155) (i32.const 5)) ;; " i32)"
+            (if (call $emit_fn_local_check (call $lexpr_llet_name (local.get $expr)))
+              (then
+                (call $emit_cstr (i32.const 4146) (i32.const 9)) ;; " (local $"
+                (call $emit_str (call $lexpr_llet_name (local.get $expr)))
+                (call $emit_cstr (i32.const 4155) (i32.const 5)))) ;; " i32)"
             ;; Recurse into the value (may contain nested LBlocks via
             ;; PCon destructure or other compound expressions).
             (call $emit_let_locals_walk
@@ -25938,12 +26003,16 @@
     (if (i32.lt_u (local.get $pat) (global.get $heap_base))
       (then (return)))
     (local.set $tag (call $tag_of (local.get $pat)))
-    ;; LPVar (360) — emit (local $<name> i32).
+    ;; LPVar (360) — emit (local $<name> i32) IFF not already declared
+    ;; for current fn (Hβ.first-light.match-arm-binding-name-uniqueness
+    ;; Lock #1). Source-name fidelity preserved (Lock #5).
     (if (i32.eq (local.get $tag) (i32.const 360))
       (then
-        (call $emit_cstr (i32.const 4146) (i32.const 9)) ;; " (local $"
-        (call $emit_str (call $lowpat_lpvar_name (local.get $pat)))
-        (call $emit_cstr (i32.const 4155) (i32.const 5)) ;; " i32)"
+        (if (call $emit_fn_local_check (call $lowpat_lpvar_name (local.get $pat)))
+          (then
+            (call $emit_cstr (i32.const 4146) (i32.const 9)) ;; " (local $"
+            (call $emit_str (call $lowpat_lpvar_name (local.get $pat)))
+            (call $emit_cstr (i32.const 4155) (i32.const 5)))) ;; " i32)"
         (return)))
     ;; LPCon (363) — recurse into sub-pats list.
     (if (i32.eq (local.get $tag) (i32.const 363))
@@ -25991,9 +26060,11 @@
         (local.set $rest (call $lowpat_lprecord_rest (local.get $pat)))
         (if (i32.ne (local.get $rest) (i32.const 0))
           (then
-            (call $emit_cstr (i32.const 4146) (i32.const 9))
-            (call $emit_str (local.get $rest))
-            (call $emit_cstr (i32.const 4155) (i32.const 5))))
+            (if (call $emit_fn_local_check (local.get $rest))
+              (then
+                (call $emit_cstr (i32.const 4146) (i32.const 9))
+                (call $emit_str (local.get $rest))
+                (call $emit_cstr (i32.const 4155) (i32.const 5))))))
         (return)))
     ;; LPList (365) — recurse into elems; rest_var is bound-name string.
     (if (i32.eq (local.get $tag) (i32.const 365))
@@ -26011,16 +26082,22 @@
         (local.set $rest (call $lowpat_lplist_rest (local.get $pat)))
         (if (i32.ne (local.get $rest) (i32.const 0))
           (then
-            (call $emit_cstr (i32.const 4146) (i32.const 9))
-            (call $emit_str (local.get $rest))
-            (call $emit_cstr (i32.const 4155) (i32.const 5))))
+            (if (call $emit_fn_local_check (local.get $rest))
+              (then
+                (call $emit_cstr (i32.const 4146) (i32.const 9))
+                (call $emit_str (local.get $rest))
+                (call $emit_cstr (i32.const 4155) (i32.const 5))))))
         (return)))
-    ;; LPAs (368) — emit (local $<name> i32) AND recurse inner pat.
+    ;; LPAs (368) — emit (local $<name> i32) IFF not already declared,
+    ;; THEN recurse inner pat (which re-checks its own bindings via
+    ;; $emit_fn_local_check on each LPVar/LPCon/etc. it encounters).
     (if (i32.eq (local.get $tag) (i32.const 368))
       (then
-        (call $emit_cstr (i32.const 4146) (i32.const 9))
-        (call $emit_str (call $lowpat_lpas_name (local.get $pat)))
-        (call $emit_cstr (i32.const 4155) (i32.const 5))
+        (if (call $emit_fn_local_check (call $lowpat_lpas_name (local.get $pat)))
+          (then
+            (call $emit_cstr (i32.const 4146) (i32.const 9))
+            (call $emit_str (call $lowpat_lpas_name (local.get $pat)))
+            (call $emit_cstr (i32.const 4155) (i32.const 5))))
         (call $emit_pat_locals (call $lowpat_lpas_pat (local.get $pat)))
         (return)))
     ;; LPWild (361) / LPLit (362) / LPAlt (367) — bind nothing.

@@ -181,6 +181,16 @@
   (global $emit_string_table_len_g       (mut i32) (i32.const 0))
   (global $emit_strings_next_offset_g    (mut i32) (i32.const 65536))
 
+  ;; Fn-locals dedupe ledger. Per Hβ.first-light.match-arm-binding-
+  ;; name-uniqueness Lock #4: per-fn-scoped, length-only-reset at
+  ;; $emit_fn_reset; mirrors $emit_funcref_table_ptr shape.
+  ;; $emit_pat_locals consults $emit_fn_local_check before each
+  ;; (local $<name> i32) emission; duplicates short-circuit. The
+  ;; substrate reads LPVar.name directly (Anchor 1) — no parallel
+  ;; name source.
+  (global $emit_fn_locals_ptr            (mut i32) (i32.const 0))
+  (global $emit_fn_locals_len_g          (mut i32) (i32.const 0))
+
   ;; ─── Idempotent initializer (mirrors $lower_init / $infer_init) ────
   ;; Per the seed's discipline for module-level state chunks: every
   ;; public entry calls $emit_init first; subsequent calls no-op.
@@ -199,6 +209,8 @@
         (global.set $emit_string_table_ptr      (call $make_list (i32.const 8)))
         (global.set $emit_string_table_len_g    (i32.const 0))
         (global.set $emit_strings_next_offset_g (i32.const 65536))
+        (global.set $emit_fn_locals_ptr         (call $make_list (i32.const 8)))
+        (global.set $emit_fn_locals_len_g       (i32.const 0))
         (global.set $emit_initialized           (i32.const 1)))))
 
   ;; ─── $emit_funcref_register — append name; return assigned index ───
@@ -255,6 +267,47 @@
   (func $emit_funcref_at (param $idx i32) (result i32)
     (call $emit_init)
     (call $list_index (global.get $emit_funcref_table_ptr) (local.get $idx)))
+
+  ;; ─── $emit_fn_local_check — register-or-no-op; return "is new" ─────
+  ;; Per Hβ.first-light.match-arm-binding-name-uniqueness Lock #1:
+  ;; returns 1 IFF $name was not previously registered for the current
+  ;; fn AND has just been appended to the ledger. Returns 0 IFF $name
+  ;; was already present (no append performed). Mirrors
+  ;; $emit_funcref_register's idempotent-on-repeat shape.
+  (func $emit_fn_local_check (param $name i32) (result i32)
+    (local $existing i32) (local $new_idx i32) (local $new_len i32)
+    (call $emit_init)
+    (local.set $existing (call $emit_fn_local_lookup (local.get $name)))
+    (if (i32.ge_s (local.get $existing) (i32.const 0))
+      (then (return (i32.const 0))))
+    (local.set $new_idx (global.get $emit_fn_locals_len_g))
+    (local.set $new_len (i32.add (local.get $new_idx) (i32.const 1)))
+    (global.set $emit_fn_locals_ptr
+      (call $list_extend_to (global.get $emit_fn_locals_ptr) (local.get $new_len)))
+    (drop (call $list_set (global.get $emit_fn_locals_ptr)
+                          (local.get $new_idx)
+                          (local.get $name)))
+    (global.set $emit_fn_locals_len_g (local.get $new_len))
+    (i32.const 1))
+
+  ;; ─── $emit_fn_local_lookup — idx if registered; -1 otherwise ───────
+  ;; Mirrors $emit_funcref_lookup. Linear $str_eq scan. Insertion-order
+  ;; preservation is incidental — only presence matters for the dedupe.
+  (func $emit_fn_local_lookup (param $name i32) (result i32)
+    (local $i i32) (local $n i32) (local $entry_name i32)
+    (call $emit_init)
+    (local.set $i (i32.const 0))
+    (local.set $n (global.get $emit_fn_locals_len_g))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $entry_name
+          (call $list_index (global.get $emit_fn_locals_ptr) (local.get $i)))
+        (if (call $str_eq (local.get $entry_name) (local.get $name))
+          (then (return (local.get $i))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter)))
+    (i32.const -1))
 
   ;; ─── $emit_set_body_context — install per-fn captures + evidence ───
   ;; Per Hβ-emit-substrate.md §5.2 + wheel src/backends/wasm.nx:960-961.
@@ -365,4 +418,5 @@
   (func $emit_fn_reset
     (call $emit_init)
     (global.set $emit_body_captures_count_g (i32.const 0))
-    (global.set $emit_body_evidence_len_g   (i32.const 0)))
+    (global.set $emit_body_evidence_len_g   (i32.const 0))
+    (global.set $emit_fn_locals_len_g       (i32.const 0)))
