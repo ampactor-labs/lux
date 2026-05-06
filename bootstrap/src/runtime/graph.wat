@@ -198,10 +198,31 @@
   ;; GNode is a 2-field record wrapping (NodeKind, Reason).
 
   (func $gnode_make (param $nk i32) (param $reason i32) (result i32)
-    (local $g i32)
+    (local $g i32) (local $promoted_reason i32)
+    ;; Promote-on-bind: if the reason is stage-resident, deep-clone it
+    ;; into perm so the next $stage_reset doesn't strand the GNode's
+    ;; reason-field pointing at recycled memory. Idempotent on perm-
+    ;; resident inputs ($reason_promote_deep returns the input
+    ;; unchanged via the $reason_in_perm short-circuit).
+    ;;
+    ;; Per Hβ-first-light.infer-perm-pressure-substrate.md §7
+    ;; (promote-on-bind protocol) + arena.wat §4 (ownership-transfer
+    ;; at stage boundary). The GNode itself is allocated perm (via
+    ;; $make_record → $alloc → $perm_alloc) since GNodes survive across
+    ;; stages by definition (graph state is the perm-bound substrate).
+    ;;
+    ;; Null-Reason guard: $graph_node_at:247 synthesizes GNodes with
+    ;; reason=0 when the handle is out-of-range. $reason_promote_deep
+    ;; would trap on $tag_of(0) (reading from address 0). The i32.eqz
+    ;; guard preserves the existing "reason ptr 0 = no reason recorded"
+    ;; convention.
+    (local.set $promoted_reason
+      (if (result i32) (i32.eqz (local.get $reason))
+        (then (i32.const 0))
+        (else (call $reason_promote_deep (local.get $reason)))))
     (local.set $g (call $make_record (i32.const 80) (i32.const 2)))
     (call $record_set (local.get $g) (i32.const 0) (local.get $nk))
-    (call $record_set (local.get $g) (i32.const 1) (local.get $reason))
+    (call $record_set (local.get $g) (i32.const 1) (local.get $promoted_reason))
     (local.get $g))
 
   (func $gnode_kind (param $g i32) (result i32)

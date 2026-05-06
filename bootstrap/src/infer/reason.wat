@@ -152,7 +152,7 @@
   ;; ─── 220 = Declared(String) ──────────────────────────────────────
   (func $reason_make_declared (param $name i32) (result i32)
     (local $r i32)
-    (local.set $r (call $make_record (i32.const 220) (i32.const 1)))
+    (local.set $r (call $make_record_stage (i32.const 220) (i32.const 1)))
     (call $record_set (local.get $r) (i32.const 0) (local.get $name))
     (local.get $r))
 
@@ -162,7 +162,7 @@
   ;; ─── 221 = Inferred(String) ──────────────────────────────────────
   (func $reason_make_inferred (param $ctx i32) (result i32)
     (local $r i32)
-    (local.set $r (call $make_record (i32.const 221) (i32.const 1)))
+    (local.set $r (call $make_record_stage (i32.const 221) (i32.const 1)))
     (call $record_set (local.get $r) (i32.const 0) (local.get $ctx))
     (local.get $r))
 
@@ -172,7 +172,7 @@
   ;; ─── 222 = Fresh(Int) ────────────────────────────────────────────
   (func $reason_make_fresh (param $id i32) (result i32)
     (local $r i32)
-    (local.set $r (call $make_record (i32.const 222) (i32.const 1)))
+    (local.set $r (call $make_record_stage (i32.const 222) (i32.const 1)))
     (call $record_set (local.get $r) (i32.const 0) (local.get $id))
     (local.get $r))
 
@@ -183,7 +183,7 @@
   (func $reason_make_opconstraint (param $op i32) (param $left i32) (param $right i32)
                                    (result i32)
     (local $r i32)
-    (local.set $r (call $make_record (i32.const 223) (i32.const 3)))
+    (local.set $r (call $make_record_stage (i32.const 223) (i32.const 3)))
     (call $record_set (local.get $r) (i32.const 0) (local.get $op))
     (call $record_set (local.get $r) (i32.const 1) (local.get $left))
     (call $record_set (local.get $r) (i32.const 2) (local.get $right))
@@ -201,7 +201,7 @@
   ;; ─── 224 = VarLookup(String, Reason) ─────────────────────────────
   (func $reason_make_varlookup (param $name i32) (param $inner i32) (result i32)
     (local $r i32)
-    (local.set $r (call $make_record (i32.const 224) (i32.const 2)))
+    (local.set $r (call $make_record_stage (i32.const 224) (i32.const 2)))
     (call $record_set (local.get $r) (i32.const 0) (local.get $name))
     (call $record_set (local.get $r) (i32.const 1) (local.get $inner))
     (local.get $r))
@@ -215,7 +215,7 @@
   ;; ─── 225 = FnReturn(String, Reason) ──────────────────────────────
   (func $reason_make_fnreturn (param $name i32) (param $inner i32) (result i32)
     (local $r i32)
-    (local.set $r (call $make_record (i32.const 225) (i32.const 2)))
+    (local.set $r (call $make_record_stage (i32.const 225) (i32.const 2)))
     (call $record_set (local.get $r) (i32.const 0) (local.get $name))
     (call $record_set (local.get $r) (i32.const 1) (local.get $inner))
     (local.get $r))
@@ -230,7 +230,7 @@
   (func $reason_make_fnparam (param $name i32) (param $idx i32) (param $inner i32)
                               (result i32)
     (local $r i32)
-    (local.set $r (call $make_record (i32.const 226) (i32.const 3)))
+    (local.set $r (call $make_record_stage (i32.const 226) (i32.const 3)))
     (call $record_set (local.get $r) (i32.const 0) (local.get $name))
     (call $record_set (local.get $r) (i32.const 1) (local.get $idx))
     (call $record_set (local.get $r) (i32.const 2) (local.get $inner))
@@ -248,7 +248,7 @@
   ;; ─── 227 = MatchBranch(Reason, Reason) ───────────────────────────
   (func $reason_make_matchbranch (param $left i32) (param $right i32) (result i32)
     (local $r i32)
-    (local.set $r (call $make_record (i32.const 227) (i32.const 2)))
+    (local.set $r (call $make_record_stage (i32.const 227) (i32.const 2)))
     (call $record_set (local.get $r) (i32.const 0) (local.get $left))
     (call $record_set (local.get $r) (i32.const 1) (local.get $right))
     (local.get $r))
@@ -262,7 +262,7 @@
   ;; ─── 228 = ListElement(Reason) ───────────────────────────────────
   (func $reason_make_listelement (param $inner i32) (result i32)
     (local $r i32)
-    (local.set $r (call $make_record (i32.const 228) (i32.const 1)))
+    (local.set $r (call $make_record_stage (i32.const 228) (i32.const 1)))
     (call $record_set (local.get $r) (i32.const 0) (local.get $inner))
     (local.get $r))
 
@@ -272,7 +272,7 @@
   ;; ─── 229 = IfBranch(Reason) ──────────────────────────────────────
   (func $reason_make_ifbranch (param $inner i32) (result i32)
     (local $r i32)
-    (local.set $r (call $make_record (i32.const 229) (i32.const 1)))
+    (local.set $r (call $make_record_stage (i32.const 229) (i32.const 1)))
     (call $record_set (local.get $r) (i32.const 0) (local.get $inner))
     (local.get $r))
 
@@ -282,7 +282,7 @@
   ;; ─── 230 = LetBinding(String, Reason) ────────────────────────────
   (func $reason_make_letbinding (param $name i32) (param $inner i32) (result i32)
     (local $r i32)
-    (local.set $r (call $make_record (i32.const 230) (i32.const 2)))
+    (local.set $r (call $make_record_stage (i32.const 230) (i32.const 2)))
     (call $record_set (local.get $r) (i32.const 0) (local.get $name))
     (call $record_set (local.get $r) (i32.const 1) (local.get $inner))
     (local.get $r))
@@ -296,7 +296,7 @@
   ;; ─── 231 = Unified(Reason, Reason) ───────────────────────────────
   (func $reason_make_unified (param $left i32) (param $right i32) (result i32)
     (local $r i32)
-    (local.set $r (call $make_record (i32.const 231) (i32.const 2)))
+    (local.set $r (call $make_record_stage (i32.const 231) (i32.const 2)))
     (call $record_set (local.get $r) (i32.const 0) (local.get $left))
     (call $record_set (local.get $r) (i32.const 1) (local.get $right))
     (local.get $r))
@@ -310,7 +310,7 @@
   ;; ─── 232 = Instantiation(String, Reason) ─────────────────────────
   (func $reason_make_instantiation (param $name i32) (param $inner i32) (result i32)
     (local $r i32)
-    (local.set $r (call $make_record (i32.const 232) (i32.const 2)))
+    (local.set $r (call $make_record_stage (i32.const 232) (i32.const 2)))
     (call $record_set (local.get $r) (i32.const 0) (local.get $name))
     (call $record_set (local.get $r) (i32.const 1) (local.get $inner))
     (local.get $r))
@@ -327,7 +327,7 @@
   ;; ty.wat's $ty_make_* returned.
   (func $reason_make_unifyfailed (param $left i32) (param $right i32) (result i32)
     (local $r i32)
-    (local.set $r (call $make_record (i32.const 233) (i32.const 2)))
+    (local.set $r (call $make_record_stage (i32.const 233) (i32.const 2)))
     (call $record_set (local.get $r) (i32.const 0) (local.get $left))
     (call $record_set (local.get $r) (i32.const 1) (local.get $right))
     (local.get $r))
@@ -343,7 +343,7 @@
   ;; (Layer 3 already-landed) owns Span construction.
   (func $reason_make_placeholder (param $span i32) (result i32)
     (local $r i32)
-    (local.set $r (call $make_record (i32.const 234) (i32.const 1)))
+    (local.set $r (call $make_record_stage (i32.const 234) (i32.const 1)))
     (call $record_set (local.get $r) (i32.const 0) (local.get $span))
     (local.get $r))
 
@@ -356,7 +356,7 @@
   ;; src/types.nx:182).
   (func $reason_make_binopplaceholder (param $op i32) (result i32)
     (local $r i32)
-    (local.set $r (call $make_record (i32.const 235) (i32.const 1)))
+    (local.set $r (call $make_record_stage (i32.const 235) (i32.const 1)))
     (call $record_set (local.get $r) (i32.const 0) (local.get $op))
     (local.get $r))
 
@@ -366,7 +366,7 @@
   ;; ─── 236 = MissingVar(String) ────────────────────────────────────
   (func $reason_make_missingvar (param $name i32) (result i32)
     (local $r i32)
-    (local.set $r (call $make_record (i32.const 236) (i32.const 1)))
+    (local.set $r (call $make_record_stage (i32.const 236) (i32.const 1)))
     (call $record_set (local.get $r) (i32.const 0) (local.get $name))
     (local.get $r))
 
@@ -379,7 +379,7 @@
   ;; Predicate ADT structurally; reason.wat just carries the pointers.
   (func $reason_make_refinement (param $left i32) (param $right i32) (result i32)
     (local $r i32)
-    (local.set $r (call $make_record (i32.const 237) (i32.const 2)))
+    (local.set $r (call $make_record_stage (i32.const 237) (i32.const 2)))
     (call $record_set (local.get $r) (i32.const 0) (local.get $left))
     (call $record_set (local.get $r) (i32.const 1) (local.get $right))
     (local.get $r))
@@ -394,7 +394,7 @@
   ;; spec I13 site-annotated reasoning edge.
   (func $reason_make_located (param $span i32) (param $inner i32) (result i32)
     (local $r i32)
-    (local.set $r (call $make_record (i32.const 238) (i32.const 2)))
+    (local.set $r (call $make_record_stage (i32.const 238) (i32.const 2)))
     (call $record_set (local.get $r) (i32.const 0) (local.get $span))
     (call $record_set (local.get $r) (i32.const 1) (local.get $inner))
     (local.get $r))
@@ -411,7 +411,7 @@
   (func $reason_make_inferredcallreturn (param $callee i32) (param $inner i32)
                                           (result i32)
     (local $r i32)
-    (local.set $r (call $make_record (i32.const 239) (i32.const 2)))
+    (local.set $r (call $make_record_stage (i32.const 239) (i32.const 2)))
     (call $record_set (local.get $r) (i32.const 0) (local.get $callee))
     (call $record_set (local.get $r) (i32.const 1) (local.get $inner))
     (local.get $r))
@@ -428,7 +428,7 @@
   (func $reason_make_inferredpiperesult (param $verb i32) (param $inner i32)
                                           (result i32)
     (local $r i32)
-    (local.set $r (call $make_record (i32.const 240) (i32.const 2)))
+    (local.set $r (call $make_record_stage (i32.const 240) (i32.const 2)))
     (call $record_set (local.get $r) (i32.const 0) (local.get $verb))
     (call $record_set (local.get $r) (i32.const 1) (local.get $inner))
     (local.get $r))
@@ -444,7 +444,7 @@
   (func $reason_make_freshincontext (param $handle i32) (param $ctx i32)
                                       (result i32)
     (local $r i32)
-    (local.set $r (call $make_record (i32.const 241) (i32.const 2)))
+    (local.set $r (call $make_record_stage (i32.const 241) (i32.const 2)))
     (call $record_set (local.get $r) (i32.const 0) (local.get $handle))
     (call $record_set (local.get $r) (i32.const 1) (local.get $ctx))
     (local.get $r))
@@ -460,7 +460,7 @@
   (func $reason_make_docstringreason (param $doc i32) (param $span i32)
                                        (result i32)
     (local $r i32)
-    (local.set $r (call $make_record (i32.const 242) (i32.const 2)))
+    (local.set $r (call $make_record_stage (i32.const 242) (i32.const 2)))
     (call $record_set (local.get $r) (i32.const 0) (local.get $doc))
     (call $record_set (local.get $r) (i32.const 1) (local.get $span))
     (local.get $r))
