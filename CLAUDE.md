@@ -274,16 +274,42 @@ ROADMAP §Phase D-F), **Hβ.infer.pipeline-wire CLOSED** (commit `fe5e944`;
 **Hμ.cursor wheel-side CLOSED** (Phase μ opening; 7 commits ending
 `9f6b616`, 2026-05-02; `src/cursor.nx` + ULTIMATE_MEDIUM thesis).
 Active: **Phase H first-light-L1** — `inka2.wat == inka3.wat` byte-for-
-byte. Empirical state per `Hβ-first-light-empirical.md` (commit
-`6a5a64b`, 2026-05-02): seed compiles many wheel constructs already;
-chunk-header named follow-ups partially stale; ~3-5 specific real bugs
-remain (constructor-call literal-arg emit; nullary-ctor type-flow in
-CallExpr context; possibly float-substrate; possibly effect/handler-
-decl). Cursor of attention: empirical verification-pass per
-`Hβ-first-light-empirical.md` §2.1 BEFORE substrate authoring; then
-land the empirically-real handles only. After L1 closure, Tier 3
-unlocks Hμ.cursor.seed + every Phase μ peer handle's `.seed` variant
-automatically (per Hβ-bootstrap.md §12.5 + ROADMAP Phase μ).
+byte. Empirically-real residue per `Hβ-first-light-empirical.md` §2.3
++ §4.5.5 (rebased 2026-05-05):
+- ✓ `Hβ.first-light.handler-decl-emit-cascade` — 19-box parser closure
+  + arena partition bump (commit `b95500d` 2026-05-04). Seed parses
+  full wheel cleanly; effect ops register correctly (named-param +
+  @resume= + TDocComment fixes).
+- ✓ `Hβ.first-light.match-arm-pat-binding-local-decl` — `(local.set
+  $x)` from `Just(x) => x` no longer wat2wasm-rejected (commits
+  `8ebe8fa` + `a0c9baf` 2026-05-04; `$emit_pat_locals` +
+  `$emit_match_arm_locals` extend `$emit_let_locals` to descend
+  LMatch arms; LPVar-at-any-depth declared in fn preamble).
+- ✓ `Hβ.first-light.lmakevariant-literal-args` (CLOSED by intervening
+  commit; closure addendum 2026-05-04 commit `f0a82c9`).
+- ✓ `Hβ.first-light.nullary-ctor-call-context` — `$lower_var_ref`
+  Lock #2.0 SchemeKind dispatch (commit `cb2b1a0` 2026-05-04). Nullary
+  ConstructorScheme bindings short-circuit to `LMakeVariant(h, tag_id,
+  [])` BEFORE locals/captures/global triage; wheel parity src/lower.nx
+  RGlobal-with-ConstructorScheme arm.
+- ✓ `Hβ.lower.diverge-via-thread` — wheel-side `<|` parallelism
+  symmetric to `><` (pending determinism gate as of 2026-05-05;
+  commits prepared). `lower_diverge_via_thread` synthesizes per-branch
+  thunks capturing shared input by handle; spawn/join uniform across
+  both parallel verbs. `parallel_compose` now intercepts BOTH `><`
+  and `<|`. SUBSTRATE.md §"<| vs ><" symmetry made physical.
+- ✗ `Hβ.first-light.tuple-tmp-fn-local-decl` — NEXT cursor. `let (a,
+  b) = pair()` emits `(local.set $tuple_tmp)` but `$tuple_tmp` not
+  in fn-local preamble; wat2wasm rejects. Same bug-class as
+  match-arm-pat-binding-local-decl (closed); same fix shape (extend
+  emit's locals walk).
+- △ `refinement-type-self-binding` — graceful degrade; predicate
+  drops at parse via where-clause-skip; enforcement is post-L2
+  (peer handle `verify_smt-witness-L2`).
+
+After L1 closure, Tier 3 unlocks Hμ.cursor.seed + every Phase μ peer
+handle's `.seed` variant automatically (per Hβ-bootstrap.md §12.5 +
+ROADMAP Phase μ).
 
 **Build commands** (when bootstrap translator exists):
 

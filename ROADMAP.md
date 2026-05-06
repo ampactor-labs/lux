@@ -557,8 +557,18 @@ ultimate form within scope. Beyond Phase H, the post-L1 cascade roadmap
 (see "Phase A-H sequence — the active path" above) names peer cascades
 that compose on this plan's substrate.
 
-Current cursor: **Phase H next** (first-light-L1).
-Phases A through G are now closed. Pipeline wire parse→infer→emit survives EXIT=0 on all three source files. Recent substrate canonicalization (subscript desugaring, drift-audit elimination) ensures the compiler is in its ultimate form before self-application.
+Current cursor: **Phase H first-light-L1 in progress** (2026-05-05). Empirically-driven empirical-real handle landings closing the seed↔wheel bridge:
+
+- ✓ `Hβ.first-light.handler-decl-emit-cascade` 19-box (commit `b95500d`)
+- ✓ Phase B parser fixes — named-param effect ops, @resume= skip, TDocComment skip (commits `dc0d9a6` / `a0beab7` / `95a4cff`)
+- ✓ Arena partition 32→2048 MiB (commit `b7e5c69`)
+- ✓ `Hβ.first-light.match-arm-pat-binding-local-decl` (commits `8ebe8fa` + `a0c9baf`)
+- ✓ `Hβ.first-light.nullary-ctor-call-context` (commit `cb2b1a0`)
+- ✓ Empirical doc rebased — `lmakevariant-literal-args` CLOSED (commit `f0a82c9`); §4.5.5 verification-pass added 2026-05-05 with closures for `string-interning-dedupe` / `match-arm-result-type-flow` / `tparam-record-destructure`
+- ⌛ `Hβ.lower.diverge-via-thread` — wheel-side `<|` parallelism via Thread effect (pending determinism gate); `parallel_compose` now intercepts BOTH `<|` and `><` per SUBSTRATE.md §"<| vs ><" symmetry
+- 🎯 `Hβ.first-light.tuple-tmp-fn-local-decl` — NEXT cursor (same bug-class as match-arm-pat-binding-local-decl; ~5 lines substrate)
+
+Phases A through G remain closed; Phase H residue narrows handle-by-handle. Pipeline wire parse→infer→emit survives EXIT=0 on all three source files; the wheel compiles many constructs already.
 
 ---
 

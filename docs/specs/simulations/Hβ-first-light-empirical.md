@@ -454,6 +454,20 @@ Newly named handles:
 These are MEDIUM-scope work — touch infer's pattern walk per
 field; bounded but substantive.
 
+### 4.5.5 Verification-pass rebaseline (2026-05-05)
+
+Empirical re-test of §4.5.4d named handles against current seed (HEAD ≈ aac0d43 + diverge-via-thread pending determinism gate). Mirrors §2.1 protocol — ~5-line micro-tests per handle.
+
+| §4.5.4d handle | 2026-05-05 status |
+|---|---|
+| `string-interning-dedupe` | **CLOSED.** Test `type Ty = TInt \| TFloat \| TString; fn ty_to_str(ty) = match ty { TInt => "i32", TFloat => "f64", TString => "i32" }`. Distinct offsets `(i32.const 65536)` for `"i32"` + `(i32.const 65544)` for `"f64"`; TInt and TString both correctly point at 65536 (deduped). |
+| `match-arm-result-type-flow` | **CLOSED.** Same test as above, zero `E_TypeMismatch` on the match. The §4.5.4d "expected String, found Ty" no longer fires. |
+| `ptuple-let-destructure` | **REBASED — actual bug is `$tuple_tmp` fn-local-decl missing, NOT scrutinee-type-flow.** Test `fn pair() = (1, 2); fn main() = { let (a, b) = pair(); a + b }`. Lower correctly produces destructure scaffolding (`(local.set $tuple_tmp)` + `(i32.load offset=0)` for `a` + `(i32.load offset=4)` for `b`) BUT `$tuple_tmp` is not in the fn's `(local ...)` preamble; wat2wasm rejects with `undefined local variable "$tuple_tmp"`. **Same bug-class as the closed match-arm-pat-binding-local-decl** — emit's local-decl walk doesn't account for the destructure scaffold variable. New handle name: `Hβ.first-light.tuple-tmp-fn-local-decl`. Likely 1-line fix in `bootstrap/src/emit/main.wat` — extend `$emit_pat_locals` to declare `$tuple_tmp` when LPTuple is encountered, OR add `$tuple_tmp` to the standard fn-local preamble unconditionally. |
+| `refinement-type-self-binding` | **GRACEFUL-DEGRADE (not real bug).** Test `type ValidInt = Int where self > 0; fn main() = 42`. Where-clause-skip drops the predicate at parse time; refinement contract not enforced post-L2 (named follow-up `verify_smt-witness-L2`); but seed doesn't trap. The §4.5.4d framing of this as a "real gap" was conflating "predicate parsing" with "predicate enforcement" — parsing IS the where-clause-skip's residue, enforcement is the post-L2 work. |
+| `tparam-record-destructure` | **CLOSED.** Test `type Pair = Pair(Int, Int); fn first(p) = match p { Pair(a, _) => a }; fn main() = first(Pair(1, 2))`. Lowers + emits + wat2wasm validates + wasmtime runs clean. The §4.5.4d framing's "TParam record destructure" was misnamed — the bug was actually in the now-closed match-arm-pat-binding-local-decl (PCon sub-LPVar) which closed 2026-05-04. |
+
+**Cursor of attention** post-diverge-via-thread closure: `Hβ.first-light.tuple-tmp-fn-local-decl`. Same bug-class as match-arm-pat-binding-local-decl; same emit-side fix path (extend `$emit_pat_locals`); likely 30-line walkthrough + 5-line substrate.
+
 ### 4.5.4d Closures + ctor + destructure + brace + where-skip landed; string-interning gap surfaces (2026-05-02 latter)
 
 Subsequent landings (commits c28c525 / 12cfcac / 8d3d2f7 / 07a2a99

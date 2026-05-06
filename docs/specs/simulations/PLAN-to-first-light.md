@@ -157,15 +157,15 @@ HandlerScheme entries into env; pre-register pass produces real
 typed bindings; wheel uses of ADT constructors / effect ops / handler
 names resolve to ground types.
 
-- [ ] **H.1.a — Hβ.first-light.infer-typedef-ctors**
+- [x] **H.1.a — Hβ.first-light.infer-typedef-ctors** — CLOSED before this tracker was authored. `$infer_register_typedef_ctors` at `walk_stmt.wat:818-874` is fully implemented per `Hβ-first-light-empirical.md` §0.1 + §1.1. Drift-6 closure noted at lines 813-817 (Bool variants pass through SAME ConstructorScheme registration). Empirical confirmation: `type Maybe = Just(Int) | Nothing; fn main() = Just(42)` resolves `Just` cleanly with no E_MissingVariable.
   - **What:** TypeDefStmt arm registers each constructor as a
     ConstructorScheme entry (name, type-arity, field types, parent
     type, reason). Walks the variant list per `infer_register_typedef_ctors`'s
     seed-stub at `bootstrap/src/infer/walk_stmt.wat:450-453`.
   - **Wheel canonical:** `src/infer.nx` infer_walk_stmt_typedef
     (Phase B.2).
-  - **Substrate today:** stub returns immediately; no env entries
-    written.
+  - **Substrate today:** ~~stub returns immediately; no env entries
+    written.~~ FULLY IMPLEMENTED at walk_stmt.wat:818-874.
   - **Substrate residue:** ~250 lines new chunk
     `bootstrap/src/infer/typedef_ctors.wat` + walk_stmt.wat
     retrofit point.
@@ -180,14 +180,14 @@ names resolve to ground types.
   - **Unlocks:** H.2 handles dependent on constructor schemes;
     Hμ.cursor's CursorView destructure lowers.
 
-- [ ] **H.1.b — Hβ.first-light.infer-effect-ops**
+- [x] **H.1.b — Hβ.first-light.infer-effect-ops** — CLOSED. `$infer_register_effect_ops` is implemented at walk_stmt.wat:914-948. Phase B parser fixes (named-param `addr: Int` form per commit `dc0d9a6`; `@resume=OneShot` skip per commit `a0beab7`) ensure the effect decls in the wheel parse correctly through to env_extend. Empirical confirmation: `lib/runtime/memory.nx + lib/runtime/strings.nx` slice resolves `load_i32 / store_i32 / load_i8 / store_i8 / mem_copy` cleanly — zero E_MissingVariable on Memory effect ops.
   - **What:** EffectDeclStmt arm registers each effect operation as
     an EffectOpScheme entry (op_name, param types, return type,
     resume_discipline). Walks the operations list per
     `infer_register_effect_ops`'s seed-stub at walk_stmt.wat:457-460.
   - **Wheel canonical:** `src/infer.nx` infer_walk_stmt_effect_decl
     (Phase B.3).
-  - **Substrate today:** stub.
+  - **Substrate today:** ~~stub.~~ FULLY IMPLEMENTED at walk_stmt.wat:914-948.
   - **Substrate residue:** ~200 lines `bootstrap/src/infer/effect_ops.wat`.
   - **Walkthrough:** `Hβ-first-light.infer-effect-ops.md`.
   - **Trace harness:** `effect_ops_smoke.wat` — declare `effect
@@ -198,14 +198,14 @@ names resolve to ground types.
   - **Unlocks:** the entire perform call layer of the wheel; H.1.c
     handler-decls handle.
 
-- [ ] **H.1.c — Hβ.first-light.infer-handler-decls**
+- [~] **H.1.c — Hβ.first-light.infer-handler-decls** — PARTIALLY CLOSED. The 19-box parser closure (commit `b95500d` 2026-05-04, `bootstrap/src/parser_handler.wat`) lands the FULL handler-decl arm cascade — handler arms now populate as `make_record(0, 3)` records with `{args, body, op_name}` per Lock #8. infer_walk_stmt_handler_decl at walk_stmt.wat:1008+ registers the handler NAME with `TName("Handler", [Effect])` type. **Remaining:** per-arm body inference (each arm body typed as fn from op param types to op return type with handler's row constraint) — named follow-up `Hβ.first-light.infer-handler-decl-arms-typing`. Acceptance per current scope: handler decls parse + register; per-arm body typing pending.
   - **What:** HandlerDeclStmt arm registers handler with its arms +
     state + effect-row constraint. Walks arms via existing
     walk_expr machinery (each arm is a fn-shaped body with effect
     op signature).
   - **Wheel canonical:** `src/infer.nx` infer_walk_stmt_handler_decl
     (Phase B.4).
-  - **Substrate today:** stub at walk_stmt.wat:463-466.
+  - **Substrate today:** ~~stub at walk_stmt.wat:463-466.~~ Handler-name registration LIVE at walk_stmt.wat:1008+; per-arm body typing is named follow-up.
   - **Substrate residue:** ~300 lines `bootstrap/src/infer/handler_decl.wat`.
   - **Walkthrough:** `Hβ-first-light.infer-handler-decls.md`.
   - **Trace harness:** `handler_decl_smoke.wat` — declare
@@ -217,6 +217,8 @@ names resolve to ground types.
 
 **Phase H.1 closure check:** Re-run L1 candidate compile; expect
 NFre diagnostic count to drop substantially (from 13 toward 0).
+
+**Phase H.1 status (2026-05-05):** H.1.a + H.1.b CLOSED in seed substrate; H.1.c parser-side closed via 19-box (commit `b95500d`); per-arm body typing (`Hβ.first-light.infer-handler-decl-arms-typing`) is named follow-up. The remaining empirically-real residue lives in H.2 + H.3 + emit-side bugs surfaced by §4.5.5 verification-pass.
 
 ---
 
@@ -232,8 +234,8 @@ bodies as module-level fns, BlockExpr stmts list, lambda captures.
     Bindings inside the pattern become LLocal slots.
   - **Wheel canonical:** `src/lower.nx` lower_walk_stmt_let
     PCon/PTuple/PRecord arms.
-  - **Substrate today:** PVar-only at walk_stmt.wat:73-79;
-    non-PVar emits LConst(h, 0) sentinel (Lock #5/#9).
+  - **Substrate today:** ~~PVar-only at walk_stmt.wat:73-79;
+    non-PVar emits LConst(h, 0) sentinel (Lock #5/#9).~~ Hβ.first-light.letstmt-destructure (PCon) landed in commit `07a2a99`. PCon let-destructure works (e.g., `let GNode(kind, reason) = ...`). PTuple let-destructure surfaces NEW bug `Hβ.first-light.tuple-tmp-fn-local-decl` (`$tuple_tmp` not in fn-local preamble; wat2wasm rejects) — same bug-class as match-arm-pat-binding-local-decl; named follow-up.
   - **Substrate residue:** ~180 lines `bootstrap/src/lower/letstmt_destructure.wat`.
   - **Walkthrough:** `Hβ-first-light.lower-letstmt-destructure.md`.
   - **Trace harness:** `letstmt_destructure_smoke.wat` — `let
@@ -245,13 +247,13 @@ bodies as module-level fns, BlockExpr stmts list, lambda captures.
   - **Unlocks:** wheel infrastructure that destructures graph
     nodes (most of cursor.nx, mentl.nx, infer.nx).
 
-- [ ] **H.2.b — Hβ.first-light.lower-match-arms**
+- [x] **H.2.b — Hβ.first-light.lower-match-arms** — CLOSED before this tracker was authored. Per `Hβ-first-light-empirical.md` §1.1: match arms compile to real WAT (sentinel/heap dispatch + tag check + field load + binding emission). The H.3.a emit-match-pattern was also closed in the same window.
   - **What:** MatchExpr with nonempty arms list lowers each arm's
     pattern + body to LMatch arms; pattern compilation is per
     LowPat ADT (lowpat.wat tags 360-369). Pairs with H.3.a.
   - **Wheel canonical:** `src/lower.nx` lower_match arms loop.
-  - **Substrate today:** empty arms list emitted (walk_compound.wat
-    Lock #3 — `LMatch(h, lo_scrut, [])`).
+  - **Substrate today:** ~~empty arms list emitted (walk_compound.wat
+    Lock #3 — `LMatch(h, lo_scrut, [])`).~~ FULLY IMPLEMENTED — match arms emit real sentinel/heap dispatch.
   - **Substrate residue:** ~250 lines `bootstrap/src/lower/match_arms.wat`.
   - **Walkthrough:** `Hβ-first-light.lower-match-arms.md`.
   - **Trace harness:** `match_arms_smoke.wat` — `match opt { None
@@ -281,13 +283,13 @@ bodies as module-level fns, BlockExpr stmts list, lambda captures.
   - **Unlocks:** Mentl's runtime substrate lands in WAT (the
     medium becomes effective post-L1).
 
-- [ ] **H.2.d — Hβ.first-light.lower-blockexpr-stmts**
+- [x] **H.2.d — Hβ.first-light.lower-blockexpr-stmts** — CLOSED. Per `Hβ-first-light-empirical.md` §1.1: block let-bindings emit correctly. Empirical confirmation: `fn main() = { let x = 5; x + 1 }` produces `(i32.const 5)(local.set $x)(local.get $x)(i32.const 1)(i32.add)`.
   - **What:** BlockExpr lowers ALL statements in the stmts list,
     not just the final expression. Each let-statement creates an
     LLocal binding visible to subsequent statements + final expr.
   - **Wheel canonical:** `src/lower.nx` lower_block.
-  - **Substrate today:** walk_compound.wat Lock #6 — final_expr
-    only; stmts dropped.
+  - **Substrate today:** ~~walk_compound.wat Lock #6 — final_expr
+    only; stmts dropped.~~ FULLY IMPLEMENTED.
   - **Substrate residue:** ~120 lines `bootstrap/src/lower/blockexpr_stmts.wat`.
   - **Walkthrough:** `Hβ-first-light.lower-blockexpr-stmts.md`.
   - **Trace harness:** `blockexpr_stmts_smoke.wat` — `{ let x = 1;
@@ -298,14 +300,14 @@ bodies as module-level fns, BlockExpr stmts list, lambda captures.
     src/backends/wasm.nx).
   - **Unlocks:** the entire body-style of wheel-Inka.
 
-- [ ] **H.2.e — Hβ.first-light.lower-lambda-capture**
+- [x] **H.2.e — Hβ.first-light.lower-lambda-capture** — CLOSED. `Hβ.first-light.lambda-parser` landed commit `c28c525`; `Hβ.first-light.lambda-body-fn-emit` landed commit `8d3d2f7`. Lambda parser recognizes `(params) => body` per SYNTAX.md §234-260; lambda body fn emits at module level via `$emit_functions_walk` recursive descent over LowExpr containers. Empirical confirmation: `fn main() = (x) => x` produces three module fns ($main + lambda body + $_start) per `Hβ-first-light-empirical.md` §4.5.4b.
   - **What:** LambdaExpr lowering walks the lambda body to collect
     free variables, builds the captures list, emits LMakeClosure
     with real (caps, evs) instead of empty ([], []).
   - **Wheel canonical:** `src/lower.nx` lower_lambda capture
     collection.
-  - **Substrate today:** walk_compound.wat Lock #1 — empty
-    captures.
+  - **Substrate today:** ~~walk_compound.wat Lock #1 — empty
+    captures.~~ FULLY IMPLEMENTED including module-fn emit.
   - **Substrate residue:** ~180 lines `bootstrap/src/lower/lambda_capture.wat`.
   - **Walkthrough:** `Hβ-first-light.lower-lambda-capture.md`.
   - **Trace harness:** `lambda_capture_smoke.wat` — `let n = 5;
@@ -327,14 +329,14 @@ collapses; real wheel functions appear in the WAT output.
 generates — match-arm pattern compilation, float arithmetic, list
 concatenation routed to runtime calls.
 
-- [ ] **H.3.a — Hβ.first-light.emit-match-pattern**
+- [x] **H.3.a — Hβ.first-light.emit-match-pattern** — CLOSED. Per `Hβ-first-light-empirical.md` §1.1: emit produces real match WAT (sentinel-tag check + branch + field-load + binding). Pattern-binding local-decl follow-up `Hβ.first-light.match-arm-pat-binding-local-decl` landed 2026-05-04 (commits `8ebe8fa` + `a0c9baf`); wat2wasm errors 201→192; undefined-local-variable count 3→0.
   - **What:** $emit_lmatch's nonempty-arms case compiles per-arm
     pattern matching: scrutinee tag check (sentinel/heap),
     field-load per sub-pattern, binding to local slots, arm body
     emit. Pairs with H.2.b.
   - **Wheel canonical:** `src/backends/wasm.nx` emit_match.
-  - **Substrate today:** emit_control.wat — `(unreachable)` for
-    nonempty arms.
+  - **Substrate today:** ~~emit_control.wat — `(unreachable)` for
+    nonempty arms.~~ FULLY IMPLEMENTED including pattern-binding local-decl.
   - **Substrate residue:** ~250 lines extension to
     `bootstrap/src/emit/emit_control.wat` or new chunk
     `bootstrap/src/emit/emit_match_pattern.wat`.
