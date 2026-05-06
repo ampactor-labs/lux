@@ -684,6 +684,76 @@ longer timeout to see if the seed terminates. If termination is
 just slow, drop in handler-config-params-substrate next; if
 another structural leak surfaces, treat it the same way.
 
+### 4.5.11 Buffer<A> as kernel-native primitive (2026-05-06)
+
+`Hβ.runtime.buffer-substrate` — Buffer<A> as a wheel-canonical
+substrate distinct from List<A>, replacing the buffer-counter abuse
+pattern with a real primitive. Per user directive "no more
+workarounds" + ULTIMATE MEDIUM thesis.
+
+**Wheel** (`lib/runtime/buffer.nx`):
+- `type Buffer<A> = {data: List<A>, count: Int}` — structural record
+  per SYNTAX.md §494; field access via `.` per §572.
+- `buf_make<A>() -> Buffer<A>` — fresh empty
+- `buf_push<A>(own buf, x) -> Buffer<A>` — `{...buf, data:
+  push(buf.data, x), count: buf.count + 1}` — record-update spread
+  per SYNTAX.md §580; snoc-append + count bump
+- `buf_count<A>(ref buf) -> Int` — `buf.count` (`with Pure`)
+- `buf_data<A>(ref buf) -> List<A>` — `buf.data` (`with Pure`)
+- `buf_freeze<A>(own buf) -> List<A>` — `list_to_flat(buf.data)`
+
+**Seed** (`bootstrap/src/runtime/buffer.wat`, Tier 2, record-tag 360):
+mirrors with $buf_make / $buf_push / $buf_count / $buf_data /
+$buf_freeze. Seed implementation uses flat-with-doubling for
+optimization; wheel-canonical uses snoc growth. Both honor the
+contract.
+
+Reverted the heap-top in-place trick from `$list_extend_to`
+(commit ebcae2c was a workaround); list_extend_to returns to
+simple semantics (offset 0 = count, monotonic).
+
+Refactored cfn_walk + collect_fn_names + collect_top_level_fn_names
+to thread Buffer<String> via $buf_*. Pre-substrate they wrote count
+back to offset 0 of a List, conflating capacity and count → O(N²)
+reallocations at wheel scale → 1.5 GiB perm exhaustion trap.
+
+**Empirical (sanity preserved):**
+- Minimal `effect E { op() -> Int } / handler h { op() => 42 } /
+  fn main() = perform op()`: stderr clean, wat2wasm ✓, wasmtime ✓
+  (exit 0). 26-line WAT — first-light end-to-end intact.
+- + lower (wheel scale, 120s timeout): exit=124, **4.9 GiB WAT**
+  produced. The trap is gone; emit produces output continuously.
+  But the WAT is too large because the wheel's lower produces a
+  DAG (shared LowFn references across LCall sites), and emit's
+  walks (cfn_walk + emit_functions) revisit shared subtrees ~84×
+  per closure on average. 84,691 funcref entries observed.
+
+**Named peer (drift-9 positive-form):**
+`Hβ.first-light.emit-walk-dag-aware` — visited-set keyed by
+LowFn-pointer dedups the walk; each fn emitted exactly once. Same
+kind of structural substrate as Buffer<A>; will land as its own
+handle.
+
+**Ultimate-medium alignment:**
+- SYNTAX.md §494 (structural records), §580 (spread-update),
+  §494 (field access via `.`) — all leveraged.
+- CLAUDE.md drift mode 7 (parallel-arrays-instead-of-record) —
+  refused; one record holds (data, count).
+- SUBSTRATE.md §"Records Are The Handler-State Shape" — Buffer
+  IS a record per the kernel crystallization.
+- ULTIMATE_MEDIUM.md §"the medium has no null" — Buffer's
+  invariant `count <= data.len` is structural; refinement-ready.
+
+The cluster of buffer-counter hacks throughout the seed IS the
+gradient asking for Buffer<A> to land. With Buffer<A> wheel-side,
+seed-side mirrors the contract; the in-place hack becomes
+deletable. Future emit-walk-dag-aware closes the next layer.
+
+**Cursor of attention** post-Buffer<A>: emit-walk-dag-aware peer
+to dedup the wheel-scale fn list. After that, the wheel WAT will
+be sane-sized and we can iterate on the actual L1 fixpoint
+(`inka2.wat == inka3.wat`).
+
 ### 4.5.4d Closures + ctor + destructure + brace + where-skip landed; string-interning gap surfaces (2026-05-02 latter)
 
 Subsequent landings (commits c28c525 / 12cfcac / 8d3d2f7 / 07a2a99
