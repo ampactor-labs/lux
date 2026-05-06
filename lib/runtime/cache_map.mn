@@ -3,7 +3,7 @@
 // Sorted-list-of-(key, value) pairs as a pure substrate for in-memory
 // caching. Per the substrate Pure-enables-memoization principle
 // (INSIGHTS L480-505), this is the substrate cached_check_with_oracle
-// (per src/mentl_oracle.mn) uses to keep per-module (env, oracle_queue)
+// (per src/oracle.mn) uses to keep per-module (env, oracle_queue)
 // pairs in memory between invocations.
 //
 // The on-disk persistence story is separate — src/cache.mn owns .kai
@@ -23,7 +23,7 @@ import types
 
 /// CacheMap — sorted-list-of-(key, value) pairs. Generic over Value
 /// (consumers carry their own Value type — for the oracle case, that's
-/// CachedEntry per src/mentl_oracle.mn). Key is Int (the cache hash;
+/// CachedEntry per src/oracle.mn). Key is Int (the cache hash;
 /// FNV-1a of the relevant inputs per src/cache.mn hash_source). Sorted
 /// invariant: every (key, _) precedes its successor by key < successor.
 

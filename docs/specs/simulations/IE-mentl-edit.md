@@ -201,7 +201,7 @@ never has to remember the formatter's rules; the editor enforces
 them at typing time. **Per anchor: layout IS contract.**
 
 **Cursor-of-attention** lives in handler state per MV §2 Q5 +
-Cursor(handle, Reason) per `mentl_voice.mn:251`. Every cursor
+Cursor(handle, Reason) per `voice.mn:251`. Every cursor
 movement updates the Mentl voice panel; every gesture (click,
 drag-select, arrow keys) updates the cursor through `focus(target)`
 on the Interact effect (MV.2.e.Q.focus arm, commit `9798a0e`).
@@ -278,7 +278,7 @@ Each VoiceLine renders with:
 - Tentacle color (one of eight per Mentl Mono palette)
 - Form-kind glyph (FFactual / FOffering / FRefutation /
   FNavigation / FCapability / FRefinement / FGradient / FTrace per
-  `mentl_voice.mn:148`)
+  `voice.mn:148`)
 - Slots rendered per their canonical projection (SType via
   `show_type`; SRow via `show_row`; SSpan as `path:line` link;
   SReason as a Wavefront-pivot link)
@@ -373,7 +373,7 @@ the gradient would unlock a capability — the Lens fires:
    feeds the project queue; positions with new candidates surface as
    queue items; the Lens reads the cursor-relevant queue items via
    `cursor_relevant(handle, max_distance_bytes)` (per
-   `mentl_oracle.mn:248`).
+   `oracle.mn:248`).
 2. **Multi-shot enumeration** — Mentl performs Synth's
    `enumerate_inhabitants(ty, row, ctx) @resume=MultiShot` (per
    `mentl.mn:92`); each resume forks a candidate. The Wavefront
@@ -424,7 +424,7 @@ candidates).
 
 | Phase | Substrate | Authority |
 |-------|-----------|-----------|
-| Trigger | `cursor_relevant(handle, max)` from queue projection | insight #11 + `mentl_oracle.mn:248` |
+| Trigger | `cursor_relevant(handle, max)` from queue projection | insight #11 + `oracle.mn:248` |
 | Enumerate | Synth `enumerate_inhabitants` MS ops; arena_ms `replay_safe` discipline | DESIGN §8 + AM walkthrough |
 | Verify | `graph_push_checkpoint` + tentative `graph_bind` + Verify discharge + `graph_rollback` | DESIGN §0.5 primitive #1 + spec 00 + MO walkthrough |
 | Project | `voice_lines_for(situation)` filtered to TentPropose's `render_propose_arm` for each survivor | D.1.e LOWER LAYER `8e490d8` + MV §2.7.3 |

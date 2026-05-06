@@ -173,7 +173,7 @@ From `walk_stmt.wat` (lines 56-134), `walk_compound.wat` (62-100),
 | Named follow-up | Blocks | Substrate today |
 |---|---|---|
 | **Hβ.lower.letstmt-destructure** | `let GNode(kind, reason) = ...` (PCon patterns in let) | `$lower_walk_stmt_let` only handles PVar (tag 130); other patterns lower to `LConst(h, 0)` sentinel. Wheel uses PCon-let extensively (cursor.mn lines 84, 106, 172; types.mn; mentl.mn). |
-| **Hβ.lower.match-arm-pattern-substrate** | Match-arm pattern lowering | `$lower_match` lowers scrutinee but emits empty arms list. Wheel uses match extensively (cursor.mn lines 149-155, 169-174, 201-204; mentl.mn; mentl_voice.mn). |
+| **Hβ.lower.match-arm-pattern-substrate** | Match-arm pattern lowering | `$lower_match` lowers scrutinee but emits empty arms list. Wheel uses match extensively (cursor.mn lines 149-155, 169-174, 201-204; mentl.mn; voice.mn). |
 | **Hβ.lower.fn-stmt-closure-substrate** | Closure-capture collection for nested fns + lambdas | `$lower_lambda` emits LMakeClosure with empty captures. Wheel's closures (`(c) => score(c, caret)`) need capture lists. |
 | **Hβ.lower.fn-stmt-frame-discipline** | Frame-stack discipline for nested fns | Inert. Affects nested fn body lowering. |
 | **Hβ.lower.handler-arm-decls-substrate** | Handler-arm lowering to module-level fns | `$lower_handler_arms_as_decls` returns empty list — handler arms never become module-level fns, so emit can't produce `$op_<name>` functions; perform calls have nothing to dispatch to. |

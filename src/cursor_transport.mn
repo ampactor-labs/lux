@@ -56,7 +56,7 @@ import types
 import effects
 import cursor
 import mentl
-import mentl_voice
+import voice
 import driver
 import runtime/strings
 import runtime/io

@@ -101,7 +101,7 @@ handler query_run {
 handler teach_run {
   ~> real_filesystem
   ~> bump_allocator
-  ~> mentl_voice        // Mentl talks; default when bare mentl
+  ~> voice        // Mentl talks; default when bare mentl
 }
 
 handler test_run {
@@ -116,7 +116,7 @@ handler test_run {
 handler repl_run {
   ~> real_filesystem
   ~> bump_allocator
-  ~> mentl_voice
+  ~> voice
   ~> line_repl          // line-at-a-time eval over current env
 }
 

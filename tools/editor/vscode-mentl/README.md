@@ -79,7 +79,7 @@ code --install-extension mentl-0.2.0.vsix
 | `mentl.serverArgs` | `["lsp"]` | Arguments passed to the wheel to start the LSP transport. |
 | `mentl.trace.server` | `"off"` | LSP trace verbosity. Set to `"messages"` or `"verbose"` to inspect the JSON-RPC stream in the **Mentl Language Server** output channel. |
 
-The LSP wiring composes on the substrate landed in the wheel itself: `lib/runtime/json.mn` (JSON parse + serialize), `lib/runtime/lsp_frame.mn` (Content-Length JSON-RPC framing), `src/mentl_lsp.mn` (LSP transport handler — `inka_lsp_session` + dispatch + 12 method handlers), and the `mentl lsp` subcommand at `src/main.mn`. VS Code spawns the wheel; the wheel runs Mentl's full handler chain; every LSP request reaches her, every response is her voice projected through the LSP transport.
+The LSP wiring composes on the substrate landed in the wheel itself: `lib/runtime/json.mn` (JSON parse + serialize), `lib/runtime/lsp_frame.mn` (Content-Length JSON-RPC framing), `src/lsp.mn` (LSP transport handler — `inka_lsp_session` + dispatch + 12 method handlers), and the `mentl lsp` subcommand at `src/main.mn`. VS Code spawns the wheel; the wheel runs Mentl's full handler chain; every LSP request reaches her, every response is her voice projected through the LSP transport.
 
 ## Syntax Coverage
 

@@ -209,7 +209,7 @@ internal `~>` chain that surfaces Cursor to a user is:
 graph + caret
   |> compute_argmax
   ~> cursor_default    // produces CursorView
-  ~> mentl_voice       // surfaces eight-aspect rendering
+  ~> voice       // surfaces eight-aspect rendering
   ~> transport_handler // emits to terminal / LSP / web / vim
 ```
 

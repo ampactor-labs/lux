@@ -164,7 +164,7 @@ Module handle's docstring + decl list. Drift-clean.
 
 ### §3.3 `mentl_voice_default` — interface refinement
 
-Current in-flight MV.2 substrate (per `src/mentl_voice.mn`) is shaped
+Current in-flight MV.2 substrate (per `src/voice.mn`) is shaped
 around per-tentacle handler arms each producing one `VoiceLine`.
 The cursor-time use case picks one per LSP surface (hover / inlayHint
 / diagnostic / codeAction). F.1's batch use case wants all 8 (silence-
@@ -891,7 +891,7 @@ this plan; PostToolUse drift-audit verifies):
 2. `src/pipeline.mn` (or `src/driver.mn`) — wire `NModule` handle
    creation per file in inference; route module-level `Documented(...)`
    wrapper to attach `DocstringReason` to Module handle.
-3. `src/mentl_voice.mn` — `mentl_voice_default` interface refinement
+3. `src/voice.mn` — `mentl_voice_default` interface refinement
    to return `List<VoiceLine>` (D.1.e dependency; lands as part of
    D.1.e itself). Fold over 8 tentacles + silence-gating.
 4. `lib/doc/render.mn` — declare `Render` effect + `RenderedX` records.

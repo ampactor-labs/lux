@@ -84,7 +84,7 @@ fn quadruple(x) =
 // - verify_obligations can't discharge a trivial Pure row (substrate
 //   at src/verify.mn + EffRow algebra should discharge trivially)
 // - Mentl's project queue doesn't surface this as a TUnlock-tier
-//   item (per src/mentl_oracle.mn commit f87abf3's PriorityTier
+//   item (per src/oracle.mn commit f87abf3's PriorityTier
 //   substrate)
 // - Latency exceeds 50ms (would indicate either: pre-B.2 sequential
 //   exploration is too slow, OR caching isn't kicking in via

@@ -1,4 +1,4 @@
-// mentl_lsp.mn — Mentl's LSP transport handler (MV-LSP.scaffold + dispatch + responses + handlers)
+// lsp.mn — Mentl's LSP transport handler (MV-LSP.scaffold + dispatch + responses + handlers)
 //
 // Per MV-LSP-adapter walkthrough (commit 4d0fce1). Layer C of the
 // transport stack: lsp_adapter handler + session loop + LSP method
@@ -22,7 +22,7 @@
 
 import types
 import mentl
-import mentl_voice
+import voice
 import query
 import runtime/json
 import runtime/lsp_frame

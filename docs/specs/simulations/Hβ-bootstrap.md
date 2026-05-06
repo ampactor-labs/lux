@@ -442,8 +442,8 @@ Interact effect (22 ops), the 8 tentacle render arms, the
 silence_predicate, the `voice_lines_for(situation)` projection.
 The seed itself doesn't INVOKE Mentl during self-compile (the
 voice surfaces are surfaces, not compile-path); it just emits
-correct WAT for the Mentl-voice modules in `src/mentl_voice.mn`
-+ `src/mentl_oracle.mn` + `src/mentl_lsp.mn` + `src/mentl.mn`.
+correct WAT for the Mentl-voice modules in `src/voice.mn`
++ `src/oracle.mn` + `src/lsp.mn` + `src/mentl.mn`.
 
 ---
 
@@ -962,7 +962,7 @@ compiles cleanly; linker output validates; self-compile diff empty.
 
 **No H7 dependency for L1.** Per plan §21 + §1721 structural insight:
 self-compile exercises `@resume=OneShot` only; MultiShot ops in
-src/mentl.mn + src/mentl_oracle.mn are DECLARED but not invoked
+src/mentl.mn + src/oracle.mn are DECLARED but not invoked
 during self-compile (Mentl's voice surfaces don't fire during
 compile-time; they're surface concerns). L1 closes without H7
 substrate.
@@ -1182,8 +1182,8 @@ bootstrap implements the kernel in WAT; it doesn't extend it.
 **Mentl tentacle mapping.** The bootstrap doesn't directly invoke
 Mentl — Mentl's voice surfaces at user-cursor / batch-doc time, not
 at compile time. But the seed must EMIT correct WAT for the
-Mentl-voice substrate (`src/mentl_voice.mn` + `src/mentl_oracle.mn`
-+ `src/mentl_lsp.mn` + `src/mentl.mn` + `lib/edit/*.mn` per IE +
+Mentl-voice substrate (`src/voice.mn` + `src/oracle.mn`
++ `src/lsp.mn` + `src/mentl.mn` + `lib/edit/*.mn` per IE +
 `lib/doc/*.mn` per F.1) so those surfaces work post-first-light.
 
 ---

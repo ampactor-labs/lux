@@ -320,7 +320,7 @@ fn replay_winner(winner) with GraphRead + GraphWrite = {
 
 /// graph_cursor — returns the current cursor handle from the graph.
 /// Per the existing graph substrate, the cursor is part of the
-/// query.mn + Mentl substrate (CursorTarget per src/mentl_voice.mn).
+/// query.mn + Mentl substrate (CursorTarget per src/voice.mn).
 /// Stub for V1; actual implementation reads from the cursor handler.
 
 fn graph_cursor() with GraphRead = {

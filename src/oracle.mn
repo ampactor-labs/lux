@@ -1,4 +1,4 @@
-// mentl_oracle.mn — the continuous oracle as IC + one cached value
+// oracle.mn — the continuous oracle as IC + one cached value
 //
 // Mentl IS speculative inference. The oracle uses inference's primitives
 // (graph_bind via trail-rollback) to explore alternate realities at every

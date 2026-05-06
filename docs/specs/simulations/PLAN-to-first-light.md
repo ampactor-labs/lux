@@ -48,7 +48,7 @@ more impactful than any single peer handle pre-L1.
 ## §1 The cursor today (commit `b95500d`, 2026-05-04)
 
 **Closed (this session arc):**
-- ✓ Hμ.cursor wheel-side (7 commits; src/cursor.mn + types.mn + mentl.mn + mentl_voice.mn + pipeline.mn + walkthrough + ULTIMATE_MEDIUM)
+- ✓ Hμ.cursor wheel-side (7 commits; src/cursor.mn + types.mn + mentl.mn + voice.mn + pipeline.mn + walkthrough + ULTIMATE_MEDIUM)
 - ✓ Authority docs aligned (CLAUDE.md + SUBSTRATE.md + DESIGN.md + 09-mentl + MV + IE + GR)
 - ✓ ROADMAP.md Phase μ section + 6 peer handles named
 - ✓ Memory protocols: `protocol_cursor_is_argmax.md` + `protocol_ultimate_medium.md`
@@ -259,7 +259,7 @@ bodies as module-level fns, BlockExpr stmts list, lambda captures.
   - **Trace harness:** `match_arms_smoke.wat` — `match opt { None
     => 0, Some(n) => n }` lowers to LMatch with two LPArm entries
     each with a binding.
-  - **Acceptance:** mentl_voice.mn render arms (which match
+  - **Acceptance:** voice.mn render arms (which match
     extensively) lower to nonempty LMatch trees.
   - **Unlocks:** H.3.a emit-match-pattern (consumer of nonempty
     arms list).
@@ -344,7 +344,7 @@ concatenation routed to runtime calls.
   - **Trace harness:** `emit_match_smoke.wat` — `match opt { None
     => 0, Some(n) => n + 1 }` produces valid WAT with sentinel-tag
     check + branch + field-load.
-  - **Acceptance:** mentl_voice.mn's render arms emit; cursor.mn's
+  - **Acceptance:** voice.mn's render arms emit; cursor.mn's
     match expressions emit.
   - **Unlocks:** the match-driven body style of wheel-Mentl.
 

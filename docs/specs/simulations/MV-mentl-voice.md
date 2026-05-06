@@ -191,7 +191,7 @@ that the graph-as-program exposes itself to VS Code through LSP,
 not by asking developers to abandon their editor.
 
 ```
-human gesture → transport → Interact op → mentl_voice (graph read + proof)
+human gesture → transport → Interact op → voice (graph read + proof)
                                                 ↑
                     stable API boundary (Interact effect)
 
@@ -408,10 +408,10 @@ A single REPL turn end-to-end:
 1. Human enters a line. Surface handler parses: is this code, a
    query, a command, or free-form text?
 2. Surface translates to one or more `Interact` ops.
-3. `mentl_voice` reads the graph, runs the ops, composes
+3. `voice` reads the graph, runs the ops, composes
    VoiceLine(s).
 4. Surface renders VoiceLine(s).
-5. Silence predicate fires: does `mentl_voice` have anything
+5. Silence predicate fires: does `voice` have anything
    unprompted to surface post-turn? If yes, `speak(VoiceLine)`.
 6. Turn closes; Session state updated.
 
@@ -1183,7 +1183,7 @@ continuation that covers the candidate space for a hole or a
 fixable site. Each resume = one branch of the search tree:
 
 ```
-hole ~> mentl_voice ~> enumerate_inhabitants ───┐
+hole ~> voice ~> enumerate_inhabitants ───┐
                        each resume = 1 branch   │
                        under its own checkpoint │
                        apply → chase → verify   │
@@ -1241,7 +1241,7 @@ MV is a design substrate + v1 surface. What lands in code v1:
 - The **`Interact` effect** — stable API boundary (analogous to
   rust-analyzer's `ide` crate) through which all surfaces
   project.
-- The **`mentl_voice` handler** — Mentl's register, voice grammar
+- The **`voice` handler** — Mentl's register, voice grammar
   (internal), one-at-a-time surfacing, silence discipline,
   multi-shot `enumerate_inhabitants` owned by Mentl.
 - The **`lsp_adapter` handler** — first transport. LSP JSON-RPC

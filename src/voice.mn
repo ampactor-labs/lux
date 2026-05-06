@@ -1,4 +1,4 @@
-// mentl_voice.mn — voice substrate (MV §2.7 closure, LOCKED 2026-04-21)
+// voice.mn — voice substrate (MV §2.7 closure, LOCKED 2026-04-21)
 //
 // Declares the types Mentl's voice reads and produces. No handlers
 // here yet — handlers compose on these types and land in peer
@@ -1082,7 +1082,7 @@ fn fold_queue_items(situation, items, i, n, acc, count) with OracleQuery = {
   }
 }
 
-/// tier_to_tentacle — map a PriorityTier (per src/mentl_oracle.mn)
+/// tier_to_tentacle — map a PriorityTier (per src/oracle.mn)
 /// to the tentacle that renders it. H6 exhaustive over PriorityTier.
 ///
 /// - TBlocking → TentTrace (compile error; refutation form)
@@ -1408,7 +1408,7 @@ fn intents_without(intents, id) with Pure = {
 //   next_intent_id  — opaque IntentId minter; same disposition
 //
 // Resume discipline: every Interact op is @resume=OneShot per the
-// effect declaration (mentl_voice.mn:340-396). Arms call resume(value)
+// effect declaration (voice.mn:340-396). Arms call resume(value)
 // exactly once.
 //
 // Sub-handle decomposition (each lands in its own commit per Anchor 7

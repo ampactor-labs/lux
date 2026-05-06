@@ -70,7 +70,7 @@ handler graph_handler
   // graph_push_checkpoint pushes the current trail_len; each
   // graph_rollback pops. When the stack is empty, writes are at the
   // OUTERMOST commit boundary — perform graph_mutated so subscribers
-  // (cached_check_with_oracle per src/mentl_oracle.mn) catch only
+  // (cached_check_with_oracle per src/oracle.mn) catch only
   // real graph state changes. Speculative writes (Mentl's oracle
   // exploration between push+rollback) leave stack non-empty and
   // never emit graph_mutated — otherwise infinite recursion (Mentl

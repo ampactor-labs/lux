@@ -39,7 +39,7 @@
 //   (pick_first), §1.3 (backtrack), §4.0.2 (halt-signal on
 //   try_with_abort_catch), QA Q-B.3.1 (bare Choice — A flows; not
 //   parameterized) + QA Q-B.3.2 (handler decides empty-list semantics)
-// - src/mentl_oracle.mn (commit f87abf3 — the oracle uses Choice via
+// - src/oracle.mn (commit f87abf3 — the oracle uses Choice via
 //   try_each_candidate_to_queue; backtrack composes upstream when
 //   candidate enumeration earns multi-shot exploration)
 // - src/lower.mn + src/backends/wasm.mn (commits 4236b96 + ad78384 +

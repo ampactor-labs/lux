@@ -3,7 +3,7 @@
 // Per MV-LSP-adapter walkthrough §1.1 (commit 4d0fce1). Layer A of
 // the LSP transport stack: byte ↔ frame conversion. Layer B (JSON
 // parse/serialize) lives in lib/runtime/json.mn; Layer C
-// (lsp_adapter handler + dispatch) lives in src/mentl_lsp.mn.
+// (lsp_adapter handler + dispatch) lives in src/lsp.mn.
 //
 // LSP wire format (per Microsoft LSP spec):
 //   Content-Length: <N>\r\n

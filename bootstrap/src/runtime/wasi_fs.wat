@@ -19,7 +19,7 @@
   ;; ═══ DESIGN ═══════════════════════════════════════════════════════
   ;; Per FX walkthrough commit `61b2b60` + FX.A.basics (`d801511`) +
   ;; FX.B (`afc4b0c`) substrate already in lib/runtime/io.mn +
-  ;; src/mentl_voice.mn mentl_voice_filesystem handler.
+  ;; src/voice.mn mentl_voice_filesystem handler.
   ;;
   ;; This is the WAT-level transcription of the FX substrate. It
   ;; provides path-relative-to-fd primitives that wrap WASI preview1

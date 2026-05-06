@@ -34,8 +34,8 @@
 import pipeline
 import backends/wasm
 import dsp/clock
-import mentl_voice
-import mentl_lsp
+import voice
+import lsp
 import driver
 import cursor
 import cursor_transport
@@ -43,7 +43,7 @@ import cursor_cache
 import gradient_delta
 import synth_proposer
 import eight_loop
-import mentl_oracle
+import oracle
 
 /// Entry — dispatch on mode. Both `edit` and `lsp` are special-cased
 /// above dispatch_mode because each composes its own handler chain

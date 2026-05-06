@@ -122,7 +122,7 @@ past ~128k tokens risks midsection blindness on the response
 | Editing `lower.mn` / lowering pass / WAT emit | `docs/specs/05-lower.md` + `docs/specs/simulations/Hβ-lower-substrate.md` + `docs/specs/simulations/Hβ-link-protocol.md` + SUBSTRATE.md §III, §IX |
 | Touching ownership / `own`/`ref` | `docs/specs/07-ownership.md` + SUBSTRATE.md §V |
 | Touching `query` / driver / cache | `docs/specs/08-query.md` + SUBSTRATE.md §VII |
-| Working on Mentl / oracle / gradient | `docs/specs/09-mentl.md` + `protocol_oracle_is_ic.md` + `src/mentl_oracle.mn` + SUBSTRATE.md §VI |
+| Working on Mentl / oracle / gradient | `docs/specs/09-mentl.md` + `protocol_oracle_is_ic.md` + `src/oracle.mn` + SUBSTRATE.md §VI |
 | Editing `cursor.mn` / Cursor handler / Mentl projection | `src/cursor.mn` + `docs/specs/simulations/Hμ-cursor.md` + SUBSTRATE.md §VI "Cursor: The Gradient's Global Argmax" + `protocol_cursor_is_argmax.md` |
 | Drawing topology / pipe operators | `docs/specs/10-pipes.md` + SUBSTRATE.md §II |
 | Touching `clock` / time effects | `docs/specs/11-clock.md` |

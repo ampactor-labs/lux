@@ -47,7 +47,7 @@ close in one atomic op). Insufficient for editor surfaces which need:
 - Path manipulation (rename, delete).
 - Project root resolution.
 
-### 0.2 Interact's file surface (MV-mentl-voice; mentl_voice.mn:340-396)
+### 0.2 Interact's file surface (MV-mentl-voice; voice.mn:340-396)
 
 ```
 effect Interact {
@@ -64,7 +64,7 @@ effect Interact {
 }
 ```
 
-ADTs (already declared at `mentl_voice.mn:225-243`):
+ADTs (already declared at `voice.mn:225-243`):
 - `Path = Path(String)` — path wrapper (refinement-ready)
 - `FileHandle = FileHandle(Int)` — opaque table index
 - `TreeEntry = TreeFile(Path) | TreeDir(Path)` — listing entry
@@ -266,7 +266,7 @@ new substrate.
 A new handler that holds the FileHandle table as state and projects
 the 8 Interact file ops through the extended Filesystem effect. Lands
 as a SEPARATE handler from `mentl_voice_default` (per Anchor 7
-cascade discipline — file surface is its own concern; mentl_voice's
+cascade discipline — file surface is its own concern; voice's
 voice arms compose differently).
 
 ### 3.1 Handler state
