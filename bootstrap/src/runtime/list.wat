@@ -123,21 +123,49 @@
 
   ;; list_extend_to: ensure capacity >= min_size. FLAT lists only.
   ;;
-  ;; Semantics: List<A>'s offset-0 IS its logical count. This function
-  ;; checks current count vs. requested min_size; if insufficient,
-  ;; allocates a fresh list of double-or-min_size capacity and copies.
+  ;; Two paths:
+  ;; (1) In-place extend at heap-top — when align(list_end) ==
+  ;;     heap_ptr (no allocations since this list was made), grow it
+  ;;     in-place via $perm_alloc. Canonical bump-allocator zone-
+  ;;     realloc trick (GMP / glibc / V8). Amortized O(1) for buffer-
+  ;;     counter callers that haven't yet migrated to Buffer<A>.
+  ;; (2) Reallocate with doubling when not at heap-top — fresh
+  ;;     make_list, copy elements, return new list.
   ;;
-  ;; Buffer-counter callers — pre-Buffer<A> substrate, cfn_walk and
-  ;; similar transient-list-builders abused this with offset-0-as-
-  ;; both-count-and-capacity. Buffer<A> (`bootstrap/src/runtime/buffer.wat`)
-  ;; supersedes that pattern; this function returns to its simple
-  ;; semantics (offset 0 = count, monotonic).
+  ;; Buffer<A> (`bootstrap/src/runtime/buffer.wat`) supersedes the
+  ;; buffer-counter abuse pattern at the type level — new code uses
+  ;; Buffer<A> with proper count/capacity separation. The heap-top
+  ;; trick keeps existing infer/lower buffer-counter callers correct
+  ;; until the migration completes.
+  ;;
+  ;; Named peer `Hβ.runtime.buffer-substrate-adoption`: migrate
+  ;; remaining buffer-counter sites (infer's reason-chain builders,
+  ;; lower's per-fn captures collection, emit's fn-table-globals
+  ;; iteration) to Buffer<A>. Once complete, the heap-top trick
+  ;; becomes a defensive optimization rather than load-bearing.
   (func $list_extend_to (param $list i32) (param $min_size i32) (result i32)
     (local $cur i32) (local $new_cap i32) (local $fresh i32) (local $i i32)
+    (local $list_end i32) (local $list_end_aligned i32) (local $extra i32)
     (local.set $cur (call $len (local.get $list)))
     (if (result i32) (i32.ge_u (local.get $cur) (local.get $min_size))
       (then (local.get $list))
       (else
+        ;; In-place extend if list is at heap-top.
+        (local.set $list_end
+          (i32.add
+            (i32.add (local.get $list) (i32.const 8))
+            (i32.mul (local.get $cur) (i32.const 4))))
+        (local.set $list_end_aligned
+          (i32.and
+            (i32.add (local.get $list_end) (i32.const 7))
+            (i32.const -8)))
+        (if (i32.eq (local.get $list_end_aligned) (global.get $heap_ptr))
+          (then
+            (local.set $extra (i32.sub (local.get $min_size) (local.get $cur)))
+            (drop (call $perm_alloc (i32.mul (local.get $extra) (i32.const 4))))
+            (i32.store (local.get $list) (local.get $min_size))
+            (return (local.get $list))))
+        ;; Not at heap-top — reallocate with doubling.
         (local.set $new_cap (i32.mul (local.get $cur) (i32.const 2)))
         (if (i32.gt_u (local.get $min_size) (local.get $new_cap))
           (then (local.set $new_cap (local.get $min_size))))

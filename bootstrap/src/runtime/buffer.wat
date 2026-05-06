@@ -79,3 +79,28 @@
     (local.set $data  (call $record_get (local.get $buf) (i32.const 0)))
     (local.set $count (call $record_get (local.get $buf) (i32.const 1)))
     (call $slice (local.get $data) (i32.const 0) (local.get $count)))
+
+  ;; ─── $buf_contains — linear-search membership test (Hβ.emit-walk-dag-aware) ──
+  ;; Returns 1 if `$x` appears in the buffer's logical fill, else 0.
+  ;; Used as a visited-set primitive for DAG-aware walks (emit's
+  ;; cfn_walk + emit_functions_walk dedup shared LowFn references).
+  ;; O(N) per query — acceptable for wheel-scale fn counts (~1000),
+  ;; constant-factor for first-light.
+  ;;
+  ;; Named peer `Hβ.runtime.buffer-hashset`: when wheel-scale fn count
+  ;; grows enough that O(N²) total dedup work matters, replace with a
+  ;; hash-keyed Buffer<(K, V)> primitive. Until then linear is honest:
+  ;; total ≈ N²/2; at N=1000 that's 500K comparisons, microseconds.
+  (func $buf_contains (export "buf_contains") (param $buf i32) (param $x i32) (result i32)
+    (local $data i32) (local $count i32) (local $i i32)
+    (local.set $data  (call $record_get (local.get $buf) (i32.const 0)))
+    (local.set $count (call $record_get (local.get $buf) (i32.const 1)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $count)))
+        (if (i32.eq (call $list_index (local.get $data) (local.get $i)) (local.get $x))
+          (then (return (i32.const 1))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter)))
+    (i32.const 0))
