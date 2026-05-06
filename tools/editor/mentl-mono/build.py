@@ -31,10 +31,10 @@ FEA_FILE = SCRIPT_DIR / "features.fea"
 
 # JetBrains Mono source files → Mentl Mono output files
 VARIANTS = {
-    "JetBrainsMono-Regular.ttf":    "InkaMono-Regular.ttf",
-    "JetBrainsMono-Bold.ttf":       "InkaMono-Bold.ttf",
-    "JetBrainsMono-Italic.ttf":     "InkaMono-Italic.ttf",
-    "JetBrainsMono-BoldItalic.ttf": "InkaMono-BoldItalic.ttf",
+    "JetBrainsMono-Regular.ttf":    "MentlMono-Regular.ttf",
+    "JetBrainsMono-Bold.ttf":       "MentlMono-Bold.ttf",
+    "JetBrainsMono-Italic.ttf":     "MentlMono-Italic.ttf",
+    "JetBrainsMono-BoldItalic.ttf": "MentlMono-BoldItalic.ttf",
 }
 
 # Font metrics (from JetBrains Mono)
@@ -639,10 +639,10 @@ def rename_font(font, variant_style):
            f"Licensed under SIL Open Font License 1.1.",
         1: "Mentl Mono",
         2: variant_style,
-        3: f"1.0;AmpactorLabs;InkaMono-{variant_style.replace(' ', '')}",
+        3: f"1.0;AmpactorLabs;MentlMono-{variant_style.replace(' ', '')}",
         4: f"Mentl Mono {variant_style}",
         5: "Version 1.0 — derived from JetBrains Mono 2.304 with Mentl-specific ligatures",
-        6: f"InkaMono-{variant_style.replace(' ', '')}",
+        6: f"MentlMono-{variant_style.replace(' ', '')}",
         7: "Mentl Mono",
         8: "Ampactor Labs",
         9: "Philipp Nurullin, Konstantin Bulenkov (JetBrains Mono); Ampactor Labs (Mentl ligatures)",

@@ -406,7 +406,7 @@ documented in §3.3 but don't ship a residue here.
   diagnostic phase C.4 in §2.1 closes that gap.
 
 - **Phase G (`$sys_main` retrofit, `fe5e944`):** the gate harness
-  `main_inka_infer_smoke.wat` exercises `$inka_infer` with a single
+  `main_mentl_infer_smoke.wat` exercises `$inka_infer` with a single
   LetStmt PVar. The substrate-honesty audit declares Phase G's
   closure **harness-coverage-incomplete** — it passes its own bar
   but does not characterize wheel-source viability. ROADMAP entry

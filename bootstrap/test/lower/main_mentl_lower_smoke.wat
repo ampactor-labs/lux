@@ -1,4 +1,4 @@
-  ;; ═══ main_inka_lower_smoke.wat — pipeline-stage boundary harness ════════
+  ;; ═══ main_mentl_lower_smoke.wat — pipeline-stage boundary harness ════════
   ;;
   ;; Per Hβ-lower-substrate.md §11 acceptance + main.wat §10.3 clean handoff.
   ;;

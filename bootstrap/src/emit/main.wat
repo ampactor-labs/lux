@@ -34,7 +34,7 @@
   ;;               LMakeContinuation trap (unreachable) per named peer
   ;;               follow-up Hβ.emit.handler-fnref-substrate)
   ;;             $len + $list_index (runtime/list.wat)
-  ;; Test:       bootstrap/test/emit/main_inka_emit_smoke.wat
+  ;; Test:       bootstrap/test/emit/main_mentl_emit_smoke.wat
   ;;
   ;; ═══ LOCKS (wheel-canonical override walkthrough §4 prose) ════════════
   ;;

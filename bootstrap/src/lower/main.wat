@@ -30,7 +30,7 @@
   ;;               delegates to $lower_stmt_list per Lock #1)
   ;; Uses:       $lower_stmt_list (walk_stmt.wat:426-442 — the buffer-counter
   ;;               iteration this stage drives)
-  ;; Test:       bootstrap/test/lower/main_inka_lower_smoke.wat
+  ;; Test:       bootstrap/test/lower/main_mentl_lower_smoke.wat
   ;;
   ;; ═══ LOCKS (wheel-canonical override walkthrough §4.3 prose) ═════════
   ;;

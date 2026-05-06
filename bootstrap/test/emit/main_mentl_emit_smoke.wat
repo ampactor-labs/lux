@@ -1,4 +1,4 @@
-  ;; ═══ main_inka_emit_smoke.wat — Hβ.emit.module-wrap acceptance ═════
+  ;; ═══ main_mentl_emit_smoke.wat — Hβ.emit.module-wrap acceptance ═════
   ;; Executes: Phase F — $inka_emit module wrapper per Hβ-emit-substrate.md
   ;;           §10.3 + src/backends/wasm.mn emit_module/emit_start.
   ;;           Proves the pipeline-stage boundary emits structurally valid
@@ -29,8 +29,8 @@
   (data (i32.const 3096) "\01\00\00\00 ")
   (data (i32.const 3104) "\01\00\00\00\0a")
 
-  ;; Harness display name — "main_inka_emit_smoke " (21 chars)
-  (data (i32.const 3120) "\15\00\00\00main_inka_emit_smoke ")
+  ;; Harness display name — "main_mentl_emit_smoke " (21 chars)
+  (data (i32.const 3120) "\15\00\00\00main_mentl_emit_smoke ")
 
   ;; Per-assertion FAIL labels — 32-byte slots
   (data (i32.const 3168) "\1c\00\00\00wrap-nonzero-bad            ")

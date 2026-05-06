@@ -15498,7 +15498,7 @@
   ;;               populates the graph + env)
   ;; Uses:       $infer_program (walk_stmt.wat — the inference walk this
   ;;               stage drives)
-  ;; Test:       bootstrap/test/infer/main_inka_infer_smoke.wat
+  ;; Test:       bootstrap/test/infer/main_mentl_infer_smoke.wat
   ;;
   ;; ═══ EIGHT INTERROGATIONS (per Hβ-infer-substrate.md §6 applied to the
   ;;                           pipeline-stage boundary) ══════════════════
@@ -21409,7 +21409,7 @@
   ;;               delegates to $lower_stmt_list per Lock #1)
   ;; Uses:       $lower_stmt_list (walk_stmt.wat:426-442 — the buffer-counter
   ;;               iteration this stage drives)
-  ;; Test:       bootstrap/test/lower/main_inka_lower_smoke.wat
+  ;; Test:       bootstrap/test/lower/main_mentl_lower_smoke.wat
   ;;
   ;; ═══ LOCKS (wheel-canonical override walkthrough §4.3 prose) ═════════
   ;;
@@ -25665,7 +25665,7 @@
   ;;               LMakeContinuation trap (unreachable) per named peer
   ;;               follow-up Hβ.emit.handler-fnref-substrate)
   ;;             $len + $list_index (runtime/list.wat)
-  ;; Test:       bootstrap/test/emit/main_inka_emit_smoke.wat
+  ;; Test:       bootstrap/test/emit/main_mentl_emit_smoke.wat
   ;;
   ;; ═══ LOCKS (wheel-canonical override walkthrough §4 prose) ════════════
   ;;

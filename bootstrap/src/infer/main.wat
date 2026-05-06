@@ -22,7 +22,7 @@
   ;;               populates the graph + env)
   ;; Uses:       $infer_program (walk_stmt.wat — the inference walk this
   ;;               stage drives)
-  ;; Test:       bootstrap/test/infer/main_inka_infer_smoke.wat
+  ;; Test:       bootstrap/test/infer/main_mentl_infer_smoke.wat
   ;;
   ;; ═══ EIGHT INTERROGATIONS (per Hβ-infer-substrate.md §6 applied to the
   ;;                           pipeline-stage boundary) ══════════════════

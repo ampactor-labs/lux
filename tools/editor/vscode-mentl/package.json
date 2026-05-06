@@ -37,8 +37,8 @@
         "extensions": [".nx"],
         "configuration": "./language-configuration.json",
         "icon": {
-          "light": "./icons/inka-file-icon.svg",
-          "dark": "./icons/inka-file-icon.svg"
+          "light": "./icons/mentl-file-icon.svg",
+          "dark": "./icons/mentl-file-icon.svg"
         }
       }
     ],
@@ -46,14 +46,14 @@
       {
         "language": "inka",
         "scopeName": "source.inka",
-        "path": "./syntaxes/inka.tmLanguage.json"
+        "path": "./syntaxes/mentl.tmLanguage.json"
       }
     ],
     "themes": [
       {
         "label": "Inka Obsidian",
         "uiTheme": "vs-dark",
-        "path": "./themes/inka-obsidian-color-theme.json"
+        "path": "./themes/mentl-obsidian-color-theme.json"
       }
     ],
     "configuration": {
