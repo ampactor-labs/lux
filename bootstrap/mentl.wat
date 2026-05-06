@@ -19270,7 +19270,35 @@
                     (return (call $lexpr_make_lmakevariant
                                   (local.get $h)
                                   (local.get $tag_id)
-                                  (local.get $lo_args)))))))))))
+                                  (local.get $lo_args)))))
+                ;; Per Hβ.first-light.implicit-perform-for-effect-op
+                ;; (2026-05-06): EffectOpScheme tag is 133 per env.wat:175.
+                ;; `yield(x)` inside `fn iterate(xs) with Iterate = ...`
+                ;; parses as CallExpr; env_lookup resolves yield to
+                ;; EffectOpScheme. Type-directed dispatch per SUBSTRATE.md
+                ;; §"Type-Directed Dispatch": one CallExpr arm, three
+                ;; cashes — ConstructorScheme→LMakeVariant, EffectOpScheme
+                ;; →LPerform, FnScheme→LCall (default below). Mirrors the
+                ;; wheel src/lower.mn:475-498 callee-dispatch shape.
+                ;; Same handler-resolution as $lower_perform (commit 4cce41d):
+                ;; resolve via $lower_resolve_handler_for_op for Tier 1
+                ;; direct-call discrimination; undiscriminated fall-through
+                ;; for productive-under-error.
+                (if (i32.eq (local.get $kind_tag) (i32.const 133))
+                  (then
+                    (local.set $lo_args (call $lower_args (local.get $args_list)))
+                    (local.set $tag_id (call $lower_resolve_handler_for_op (local.get $name)))
+                    (if (i32.ne (local.get $tag_id) (i32.const 0))
+                      (then
+                        (return (call $lexpr_make_lperform
+                                      (local.get $h)
+                                      (local.get $tag_id)
+                                      (local.get $lo_args))))
+                      (else
+                        (return (call $lexpr_make_lperform
+                                      (local.get $h)
+                                      (local.get $name)
+                                      (local.get $lo_args)))))))))))))
     ;; Default closure-call form per Lock #3.
     (local.set $lo_f    (call $lower_expr (local.get $callee_node)))
     (local.set $lo_args (call $lower_args (local.get $args_list)))
