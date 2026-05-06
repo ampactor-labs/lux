@@ -25452,6 +25452,7 @@
     (call $emit_local_decl_str (i32.const 2244))      ;; state_tmp
     (call $emit_local_decl_str (i32.const 1568))      ;; variant_tmp
     (call $emit_local_decl_str (i32.const 1552))      ;; record_tmp
+    (call $emit_local_decl_str (i32.const 1536))      ;; tuple_tmp
     (call $emit_local_decl_cstr (i32.const 4248) (i32.const 9))  ;; scrut_tmp
     (call $emit_local_decl_cstr (i32.const 4232) (i32.const 14)) ;; callee_closure
     (call $emit_local_decl_str (i32.const 1856))      ;; alloc_size
