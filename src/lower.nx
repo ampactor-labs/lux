@@ -360,7 +360,35 @@ fn lower_expr_body(e, handle, span) = match e {
         Some(ConstructorScheme(tag_id, _)) =>
           LMakeVariant(handle, tag_id, lo_args),
         Some(EffectOpScheme(_)) =>
-          LPerform(handle, name, lo_args),
+          // Tier 1 monomorphic perform per SUBSTRATE.md §"Three Tiers
+          // of Effect Compilation" — the ~85% direct-call path.
+          // inf_handler_provider walks handler_stack innermost-first;
+          // the resolved handler_name combines with op_name into the
+          // discriminated symbol $op_<handler>_<op> minted by lower_
+          // handler_arms_as_decls (commit 22a4bbc).
+          //
+          // Per H1 §"Pure monomorphic chains" — when handler_stack
+          // covers every perform, this IS the canonical kernel-native
+          // dispatch (handler IS state, but state is statically known
+          // so call_indirect collapses to direct call).
+          //
+          // Polymorphic pass-through case is named peer
+          // Hβ.first-light.evidence-poly-call-transient: caller's
+          // own __state carries the evidence; PerformExpr lowers to
+          // LEvPerform with slot_idx from row inference. Tier 2/3
+          // (linear / multi-shot) substrate per SUBSTRATE.md.
+          match perform inf_handler_provider(name) {
+            Some(handler_name) =>
+              LPerform(handle,
+                       handler_name |> str_concat("_") |> str_concat(name),
+                       lo_args),
+            None =>
+              // No handler in scope — keep undiscriminated for
+              // productive-under-error diagnostic. Surfaces as
+              // wat2wasm rejection at the perform site if the
+              // surrounding row required a handler.
+              LPerform(handle, name, lo_args)
+          },
         _ => lower_call_default(handle, f, fh, lo_args)
       },
       _ => lower_call_default(handle, f, fh, lo_args)
@@ -444,8 +472,22 @@ fn lower_expr_body(e, handle, span) = match e {
     LBlock(handle, arm_decls ++ [LHandle(handle, lo_body, arm_records)])   // drift-audit: ignore — one-time single-element append at HandleExpr-lowering boundary; NOT a tail-recursive accumulator. arm_decls is built once via lower_handler_arms_as_decls, then extended by exactly one LHandle element.
   },
 
-  PerformExpr(op_name, args) =>
-    LPerform(handle, op_name, lower_expr_list(args)),
+  PerformExpr(op_name, args) => {
+    // Tier 1 monomorphic perform — symmetric to the EffectOpScheme
+    // CallExpr arm above. inf_handler_provider walks handler_stack
+    // for the innermost handler that handles op_name; the resolved
+    // handler_name combines with op_name into the discriminated
+    // target $op_<handler>_<op>.
+    let lo_args = lower_expr_list(args)
+    match perform inf_handler_provider(op_name) {
+      Some(handler_name) =>
+        LPerform(handle,
+                 handler_name |> str_concat("_") |> str_concat(op_name),
+                 lo_args),
+      None =>
+        LPerform(handle, op_name, lo_args)
+    }
+  },
 
   ResumeExpr(val, _state_updates) =>
     // State updates on resume threaded through the emitted state machine
