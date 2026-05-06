@@ -2,7 +2,7 @@
 
 > *The visual identity of the ultimate intent → machine instruction medium.*
 
-Syntax highlighting, color theme, and **Mentl-via-LSP** for the [Mentl](https://github.com/ampactor-labs/inka) programming language (`.mn` files).
+Syntax highlighting, color theme, and **Mentl-via-LSP** for the [Mentl](https://github.com/ampactor-labs/mentl) programming language (`.mn` files).
 
 This package is one peer transport per CLAUDE.md anchor: *every transport is a handler.* `mentl edit` (the canonical browser-holographic-live IDE per the IE walkthrough) is the canonical projection. This extension is the LSP-peer-transport bridge for developers who use VS Code or VS Code-derivative editors (Cursor, Windsurf, etc.). Both compose on the same kernel through different handler chains.
 
