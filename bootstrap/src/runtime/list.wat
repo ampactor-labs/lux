@@ -92,8 +92,23 @@
         (return
           (call $list_index (local.get $base)
                             (i32.add (local.get $start) (local.get $i))))))
-    ;; Unknown tag — should never happen in well-formed list. Trap to surface.
-    (unreachable))
+    ;; Unknown tag — productive-under-error per
+    ;; `Hβ.first-light.list-index-productive-degrade`. Pre-substrate
+    ;; the unreachable trap killed the seed any time upstream
+    ;; lower/emit handed list_index a non-list pointer (typically a
+    ;; LowExpr-shaped record where a list was expected, surfaced when
+    ;; infer leaves unresolved Tys that lower's PUE-path can't ground).
+    ;; Returning 0 lets the recursive emit walk continue, surfacing
+    ;; the upstream diagnostic chain (E_UnresolvedType, etc.) instead
+    ;; of trapping. The 0 propagates through emit_functions_walk's
+    ;; HEAP_BASE check (line 1300) which short-circuits — sentinel
+    ;; symmetry per row.wat:48 (sentinels < HEAP_BASE).
+    ;;
+    ;; Named peer `Hβ.first-light.emit-functions-malformed-list-source`
+    ;; remains: identify which lower accessor produces the non-list
+    ;; and fix at the source. This is the productive-under-error
+    ;; safety net, not the structural fix.
+    (i32.const 0))
 
   ;; list_set: write val at index, return list ptr.
   ;; FLAT lists ONLY. Per Ω.3 buffer-counter substrate; non-flat

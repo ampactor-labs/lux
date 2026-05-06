@@ -1281,7 +1281,29 @@
   ;;                       lower's actual output).
 
   (func $emit_functions (param $lowexprs i32)
-    (local $i i32) (local $n i32) (local $expr i32)
+    (local $i i32) (local $n i32) (local $expr i32) (local $tag i32)
+    ;; Productive-under-error guard: the recursive walk descends into
+    ;; LowExpr accessor results (lexpr_lcall_args, lexpr_lblock_stmts,
+    ;; etc.). When upstream lower's productive-under-error path emits
+    ;; a sentinel where a List was expected — typically when infer
+    ;; left an LError-shaped LowExpr in a containment field — those
+    ;; accessors return a non-list pointer. $list_index would trap on
+    ;; unknown tag. Skip the walk on malformed input; the diagnostic
+    ;; chain already surfaced the upstream cause as
+    ;; E_UnresolvedType / E_TypeMismatch. Named peer:
+    ;; `Hβ.first-light.emit-functions-malformed-list-source` —
+    ;; identifies which accessor / lower path produces the non-list.
+    (if (i32.lt_u (local.get $lowexprs) (global.get $heap_base))
+      (then (return)))
+    (local.set $tag (call $list_tag (local.get $lowexprs)))
+    (if (i32.and
+          (i32.ne (local.get $tag) (i32.const 0))
+          (i32.and
+            (i32.ne (local.get $tag) (i32.const 1))
+            (i32.and
+              (i32.ne (local.get $tag) (i32.const 3))
+              (i32.ne (local.get $tag) (i32.const 4)))))
+      (then (return)))
     (local.set $n (call $len (local.get $lowexprs)))
     (local.set $i (i32.const 0))
     (block $done
