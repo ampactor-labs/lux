@@ -25426,6 +25426,21 @@
         (i32.store (local.get $names) (i32.add (local.get $count) (i32.const 1)))
         (local.set $body (call $lowfn_body (local.get $fn_r)))
         (return (call $cfn_walk_list (local.get $names) (local.get $body)))))
+    ;; LDeclareFn (313) — handler-arm fn name + recurse into body.
+    ;; Symmetric to LMakeClosure (311) per Lock #1 — both wrap a LowFn
+    ;; that becomes a module-level (func ...). Third caller per Anchor
+    ;; 7 (lower=1, cfn_walk=2, emit_functions_walk=3 — same commit).
+    (if (i32.eq (local.get $tag) (i32.const 313))
+      (then
+        (local.set $fn_r (call $lexpr_ldeclarefn_fn (local.get $expr)))
+        (local.set $count (i32.load (local.get $names)))
+        (local.set $names (call $list_extend_to (local.get $names)
+                            (i32.add (local.get $count) (i32.const 1))))
+        (drop (call $list_set (local.get $names) (local.get $count)
+                              (call $lowfn_name (local.get $fn_r))))
+        (i32.store (local.get $names) (i32.add (local.get $count) (i32.const 1)))
+        (local.set $body (call $lowfn_body (local.get $fn_r)))
+        (return (call $cfn_walk_list (local.get $names) (local.get $body)))))
     ;; LLet (304) — recurse into value.
     (if (i32.eq (local.get $tag) (i32.const 304))
       (then
@@ -25486,6 +25501,20 @@
       (then
         (return (call $cfn_walk (local.get $names)
                   (call $lexpr_lreturn_x (local.get $expr))))))
+    ;; LHandle (332) — recurse into body so nested closures get visited.
+    ;; Per Lock #2: handler-arm bodies are a peer site for LMakeClosure /
+    ;; LDeclareFn discovery alongside top-level LBlocks.
+    (if (i32.eq (local.get $tag) (i32.const 332))
+      (then
+        (return (call $cfn_walk (local.get $names)
+                  (call $lexpr_lhandle_body (local.get $expr))))))
+    ;; LHandleWith (329) — recurse into body + handler.
+    (if (i32.eq (local.get $tag) (i32.const 329))
+      (then
+        (local.set $names (call $cfn_walk (local.get $names)
+                            (call $lexpr_lhandlewith_body (local.get $expr))))
+        (return (call $cfn_walk (local.get $names)
+                  (call $lexpr_lhandlewith_handler (local.get $expr))))))
     ;; All other tags: no LowExpr children to recurse into.
     (local.get $names))
 
@@ -25615,6 +25644,27 @@
           (call $max_i32
             (i32.add (call $lowfn_arity (local.get $fn_r)) (i32.const 1))
             (call $max_arity_in (call $lowfn_body (local.get $fn_r)) (i32.const 0))))))
+    ;; LDeclareFn (313) — handler-arm fn contributes its arity + body.
+    ;; Per Lock #1 same shape as LMakeClosure (311). The +1 accounts for
+    ;; the implicit __state parameter every fn in the W7 calling
+    ;; convention carries (per emit_fn_body line 906-909).
+    (if (i32.eq (local.get $tag) (i32.const 313))
+      (then
+        (local.set $fn_r (call $lexpr_ldeclarefn_fn (local.get $expr)))
+        (return
+          (call $max_i32
+            (i32.add (call $lowfn_arity (local.get $fn_r)) (i32.const 1))
+            (call $max_arity_in (call $lowfn_body (local.get $fn_r)) (i32.const 0))))))
+    ;; LHandle (332) — recurse into body for arity contributions.
+    (if (i32.eq (local.get $tag) (i32.const 332))
+      (then (return (call $max_arity_expr (call $lexpr_lhandle_body (local.get $expr))))))
+    ;; LHandleWith (329) — max(body, handler).
+    (if (i32.eq (local.get $tag) (i32.const 329))
+      (then
+        (return
+          (call $max_i32
+            (call $max_arity_expr (call $lexpr_lhandlewith_body (local.get $expr)))
+            (call $max_arity_expr (call $lexpr_lhandlewith_handler (local.get $expr)))))))
     ;; Common containers used by current lower output.
     (if (i32.eq (local.get $tag) (i32.const 306))
       (then
@@ -25922,8 +25972,15 @@
               (call $lexpr_lmatch_scrut (local.get $expr)))
             (call $emit_match_arm_locals
               (call $lexpr_lmatch_arms (local.get $expr)))))
-        ;; LMakeClosure (311) / LMakeContinuation (312) — fn boundary,
-        ;; their LLets belong to their own fn body's emit_let_locals.
+        ;; LMakeClosure (311) / LMakeContinuation (312) / LDeclareFn (313)
+        ;; — fn boundary. Their bodies belong to their own fn body's
+        ;; emit_let_locals invocation (chained from $emit_fn_body line 932).
+        ;; LHandle (332) / LHandleWith (329) bodies remain in the parent
+        ;; fn's local-decl scope — they are control structures, not fn
+        ;; boundaries. Per Lock #1 + emit_handler.wat:357-361 (lhandle
+        ;; sub-emits body inline). Future named follow-up if a wheel
+        ;; example surfaces local-decls inside an LHandle body that
+        ;; aren't picked up by the current LBlock/LIf/LMatch recursion.
         ;; All other tags: no LowExpr children with LLet to declare.
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $iter))))
@@ -26174,6 +26231,18 @@
         (local.set $body (call $lowfn_body (local.get $fn_r)))
         (call $emit_functions (local.get $body))
         (return)))
+    ;; LDeclareFn (313) — handler-arm fn becomes a module-level (func).
+    ;; Per Lock #1 + H1.4 single-handler-per-op naming: the LowFn's name
+    ;; is "op_<op_name>" (set at walk_handle.wat:283). $emit_fn_body
+    ;; emits `(func $op_<op_name> ...)`; recursive descent into body
+    ;; finds nested closures (lambda-inside-arm).
+    (if (i32.eq (local.get $tag) (i32.const 313))
+      (then
+        (local.set $fn_r (call $lexpr_ldeclarefn_fn (local.get $expr)))
+        (call $emit_fn_body (local.get $fn_r))
+        (local.set $body (call $lowfn_body (local.get $fn_r)))
+        (call $emit_functions (local.get $body))
+        (return)))
     ;; LLet (304) — recurse into value
     (if (i32.eq (local.get $tag) (i32.const 304))
       (then
@@ -26228,6 +26297,17 @@
     (if (i32.eq (local.get $tag) (i32.const 310))
       (then
         (call $emit_functions_walk (call $lexpr_lreturn_x (local.get $expr)))
+        (return)))
+    ;; LHandle (332) — recurse into body to discover nested fns.
+    (if (i32.eq (local.get $tag) (i32.const 332))
+      (then
+        (call $emit_functions_walk (call $lexpr_lhandle_body (local.get $expr)))
+        (return)))
+    ;; LHandleWith (329) — recurse into body + handler.
+    (if (i32.eq (local.get $tag) (i32.const 329))
+      (then
+        (call $emit_functions_walk (call $lexpr_lhandlewith_body (local.get $expr)))
+        (call $emit_functions_walk (call $lexpr_lhandlewith_handler (local.get $expr)))
         (return)))
     ;; All other tags: no LowExpr children to recurse into (literals,
     ;; locals, globals, etc.). Drop through.
