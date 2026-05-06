@@ -593,6 +593,57 @@ state-flow blocks WAT termination next. The L1 fixpoint
 (`inka2.wat == inka3.wat`) needs the wheel to terminate, which
 depends on these next two named peers landing.
 
+### 4.5.9 Wheel-termination unblocker landed (2026-05-06) — list_index PUE
+
+`Hβ.first-light.list-index-productive-degrade` — `$list_index`
+unknown-tag arm replaces `(unreachable)` with `(i32.const 0)`. Pre-
+substrate the trap killed the seed any time upstream lower/emit
+handed list_index a non-list pointer (typically a LowExpr-shaped
+record where a list was expected, surfaced when infer leaves
+unresolved Tys that lower's PUE-path can't ground).
+
+**Empirical bisection** (post-LPerform-state-arg, pre-list_index-PUE):
+| slice | exit | WAT |
+|---|---|---|
+| `prelude + lib/runtime/*` | 0 | 431KB |
+| `+ types + effects + graph` | 0 | 783KB |
+| `+ types + effects + graph + parser` | 0 | 806KB |
+| `+ types + effects + graph + infer` | **134 (TRAP)** | 0 |
+
+The trap localized at `$list_index` ← `$emit_functions` ←
+`$inka_emit`. Backtrace `wasm trap: wasm `unreachable` instruction
+executed`. CLAUDE.md "Bug classes that cost hours" — "list_index
+returning 1000 → Unknown list tag — flat treated as tree." A
+non-list pointer threaded through emit_functions_walk's recursive
+accessors hit the unknown-tag arm.
+
+**Post-substrate** (with `(i32.const 0)` return on unknown tag +
+companion guard at `$emit_functions` head):
+
+```
++ types + effects + graph + infer:  exit=0  500KB WAT  3785 err lines
+```
+
+Trap → graceful diagnostic chain. The seed produces SOMETHING for
+the first time on infer.nx-inclusive input. Wheel-scale empirical
+becomes trustworthy because every run terminates.
+
+The PUE is the SAFETY NET. Named peer `Hβ.first-light.emit-functions-malformed-list-source`
+is the structural fix — identify which lower accessor produces
+the non-list pointer at infer-grounded-unresolved-Ty sites.
+
+Drift-9 audit: PUE-return-0 walks close to silent-failure. The
+named peer in positive form keeps the residue visible. The medium
+honors its contract: produce output even on bad input; surface the
+upstream cause via diagnostic chain; cursor walks back from the
+gap to the structural source.
+
+**Cursor of attention** post-list_index-PUE: full wheel re-test
+trustworthy now. Wheel-scale histogram becomes valid evidence.
+Most-impactful next: identify the structural source (named peer)
+to remove silent-degrade reliance, OR press on to L1 closure
+through other peer handles.
+
 ### 4.5.4d Closures + ctor + destructure + brace + where-skip landed; string-interning gap surfaces (2026-05-02 latter)
 
 Subsequent landings (commits c28c525 / 12cfcac / 8d3d2f7 / 07a2a99
