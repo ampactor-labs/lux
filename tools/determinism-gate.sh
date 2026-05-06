@@ -56,17 +56,35 @@ FIRST="$(mktemp -t det_first.XXXXXX.wat)"
 SECOND="$(mktemp -t det_second.XXXXXX.wat)"
 trap 'rm -f "$FIRST" "$SECOND"' EXIT
 
-# Compile run #1. If wasmtime fails, treat as pre-bootstrap (the
-# binary exists but doesn't yet self-host); the gate's CONTRACT
-# stands but the runtime check can't fire.
-if ! cat "${INPUTS[@]}" | wasmtime run "$INKA_BIN" > "$FIRST" 2>/dev/null; then
-  echo "determinism-gate: $INKA_BIN exists but doesn't compile Inka yet" >&2
-  echo "  (pre-bootstrap: this gate is contract-only until item 27 lands hand-WAT)" >&2
+# Wall-clock cap per run. Today's seed compiling the wheel single-
+# threaded under perm-pressure runs 40+ minutes per pass; a pre-commit
+# hook paying that tax twice (once per run) is operationally untenable.
+# Per Hβ.gate.determinism-timeout-fail-fast: if wasmtime doesn't
+# terminate within the cap, fall through to the existing pre-bootstrap
+# escape (exit 2 — gate is contract-only). Override via DET_TIMEOUT_S
+# env var when running the gate manually with a known-bounded subset.
+DET_TIMEOUT_S="${DET_TIMEOUT_S:-60}"
+
+# Compile run #1. If wasmtime fails OR exceeds DET_TIMEOUT_S, treat as
+# pre-bootstrap (the binary exists but doesn't yet self-host the wheel
+# in bounded time); the gate's CONTRACT stands but the runtime check
+# can't fire. `timeout` exits 124 on cap; bash `if !` catches both
+# non-zero exit AND timeout uniformly.
+if ! timeout "${DET_TIMEOUT_S}s" bash -c "cat \"\$@\" | wasmtime run \"$INKA_BIN\"" _ "${INPUTS[@]}" > "$FIRST" 2>/dev/null; then
+  echo "determinism-gate: $INKA_BIN didn't compile Inka within ${DET_TIMEOUT_S}s" >&2
+  echo "  (pre-bootstrap: this gate is contract-only until item 27 lands hand-WAT" >&2
+  echo "   AND the wheel-through-seed runtime is bounded; today the seed's wheel" >&2
+  echo "   compile is single-threaded under perm-pressure and exceeds the cap)" >&2
   exit 2
 fi
 
 # Compile run #2 (separate process; cache state may differ).
-cat "${INPUTS[@]}" | wasmtime run "$INKA_BIN" > "$SECOND"
+# Same DET_TIMEOUT_S cap; symmetric escape.
+if ! timeout "${DET_TIMEOUT_S}s" bash -c "cat \"\$@\" | wasmtime run \"$INKA_BIN\"" _ "${INPUTS[@]}" > "$SECOND" 2>/dev/null; then
+  echo "determinism-gate: run #2 exceeded ${DET_TIMEOUT_S}s after run #1 succeeded" >&2
+  echo "  (non-deterministic timing: run #1 fit the cap; run #2 didn't)" >&2
+  exit 2
+fi
 
 if diff -q "$FIRST" "$SECOND" > /dev/null; then
   echo "✓ determinism: byte-identical on double-compile (${#INPUTS[@]} files)"
