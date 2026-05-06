@@ -799,11 +799,12 @@ type Resolution
 // fallback). This is the W7 + A1 capture-handle correctness fix.
 
 effect LowerScope {
-  ls_enter_frame(List, List, List, List) -> ()  @resume=OneShot  // locals_names, locals_handles, captures_names, captures_handles
+  ls_enter_frame(String, List, List, List, List) -> ()  @resume=OneShot  // fn_name, locals_names, locals_handles, captures_names, captures_handles
   ls_exit_frame() -> ()                         @resume=OneShot
   ls_bind_local(String, Int) -> Int             @resume=OneShot  // append (name, handle); returns slot
   ls_resolve(String) -> (Resolution, Int)       @resume=OneShot
   ls_register_globals(List) -> ()               @resume=OneShot
+  ls_outer_fn_name() -> String                  @resume=OneShot  // closest enclosing named-fn frame; "" for top-level
 }
 
 // Every refinement unification performs verify(span, pred, reason).
@@ -1235,6 +1236,5 @@ fn show_list(ref items, ref render, ref sep) with !Mutate = {
   }
 }
 
-fn id(x) with Pure = x
 
 fn mono(ty) with Pure = Forall([], ty)

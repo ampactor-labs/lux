@@ -165,6 +165,16 @@
   (global $lower_handler_stack_ptr (mut i32) (i32.const 0))
   (global $lower_handler_count_g   (mut i32) (i32.const 0))
 
+  ;; Hβ.first-light.nested-fn-name-discriminator (2026-05-06) — current
+  ;; outer-fn-name pointer (string ptr), 0 for module-scope (no outer).
+  ;; FnStmt arm reads BEFORE setting its own discriminated name; nested
+  ;; FnStmts query it via $ls_outer_fn_name. Caller saves the previous
+  ;; via $ls_set_fn_name's return value and restores on exit (push-pop
+  ;; discipline; matches the wheel's ls_enter_frame fn_name field).
+  ;; Mirrors the wheel's lower_scope handler frame stack at flat-state
+  ;; granularity per the seed's substrate.
+  (global $lower_current_fn_name_g (mut i32) (i32.const 0))
+
   ;; ─── Idempotent initializer (mirrors $infer_init / $graph_init) ────
   ;; Per the seed's discipline for module-level state chunks: every
   ;; public entry calls $lower_init first; subsequent calls no-op.
@@ -183,6 +193,7 @@
         (global.set $lower_frame_start_g    (i32.const 0))
         (global.set $lower_handler_stack_ptr (call $make_list (i32.const 8)))
         (global.set $lower_handler_count_g (i32.const 0))
+        (global.set $lower_current_fn_name_g (i32.const 0))
         (global.set $lower_initialized    (i32.const 1)))))
 
   ;; Hβ.first-light.seed-lperform-discriminator-mirror —
@@ -461,6 +472,25 @@
       (then
         (global.set $lower_locals_len_g (local.get $checkpoint))
         (global.set $lower_next_slot_g (local.get $checkpoint)))))
+
+  ;; ─── Hβ.first-light.nested-fn-name-discriminator (2026-05-06) ──────
+  ;; $ls_outer_fn_name: read the current outer-fn-name pointer (0 for
+  ;; module-scope). $ls_set_fn_name: store a new value, return the
+  ;; previous (caller saves+restores around its body lowering).
+  ;; Symmetric with the handler-stack push/pop pattern below; mirrors
+  ;; the wheel's ls_outer_fn_name op + frame fn_name field.
+  ;; Drift refused: 7 (single state global, not a parallel-name array);
+  ;; 8 (the value IS the name string ptr, not a mode-int).
+  (func $ls_outer_fn_name (export "ls_outer_fn_name") (result i32)
+    (call $lower_init)
+    (global.get $lower_current_fn_name_g))
+
+  (func $ls_set_fn_name (export "ls_set_fn_name") (param $name i32) (result i32)
+    (local $prev i32)
+    (call $lower_init)
+    (local.set $prev (global.get $lower_current_fn_name_g))
+    (global.set $lower_current_fn_name_g (local.get $name))
+    (local.get $prev))
 
   ;; ─── $ls_reset_function — clear at FnStmt entry ────────────────────
   ;; Per Hβ-lower-substrate.md §1.2 lines 219-223 + wheel src/lower.mn:86-90

@@ -16003,6 +16003,16 @@
   (global $lower_handler_stack_ptr (mut i32) (i32.const 0))
   (global $lower_handler_count_g   (mut i32) (i32.const 0))
 
+  ;; Hβ.first-light.nested-fn-name-discriminator (2026-05-06) — current
+  ;; outer-fn-name pointer (string ptr), 0 for module-scope (no outer).
+  ;; FnStmt arm reads BEFORE setting its own discriminated name; nested
+  ;; FnStmts query it via $ls_outer_fn_name. Caller saves the previous
+  ;; via $ls_set_fn_name's return value and restores on exit (push-pop
+  ;; discipline; matches the wheel's ls_enter_frame fn_name field).
+  ;; Mirrors the wheel's lower_scope handler frame stack at flat-state
+  ;; granularity per the seed's substrate.
+  (global $lower_current_fn_name_g (mut i32) (i32.const 0))
+
   ;; ─── Idempotent initializer (mirrors $infer_init / $graph_init) ────
   ;; Per the seed's discipline for module-level state chunks: every
   ;; public entry calls $lower_init first; subsequent calls no-op.
@@ -16021,6 +16031,7 @@
         (global.set $lower_frame_start_g    (i32.const 0))
         (global.set $lower_handler_stack_ptr (call $make_list (i32.const 8)))
         (global.set $lower_handler_count_g (i32.const 0))
+        (global.set $lower_current_fn_name_g (i32.const 0))
         (global.set $lower_initialized    (i32.const 1)))))
 
   ;; Hβ.first-light.seed-lperform-discriminator-mirror —
@@ -16299,6 +16310,25 @@
       (then
         (global.set $lower_locals_len_g (local.get $checkpoint))
         (global.set $lower_next_slot_g (local.get $checkpoint)))))
+
+  ;; ─── Hβ.first-light.nested-fn-name-discriminator (2026-05-06) ──────
+  ;; $ls_outer_fn_name: read the current outer-fn-name pointer (0 for
+  ;; module-scope). $ls_set_fn_name: store a new value, return the
+  ;; previous (caller saves+restores around its body lowering).
+  ;; Symmetric with the handler-stack push/pop pattern below; mirrors
+  ;; the wheel's ls_outer_fn_name op + frame fn_name field.
+  ;; Drift refused: 7 (single state global, not a parallel-name array);
+  ;; 8 (the value IS the name string ptr, not a mode-int).
+  (func $ls_outer_fn_name (export "ls_outer_fn_name") (result i32)
+    (call $lower_init)
+    (global.get $lower_current_fn_name_g))
+
+  (func $ls_set_fn_name (export "ls_set_fn_name") (param $name i32) (result i32)
+    (local $prev i32)
+    (call $lower_init)
+    (local.set $prev (global.get $lower_current_fn_name_g))
+    (global.set $lower_current_fn_name_g (local.get $name))
+    (local.get $prev))
 
   ;; ─── $ls_reset_function — clear at FnStmt entry ────────────────────
   ;; Per Hβ-lower-substrate.md §1.2 lines 219-223 + wheel src/lower.mn:86-90
@@ -21452,6 +21482,10 @@
     (local $param_names i32) (local $param_handles i32)
     (local $cp i32) (local $lo_body i32) (local $body_list i32)
     (local $fn_ir i32) (local $caps i32) (local $evs i32) (local $closure i32)
+    (local $outer i32) (local $fn_name i32) (local $prev_fn_name i32)
+    (local $caps_snapshot i32) (local $caps_post i32) (local $caps_count i32)
+    (local $prev_frame i32) (local $i i32)
+    (local $cap_entry i32) (local $cap_name i32) (local $cap_lexpr i32)
     (local.set $name      (i32.load offset=4  (local.get $stmt)))
     (local.set $params    (i32.load offset=8  (local.get $stmt)))
     (local.set $body_node (i32.load offset=20 (local.get $stmt)))
@@ -21462,22 +21496,68 @@
         (drop (call $ls_bind_local (local.get $name) (local.get $handle)))))
     (local.set $param_names   (call $lower_param_names   (local.get $params)))
     (local.set $param_handles (call $lower_param_handles (local.get $params)))
-    (local.set $cp (call $ls_push_scope))
+    ;; Per Hβ.first-light.nested-fn-name-discriminator (2026-05-06):
+    ;; query outer fn name BEFORE setting our own. Empty outer (0)
+    ;; means top-level: keep bare name. Otherwise mint outer ++ "_" ++
+    ;; name. Symmetric with $op_<handler>_<op>; uses semantic prefixes
+    ;; (not handle-ints). Drift refused: 1 (no vtable, direct concat);
+    ;; 8 (composed name string, not mode-int).
+    (local.set $outer (call $ls_outer_fn_name))
+    (if (i32.eqz (local.get $outer))
+      (then (local.set $fn_name (local.get $name)))
+      (else
+        (local.set $fn_name (call $str_concat (local.get $outer) (i32.const 4400)))   ;; outer + "_"
+        (local.set $fn_name (call $str_concat (local.get $fn_name) (local.get $name)))))
+    (local.set $prev_fn_name (call $ls_set_fn_name (local.get $fn_name)))
+    ;; Per Hβ.first-light.nested-fn-capture-substrate (2026-05-06):
+    ;; mirror $lower_lambda's capture-materialization (lines 873-937)
+    ;; — snapshot ledger, enter frame for proper frame_start isolation,
+    ;; lower body (captures append via $ls_lookup_or_capture during
+    ;; var resolution), materialize caps as LLocal sentinels, restore
+    ;; ledger. Without this, nested fn bodies referencing outer params
+    ;; emit `(local.get $xs)` for an undeclared local. The wheel's
+    ;; FnStmt arm does the same dance (collect_free_vars +
+    ;; resolve_captures_outer + ls_enter_frame). Drift refused: 9
+    ;; (mirrors existing lambda substrate, not deferred).
+    (local.set $caps_snapshot (call $lower_captures_len))
+    (local.set $cp            (call $ls_push_scope))
+    (local.set $prev_frame    (call $ls_enter_frame))
     (call $ls_enter_function)
     (call $bind_names_as_locals (local.get $param_names) (local.get $param_handles))
     (local.set $lo_body (call $lower_expr (local.get $body_node)))
     (call $ls_exit_function)
+    (call $ls_exit_frame (local.get $prev_frame))
     (call $ls_pop_scope (local.get $cp))
+    (drop (call $ls_set_fn_name (local.get $prev_fn_name)))
+    ;; Materialize caps_exprs from new captures (mirrors $lower_lambda).
+    (local.set $caps_post (call $lower_captures_len))
+    (local.set $caps_count (i32.sub (local.get $caps_post) (local.get $caps_snapshot)))
+    (local.set $caps (call $make_list (i32.const 0)))
+    (local.set $caps (call $list_extend_to (local.get $caps) (local.get $caps_count)))
+    (local.set $i (local.get $caps_snapshot))
+    (block $caps_done
+      (loop $caps_iter
+        (br_if $caps_done (i32.ge_u (local.get $i) (local.get $caps_post)))
+        (local.set $cap_entry
+          (call $list_index (call $lower_captures_ptr_get) (local.get $i)))
+        (local.set $cap_name (call $record_get (local.get $cap_entry) (i32.const 0)))
+        (local.set $cap_lexpr
+          (call $lexpr_make_llocal (i32.const 0) (local.get $cap_name)))
+        (drop (call $list_set (local.get $caps)
+                              (i32.sub (local.get $i) (local.get $caps_snapshot))
+                              (local.get $cap_lexpr)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $caps_iter)))
+    (call $ls_truncate_captures (local.get $caps_snapshot))
     (local.set $body_list (call $make_list (i32.const 0)))
     (local.set $body_list (call $list_extend_to (local.get $body_list) (i32.const 1)))
     (drop (call $list_set (local.get $body_list) (i32.const 0) (local.get $lo_body)))
     (local.set $fn_ir (call $lowfn_make
-                        (local.get $name)
+                        (local.get $fn_name)
                         (call $len (local.get $params))
                         (local.get $param_names)
                         (local.get $body_list)
                         (call $row_make_pure)))
-    (local.set $caps (call $make_list (i32.const 0)))
     (local.set $evs  (call $make_list (i32.const 0)))
     (local.set $closure (call $lexpr_make_lmakeclosure
                           (local.get $handle)

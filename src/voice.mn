@@ -1915,13 +1915,6 @@ fn update_file_text_loop(ref table, fh, ref path, ref text, i, n, own buf) with 
     list_set(buf, i, replacement)
     update_file_text_loop(table, fh, path, text, i + 1, n, buf)
   }
-}
-
-fn file_handle_eq(a, b) with Pure = {
-  let FileHandle(ai) = a
-  let FileHandle(bi) = b
-  ai == bi
-}
 
 fn path_to_module_name(ref s) with Memory + Alloc = {
   let stripped_prefix = if starts_with(s, "src/") {

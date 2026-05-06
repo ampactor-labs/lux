@@ -362,20 +362,6 @@ fn digit_at(digits, i) with Memory = {
   list_index(digits, i)
 }
 
-/// parse_int — convert a decimal string to an integer. Returns 0 on
-/// empty or non-numeric input. Handles leading '-'.
-fn parse_int(s) with Memory = {
-  let slen = perform load_i32(s)
-  if slen == 0 { 0 }
-  else {
-    let first = perform load_i8(s + 4)
-    if first == 45 {                               // '-'
-      0 - parse_int_digits(s, slen, 1, 0)
-    }
-    else { parse_int_digits(s, slen, 0, 0) }
-  }
-}
-
 fn parse_int_digits(s, slen, i, acc) with Memory = {
   if i >= slen { acc }
   else {

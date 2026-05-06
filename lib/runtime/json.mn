@@ -390,24 +390,6 @@ fn parse_object_pairs(src, pos, acc_rev) with Memory + Alloc = {
 }
 
 // ─── reverse_list — utility for cons-then-reverse pattern ─────────────
-
-/// reverse_list — reverses a List via tail-recursive cons. Substrate
-/// idiom for the parse-time accumulator pattern (avoids O(N²) append-
-/// at-end during parse).
-
-fn reverse_list(xs) with Pure = {
-  reverse_list_loop(xs, [])
-}
-
-fn reverse_list_loop(xs, acc) with Pure = {
-  if xs.len == 0 { acc }
-  else {
-    let head = list_head(xs)
-    let rest = list_tail(xs)
-    reverse_list_loop(rest, [head] ++ acc)
-  }
-}
-
 // ─── json_serialize — JsonValue → canonical JSON String ───────────────
 
 /// json_serialize — entry point. Canonical formatting: no extra

@@ -87,7 +87,7 @@ handler collector with buf = make_list(16), count = 0 {
 
 fn map(f, xs)     = { iterate(xs); result() } ~> map_h(f)     ~> collector
 fn filter(p, xs)  = { iterate(xs); result() } ~> filter_h(p)  ~> collector
-fn take(n, xs)    = { iterate(xs); result() } ~> take_h(n)    ~> collector
+fn take(xs, n)    = { iterate(xs); result() } ~> take_h(n)    ~> collector
 fn drop(n, xs)    = { iterate(xs); result() } ~> drop_h(n)    ~> collector
 
 // Scalar-producing operations — inline handle form; no drift-11
@@ -167,7 +167,7 @@ fn range_inclusive(start, end) = range(start, end + 1)
 fn intersperse(sep, xs) = if xs.len <= 1 { xs } else { [xs[0], sep] ++ intersperse(sep, tail(xs)) }
 fn scanl(xs, init, f) = if xs.len == 0 { [init] } else { let next = f(init, xs[0]); [init] ++ scanl(tail(xs), next, f) }
 fn repeat(n, x) = if n <= 0 { [] } else { [x] ++ repeat(n - 1, x) }
-fn chunk(n, xs) = if xs.len == 0 { [] } else { [take(n, xs)] ++ chunk(n, drop(n, xs)) }
+fn chunk(n, xs) = if xs.len == 0 { [] } else { [take(xs, n)] ++ chunk(n, drop(n, xs)) }
 
 // ─── Aggregation with projection ────────────────────────────
 

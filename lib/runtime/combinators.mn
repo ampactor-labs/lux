@@ -280,13 +280,6 @@ fn map_loop(lst, fn_apply, i, n, buf, count) with Pure = {
   }
 }
 
-/// take — first N items of a list. O(N). Used by collect_verified_
-/// survivors to cap forks at 8.
-
-fn take(lst, n) with Pure = {
-  let actual = if n < lst.len { n } else { lst.len }
-  slice(lst, 0, actual)
-}
 
 /// outcome_verified — does this fork's outcome satisfy Verify? Stub
 /// for V1; actual implementation reads the Verify ledger's discharge

@@ -440,7 +440,9 @@ fn lower_expr_body(e, handle, span) = match e {
     let free_names = collect_free_vars(body_node, param_names_list)
     let (captures_names, captures_exprs, captures_handles) =
       resolve_captures_outer(free_names, handle)
+    // Lambda is anonymous — empty fn_name; ls_outer_fn_name skips it.
     perform ls_enter_frame(
+      "",
       param_names_list, param_handles_list,
       captures_names, captures_handles
     )
@@ -721,7 +723,8 @@ fn synthesize_branch_thunk(parent_handle, side_label, branch_node) = {
   let free_names = collect_free_vars(branch_node, [])
   let (captures_names, captures_exprs, captures_handles) =
     resolve_captures_outer(free_names, parent_handle)
-  perform ls_enter_frame([], [], captures_names, captures_handles)
+  // Synthetic parallel-thunk: empty fn_name; not a named fn declaration.
+  perform ls_enter_frame("", [], [], captures_names, captures_handles)
   let lo_body = lower_expr(branch_node)
   perform ls_exit_frame()
   let fn_ir = LFn(
@@ -818,14 +821,30 @@ fn lower_stmt_body(s, handle, span) = match s {
     let free_names = collect_free_vars(body_node, param_names_list)
     let (captures_names, captures_exprs, captures_handles) =
       resolve_captures_outer(free_names, handle)
+    // Per Hβ.first-light.nested-fn-name-discriminator (2026-05-06):
+    // query the closest enclosing named-fn BEFORE entering this fn's
+    // own frame. Empty string ⇒ top-level (use bare name). Non-empty
+    // ⇒ nested (mint <outer>_<inner>). Symmetric with $op_<handler>_<op>
+    // — both use semantic prefixes, NOT handle-ints. Reason chain
+    // walks back through the qualified name; Why-Engine reads it.
+    // Top-level fns keep bare name so `_start → $main` resolves;
+    // emit invariant preserved. Drift refused: 1 (no vtable lookup,
+    // direct semantic name composition); 8 (the discriminator is a
+    // composed name string, not a mode-int); 9 (lands the named
+    // peer — symmetric with handler-arm-fn-name-discriminator's
+    // third-instance abstraction-earned shape).
+    let outer = perform ls_outer_fn_name()
+    let fn_name = if str_eq(outer, "") { name }
+      else { outer |> str_concat("_") |> str_concat(name) }
     perform ls_enter_frame(
+      fn_name,
       param_names_list, param_handles_list,
       captures_names, captures_handles
     )
     let lo_body = lower_expr(body_node)
     perform ls_exit_frame()
     let fn_ir = LFn(
-      name,
+      fn_name,
       params.len,
       param_names_list,
       [lo_body],
@@ -1475,11 +1494,17 @@ fn push_name(buf, count, name) = {
 // capture_order(8), locals(12), local_handles(16), local_order(20).
 // Mentl source reads via .field — physical layout irrelevant.
 handler lower_scope with frames = [], globals = [] {
-  ls_enter_frame(locals_in, locals_h, captures_in, captures_h) => {
+  ls_enter_frame(fn_name, locals_in, locals_h, captures_in, captures_h) => {
+    // Per Hβ.first-light.nested-fn-name-discriminator (2026-05-06):
+    // fn_name carries the named-fn discriminator for nested-fn naming
+    // (lambda + synthetic frames pass ""). Field-sort discipline keeps
+    // the frame record alphabetical: capture_handles, capture_order,
+    // captures, fn_name, local_handles, local_order, locals.
     let frame = {
       capture_handles: captures_h,
       capture_order: captures_in,
       captures: set_canonicalize(captures_in),
+      fn_name: fn_name,
       local_handles: locals_h,
       local_order: locals_in,
       locals: set_canonicalize(locals_in)
@@ -1513,6 +1538,7 @@ handler lower_scope with frames = [], globals = [] {
         capture_handles: frame.capture_handles,
         capture_order: frame.capture_order,
         captures: frame.captures,
+        fn_name: frame.fn_name,
         local_handles: truncated_handles,
         local_order: truncated_order,
         locals: set_canonicalize(truncated_order)
@@ -1531,6 +1557,7 @@ handler lower_scope with frames = [], globals = [] {
         capture_handles: frame.capture_handles,
         capture_order: frame.capture_order,
         captures: frame.captures,
+        fn_name: frame.fn_name,
         local_handles: frame.local_handles ++ [h],   // drift-audit: ignore — real drift 11 in frame record; buffer-counter conversion requires frame-record field restructure (local_handles + local_order both paired lists indexed by same slot); tracked for 11.C.2 frame-record substrate walkthrough
         local_order: frame.local_order ++ [name],    // drift-audit: ignore — paired with line 1177 local_handles; same frame-record restructure; tracked for 11.C.2
         locals: set_insert(frame.locals, name)
@@ -1562,6 +1589,32 @@ handler lower_scope with frames = [], globals = [] {
 
   ls_register_globals(names) => {
     resume() with globals = names
+  },
+
+  // Per Hβ.first-light.nested-fn-name-discriminator (2026-05-06):
+  // walks frames innermost-first, returns the first non-empty fn_name
+  // field. The closest enclosing named declaration; lambda frames have
+  // empty fn_name and are skipped. Empty string when top-level (no
+  // enclosing named-fn frame). Symmetric with $op_<handler>_<op> — both
+  // use semantic prefixes, NOT handle-ints. Drift refused: 1 (no
+  // vtable, direct field read); 8 (returns the actual name string,
+  // not a mode-keyed lookup); 9 (lands the discriminator-as-name
+  // peer alongside the handler-arm fn-name-discriminator's
+  // third-instance abstraction-earned shape).
+  ls_outer_fn_name() => resume(ls_outer_fn_name_loop(frames))
+}
+
+/// Walk frames innermost-first; return first non-empty fn_name.
+/// Lambda + block frames carry empty fn_name and are transparent;
+/// only named-fn frames contribute. Returns empty string when no
+/// named-fn frame exists (top-level). Drift refused: 7 (frames is one
+/// list; we read it sequentially, not as parallel arrays).
+fn ls_outer_fn_name_loop(frames) = {
+  if frames.len == 0 { "" }
+  else {
+    let frame = list_head(frames)
+    if str_eq(frame.fn_name, "") { ls_outer_fn_name_loop(list_tail(frames)) }
+    else { frame.fn_name }
   }
 }
 
