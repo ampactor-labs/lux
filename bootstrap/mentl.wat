@@ -15185,9 +15185,29 @@
       (call $ty_make_tname
         (call $handler_decl_handler_name_ptr)
         (call $handler_decl_args_list (local.get $effect_ty))))
-    (local.set $scheme (call $scheme_make_forall
-      (call $make_list (i32.const 0))
-      (local.get $handler_ty)))
+    ;; Per Hβ.first-light.handler-scheme-tfun-shape (2026-05-06):
+    ;; when handler decl has config-params (offset 20), wrap the
+    ;; handler_ty in TFun([config_tparams], handler_ty, pure_row) so
+    ;; install-site calls `~> h(arg1, arg2)` unify args against the
+    ;; config-tyvars. Empty-config handlers keep the bare Handler Ty
+    ;; since `~> h` (no parens) is direct application without an
+    ;; intermediate call. Mirrors src/infer.mn:2236-2284.
+    (if (i32.eqz (call $len (i32.load offset=20 (local.get $stmt))))
+      (then
+        (local.set $scheme (call $scheme_make_forall
+          (call $make_list (i32.const 0))
+          (local.get $handler_ty))))
+      (else
+        (local.set $scheme (call $scheme_make_forall
+          (call $make_list (i32.const 0))
+          (call $ty_make_tfun
+            (call $mint_handler_config_tparams
+              (i32.load offset=20 (local.get $stmt))
+              (local.get $handler_name)
+              (local.get $span)
+              (i32.const 0))
+            (local.get $handler_ty)
+            (call $row_make_pure))))))
     (local.set $reason (call $reason_make_located
       (local.get $span)
       (call $reason_make_declared (local.get $handler_name))))
@@ -15215,6 +15235,39 @@
       (local.get $span)
       (i32.load offset=20 (local.get $stmt))
       (i32.load offset=16 (local.get $stmt))))
+
+  ;; $mint_handler_config_tparams — recursive build of TParam list for
+  ;; handler config-params. Each name gets a fresh tyvar handle and is
+  ;; wrapped as TParam(name, TVar(h), Inferred, Inferred). Per
+  ;; Hβ.first-light.handler-scheme-tfun-shape (2026-05-06). Mirrors
+  ;; src/infer.mn:mint_handler_config_tparams. Drift refused: 7 (one
+  ;; list of TParam records, not (names, types) parallel arrays);
+  ;; 5 (TParam carries name + ty + ownership in one record, not split).
+  (func $mint_handler_config_tparams
+        (param $config i32) (param $hname i32) (param $span i32) (param $idx i32)
+        (result i32)
+    (local $n i32) (local $i i32) (local $buf i32)
+    (local $name i32) (local $h i32) (local $tp i32)
+    (local.set $n (call $len (local.get $config)))
+    (local.set $buf (call $make_list (i32.const 0)))
+    (local.set $buf (call $list_extend_to (local.get $buf) (local.get $n)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $name (call $list_index (local.get $config) (local.get $i)))
+        (local.set $h (call $graph_fresh_ty
+          (call $reason_make_located (local.get $span)
+            (call $reason_make_declared (local.get $name)))))
+        (local.set $tp (call $tparam_make
+          (local.get $name)
+          (call $ty_make_tvar (local.get $h))
+          (call $ownership_make_inferred)
+          (call $ownership_make_inferred)))
+        (drop (call $list_set (local.get $buf) (local.get $i) (local.get $tp)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each)))
+    (local.get $buf))
 
   ;; "Handler" name as length-prefixed string — used by handler_decl arm.
   ;; Per the data-offset audit: 4320 sits past parser_infra.wat's

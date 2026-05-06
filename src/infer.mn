@@ -2234,22 +2234,45 @@ fn register_one_op(effect_name, op) = {
 }
 
 fn register_handler(hname, ename, config, state, arms) = {
-  // Handlers are first-class values; registering the name in env
-  // allows them to be passed and installed. The full type (what
-  // effects it absorbs, what it performs) is inferred from the arms.
-  // Per Hβ.first-light.handler-config-state-substrate: config-params
-  // and state-fields are extracted at parse time but bound in arm
-  // scope at HandleExpr install sites (where config-args are known
-  // via closure-capture and state-inits are evaluated). The decl
-  // site only registers the handler NAME + TYPE here; arm-body
-  // inference reads config + state via the handler's scheme at
-  // install. Walk-through paragraph: docs/specs/simulations/Hβ-
-  // first-light-empirical.md §4.5.14.
-  let row_h = perform graph_fresh_row(Inferred("handler row"))
+  // Handlers are first-class values. Per Hβ.first-light.handler-
+  // scheme-tfun-shape (2026-05-06): when the handler decl has
+  // config-params, its scheme is `TFun([config_tys], Handler<E>,
+  // pure_row)` so install-site calls `~> h(arg1, arg2)` unify
+  // each arg's type against the corresponding config-param tyvar.
+  // Without the TFun shape, `let h: Handler<E>` mismatches
+  // `h(args): fn(...) -> ?` at install — the bug surfaced by the
+  // minimal `handler h(x) { op() => x }; perform op() ~> h(42)`
+  // empirical (E_TypeMismatch at handle 20). Empty-config handlers
+  // keep the bare Handler<E> scheme since `~> h` (no parens) is
+  // direct application without intermediate call.
+  let handler_ty = TName("Handler", [TName(ename, [])])
+  let scheme_body = if config.len == 0 {
+    handler_ty
+  } else {
+    let config_tparams = mint_handler_config_tparams(config, hname, 0)
+    TFun(config_tparams, handler_ty, mk_ef_closed([]))
+  }
   perform env_extend(hname,
-    Forall([], TName("Handler", [TName(ename, [])])),
+    Forall([], scheme_body),
     Declared(hname),
     FnScheme)
+}
+
+/// Mint TParam list for handler config-params. Each name gets a
+/// fresh tyvar handle (via mint), wrapped as TParam(name, TVar(h),
+/// Inferred, Inferred) — Ownership is Inferred (no authored marker;
+/// arm-body usage may constrain). Per Hβ.first-light.handler-scheme-
+/// tfun-shape (2026-05-06). Drift refused: 7 (one list of TParam
+/// records, not (names, types) parallel arrays); 8 (TParam is the
+/// established positional shape, not name-keyed map).
+fn mint_handler_config_tparams(config, hname, idx) = {
+  if config.len == 0 { [] }
+  else {
+    let name = list_head(config)
+    let h = perform mint(FnParam(hname, idx, Inferred("config-param of '" |> str_concat(hname) |> str_concat("'"))))   // drift-audit: ignore — |> inside string-build arg, not a pipe verb
+    [TParam(name, TVar(h), Inferred, Inferred)]
+      ++ mint_handler_config_tparams(list_tail(config), hname, idx + 1)
+  }
 }
 
 // Utilities
