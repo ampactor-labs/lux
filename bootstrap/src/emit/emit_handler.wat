@@ -393,14 +393,26 @@
     (call $ec7_emit_local_get_fb_h (local.get $h)))
 
   ;; ─── $emit_lperform — LPerform tag 331 emit arm per §2.5 ───────────
-  ;; Per src/backends/wasm.nx:1536-1547 + H1.4 single-handler-per-op:
-  ;;   <args>
+  ;; Per src/backends/wasm.nx:1568-1579 + H1.4 single-handler-per-op:
+  ;;   (local.get $__state)              ;; __state IS first param of $op_<name>
+  ;;   <args>                             ;; user-visible args follow
   ;;   (call $op_<op_name>)
   ;; The monomorphic direct-call form — row inference's >95% claim
   ;; cashes out HERE per SUBSTRATE.md §I third truth "OneShot. Direct
   ;; return_call $op_<name>". The polymorphic minority routes through
-  ;; LSuspend (chunk #6) instead.
+  ;; LEvPerform (chunk #6) which threads ev_slot evidence instead.
+  ;;
+  ;; Per `Hβ.first-light.emit-lperform-state-arg` — handler-arm fns
+  ;; declared by $lower_handler_arms_as_decls take __state as their
+  ;; first param ($lowfn_make signature: name/arity/param_names/body/row;
+  ;; emit_functions_walk prepends __state as the universal first param
+  ;; per emit_handler.wat:$emit_ldeclarefn convention). Caller must push
+  ;; __state to match. Pre-substrate the seed emitted only args, so
+  ;; wat2wasm rejected `(call $op_<name>)` with "expected [i32] but got
+  ;; []" for any program with a perform site. Symmetric to LEvPerform's
+  ;; first $el_emit_local_get_state per §I third-truth + Koka JFP 2022.
   (func $emit_lperform (param $r i32)
+    (call $el_emit_local_get_state)
     (call $ec6_emit_args (call $lexpr_lperform_args (local.get $r)))
     (call $ec7_emit_call_op_dollar (call $lexpr_lperform_op_name (local.get $r))))
 

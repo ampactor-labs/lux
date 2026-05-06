@@ -549,6 +549,50 @@ empirical re-test. Most likely next blockers: emit-lperform-state-arg
 (undefined `$NNNN_idx` globals); the cfg-params-substrate (unblocks
 config-using handlers like `map_h`, `take_h`).
 
+### 4.5.8 LPerform __state arg landed (2026-05-06) — first-light component
+
+`Hβ.first-light.emit-lperform-state-arg` — `$emit_lperform`
+(`bootstrap/src/emit/emit_handler.wat:403`) was emitting `<args> +
+(call $op_<name>)` without pushing `__state`. Handler-arm fns
+declared by `$lower_handler_arms_as_decls` take `__state` as their
+first param (per `$lowfn_make` shape + emit's universal first-param
+convention); caller must match. wat2wasm rejected with `"expected
+[i32] but got []"` for any program with a perform site. Symmetric
+fix to `$emit_levperform` which already pushed `__state` first via
+`$el_emit_local_get_state`.
+
+Wheel-side mirror at `src/backends/wasm.nx:1568-1579` — same shape:
+`perform wat_emit("    (local.get $__state)\n")` before
+`emit_expr_list(args)`.
+
+**Empirical: minimal handler + perform program now compiles + validates + runs:**
+
+```inka
+effect E { op() -> Int @resume=OneShot }
+handler h { op() => 42 }
+fn main() = perform op()
+```
+
+Pre-substrate: 2 E_UnresolvedType + wat2wasm reject on `(call $op_op)`.
+Post-substrate: zero stderr, wat2wasm ✓, wasmtime ✓ (exit 0).
+
+WAT body of `$main`: `(local.get $__state)(call $op_op)` — clean
+monomorphic direct-call per SUBSTRATE.md §I third truth "OneShot.
+Direct return_call $op_<name>" + Koka JFP 2022.
+
+This is the FIRST first-light component to compile + validate +
+run end-to-end through the seed. Single-handler-single-perform
+shape. Wheel-scale unblocked for handlers that don't yet require
+state-flow into arms (named peer
+`Hβ.first-light.handler-config-params-substrate`) or evidence-
+dispatched polymorphic perform sites (LEvPerform, already substrate).
+
+**Cursor of attention** post-LPerform-state-arg: full wheel re-test;
+identify whether the productive-under-error config-params or
+state-flow blocks WAT termination next. The L1 fixpoint
+(`inka2.wat == inka3.wat`) needs the wheel to terminate, which
+depends on these next two named peers landing.
+
 ### 4.5.4d Closures + ctor + destructure + brace + where-skip landed; string-interning gap surfaces (2026-05-02 latter)
 
 Subsequent landings (commits c28c525 / 12cfcac / 8d3d2f7 / 07a2a99

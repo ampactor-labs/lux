@@ -1570,8 +1570,15 @@ fn emit_expr(expr) = match expr {
     // In monomorphic handler stacks (the common case — lower.nx's
     // row_is_ground proves it for >95% of call sites) the symbol
     // `$op_<name>` resolves statically. The polymorphic path goes
-    // through LSuspend, which loads a function pointer from the
+    // through LEvPerform, which loads a function pointer from the
     // evidence vector and uses call_indirect.
+    //
+    // Handler-arm fns declared by lower_handler_arms_as_decls take
+    // __state as their first param (lower.nx LowFn(name, arity, args,
+    // body, row); emit prepends __state per emit handler convention).
+    // Caller pushes __state from its enclosing frame to match. Per
+    // Hβ.first-light.emit-lperform-state-arg.
+    perform wat_emit("    (local.get $__state)\n")
     emit_expr_list(args)
     perform wat_emit("    (call $op_")
     perform wat_emit(op_name)
