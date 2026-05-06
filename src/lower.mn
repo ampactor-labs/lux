@@ -466,7 +466,11 @@ fn lower_expr_body(e, handle, span) = match e {
     // Inline handlers are anonymous; discriminator is the handle-id
     // stringified — graph-mint-unique per construction (every
     // HandleExpr has a fresh handle).
-    let arm_decls = lower_handler_arms_as_decls(arms, int_to_str(handle))
+    // Inline anonymous handle-expression: no config-params or state
+    // at the AST level (HandleExpr's surface today is `handle body
+    // with H` — H is a handler value already constructed, so its
+    // config + state were captured at the named handler decl).
+    let arm_decls = lower_handler_arms_as_decls(arms, int_to_str(handle), [], [])
     let arm_records = lower_handler_arms(arms)
     let lo_body = lower_expr(body_node)
     LBlock(handle, arm_decls ++ [LHandle(handle, lo_body, arm_records)])   // drift-audit: ignore — one-time single-element append at HandleExpr-lowering boundary; NOT a tail-recursive accumulator. arm_decls is built once via lower_handler_arms_as_decls, then extended by exactly one LHandle element.
@@ -832,7 +836,7 @@ fn lower_stmt_body(s, handle, span) = match s {
 
   TypeDefStmt(_name, _args, _variants)      => LConst(handle, LInt(0)),
   EffectDeclStmt(_name, _ops)               => LConst(handle, LInt(0)),
-  HandlerDeclStmt(name, _ename, arms)       => {
+  HandlerDeclStmt(name, _ename, config, state, arms)       => {
     // H1.4: each handler arm becomes a callable wasm function. With
     // the Hβ.first-light.handler-arm-fn-name-discriminator landing,
     // arm fns are named `op_<handler_name>_<op_name>` — unique even
@@ -842,12 +846,18 @@ fn lower_stmt_body(s, handle, span) = match s {
     // emit_fns_expr's deep walk picks up LDeclareFn entries and emits
     // each as a wasm function with a registered fn_idx global.
     //
+    // Per Hβ.first-light.handler-config-state-substrate (2026-05-06):
+    // config-params + state-field-names are bound as arm-scope locals
+    // before lowering each arm body so their references resolve to
+    // captures (config) or state-loads (state). Threaded through
+    // lower_handler_arms_as_decls.
+    //
     // Named peer Hβ.first-light.lperform-handler-discriminator:
     // LPerform's `(call $op_<n>)` currently resolves to undiscriminated
     // names; the matching update threads handler_name through perform
     // sites (monomorphic) or routes to LEvPerform via evidence-slot
     // dispatch (multi-handler / polymorphic — H1.6).
-    let arm_decls = lower_handler_arms_as_decls(arms, name)
+    let arm_decls = lower_handler_arms_as_decls(arms, name, config, state)
     LBlock(handle, arm_decls ++ [LConst(handle, LInt(0))])   // drift-audit: ignore — one-time single-element append at HandlerDeclStmt-lowering boundary; NOT a tail-recursive accumulator. arm_decls is built once, then extended by exactly one LConst sentinel.
   },
   ImportStmt(_module)                       => LConst(handle, LInt(0)),
@@ -981,11 +991,26 @@ fn lower_handler_arms(arms) = {
 /// function `op_<op_name>` taking the arm's args (plus the implicit
 /// `__state` per the calling convention). Stateful handlers (with state
 /// slots) land with H1.6's evidence wiring.
-fn lower_handler_arms_as_decls(arms, discriminator) = {
+fn lower_handler_arms_as_decls(arms, discriminator, config, state) = {
   if arms.len == 0 { [] }
   else {
     let arm = list_head(arms)
     let cp = perform ls_push_scope()
+    // Per Hβ.first-light.handler-config-state-substrate (2026-05-06):
+    // config-params and state-field-names bind in arm scope BEFORE arm
+    // args. This makes references like `f` (in `handler map_h(f) {
+    // yield(elem) => f(elem) ... }`) and `remaining` (in `handler
+    // take_h(n) with remaining = n { yield(elem) => if remaining > 0
+    // ... }`) resolve as captures at lower time. Without this, lower
+    // saw arm bodies referencing names not in any frame and emitted
+    // unresolved-var sentinels — the 331 E_MissingVariable + 314
+    // E_TypeMismatch diagnostic mass observed at wheel-prefix scale.
+    // Walk-through: docs/specs/simulations/Hβ-first-light-empirical.md
+    // §4.5.14. Drift refused: 5 (config + state not parallel arrays —
+    // distinct lists with distinct shapes); 9 (config + state both
+    // bound here, not deferred).
+    bind_names_as_locals(config)
+    bind_state_field_names_as_locals(state)
     bind_names_as_locals(arm.args)
     let lo_body = lower_expr(arm.body)
     perform ls_pop_scope(cp)
@@ -1000,7 +1025,7 @@ fn lower_handler_arms_as_decls(arms, discriminator) = {
       |> str_concat("_")
       |> str_concat(arm.op_name)
     let fn_ir = LFn(fn_name, arm.args.len, arm.args, [lo_body], EfPure)
-    [LDeclareFn(fn_ir)] ++ lower_handler_arms_as_decls(list_tail(arms), discriminator)
+    [LDeclareFn(fn_ir)] ++ lower_handler_arms_as_decls(list_tail(arms), discriminator, config, state)
   }
 }
 
@@ -1013,6 +1038,25 @@ fn bind_names_as_locals(names) = {
     // future reach into op-arg type plumbing (Phase D evidence).
     perform ls_bind_local(list_head(names), 0)
     bind_names_as_locals(list_tail(names))
+  }
+}
+
+/// Bind handler state-field names as arm-scope locals. Per
+/// Hβ.first-light.handler-config-state-substrate (2026-05-06):
+/// state-fields are records `{name, init}`; arm bodies reference the
+/// field names directly (e.g., `remaining` in take_h's `with remaining
+/// = n`). Lower-time binding makes those references resolve to
+/// captures/state-loads. Init expressions are NOT lowered here — they
+/// evaluate at handler INSTALL time per H1.4 evidence wiring; the
+/// arm-body reference IS the field's RUNTIME value, not its init.
+/// Drift refused: 5 (state extracted from records, not parallel
+/// arrays); 9 (init-time lowering at install handled at install site).
+fn bind_state_field_names_as_locals(state) = {
+  if state.len == 0 { () }
+  else {
+    let field = list_head(state)
+    perform ls_bind_local(field.name, 0)
+    bind_state_field_names_as_locals(list_tail(state))
   }
 }
 
@@ -1155,7 +1199,7 @@ fn cfv_stmt(s, bound) = match s {
   ExprStmt(expr)                => collect_free_vars(expr, bound),
   TypeDefStmt(_, _, _)          => [],
   EffectDeclStmt(_, _)          => [],
-  HandlerDeclStmt(_, _, _)      => [],
+  HandlerDeclStmt(_, _, _, _, _) => [],
   ImportStmt(_)                 => [],
   RefineStmt(_, _, _)           => [],
   // DS — docstring wrapper: free vars come from the inner

@@ -588,9 +588,16 @@
     ;; Per Hβ.first-light.handler-arm-fn-name-discriminator: pass the
     ;; handler_name as the discriminator so each top-level handler's
     ;; arm fns get unique WASM symbols ($op_<handler>_<op>).
+    ;; Per Hβ.first-light.handler-config-state-substrate (2026-05-06):
+    ;; offsets 20 (config-params) + 16 (state-fields) thread into arm
+    ;; scope so arm-body identifier lookup resolves names like `f`
+    ;; (handler map_h(f)) and `remaining` (handler take_h with
+    ;; remaining = n).
     (local.set $arm_decls (call $lower_handler_arms_as_decls
                             (local.get $arms)
-                            (local.get $handler_name)))
+                            (local.get $handler_name)
+                            (i32.load offset=20 (local.get $stmt))
+                            (i32.load offset=16 (local.get $stmt))))
     (local.set $sentinel  (call $lexpr_make_lconst (local.get $handle) (i32.const 0)))
     ;; Build stmts = arm_decls ++ [sentinel]. Buffer-counter (Ω.3).
     (local.set $n     (call $len (local.get $arm_decls)))

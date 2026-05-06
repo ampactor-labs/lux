@@ -422,6 +422,7 @@
   ;; predecessor's offset assumption).
   (func $parse_handler_decl_full (param $tokens i32) (param $pos i32) (param $span i32) (result i32)
     (local $name i32) (local $p i32)
+    (local $config_r i32) (local $config i32) (local $p_after_config i32)
     (local $state_r i32) (local $state_fields i32) (local $p2 i32)
     (local $p3 i32) (local $arms_r i32) (local $arms i32) (local $p4 i32)
     (local $stmt i32) (local $tup i32)
@@ -433,20 +434,24 @@
       (i32.add (local.get $pos) (i32.const 2))))
     ;; Optional config-params `(...)` per SYNTAX.md §770-815 + wheel
     ;; usage (`handler map_h(f) { ... }`, `handler take_h(n) with ...`,
-    ;; `handler buffer_unpacker(source) with pos = 0`). Skip over the
-    ;; balanced parens for first-light; structural extraction is named
-    ;; peer `Hβ.first-light.handler-config-params-substrate` (closure-
-    ;; capture binding into arm scope at install time per SYNTAX.md
-    ;; §782 "Config parameters in (...) — closure-captured at install
-    ;; site"). Preserves drift-9 positive-form discipline — the
-    ;; substrate isn't consumed-and-thrown-away; it's consumed-and-
-    ;; deferred-as-named-peer.
+    ;; `handler buffer_unpacker(source) with pos = 0`). Closure-capture
+    ;; bindings into arm scope at install time per SYNTAX.md §782
+    ;; "Config parameters in (...) — closure-captured at install site".
+    ;; Extraction lands here per Hβ.first-light.handler-config-state-
+    ;; substrate (2026-05-06); arm-scope binding lands at
+    ;; $infer_handler_decl_arms_walk + $lower_handler_arms_as_decls.
     (if (call $at (local.get $tokens) (local.get $p) (i32.const 45))  ;; TLParen
       (then
-        (local.set $p (call $skip_to_rparen_p (local.get $tokens) (local.get $p)))
-        (local.set $p (call $skip_ws_p (local.get $tokens) (local.get $p)))))
+        (local.set $config_r (call $parse_handler_config_idents
+          (local.get $tokens) (local.get $p)))
+        (local.set $config (call $list_index (local.get $config_r) (i32.const 0)))
+        (local.set $p_after_config (call $skip_ws_p (local.get $tokens)
+          (call $list_index (local.get $config_r) (i32.const 1)))))
+      (else
+        (local.set $config (call $make_list (i32.const 0)))
+        (local.set $p_after_config (local.get $p))))
     ;; Optional state
-    (local.set $state_r (call $parse_handler_state (local.get $tokens) (local.get $p)))
+    (local.set $state_r (call $parse_handler_state (local.get $tokens) (local.get $p_after_config)))
     (local.set $state_fields (call $list_index (local.get $state_r) (i32.const 0)))
     (local.set $p2 (call $list_index (local.get $state_r) (i32.const 1)))
     ;; Expect TLBrace
@@ -463,7 +468,8 @@
       (local.get $name)
       (call $str_alloc (i32.const 0))
       (local.get $state_fields)
-      (local.get $arms)))
+      (local.get $arms)
+      (local.get $config)))
     ;; Return [nstmt, next_pos]
     (local.set $tup (call $make_list (i32.const 2)))
     (drop (call $list_set (local.get $tup) (i32.const 0)
@@ -471,24 +477,84 @@
     (drop (call $list_set (local.get $tup) (i32.const 1) (local.get $p4)))
     (local.get $tup))
 
+  ;; ─── $parse_handler_config_idents ────────────────────────────────
+  ;; Reads `(name_1, name_2, ...)` returning [list_of_strings, p_after_rparen].
+  ;; Mirrors the wheel's parse_arg_names (src/parser.mn:668). Empty `()`
+  ;; returns empty list. Buffer-counter substrate per CLAUDE.md memory
+  ;; model (drift mode 11 refusal — no `acc ++ [X]` O(N²) accumulator).
+  ;; Drift refused: 7 (one buffer holding names, not parallel arrays);
+  ;; 8 (positional list of strings, not name-keyed map). Per SYNTAX.md
+  ;; §770-815 simple-name handler-config form (type annotations are a
+  ;; named peer follow-up `Hβ.handler-config-type-annotation-substrate`).
+  (func $parse_handler_config_idents (param $tokens i32) (param $pos i32) (result i32)
+    (local $p i32) (local $buf i32) (local $count i32)
+    (local $name i32) (local $tup i32)
+    ;; Expect TLParen
+    (local.set $p (call $expect (local.get $tokens)
+      (call $skip_ws_p (local.get $tokens) (local.get $pos))
+      (i32.const 45)))  ;; TLParen
+    (local.set $p (call $skip_ws_p (local.get $tokens) (local.get $p)))
+    ;; Empty `()` → return empty list past TRParen
+    (if (call $at (local.get $tokens) (local.get $p) (i32.const 46))  ;; TRParen
+      (then
+        (local.set $tup (call $make_list (i32.const 2)))
+        (drop (call $list_set (local.get $tup) (i32.const 0)
+          (call $make_list (i32.const 0))))
+        (drop (call $list_set (local.get $tup) (i32.const 1)
+          (i32.add (local.get $p) (i32.const 1))))
+        (return (local.get $tup))))
+    (local.set $buf (call $make_list (i32.const 4)))
+    (local.set $count (i32.const 0))
+    (block $done
+      (loop $cfg_loop
+        ;; Read one ident — handler config-params are simple names
+        ;; (per SYNTAX.md §770; type-annotation form is named peer
+        ;; Hβ.handler-config-type-annotation-substrate).
+        (local.set $name (call $ident_at_p (local.get $tokens) (local.get $p)))
+        (local.set $p (call $skip_ws_p (local.get $tokens)
+          (i32.add (local.get $p) (i32.const 1))))
+        ;; Append to buffer
+        (local.set $buf (call $list_extend_to (local.get $buf)
+          (i32.add (local.get $count) (i32.const 1))))
+        (drop (call $list_set (local.get $buf) (local.get $count) (local.get $name)))
+        (local.set $count (i32.add (local.get $count) (i32.const 1)))
+        ;; TComma → next; otherwise terminator
+        (if (call $at (local.get $tokens) (local.get $p) (i32.const 51))  ;; TComma
+          (then
+            (local.set $p (call $skip_ws_p (local.get $tokens)
+              (i32.add (local.get $p) (i32.const 1))))
+            (br $cfg_loop))
+          (else (br $done)))))
+    ;; Expect TRParen
+    (local.set $p (call $expect (local.get $tokens) (local.get $p) (i32.const 46)))
+    (local.set $tup (call $make_list (i32.const 2)))
+    (drop (call $list_set (local.get $tup) (i32.const 0)
+      (call $slice (local.get $buf) (i32.const 0) (local.get $count))))
+    (drop (call $list_set (local.get $tup) (i32.const 1) (local.get $p)))
+    (local.get $tup))
+
   ;; ─── $mk_handler_decl_full ────────────────────────────────────────
-  ;; HandlerDeclStmt: [tag=124][name][effect_name][arms][state_fields]
-  ;; offsets 0/4/8/12/16. effect_name is the empty string at parse time;
-  ;; infer's per-arm cascade fills in once the named follow-up
-  ;; Hβ-infer-handler-decls-full lands. state_fields is a list of
-  ;; (field_name, init_expr) 2-tuples; current infer/lower seed do not
-  ;; consult offset 16 (named follow-up Hβ.handler-state-substrate).
-  ;; Replaces the 1-arg $mk_handler_decl previously inlined at
-  ;; parser_toplevel.wat:106-112; the new entry point lives here and the
-  ;; old shell is deleted to refuse drift mode 9 (deferred-by-omission).
+  ;; HandlerDeclStmt: [tag=124][name][effect_name][arms][state_fields][config]
+  ;; offsets 0/4/8/12/16/20. Per Hβ.first-light.handler-config-state-substrate
+  ;; (2026-05-06): config-params at offset 20 — extracted at parse time;
+  ;; bound in arm scope at $infer_handler_decl_arms_walk +
+  ;; $lower_handler_arms_as_decls. effect_name (offset 8) is the empty
+  ;; string at parse time; infer's $derive_effect_name_from_arms recovers
+  ;; from the first arm's op_name. state_fields (offset 16) is the list
+  ;; of {name, init} record entries from `with field = init [, ...]`.
+  ;; Drift refused: 5 (each field is a distinct positional offset, NOT
+  ;; a packed parallel-tuple); 7 (config + state are distinct lists with
+  ;; distinct shapes — config is List<String>, state is List<{name,init}>);
+  ;; 9 (config + state both extracted, not deferred).
   (func $mk_handler_decl_full
         (param $name i32) (param $effect_name i32)
-        (param $state_fields i32) (param $arms i32) (result i32)
+        (param $state_fields i32) (param $arms i32) (param $config i32) (result i32)
     (local $p i32)
-    (local.set $p (call $alloc (i32.const 20)))
+    (local.set $p (call $alloc (i32.const 24)))
     (i32.store         (local.get $p) (i32.const 124))
     (i32.store offset=4  (local.get $p) (local.get $name))
     (i32.store offset=8  (local.get $p) (local.get $effect_name))
     (i32.store offset=12 (local.get $p) (local.get $arms))
     (i32.store offset=16 (local.get $p) (local.get $state_fields))
+    (i32.store offset=20 (local.get $p) (local.get $config))
     (local.get $p))

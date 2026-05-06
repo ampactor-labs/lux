@@ -628,13 +628,57 @@ fn parse_op_params(ref tokens, pos) = {
   }
 }
 
-/// Parse `handler X { arms }`.
+/// Parse `handler X[(config_params)] [with field = init [, ...]] { arms }`
+/// per SYNTAX.md §"Handler declarations" — three optional sections before arms:
+///   - config-params `(p1, p2, ...)` closure-captured at install site
+///   - state `with field = init [, ...]` per-arm-scope mutable bindings
+///   - arms `{ op_name(args) => body, ... }` op handler bodies
+///
+/// Per Hβ.first-light.handler-config-state-substrate (2026-05-06):
+/// config + state extracted at parse time so infer/lower can bind them
+/// in arm scope. Reuses parse_arg_names (line 668) for config-params
+/// and parse_handler_state_fields (below) for the state clause.
+/// Eight: Graph (HandlerDeclStmt carries config+state lists). Handler
+/// (Pure parse). Verb (|> through ident → optional config → optional
+/// state → arms). Row (Memory + Alloc for AST). Ownership (ref tokens;
+/// own per fresh nstmt). Refinement (Stmt where stmt_well_formed(self)).
+/// Gradient (bottom: name only; top: full surface). Reason (span +
+/// Declared(name)). Drift refused: 7 (no parallel arrays — config and
+/// state are separate concerns with distinct shapes); 9 (config + state
+/// land whole, not deferred).
 fn parse_handler_decl(ref tokens, pos) = {
   let start = span_at(tokens, pos)
   let name = ident_at(tokens, pos)
-  let p = expect(tokens, skip_ws(tokens, pos + 1), TLBrace)
-  let (arms, p2) = parse_handler_arms(tokens, skip_ws(tokens, p))
-  (nstmt(HandlerDeclStmt(name, "", arms), start), p2)
+  let p_after_name = skip_ws(tokens, pos + 1)
+  // Optional `(config_params)` — closure-captured at install site.
+  let (config, p_after_config) = if at(tokens, p_after_name, TLParen) {
+    parse_arg_names(tokens, skip_ws(tokens, p_after_name + 1))
+  } else { ([], p_after_name) }
+  // Optional `with field = init [, field = init]*` — state-fields.
+  let (state, p_after_state) = if at(tokens, skip_ws(tokens, p_after_config), TWith) {
+    parse_handler_state_fields(tokens, skip_ws(tokens, p_after_config + 1))
+  } else { ([], p_after_config) }
+  let p_open = expect(tokens, skip_ws(tokens, p_after_state), TLBrace)
+  let (arms, p_close) = parse_handler_arms(tokens, skip_ws(tokens, p_open))
+  (nstmt(HandlerDeclStmt(name, "", config, state, arms), start), p_close)
+}
+
+/// Parse `field = init [, field = init]*` until TLBrace. Each state
+/// entry is a record `{name, init}` per Ω.5 record-shape discipline
+/// (drift mode 7 refusal — no (names_list, inits_list) parallel arrays).
+/// Reuses parse_expr for inits.
+fn parse_handler_state_fields(ref tokens, pos) = {
+  let name = ident_at(tokens, pos)
+  let p_eq = expect(tokens, skip_ws(tokens, pos + 1), TEq)
+  let (init, p_after_init) = parse_expr(tokens, skip_ws(tokens, p_eq))
+  let field = {name: name, init: init}
+  let p_next = skip_ws(tokens, p_after_init)
+  if at(tokens, p_next, TComma) {
+    let (rest, p_end) = parse_handler_state_fields(tokens, skip_ws(tokens, p_next + 1))
+    ([field] ++ rest, p_end)
+  } else {
+    ([field], p_next)
+  }
 }
 
 fn parse_handler_arms(ref tokens, pos) = {

@@ -1056,10 +1056,21 @@
     ;; HandlerDeclStmt offset 12 = arms list. Each arm is make_record(0, 3)
     ;; with {args, body, op_name} at field indices 0/1/2 (Lock #8
     ;; alphabetical per parser_handler.wat:181-184).
+    ;;
+    ;; Per Hβ.first-light.handler-config-state-substrate (2026-05-06):
+    ;; offset 20 = config-params (List<String>) and offset 16 =
+    ;; state-fields (List<2-tuple(name, init)>) — bound in arm scope
+    ;; via $infer_handler_decl_arms_walk before walking arm body so
+    ;; references like `f` (in map_h(f)) and `remaining` (in
+    ;; with remaining = n) resolve. Pre-substrate the diagnostic mass
+    ;; was 331 E_MissingVariable + 314 E_TypeMismatch at wheel-prefix
+    ;; scale; bind-in-arm-scope collapses both classes.
     (call $infer_handler_decl_arms_walk
       (i32.load offset=12 (local.get $stmt))
       (local.get $handler_name)
-      (local.get $span)))
+      (local.get $span)
+      (i32.load offset=20 (local.get $stmt))
+      (i32.load offset=16 (local.get $stmt))))
 
   ;; "Handler" name as length-prefixed string — used by handler_decl arm.
   ;; Per the data-offset audit: 4320 sits past parser_infra.wat's
@@ -1130,6 +1141,7 @@
 
   (func $infer_handler_decl_arms_walk
         (param $arms i32) (param $handler_name i32) (param $span i32)
+        (param $config i32) (param $state i32)
     (local $n i32) (local $i i32)
     (local $arm i32) (local $args i32) (local $body_node i32) (local $op_name i32)
     (local $binding i32) (local $scheme i32) (local $op_ty i32) (local $op_tag i32)
@@ -1181,6 +1193,18 @@
         (local.set $declared_reason (call $reason_make_located
           (local.get $span)
           (call $reason_make_declared (local.get $op_name))))
+        ;; Per Hβ.first-light.handler-config-state-substrate (2026-05-06):
+        ;; bind handler config-params and state-fields BEFORE arg bindings
+        ;; so arm-body identifier lookup (handler map_h(f) yield arm
+        ;; references `f`; handler take_h with remaining=n yield arm
+        ;; references `remaining`) resolves to the correct scope. Each
+        ;; binding gets a fresh tyvar scheme — productive-under-error;
+        ;; full per-arm typing of config + state is the wheel's
+        ;; install-site work (HandleExpr inference at install time).
+        (call $infer_bind_handler_names
+          (local.get $config) (local.get $declared_reason) (local.get $span))
+        (call $infer_bind_handler_state_names
+          (local.get $state) (local.get $declared_reason) (local.get $span))
         ;; Bind each arg pattern to its corresponding op param type.
         (call $infer_handler_arm_bind_args
           (local.get $args) (local.get $params)
@@ -1201,6 +1225,68 @@
         (call $env_scope_exit)
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $each))))
+
+  ;; $infer_bind_handler_names — env_extends each name in the list with
+  ;; a fresh-tyvar Forall scheme. Used for handler config-params per
+  ;; Hβ.first-light.handler-config-state-substrate. Each name becomes
+  ;; visible in arm scope; arm-body usage constrains the tyvar via
+  ;; unification. Mirrors the pattern from FnStmt mint-fresh path
+  ;; (walk_stmt.wat:603-630) at single-name granularity.
+  ;; Drift refused: 7 (one list of names, not parallel arrays); 9
+  ;; (binding lands here, not deferred).
+  (func $infer_bind_handler_names
+        (param $names i32) (param $reason i32) (param $span i32)
+    (local $n i32) (local $i i32) (local $name i32) (local $h i32)
+    (local.set $n (call $len (local.get $names)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $name (call $list_index (local.get $names) (local.get $i)))
+        (local.set $h (call $graph_fresh_ty
+          (call $reason_make_located (local.get $span)
+            (call $reason_make_declared (local.get $name)))))
+        (call $env_extend
+          (local.get $name)
+          (call $scheme_make_forall
+            (call $make_list (i32.const 0))
+            (call $ty_make_tvar (local.get $h)))
+          (local.get $reason)
+          (call $schemekind_make_fn))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter))))
+
+  ;; $infer_bind_handler_state_names — like $infer_bind_handler_names
+  ;; but reads field-name from offset 0 of each state-field 2-tuple
+  ;; (per parser_handler.wat:391-393 (field_name, init_expr) shape).
+  ;; State init expressions are NOT inferred here — they evaluate at
+  ;; handler INSTALL time (HandleExpr install site); arm-body usage
+  ;; constrains the field's tyvar via unification.
+  ;; Drift refused: 5 ((name, init) tuple is the parser's chosen
+  ;; positional layout; not parallel arrays at the AST level); 8
+  ;; (positional tuple-access by index 0, not string-keyed).
+  (func $infer_bind_handler_state_names
+        (param $state i32) (param $reason i32) (param $span i32)
+    (local $n i32) (local $i i32) (local $field i32) (local $name i32) (local $h i32)
+    (local.set $n (call $len (local.get $state)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $field (call $list_index (local.get $state) (local.get $i)))
+        (local.set $name (call $list_index (local.get $field) (i32.const 0)))
+        (local.set $h (call $graph_fresh_ty
+          (call $reason_make_located (local.get $span)
+            (call $reason_make_declared (local.get $name)))))
+        (call $env_extend
+          (local.get $name)
+          (call $scheme_make_forall
+            (call $make_list (i32.const 0))
+            (call $ty_make_tvar (local.get $h)))
+          (local.get $reason)
+          (call $schemekind_make_fn))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter))))
 
   ;; $infer_handler_arm_bind_args — binds each PVar arg pattern to the
   ;; corresponding op parameter type from the effect declaration.

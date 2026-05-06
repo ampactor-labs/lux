@@ -255,8 +255,8 @@ fn infer_stmt(ref node) = {
       perform env_extend(name, Forall([], TTuple([])), Declared(name), CapabilityScheme(effs))
     },
 
-    NStmt(HandlerDeclStmt(hname, ename, arms)) =>
-      register_handler(hname, ename, arms),
+    NStmt(HandlerDeclStmt(hname, ename, config, state, arms)) =>
+      register_handler(hname, ename, config, state, arms),
 
     NStmt(ExprStmt(expr)) =>
       infer_expr(expr),
@@ -2233,10 +2233,18 @@ fn register_one_op(effect_name, op) = {
     EffectOpScheme(effect_name))
 }
 
-fn register_handler(hname, ename, arms) = {
+fn register_handler(hname, ename, config, state, arms) = {
   // Handlers are first-class values; registering the name in env
   // allows them to be passed and installed. The full type (what
   // effects it absorbs, what it performs) is inferred from the arms.
+  // Per Hβ.first-light.handler-config-state-substrate: config-params
+  // and state-fields are extracted at parse time but bound in arm
+  // scope at HandleExpr install sites (where config-args are known
+  // via closure-capture and state-inits are evaluated). The decl
+  // site only registers the handler NAME + TYPE here; arm-body
+  // inference reads config + state via the handler's scheme at
+  // install. Walk-through paragraph: docs/specs/simulations/Hβ-
+  // first-light-empirical.md §4.5.14.
   let row_h = perform graph_fresh_row(Inferred("handler row"))
   perform env_extend(hname,
     Forall([], TName("Handler", [TName(ename, [])])),

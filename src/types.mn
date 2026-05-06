@@ -622,8 +622,13 @@ type Stmt
                            // name, type args, variants
   | EffectDeclStmt(String, List)
                            // effect name, ops (each carries ResumeDiscipline)
-  | HandlerDeclStmt(String, String, List)
-                           // handler name, effect name, arms
+  | HandlerDeclStmt(String, String, List, List, List)
+                           // handler name, effect name, config-params, state-fields, arms
+                           // config: List<String> — closure-captured at install site
+                           // state:  List<{name: String, init: Node}> — per-arm scope; updates via `resume(...) with f = e`
+                           // arms:   List<{args, body, op_name}>
+                           // Per Hβ.first-light.handler-config-state-substrate (2026-05-06):
+                           // config + state extracted at parse time; bound in arm scope at infer + lower
   | ExprStmt(Node)
   | ImportStmt(String)
   | RefineStmt(String, Ty, Predicate)

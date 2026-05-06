@@ -274,13 +274,63 @@
 
   ;; Handler-arm args bind into the arm body's scope and MUST be popped
   ;; after lowering so names do not leak into sibling arms.
-  (func $lower_handler_arm_body (param $args i32) (param $body_node i32) (result i32)
+  ;;
+  ;; Per Hβ.first-light.handler-config-state-substrate (2026-05-06):
+  ;; config-params + state-field-names also bind in arm scope (BEFORE
+  ;; arm args) so arm-body identifier lookup finds them as captures
+  ;; (config) or state-loads (state). Pre-substrate the seed bound only
+  ;; arm args; the wheel-prefix histogram surfaced 331 E_MissingVariable
+  ;; with `f`, `pred`, `remaining`, `skipped`, `buf`, etc. — all
+  ;; handler-config-params or handler-state-field names referenced in
+  ;; arm bodies but unbound at lower scope.
+  (func $lower_handler_arm_body
+        (param $args i32) (param $body_node i32)
+        (param $config i32) (param $state i32) (result i32)
     (local $cp i32) (local $lo_body i32)
     (local.set $cp (call $ls_push_scope))
+    (call $bind_handler_config_names (local.get $config))
+    (call $bind_handler_state_names  (local.get $state))
     (call $bind_handler_arg_names (local.get $args))
     (local.set $lo_body (call $lower_expr (local.get $body_node)))
     (call $ls_pop_scope (local.get $cp))
     (local.get $lo_body))
+
+  ;; Bind each handler config-param name as a local with sentinel 0.
+  ;; Mirrors $bind_handler_arg_names. Per Hβ.first-light.handler-config-
+  ;; state-substrate. Drift refused: 7 (one list of names, not parallel
+  ;; arrays); 9 (binding lands here, not deferred).
+  (func $bind_handler_config_names (param $names i32)
+    (local $n i32) (local $i i32)
+    (local.set $n (call $len (local.get $names)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (drop (call $ls_bind_local
+                (call $list_index (local.get $names) (local.get $i))
+                (i32.const 0)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each))))
+
+  ;; Bind each handler state-field name (read from offset 0 of each
+  ;; (name, init) 2-tuple per parser_handler.wat:391-393) as a local.
+  ;; Per Hβ.first-light.handler-config-state-substrate. State init
+  ;; lowering at handler INSTALL time is named peer
+  ;; Hβ.first-light.handler-state-init-lower-substrate (post-L1 cascade).
+  ;; Drift refused: 5 ((name, init) is the parser's positional layout);
+  ;; 8 (positional index 0 access, not string-keyed map).
+  (func $bind_handler_state_names (param $state i32)
+    (local $n i32) (local $i i32) (local $field i32) (local $name i32)
+    (local.set $n (call $len (local.get $state)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $field (call $list_index (local.get $state) (local.get $i)))
+        (local.set $name (call $list_index (local.get $field) (i32.const 0)))
+        (drop (call $ls_bind_local (local.get $name) (i32.const 0)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each))))
 
   ;; "_" length-prefixed ASCII for the discriminator separator.
   ;; Per data-offset audit, [4400, 4416) is free (highest existing
@@ -308,7 +358,8 @@
   ;; (Layer 2 = handle-derived names; Layer 3 = refinement-typed
   ;; Module uniqueness — both post-L1 peers).
   (func $lower_handler_arms_as_decls (export "lower_handler_arms_as_decls")
-        (param $arms i32) (param $discriminator i32) (result i32)
+        (param $arms i32) (param $discriminator i32)
+        (param $config i32) (param $state i32) (result i32)
     (local $n i32) (local $i i32) (local $buf i32)
     (local $arm i32) (local $args i32) (local $arg_names i32) (local $body_node i32)
     (local $op_name i32) (local $lo_body i32) (local $fn_name i32)
@@ -327,7 +378,9 @@
         (local.set $op_name   (call $record_get (local.get $arm) (i32.const 2)))
         (local.set $lo_body   (call $lower_handler_arm_body
                                 (local.get $arg_names)
-                                (local.get $body_node)))
+                                (local.get $body_node)
+                                (local.get $config)
+                                (local.get $state)))
         ;; fn_name = "op_" ++ discriminator ++ "_" ++ op_name
         (local.set $fn_name (call $str_concat (i32.const 504) (local.get $discriminator)))
         (local.set $fn_name (call $str_concat (local.get $fn_name) (i32.const 4400)))
@@ -368,9 +421,14 @@
         (local.set $args      (call $record_get (local.get $arm) (i32.const 0)))
         (local.set $body_node (call $record_get (local.get $arm) (i32.const 1)))
         (local.set $op_name   (call $record_get (local.get $arm) (i32.const 2)))
+        ;; Inline arm-records path: HandleExpr install site has no
+        ;; AST-level config/state (the handler value being installed
+        ;; already captured them at its decl). Pass empty lists.
         (local.set $lo_body   (call $lower_handler_arm_body
                                 (local.get $args)
-                                (local.get $body_node)))
+                                (local.get $body_node)
+                                (call $make_list (i32.const 0))
+                                (call $make_list (i32.const 0))))
         ;; arm_rec = {args, body: lo_body, op_name} per Lock #8 alphabetical.
         ;; Tag 0 — chunk-private record (no $tag_of dispatch on arm-records;
         ;; only structural field access).
@@ -401,10 +459,15 @@
     (local.set $arms         (i32.load offset=8 (local.get $handle_struct)))
     ;; Inline `handle { ... } with { arms }` — anonymous handler.
     ;; Discriminator is the handle-id stringified; uniqueness by
-    ;; construction (handles are graph-mint-unique).
+    ;; construction (handles are graph-mint-unique). Inline anonymous
+    ;; handle-expressions have no AST-level config/state (those
+    ;; belong to the named handler decl whose value is installed);
+    ;; pass empty lists per Hβ.first-light.handler-config-state-substrate.
     (local.set $arm_decls    (call $lower_handler_arms_as_decls
                                (local.get $arms)
-                               (call $int_to_str (local.get $h))))
+                               (call $int_to_str (local.get $h))
+                               (call $make_list (i32.const 0))
+                               (call $make_list (i32.const 0))))
     (local.set $arm_records  (call $lower_handler_arms_records  (local.get $arms)))
     (local.set $lo_body      (call $lower_expr (local.get $body_node)))
     (local.set $lhandle      (call $lexpr_make_lhandle
