@@ -247,6 +247,31 @@
         (br $each))))
 
   ;; ─── $lower_handler_arm_body — scoped lowering shared by both paths ──
+  ;; ─── $extract_handler_arg_names — map pat list to string list ──────
+  (func $extract_handler_arg_names (param $pats i32) (result i32)
+    (local $n i32) (local $i i32) (local $buf i32)
+    (local $pat i32) (local $tag i32) (local $name i32)
+    (local.set $n   (call $len (local.get $pats)))
+    (local.set $buf (call $make_list (i32.const 0)))
+    (local.set $buf (call $list_extend_to (local.get $buf) (local.get $n)))
+    (local.set $i   (i32.const 0))
+    (block $done
+      (loop $each
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $pat (call $list_index (local.get $pats) (local.get $i)))
+        (local.set $name (call $str_alloc (i32.const 1)))
+        (i32.store8 offset=4 (local.get $name) (i32.const 95)) ;; '_' default
+        (if (i32.ne (local.get $pat) (i32.const 131))
+          (then
+            (local.set $tag (call $tag_of (local.get $pat)))
+            (if (i32.eq (local.get $tag) (i32.const 130)) ;; PVar
+              (then
+                (local.set $name (i32.load offset=4 (local.get $pat)))))))
+        (drop (call $list_set (local.get $buf) (local.get $i) (local.get $name)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $each)))
+    (local.get $buf))
+
   ;; Handler-arm args bind into the arm body's scope and MUST be popped
   ;; after lowering so names do not leak into sibling arms.
   (func $lower_handler_arm_body (param $args i32) (param $body_node i32) (result i32)
@@ -263,7 +288,7 @@
   (func $lower_handler_arms_as_decls (export "lower_handler_arms_as_decls")
         (param $arms i32) (result i32)
     (local $n i32) (local $i i32) (local $buf i32)
-    (local $arm i32) (local $args i32) (local $body_node i32)
+    (local $arm i32) (local $args i32) (local $arg_names i32) (local $body_node i32)
     (local $op_name i32) (local $lo_body i32) (local $fn_name i32)
     (local $fn_body i32) (local $fn_ir i32)
     (local.set $n   (call $len (local.get $arms)))
@@ -275,10 +300,11 @@
         (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
         (local.set $arm       (call $list_index (local.get $arms) (local.get $i)))
         (local.set $args      (call $record_get (local.get $arm) (i32.const 0)))
+        (local.set $arg_names (call $extract_handler_arg_names (local.get $args)))
         (local.set $body_node (call $record_get (local.get $arm) (i32.const 1)))
         (local.set $op_name   (call $record_get (local.get $arm) (i32.const 2)))
         (local.set $lo_body   (call $lower_handler_arm_body
-                                (local.get $args)
+                                (local.get $arg_names)
                                 (local.get $body_node)))
         (local.set $fn_name   (call $str_concat (i32.const 504) (local.get $op_name)))
         (local.set $fn_body   (call $make_list (i32.const 0)))
@@ -286,8 +312,8 @@
         (drop (call $list_set (local.get $fn_body) (i32.const 0) (local.get $lo_body)))
         (local.set $fn_ir (call $lowfn_make
                             (local.get $fn_name)
-                            (call $len (local.get $args))
-                            (local.get $args)
+                            (call $len (local.get $arg_names))
+                            (local.get $arg_names)
                             (local.get $fn_body)
                             (call $row_make_pure)))
         (drop (call $list_set (local.get $buf) (local.get $i)
