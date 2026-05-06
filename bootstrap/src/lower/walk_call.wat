@@ -535,16 +535,36 @@
   (func $lower_perform (export "lower_perform") (param $node i32) (result i32)
     (local $h i32) (local $body i32) (local $perform_struct i32)
     (local $op_name i32) (local $args_list i32) (local $lo_args i32)
+    (local $resolved i32)
     (local.set $h              (call $walk_expr_node_handle (local.get $node)))
     (local.set $body           (i32.load offset=4 (local.get $node)))
     (local.set $perform_struct (i32.load offset=4 (local.get $body)))
     (local.set $op_name        (i32.load offset=4 (local.get $perform_struct)))
     (local.set $args_list      (i32.load offset=8 (local.get $perform_struct)))
     (local.set $lo_args        (call $lower_args (local.get $args_list)))
-    (call $lexpr_make_lperform
-      (local.get $h)
-      (local.get $op_name)
-      (local.get $lo_args)))
+    ;; Hβ.first-light.seed-lperform-discriminator-mirror — query
+    ;; lower-stage handler-stack for the innermost handler that
+    ;; handles op_name's effect. If found, the discriminated target
+    ;; "<handler>_<op>" matches the module-level $op_<handler>_<op>
+    ;; symbol minted by $lower_handler_arms_as_decls (commit 22a4bbc).
+    ;; If not found (no handler in scope or op not an EffectOpScheme),
+    ;; emit undiscriminated for productive-under-error.
+    ;;
+    ;; Tier 1 ULTIMATE FORM monomorphic direct-call per SUBSTRATE.md
+    ;; §"Three Tiers of Effect Compilation"; mirrors src/lower.nx
+    ;; commit 50a9512's wheel-canonical PerformExpr discrimination.
+    (local.set $resolved (call $lower_resolve_handler_for_op (local.get $op_name)))
+    (if (result i32) (i32.ne (local.get $resolved) (i32.const 0))
+      (then
+        (call $lexpr_make_lperform
+          (local.get $h)
+          (local.get $resolved)
+          (local.get $lo_args)))
+      (else
+        (call $lexpr_make_lperform
+          (local.get $h)
+          (local.get $op_name)
+          (local.get $lo_args)))))
 
   ;; ─── $lower_resume — ResumeExpr arm (parser tag 95) ────────────────
   ;; Per src/lower.nx:445-448 + Lock #6. ResumeExpr is "structurally a

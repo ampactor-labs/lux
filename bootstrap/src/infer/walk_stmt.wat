@@ -1016,6 +1016,18 @@
     ;; HandlerDeclStmt: [tag=124][name][effect][arms] (offsets 0/4/8/12)
     (local.set $handler_name (i32.load offset=4 (local.get $stmt)))
     (local.set $effect_name  (i32.load offset=8 (local.get $stmt)))
+    ;; Per Hβ.first-light.handler-effect-name-derive: parser leaves
+    ;; offset 8 as the empty string (it doesn't extract `with E` per
+    ;; parser_handler.wat:333's named-follow-up); infer derives the
+    ;; effect from the first arm's op_name → EffectOpScheme(ename).
+    ;; Required for $lower_resolve_handler_for_op to match the handler
+    ;; scheme TName("Handler", [TName(ename)]) against perform sites'
+    ;; op effect (commit 50a9512 + Hβ.first-light.seed-lperform-
+    ;; discriminator-mirror).
+    (if (i32.eqz (call $str_len (local.get $effect_name)))
+      (then (local.set $effect_name
+              (call $derive_effect_name_from_arms
+                    (i32.load offset=12 (local.get $stmt))))))
     ;; Build TName(ename, []) — the inner effect-name Ty.
     (local.set $effect_ty
       (call $ty_make_tname
@@ -1059,6 +1071,34 @@
 
   (func $handler_decl_handler_name_ptr (result i32)
     (i32.const 4320))
+
+  ;; $derive_effect_name_from_arms — given the arms list of a handler
+  ;; decl, return the effect_name string by looking up the FIRST arm's
+  ;; op_name in env → EffectOpScheme(ename). Returns empty string if
+  ;; arms is empty or first arm's op isn't an effect op.
+  ;;
+  ;; Per Hβ.first-light.handler-effect-name-derive: the seed parser
+  ;; doesn't extract `with E` form into HandlerDeclStmt offset 8 (it
+  ;; leaves an empty string per parser_handler.wat:333). This helper
+  ;; recovers the effect name from arms — every arm's op_name MUST
+  ;; resolve to the same EffectOpScheme(ename) per H1.4 single-effect-
+  ;; per-handler discipline; first-arm derivation is sound.
+  (func $derive_effect_name_from_arms (param $arms i32) (result i32)
+    (local $first_arm i32) (local $op_name i32)
+    (local $entry i32) (local $kind i32)
+    (if (i32.eqz (call $len (local.get $arms)))
+      (then (return (call $str_alloc (i32.const 0)))))
+    (local.set $first_arm (call $list_index (local.get $arms) (i32.const 0)))
+    (local.set $op_name   (call $record_get (local.get $first_arm) (i32.const 2)))
+    (local.set $entry (call $env_lookup (local.get $op_name)))
+    (if (i32.eqz (local.get $entry))
+      (then (return (call $str_alloc (i32.const 0)))))
+    (local.set $kind (call $env_binding_kind (local.get $entry)))
+    (if (i32.lt_u (local.get $kind) (global.get $heap_base))
+      (then (return (call $str_alloc (i32.const 0)))))
+    (if (i32.ne (call $tag_of (local.get $kind)) (i32.const 133))
+      (then (return (call $str_alloc (i32.const 0)))))
+    (call $schemekind_effectop_name (local.get $kind)))
 
   ;; Build a singleton args list containing the effect_ty Ty pointer.
   ;; Buffer-counter substrate per CLAUDE.md memory model (Drift 11

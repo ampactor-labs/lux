@@ -15094,6 +15094,18 @@
     ;; HandlerDeclStmt: [tag=124][name][effect][arms] (offsets 0/4/8/12)
     (local.set $handler_name (i32.load offset=4 (local.get $stmt)))
     (local.set $effect_name  (i32.load offset=8 (local.get $stmt)))
+    ;; Per Hβ.first-light.handler-effect-name-derive: parser leaves
+    ;; offset 8 as the empty string (it doesn't extract `with E` per
+    ;; parser_handler.wat:333's named-follow-up); infer derives the
+    ;; effect from the first arm's op_name → EffectOpScheme(ename).
+    ;; Required for $lower_resolve_handler_for_op to match the handler
+    ;; scheme TName("Handler", [TName(ename)]) against perform sites'
+    ;; op effect (commit 50a9512 + Hβ.first-light.seed-lperform-
+    ;; discriminator-mirror).
+    (if (i32.eqz (call $str_len (local.get $effect_name)))
+      (then (local.set $effect_name
+              (call $derive_effect_name_from_arms
+                    (i32.load offset=12 (local.get $stmt))))))
     ;; Build TName(ename, []) — the inner effect-name Ty.
     (local.set $effect_ty
       (call $ty_make_tname
@@ -15137,6 +15149,34 @@
 
   (func $handler_decl_handler_name_ptr (result i32)
     (i32.const 4320))
+
+  ;; $derive_effect_name_from_arms — given the arms list of a handler
+  ;; decl, return the effect_name string by looking up the FIRST arm's
+  ;; op_name in env → EffectOpScheme(ename). Returns empty string if
+  ;; arms is empty or first arm's op isn't an effect op.
+  ;;
+  ;; Per Hβ.first-light.handler-effect-name-derive: the seed parser
+  ;; doesn't extract `with E` form into HandlerDeclStmt offset 8 (it
+  ;; leaves an empty string per parser_handler.wat:333). This helper
+  ;; recovers the effect name from arms — every arm's op_name MUST
+  ;; resolve to the same EffectOpScheme(ename) per H1.4 single-effect-
+  ;; per-handler discipline; first-arm derivation is sound.
+  (func $derive_effect_name_from_arms (param $arms i32) (result i32)
+    (local $first_arm i32) (local $op_name i32)
+    (local $entry i32) (local $kind i32)
+    (if (i32.eqz (call $len (local.get $arms)))
+      (then (return (call $str_alloc (i32.const 0)))))
+    (local.set $first_arm (call $list_index (local.get $arms) (i32.const 0)))
+    (local.set $op_name   (call $record_get (local.get $first_arm) (i32.const 2)))
+    (local.set $entry (call $env_lookup (local.get $op_name)))
+    (if (i32.eqz (local.get $entry))
+      (then (return (call $str_alloc (i32.const 0)))))
+    (local.set $kind (call $env_binding_kind (local.get $entry)))
+    (if (i32.lt_u (local.get $kind) (global.get $heap_base))
+      (then (return (call $str_alloc (i32.const 0)))))
+    (if (i32.ne (call $tag_of (local.get $kind)) (i32.const 133))
+      (then (return (call $str_alloc (i32.const 0)))))
+    (call $schemekind_effectop_name (local.get $kind)))
 
   ;; Build a singleton args list containing the effect_ty Ty pointer.
   ;; Buffer-counter substrate per CLAUDE.md memory model (Drift 11
@@ -15744,6 +15784,20 @@
   ;; follow-up Hβ.lower.lambda-nested-frame for the full discipline).
   (global $lower_frame_start_g     (mut i32) (i32.const 0))
 
+  ;; Hβ.first-light.seed-lperform-discriminator-mirror — lower-stage
+  ;; handler-stack tracking. Each HandleExpr (parser tag-141) pushes
+  ;; the resolved handler-name; PerformExpr (tag 140) walks innermost-
+  ;; first to find the handler that handles its op_name. Mirrors the
+  ;; wheel's `inf_handler_provider` substrate at lower-time — gives the
+  ;; seed's $lower_perform the same Tier 1 discrimination the wheel
+  ;; emits in its own LPerform target_fn_name (commit 50a9512).
+  ;;
+  ;; Stack is a flat list of handler-name strings; count tracked
+  ;; separately. Push appends + bumps; pop decrements. Lookup walks
+  ;; from count-1 down to 0 (innermost first).
+  (global $lower_handler_stack_ptr (mut i32) (i32.const 0))
+  (global $lower_handler_count_g   (mut i32) (i32.const 0))
+
   ;; ─── Idempotent initializer (mirrors $infer_init / $graph_init) ────
   ;; Per the seed's discipline for module-level state chunks: every
   ;; public entry calls $lower_init first; subsequent calls no-op.
@@ -15760,7 +15814,107 @@
         (global.set $lower_globals_len_g  (i32.const 0))
         (global.set $lower_function_depth_g (i32.const 0))
         (global.set $lower_frame_start_g    (i32.const 0))
+        (global.set $lower_handler_stack_ptr (call $make_list (i32.const 8)))
+        (global.set $lower_handler_count_g (i32.const 0))
         (global.set $lower_initialized    (i32.const 1)))))
+
+  ;; Hβ.first-light.seed-lperform-discriminator-mirror —
+  ;; handler-stack push/pop/lookup. Push at HandleExpr enter; pop at
+  ;; HandleExpr exit. Lookup walks innermost-first; returns name of
+  ;; first handler whose env-bound scheme is TName("Handler",
+  ;; [TName(ename)]) where ename = op_name's EffectOpScheme effect.
+
+  (func $lower_handler_push (export "lower_handler_push") (param $name i32)
+    (call $lower_init)
+    (global.set $lower_handler_stack_ptr
+      (call $list_extend_to (global.get $lower_handler_stack_ptr)
+        (i32.add (global.get $lower_handler_count_g) (i32.const 1))))
+    (drop (call $list_set
+            (global.get $lower_handler_stack_ptr)
+            (global.get $lower_handler_count_g)
+            (local.get $name)))
+    (global.set $lower_handler_count_g
+      (i32.add (global.get $lower_handler_count_g) (i32.const 1))))
+
+  (func $lower_handler_pop (export "lower_handler_pop")
+    (call $lower_init)
+    (if (i32.gt_u (global.get $lower_handler_count_g) (i32.const 0))
+      (then (global.set $lower_handler_count_g
+              (i32.sub (global.get $lower_handler_count_g) (i32.const 1))))))
+
+  ;; $lower_resolve_handler_for_op — given op_name, return discriminated
+  ;; target string "<handler>_<op>" or 0 if no handler in scope handles
+  ;; the op's effect. Walks $lower_handler_stack innermost-first; for
+  ;; each handler-name, env_lookup → scheme_body → TName check matching
+  ;; the op's EffectOpScheme(ename).
+  ;;
+  ;; "_" separator at data offset 4400 (per discriminator commit 22a4bbc).
+  ;; "Handler" data offset 4320 (per walk_stmt.wat:1058).
+  (func $lower_resolve_handler_for_op (export "lower_resolve_handler_for_op")
+        (param $op_name i32) (result i32)
+    (local $entry i32) (local $kind i32) (local $ename i32)
+    (local $i i32) (local $hname i32) (local $h_entry i32) (local $sch i32)
+    (local $body i32) (local $args i32) (local $arg0 i32)
+    (local $target i32)
+    (call $lower_init)
+    ;; Resolve op_name to its effect_name via env_lookup → EffectOpScheme.
+    (local.set $entry (call $env_lookup (local.get $op_name)))
+    (if (i32.eqz (local.get $entry)) (then (return (i32.const 0))))
+    (local.set $kind (call $env_binding_kind (local.get $entry)))
+    ;; EffectOpScheme tag = 133 per env.wat:172-177.
+    (if (i32.lt_u (local.get $kind) (global.get $heap_base))
+      (then (return (i32.const 0))))
+    (if (i32.ne (call $tag_of (local.get $kind)) (i32.const 133))
+      (then (return (i32.const 0))))
+    (local.set $ename (call $schemekind_effectop_name (local.get $kind)))
+    ;; Walk handler-stack innermost-first.
+    (local.set $i (i32.sub (global.get $lower_handler_count_g) (i32.const 1)))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.lt_s (local.get $i) (i32.const 0)))
+        (local.set $hname
+          (call $list_index (global.get $lower_handler_stack_ptr) (local.get $i)))
+        (local.set $h_entry (call $env_lookup (local.get $hname)))
+        (if (i32.ne (local.get $h_entry) (i32.const 0))
+          (then
+            (local.set $sch (call $env_binding_scheme (local.get $h_entry)))
+            (local.set $body (call $scheme_body (local.get $sch)))
+            ;; Check body is TName("Handler", [TName(ename_match)]).
+            (if (i32.ge_u (local.get $body) (global.get $heap_base))
+              (then
+                (if (i32.eq (call $ty_tag (local.get $body)) (i32.const 108))
+                  (then
+                    (if (call $str_eq
+                              (call $ty_tname_name (local.get $body))
+                              (i32.const 4320))                      ;; "Handler"
+                      (then
+                        (local.set $args (call $ty_tname_args (local.get $body)))
+                        (if (i32.eq (call $len (local.get $args)) (i32.const 1))
+                          (then
+                            (local.set $arg0
+                              (call $list_index (local.get $args) (i32.const 0)))
+                            (if (i32.ge_u (local.get $arg0) (global.get $heap_base))
+                              (then
+                                (if (i32.eq (call $ty_tag (local.get $arg0))
+                                            (i32.const 108))
+                                  (then
+                                    (if (call $str_eq
+                                              (call $ty_tname_name (local.get $arg0))
+                                              (local.get $ename))
+                                      (then
+                                        ;; Match. Build "<hname>_<op_name>".
+                                        (local.set $target
+                                          (call $str_concat
+                                                (local.get $hname)
+                                                (i32.const 4400)))   ;; "_"
+                                        (local.set $target
+                                          (call $str_concat
+                                                (local.get $target)
+                                                (local.get $op_name)))
+                                        (return (local.get $target))))))))))))))))))
+        (local.set $i (i32.sub (local.get $i) (i32.const 1)))
+        (br $iter)))
+    (i32.const 0))
 
   ;; ─── $ls_register_globals — install top-level names for this walk ──
   (func $ls_register_globals (param $names i32)
@@ -18903,16 +19057,36 @@
   (func $lower_perform (export "lower_perform") (param $node i32) (result i32)
     (local $h i32) (local $body i32) (local $perform_struct i32)
     (local $op_name i32) (local $args_list i32) (local $lo_args i32)
+    (local $resolved i32)
     (local.set $h              (call $walk_expr_node_handle (local.get $node)))
     (local.set $body           (i32.load offset=4 (local.get $node)))
     (local.set $perform_struct (i32.load offset=4 (local.get $body)))
     (local.set $op_name        (i32.load offset=4 (local.get $perform_struct)))
     (local.set $args_list      (i32.load offset=8 (local.get $perform_struct)))
     (local.set $lo_args        (call $lower_args (local.get $args_list)))
-    (call $lexpr_make_lperform
-      (local.get $h)
-      (local.get $op_name)
-      (local.get $lo_args)))
+    ;; Hβ.first-light.seed-lperform-discriminator-mirror — query
+    ;; lower-stage handler-stack for the innermost handler that
+    ;; handles op_name's effect. If found, the discriminated target
+    ;; "<handler>_<op>" matches the module-level $op_<handler>_<op>
+    ;; symbol minted by $lower_handler_arms_as_decls (commit 22a4bbc).
+    ;; If not found (no handler in scope or op not an EffectOpScheme),
+    ;; emit undiscriminated for productive-under-error.
+    ;;
+    ;; Tier 1 ULTIMATE FORM monomorphic direct-call per SUBSTRATE.md
+    ;; §"Three Tiers of Effect Compilation"; mirrors src/lower.nx
+    ;; commit 50a9512's wheel-canonical PerformExpr discrimination.
+    (local.set $resolved (call $lower_resolve_handler_for_op (local.get $op_name)))
+    (if (result i32) (i32.ne (local.get $resolved) (i32.const 0))
+      (then
+        (call $lexpr_make_lperform
+          (local.get $h)
+          (local.get $resolved)
+          (local.get $lo_args)))
+      (else
+        (call $lexpr_make_lperform
+          (local.get $h)
+          (local.get $op_name)
+          (local.get $lo_args)))))
 
   ;; ─── $lower_resume — ResumeExpr arm (parser tag 95) ────────────────
   ;; Per src/lower.nx:445-448 + Lock #6. ResumeExpr is "structurally a
@@ -19227,6 +19401,7 @@
   ;; of all prior segments).
   (data (i32.const 4400) "\01\00\00\00_")
 
+
   ;; ─── $lower_handler_arms_as_decls — Lock #7 real LDeclareFn list ───
   ;; Per src/lower.nx:745-755. Each arm becomes
   ;; LDeclareFn(LowFn("op_" + discriminator + "_" + op_name, ..., Pure)).
@@ -19374,15 +19549,34 @@
   (func $lower_pipe (export "lower_pipe") (param $node i32) (result i32)
     (local $h i32) (local $body i32) (local $pipe_struct i32)
     (local $kind i32) (local $left_node i32) (local $right_node i32)
-    (local $lo_l i32) (local $lo_r i32)
+    (local $lo_l i32) (local $lo_r i32) (local $hname i32)
     (local.set $h           (call $walk_expr_node_handle (local.get $node)))
     (local.set $body        (i32.load offset=4 (local.get $node)))
     (local.set $pipe_struct (i32.load offset=4 (local.get $body)))
     (local.set $kind        (i32.load offset=4 (local.get $pipe_struct)))
     (local.set $left_node   (i32.load offset=8 (local.get $pipe_struct)))
     (local.set $right_node  (i32.load offset=12 (local.get $pipe_struct)))
-    (local.set $lo_l        (call $lower_expr (local.get $left_node)))
-    (local.set $lo_r        (call $lower_expr (local.get $right_node)))
+    ;; PTeeBlock (163) + PTeeInline (164) — `body ~> handler` install.
+    ;; Per Hβ.first-light.seed-lperform-discriminator-mirror: push the
+    ;; handler-name onto $lower_handler_stack BEFORE lowering body so
+    ;; perform sites within body see the active handler. Pop after.
+    ;; PTee dispatch is handled here ahead of the generic left/right
+    ;; lowering that PForward/PDiverge/PCompose/PFeedback share.
+    (if (i32.or (i32.eq (local.get $kind) (i32.const 163))
+                (i32.eq (local.get $kind) (i32.const 164)))
+      (then
+        (local.set $lo_r (call $lower_expr (local.get $right_node)))
+        (local.set $hname (call $extract_handler_name (local.get $right_node)))
+        (if (i32.ne (local.get $hname) (i32.const 0))
+          (then (call $lower_handler_push (local.get $hname))))
+        (local.set $lo_l (call $lower_expr (local.get $left_node)))
+        (if (i32.ne (local.get $hname) (i32.const 0))
+          (then (call $lower_handler_pop)))
+        (return (call $lower_pipe_handle
+                  (local.get $h) (local.get $lo_l) (local.get $lo_r)))))
+    ;; Non-handle pipes — lower left+right normally.
+    (local.set $lo_l (call $lower_expr (local.get $left_node)))
+    (local.set $lo_r (call $lower_expr (local.get $right_node)))
     ;; PForward (160) — `left |> right` → LCall(h, right, [left]).
     (if (i32.eq (local.get $kind) (i32.const 160))
       (then (return (call $lower_pipe_forward
@@ -19395,19 +19589,49 @@
     (if (i32.eq (local.get $kind) (i32.const 162))
       (then (return (call $lower_pipe_compose
                       (local.get $h) (local.get $lo_l) (local.get $lo_r)))))
-    ;; PTeeBlock (163) + PTeeInline (164) — Lock #2 collapse.
-    (if (i32.eq (local.get $kind) (i32.const 163))
-      (then (return (call $lower_pipe_handle
-                      (local.get $h) (local.get $lo_l) (local.get $lo_r)))))
-    (if (i32.eq (local.get $kind) (i32.const 164))
-      (then (return (call $lower_pipe_handle
-                      (local.get $h) (local.get $lo_l) (local.get $lo_r)))))
     ;; PFeedback (165) — `<~` per Lock #5.
     (if (i32.eq (local.get $kind) (i32.const 165))
       (then (return (call $lower_pipe_feedback
                       (local.get $h) (local.get $lo_l) (local.get $lo_r)))))
     ;; Unknown PipeKind — compiler-internal bug.
     (unreachable))
+
+  ;; $extract_handler_name — given the right-side AST node of a
+  ;; `body ~> handler` pipe, return the handler's name string or 0 if
+  ;; the right side is not a name-bearing form. Recognized shapes:
+  ;;   VarRef(name) — `~> map_h`
+  ;;   CallExpr(VarRef(name), args) — `~> map_h(f)` (handler-decl with config)
+  ;;
+  ;; Per Hβ.first-light.seed-lperform-discriminator-mirror: lower needs
+  ;; the handler's name to push the lower-stage handler-stack so perform
+  ;; sites within body resolve to the handler's discriminated arm fns.
+  (func $extract_handler_name (param $node i32) (result i32)
+    (local $body i32) (local $expr i32) (local $tag i32)
+    (local $callee_node i32) (local $callee_body i32) (local $callee_expr i32)
+    (if (i32.lt_u (local.get $node) (global.get $heap_base))
+      (then (return (i32.const 0))))
+    (local.set $body (i32.load offset=4 (local.get $node)))
+    ;; NExpr wrapper: tag 110 → expr at offset 4.
+    (if (i32.ne (i32.load (local.get $body)) (i32.const 110))
+      (then (return (i32.const 0))))
+    (local.set $expr (i32.load offset=4 (local.get $body)))
+    (local.set $tag (i32.load (local.get $expr)))
+    ;; VarRef tag = 85 per parser_infra.wat:111 ($mk_VarRef).
+    (if (i32.eq (local.get $tag) (i32.const 85))
+      (then (return (i32.load offset=4 (local.get $expr)))))
+    ;; CallExpr tag = 88; offset 4 = callee node, offset 8 = args.
+    (if (i32.eq (local.get $tag) (i32.const 88))
+      (then
+        (local.set $callee_node (i32.load offset=4 (local.get $expr)))
+        (if (i32.lt_u (local.get $callee_node) (global.get $heap_base))
+          (then (return (i32.const 0))))
+        (local.set $callee_body (i32.load offset=4 (local.get $callee_node)))
+        (if (i32.ne (i32.load (local.get $callee_body)) (i32.const 110))
+          (then (return (i32.const 0))))
+        (local.set $callee_expr (i32.load offset=4 (local.get $callee_body)))
+        (if (i32.eq (i32.load (local.get $callee_expr)) (i32.const 85))
+          (then (return (i32.load offset=4 (local.get $callee_expr)))))))
+    (i32.const 0))
 
   ;; ─── $lower_pipe_forward — `|>` arm ───────────────────────────────
   ;; Per src/lower.nx:476: PForward => LCall(handle, lo_r, [lo_l]).

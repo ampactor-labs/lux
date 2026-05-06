@@ -151,6 +151,20 @@
   ;; follow-up Hβ.lower.lambda-nested-frame for the full discipline).
   (global $lower_frame_start_g     (mut i32) (i32.const 0))
 
+  ;; Hβ.first-light.seed-lperform-discriminator-mirror — lower-stage
+  ;; handler-stack tracking. Each HandleExpr (parser tag-141) pushes
+  ;; the resolved handler-name; PerformExpr (tag 140) walks innermost-
+  ;; first to find the handler that handles its op_name. Mirrors the
+  ;; wheel's `inf_handler_provider` substrate at lower-time — gives the
+  ;; seed's $lower_perform the same Tier 1 discrimination the wheel
+  ;; emits in its own LPerform target_fn_name (commit 50a9512).
+  ;;
+  ;; Stack is a flat list of handler-name strings; count tracked
+  ;; separately. Push appends + bumps; pop decrements. Lookup walks
+  ;; from count-1 down to 0 (innermost first).
+  (global $lower_handler_stack_ptr (mut i32) (i32.const 0))
+  (global $lower_handler_count_g   (mut i32) (i32.const 0))
+
   ;; ─── Idempotent initializer (mirrors $infer_init / $graph_init) ────
   ;; Per the seed's discipline for module-level state chunks: every
   ;; public entry calls $lower_init first; subsequent calls no-op.
@@ -167,7 +181,107 @@
         (global.set $lower_globals_len_g  (i32.const 0))
         (global.set $lower_function_depth_g (i32.const 0))
         (global.set $lower_frame_start_g    (i32.const 0))
+        (global.set $lower_handler_stack_ptr (call $make_list (i32.const 8)))
+        (global.set $lower_handler_count_g (i32.const 0))
         (global.set $lower_initialized    (i32.const 1)))))
+
+  ;; Hβ.first-light.seed-lperform-discriminator-mirror —
+  ;; handler-stack push/pop/lookup. Push at HandleExpr enter; pop at
+  ;; HandleExpr exit. Lookup walks innermost-first; returns name of
+  ;; first handler whose env-bound scheme is TName("Handler",
+  ;; [TName(ename)]) where ename = op_name's EffectOpScheme effect.
+
+  (func $lower_handler_push (export "lower_handler_push") (param $name i32)
+    (call $lower_init)
+    (global.set $lower_handler_stack_ptr
+      (call $list_extend_to (global.get $lower_handler_stack_ptr)
+        (i32.add (global.get $lower_handler_count_g) (i32.const 1))))
+    (drop (call $list_set
+            (global.get $lower_handler_stack_ptr)
+            (global.get $lower_handler_count_g)
+            (local.get $name)))
+    (global.set $lower_handler_count_g
+      (i32.add (global.get $lower_handler_count_g) (i32.const 1))))
+
+  (func $lower_handler_pop (export "lower_handler_pop")
+    (call $lower_init)
+    (if (i32.gt_u (global.get $lower_handler_count_g) (i32.const 0))
+      (then (global.set $lower_handler_count_g
+              (i32.sub (global.get $lower_handler_count_g) (i32.const 1))))))
+
+  ;; $lower_resolve_handler_for_op — given op_name, return discriminated
+  ;; target string "<handler>_<op>" or 0 if no handler in scope handles
+  ;; the op's effect. Walks $lower_handler_stack innermost-first; for
+  ;; each handler-name, env_lookup → scheme_body → TName check matching
+  ;; the op's EffectOpScheme(ename).
+  ;;
+  ;; "_" separator at data offset 4400 (per discriminator commit 22a4bbc).
+  ;; "Handler" data offset 4320 (per walk_stmt.wat:1058).
+  (func $lower_resolve_handler_for_op (export "lower_resolve_handler_for_op")
+        (param $op_name i32) (result i32)
+    (local $entry i32) (local $kind i32) (local $ename i32)
+    (local $i i32) (local $hname i32) (local $h_entry i32) (local $sch i32)
+    (local $body i32) (local $args i32) (local $arg0 i32)
+    (local $target i32)
+    (call $lower_init)
+    ;; Resolve op_name to its effect_name via env_lookup → EffectOpScheme.
+    (local.set $entry (call $env_lookup (local.get $op_name)))
+    (if (i32.eqz (local.get $entry)) (then (return (i32.const 0))))
+    (local.set $kind (call $env_binding_kind (local.get $entry)))
+    ;; EffectOpScheme tag = 133 per env.wat:172-177.
+    (if (i32.lt_u (local.get $kind) (global.get $heap_base))
+      (then (return (i32.const 0))))
+    (if (i32.ne (call $tag_of (local.get $kind)) (i32.const 133))
+      (then (return (i32.const 0))))
+    (local.set $ename (call $schemekind_effectop_name (local.get $kind)))
+    ;; Walk handler-stack innermost-first.
+    (local.set $i (i32.sub (global.get $lower_handler_count_g) (i32.const 1)))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.lt_s (local.get $i) (i32.const 0)))
+        (local.set $hname
+          (call $list_index (global.get $lower_handler_stack_ptr) (local.get $i)))
+        (local.set $h_entry (call $env_lookup (local.get $hname)))
+        (if (i32.ne (local.get $h_entry) (i32.const 0))
+          (then
+            (local.set $sch (call $env_binding_scheme (local.get $h_entry)))
+            (local.set $body (call $scheme_body (local.get $sch)))
+            ;; Check body is TName("Handler", [TName(ename_match)]).
+            (if (i32.ge_u (local.get $body) (global.get $heap_base))
+              (then
+                (if (i32.eq (call $ty_tag (local.get $body)) (i32.const 108))
+                  (then
+                    (if (call $str_eq
+                              (call $ty_tname_name (local.get $body))
+                              (i32.const 4320))                      ;; "Handler"
+                      (then
+                        (local.set $args (call $ty_tname_args (local.get $body)))
+                        (if (i32.eq (call $len (local.get $args)) (i32.const 1))
+                          (then
+                            (local.set $arg0
+                              (call $list_index (local.get $args) (i32.const 0)))
+                            (if (i32.ge_u (local.get $arg0) (global.get $heap_base))
+                              (then
+                                (if (i32.eq (call $ty_tag (local.get $arg0))
+                                            (i32.const 108))
+                                  (then
+                                    (if (call $str_eq
+                                              (call $ty_tname_name (local.get $arg0))
+                                              (local.get $ename))
+                                      (then
+                                        ;; Match. Build "<hname>_<op_name>".
+                                        (local.set $target
+                                          (call $str_concat
+                                                (local.get $hname)
+                                                (i32.const 4400)))   ;; "_"
+                                        (local.set $target
+                                          (call $str_concat
+                                                (local.get $target)
+                                                (local.get $op_name)))
+                                        (return (local.get $target))))))))))))))))))
+        (local.set $i (i32.sub (local.get $i) (i32.const 1)))
+        (br $iter)))
+    (i32.const 0))
 
   ;; ─── $ls_register_globals — install top-level names for this walk ──
   (func $ls_register_globals (param $names i32)

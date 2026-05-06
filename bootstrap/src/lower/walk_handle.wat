@@ -288,6 +288,7 @@
   ;; of all prior segments).
   (data (i32.const 4400) "\01\00\00\00_")
 
+
   ;; ─── $lower_handler_arms_as_decls — Lock #7 real LDeclareFn list ───
   ;; Per src/lower.nx:745-755. Each arm becomes
   ;; LDeclareFn(LowFn("op_" + discriminator + "_" + op_name, ..., Pure)).
@@ -435,15 +436,34 @@
   (func $lower_pipe (export "lower_pipe") (param $node i32) (result i32)
     (local $h i32) (local $body i32) (local $pipe_struct i32)
     (local $kind i32) (local $left_node i32) (local $right_node i32)
-    (local $lo_l i32) (local $lo_r i32)
+    (local $lo_l i32) (local $lo_r i32) (local $hname i32)
     (local.set $h           (call $walk_expr_node_handle (local.get $node)))
     (local.set $body        (i32.load offset=4 (local.get $node)))
     (local.set $pipe_struct (i32.load offset=4 (local.get $body)))
     (local.set $kind        (i32.load offset=4 (local.get $pipe_struct)))
     (local.set $left_node   (i32.load offset=8 (local.get $pipe_struct)))
     (local.set $right_node  (i32.load offset=12 (local.get $pipe_struct)))
-    (local.set $lo_l        (call $lower_expr (local.get $left_node)))
-    (local.set $lo_r        (call $lower_expr (local.get $right_node)))
+    ;; PTeeBlock (163) + PTeeInline (164) — `body ~> handler` install.
+    ;; Per Hβ.first-light.seed-lperform-discriminator-mirror: push the
+    ;; handler-name onto $lower_handler_stack BEFORE lowering body so
+    ;; perform sites within body see the active handler. Pop after.
+    ;; PTee dispatch is handled here ahead of the generic left/right
+    ;; lowering that PForward/PDiverge/PCompose/PFeedback share.
+    (if (i32.or (i32.eq (local.get $kind) (i32.const 163))
+                (i32.eq (local.get $kind) (i32.const 164)))
+      (then
+        (local.set $lo_r (call $lower_expr (local.get $right_node)))
+        (local.set $hname (call $extract_handler_name (local.get $right_node)))
+        (if (i32.ne (local.get $hname) (i32.const 0))
+          (then (call $lower_handler_push (local.get $hname))))
+        (local.set $lo_l (call $lower_expr (local.get $left_node)))
+        (if (i32.ne (local.get $hname) (i32.const 0))
+          (then (call $lower_handler_pop)))
+        (return (call $lower_pipe_handle
+                  (local.get $h) (local.get $lo_l) (local.get $lo_r)))))
+    ;; Non-handle pipes — lower left+right normally.
+    (local.set $lo_l (call $lower_expr (local.get $left_node)))
+    (local.set $lo_r (call $lower_expr (local.get $right_node)))
     ;; PForward (160) — `left |> right` → LCall(h, right, [left]).
     (if (i32.eq (local.get $kind) (i32.const 160))
       (then (return (call $lower_pipe_forward
@@ -456,19 +476,49 @@
     (if (i32.eq (local.get $kind) (i32.const 162))
       (then (return (call $lower_pipe_compose
                       (local.get $h) (local.get $lo_l) (local.get $lo_r)))))
-    ;; PTeeBlock (163) + PTeeInline (164) — Lock #2 collapse.
-    (if (i32.eq (local.get $kind) (i32.const 163))
-      (then (return (call $lower_pipe_handle
-                      (local.get $h) (local.get $lo_l) (local.get $lo_r)))))
-    (if (i32.eq (local.get $kind) (i32.const 164))
-      (then (return (call $lower_pipe_handle
-                      (local.get $h) (local.get $lo_l) (local.get $lo_r)))))
     ;; PFeedback (165) — `<~` per Lock #5.
     (if (i32.eq (local.get $kind) (i32.const 165))
       (then (return (call $lower_pipe_feedback
                       (local.get $h) (local.get $lo_l) (local.get $lo_r)))))
     ;; Unknown PipeKind — compiler-internal bug.
     (unreachable))
+
+  ;; $extract_handler_name — given the right-side AST node of a
+  ;; `body ~> handler` pipe, return the handler's name string or 0 if
+  ;; the right side is not a name-bearing form. Recognized shapes:
+  ;;   VarRef(name) — `~> map_h`
+  ;;   CallExpr(VarRef(name), args) — `~> map_h(f)` (handler-decl with config)
+  ;;
+  ;; Per Hβ.first-light.seed-lperform-discriminator-mirror: lower needs
+  ;; the handler's name to push the lower-stage handler-stack so perform
+  ;; sites within body resolve to the handler's discriminated arm fns.
+  (func $extract_handler_name (param $node i32) (result i32)
+    (local $body i32) (local $expr i32) (local $tag i32)
+    (local $callee_node i32) (local $callee_body i32) (local $callee_expr i32)
+    (if (i32.lt_u (local.get $node) (global.get $heap_base))
+      (then (return (i32.const 0))))
+    (local.set $body (i32.load offset=4 (local.get $node)))
+    ;; NExpr wrapper: tag 110 → expr at offset 4.
+    (if (i32.ne (i32.load (local.get $body)) (i32.const 110))
+      (then (return (i32.const 0))))
+    (local.set $expr (i32.load offset=4 (local.get $body)))
+    (local.set $tag (i32.load (local.get $expr)))
+    ;; VarRef tag = 85 per parser_infra.wat:111 ($mk_VarRef).
+    (if (i32.eq (local.get $tag) (i32.const 85))
+      (then (return (i32.load offset=4 (local.get $expr)))))
+    ;; CallExpr tag = 88; offset 4 = callee node, offset 8 = args.
+    (if (i32.eq (local.get $tag) (i32.const 88))
+      (then
+        (local.set $callee_node (i32.load offset=4 (local.get $expr)))
+        (if (i32.lt_u (local.get $callee_node) (global.get $heap_base))
+          (then (return (i32.const 0))))
+        (local.set $callee_body (i32.load offset=4 (local.get $callee_node)))
+        (if (i32.ne (i32.load (local.get $callee_body)) (i32.const 110))
+          (then (return (i32.const 0))))
+        (local.set $callee_expr (i32.load offset=4 (local.get $callee_body)))
+        (if (i32.eq (i32.load (local.get $callee_expr)) (i32.const 85))
+          (then (return (i32.load offset=4 (local.get $callee_expr)))))))
+    (i32.const 0))
 
   ;; ─── $lower_pipe_forward — `|>` arm ───────────────────────────────
   ;; Per src/lower.nx:476: PForward => LCall(handle, lo_r, [lo_l]).
