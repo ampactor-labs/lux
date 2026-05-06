@@ -37,7 +37,7 @@ adds no new primitive, no new keyword, no new verb.
 - **Not `Promise.race` / `tokio::select!` / Go `select` / Erlang
   `receive`.** Those are thread/concurrency primitives over
   heterogeneous async sources; they pick wall-clock winners and
-  discard losers' side-effects as lost work. Inka's `race` is MS
+  discard losers' side-effects as lost work. Mentl's `race` is MS
   candidate racing on **one graph** with trail-based rollback of
   losers; the "parallel" is across forks of a delimited
   continuation, not across OS threads. (Threading is `><` +
@@ -150,10 +150,10 @@ Sequence:
 
 1. At `race(h1, ..., hn)` install, ONE `graph_push_checkpoint()`
    fires, capturing `trail_len` as `race_checkpoint`. Primitive #1
-   substrate; `src/graph.nx:90` handler arm.
+   substrate; `src/graph.mn:90` handler arm.
 2. Each input handler's MS resume forks. Each fork's mutations append
    to the trail (via the normal `graph_bind` / `graph_fresh_ty`
-   paths in `src/graph.nx:100-155`).
+   paths in `src/graph.mn:100-155`).
 3. When all survivors have Verified, the tiebreak chain picks ONE.
 4. The winner's trail entries (from `race_checkpoint` to its
    verification point) are committed by leaving them in place.
@@ -172,10 +172,10 @@ checkpoint" mitigation — `race` is the vehicle MO names.
 
 ## 4. Eight interrogations — per edit site
 
-### 4.1 Edit site — `lib/runtime/combinators.nx` (NEW file, ~100 lines)
+### 4.1 Edit site — `lib/runtime/combinators.mn` (NEW file, ~100 lines)
 
 - **Graph?** `graph_push_checkpoint` + `graph_rollback` already
-  encode the speculative-rollback substrate (`src/graph.nx:90,218`).
+  encode the speculative-rollback substrate (`src/graph.mn:90,218`).
   `race` calls these; it does not re-derive them. Primitive #1.
 - **Handler?** `race` IS a handler-combinator. Its arms resume
   `@resume=MultiShot` (each input handler's ops are MS; `race`
@@ -186,7 +186,7 @@ checkpoint" mitigation — `race` is the vehicle MO names.
   verbs, not imperative for/while.
 - **Row?** Returned row is input-row intersection via primitive #4
   `&`. Subsumption at install time via existing `row_subsumes`
-  in `src/effects.nx`. `!Choice` context still forbids — a function
+  in `src/effects.mn`. `!Choice` context still forbids — a function
   declared `!Choice` cannot install `race` over a Choice-typed op.
 - **Ownership?** Input handlers are `ref` (borrowed by `race`;
   not consumed). Returned handler is `own` (new handler identity
@@ -256,22 +256,22 @@ Any `race`-shaped pattern traceable to a specific ecosystem's
 concurrency idiom is drift:
 
 - **JS `Promise.race`** — wall-clock winner over async Promises.
-  Inka's `race` is deterministic via tiebreak; the "winner" is not
+  Mentl's `race` is deterministic via tiebreak; the "winner" is not
   first-to-finish. If `Promise.race` vocabulary shows up in a
   description, restructure.
-- **Go `select`** — wall-clock multiplex over channels. Inka has no
+- **Go `select`** — wall-clock multiplex over channels. Mentl has no
   channels in the race substrate. Trail rollback, not channel
   receive.
 - **Erlang/Elixir `receive`** — mailbox pattern match. Not applicable.
-- **Rust `tokio::select!`** — wall-clock futures macro. Inka's
+- **Rust `tokio::select!`** — wall-clock futures macro. Mentl's
   `race` is synchronous in the effect-op sense; the parallelism is
   MS forks, not Future polls.
 - **Haskell `Par` monad / `race` in `async`** — spark-based
-  parallelism with wall-clock winner. Inka's `race` is MS
+  parallelism with wall-clock winner. Mentl's `race` is MS
   candidates on one graph with deterministic selection.
 
 If the next line you'd type comes from any of the above, STOP.
-Inka's `race` is **MS candidate racing on one graph with a shared
+Mentl's `race` is **MS candidate racing on one graph with a shared
 checkpoint and a deterministic tiebreak chain**. Name the discipline
 before typing the line.
 
@@ -279,12 +279,12 @@ before typing the line.
 
 ## 6. Substrate touch sites — literal tokens
 
-### 6.1 NEW `lib/runtime/combinators.nx` (~100 lines)
+### 6.1 NEW `lib/runtime/combinators.mn` (~100 lines)
 
 **File header (lines 1–12):**
 
 ```
-// combinators.nx — handler combinators over primitive #2
+// combinators.mn — handler combinators over primitive #2
 //
 // `race` — parallel speculation across N candidate MS handlers on
 // one graph. Shared checkpoint at install; per-fork exploration;
@@ -379,9 +379,9 @@ fn collect_verified_survivors(handlers, checkpoint)
 
 ### 6.2 Touch sites in other files — NONE
 
-`race` is self-contained in `lib/runtime/combinators.nx`. No
-changes to `src/types.nx`, `src/graph.nx`, `src/infer.nx`, or
-`src/backends/wasm.nx`. The combinator composes from existing
+`race` is self-contained in `lib/runtime/combinators.mn`. No
+changes to `src/types.mn`, `src/graph.mn`, `src/infer.mn`, or
+`src/backends/wasm.mn`. The combinator composes from existing
 substrate.
 
 **Subordinate helpers** (`handler_row`, `handler_reason`,
@@ -389,7 +389,7 @@ substrate.
 `reason_chain_length`, `intent_matches`, `span_start`,
 `outcome_verified`, `try_handler_with_rollback`, `replay_winner`,
 `graph_cursor`) either already exist in the graph/types substrate or
-land inline within `combinators.nx` as small pure helpers (max
+land inline within `combinators.mn` as small pure helpers (max
 ~40 lines combined).
 
 ---
@@ -479,8 +479,8 @@ Expected: compiles. `h` has type `Handler` with row `Choice`
 ```
 // Run 1 and Run 2 with identical inputs + identical handler order
 // produce bit-identical output regardless of wall-clock completion.
-inka run --seed=42 examples/nqueens_race.nx > out1.wat
-inka run --seed=42 examples/nqueens_race.nx > out2.wat
+mentl run --seed=42 examples/nqueens_race.mn > out1.wat
+mentl run --seed=42 examples/nqueens_race.mn > out2.wat
 diff out1.wat out2.wat    # empty expected
 ```
 
@@ -503,7 +503,7 @@ picks by row-minimality-first, stable across wall-clock variance.
 ### HC2-AT4 — drift-audit post-landing
 
 ```
-bash tools/drift-audit.sh lib/runtime/combinators.nx
+bash tools/drift-audit.sh lib/runtime/combinators.mn
 ```
 
 Expected: `CLEAN — 1 file(s) scanned, 0 drift modes fired`.
@@ -531,7 +531,7 @@ surface as a peer walkthrough. Do not resolve inline.
 
 ## 10. Dispatch
 
-**inka-implementer (Sonnet).** Mechanical transcription:
+**mentl-implementer (Sonnet).** Mechanical transcription:
 - Signature fixed (§1.1).
 - Tiebreak chain fixed (§2, five steps).
 - Checkpoint discipline fixed (§3, one checkpoint).

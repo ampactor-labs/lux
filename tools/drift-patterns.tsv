@@ -1,4 +1,4 @@
-# drift-patterns.tsv — fluency-trap regex catalog for Inka
+# drift-patterns.tsv — fluency-trap regex catalog for Mentl
 # Format: mode_num<TAB>mode_name<TAB>regex<TAB>scope<TAB>notes
 # scope: ka | all | <comma-separated exts, e.g., ka,lux>
 # mode_num 1-9 = CLAUDE.md drift modes; 10+ = bug-classes and keyword drift
@@ -33,22 +33,22 @@
 16	println-in-report (corrupts WAT stdout)	report\s*\([^)]*println	ka	println inside report(...) handler arms corrupts WAT stdout.
 #
 # --- Foreign-language keyword drift (the fluency trap surface) ---
-20	Rust keyword drift (impl)	^\s*impl\b|\bimpl\s+\w+\s+for\b	ka	`impl` is Rust. Inka has handlers on the graph.
-20	Rust keyword drift (trait/struct/enum/pub/mod)	^\s*(trait|struct|enum|pub|mod|crate)\s	ka	Rust keywords. ADTs are declared with Inka's own grammar.
-21	Python keyword drift (def/class)	^\s*(def|class)\s+\w+\s*[:(]	ka	`def`/`class` are Python. Functions in Inka are `fn`, structure is ADT.
-21	Python keyword drift (lambda)	\blambda\s+\w+\s*:	ka	Lambda is a Python keyword. Use Inka's `|x| expr` closure.
+20	Rust keyword drift (impl)	^\s*impl\b|\bimpl\s+\w+\s+for\b	ka	`impl` is Rust. Mentl has handlers on the graph.
+20	Rust keyword drift (trait/struct/enum/pub/mod)	^\s*(trait|struct|enum|pub|mod|crate)\s	ka	Rust keywords. ADTs are declared with Mentl's own grammar.
+21	Python keyword drift (def/class)	^\s*(def|class)\s+\w+\s*[:(]	ka	`def`/`class` are Python. Functions in Mentl are `fn`, structure is ADT.
+21	Python keyword drift (lambda)	\blambda\s+\w+\s*:	ka	Lambda is a Python keyword. Use Mentl's `|x| expr` closure.
 22	Haskell/OCaml drift (do-notation / typeclass)	\bdo\s*\{|\binstance\s+\w+\s+where\b	ka	Do-notation is monad-transformer drift (mode 4). Use ~> chains.
-23	C/Go drift (typedef/void/sizeof)	\b(typedef|void|sizeof)\s*\(	ka	C primitives. Inka has ADTs + refinement types.
-24	JS drift (async/await/Promise)	\b(async|await|Promise\b)	ka	Async is an effect in Inka, handled — not a keyword.
-25	OOP drift (new/self/this/super)	\b(new\s+\w+\s*\(|self\.|this\.|super\.)	ka	Inka has no classes. `new`/`self`/`this` are OOP drift.
+23	C/Go drift (typedef/void/sizeof)	\b(typedef|void|sizeof)\s*\(	ka	C primitives. Mentl has ADTs + refinement types.
+24	JS drift (async/await/Promise)	\b(async|await|Promise\b)	ka	Async is an effect in Mentl, handled — not a keyword.
+25	OOP drift (new/self/this/super)	\b(new\s+\w+\s*\(|self\.|this\.|super\.)	ka	Mentl has no classes. `new`/`self`/`this` are OOP drift.
 #
-# --- Inka-native shape violations (residue discipline) ---
-30	Imperative-loop-where-verb-exists (for/while)	^\s*(for|while)\s	ka	Loops are rarely the Inka shape. Use |> transforms or <~ feedback. If truly needed, justify in a comment and suppress.
+# --- Mentl-native shape violations (residue discipline) ---
+30	Imperative-loop-where-verb-exists (for/while)	^\s*(for|while)\s	ka	Loops are rarely the Mentl shape. Use |> transforms or <~ feedback. If truly needed, justify in a comment and suppress.
 31	Tuple-return-where-record-fits (multi-arg with _h suffix)	->\s*\([^)]*_h[^)]*,	ka	Anchor 6 + H1.3: if components carry _h suffix, reach for a record.
 32	Handler-as-function-argument (plain env param)	\(\s*env\s*:\s*\w+|\bctx\.env\.	ka	Env is effect-mediated. `perform env_lookup(name)` — not a function parameter.
 #
 # --- ΣU drift patterns (amendments A-R; SYNTAX.md) ---
-36	ΣU drift (lambda fence)	\|[a-z_][a-z_0-9]*\s*\|	ka	Amendment A. Canonical: (params) => body. `|x|` pipe-fence is not Inka syntax.
+36	ΣU drift (lambda fence)	\|[a-z_][a-z_0-9]*\s*\|	ka	Amendment A. Canonical: (params) => body. `|x|` pipe-fence is not Mentl syntax.
 36	ΣU drift (lambda fence multi-param)	\|[a-z_][a-z_0-9]*\s*,	ka	Amendment A. `|a, b|` form is drift. Use (a, b) => body.
 36	ΣU drift (imperative control keyword)	^[^/]*\b(for|while|loop|break|continue|return)\b	ka	Amendment J. Iteration: |> / <~ / Iterate. Early-exit: Abort effect. (Fires on code lines; comment-only lines excluded by ^[^/]* prefix.)
 36	ΣU drift (redundant fn on lambda)	\bfn\s+\(	ka	Amendment R. `fn (x) =>` drift. Canonical: (x) => — `fn` keyword reserved for named declarations only.
@@ -57,14 +57,14 @@
 #
 # --- Σ-/// drift (doc-comment doctrine; SYNTAX.md §Comments §Doc comments) ---
 37	Σ-/// drift (JSDoc/JavaDoc tag inside ///)	^///.*@(param|returns?|throws?|since|deprecated|author|see|link|inheritdoc)\b	ka	Σ-///. JSDoc/JavaDoc tags forbidden inside ///. Effect row + refinement substrate already carries that information.
-37	Σ-/// drift (Sphinx directive inside ///)	^///.*:(func|type|class|param|returns|raises):	ka	Σ-///. Sphinx directives forbidden inside ///. Inka has no Sphinx; substrate carries the structure.
+37	Σ-/// drift (Sphinx directive inside ///)	^///.*:(func|type|class|param|returns|raises):	ka	Σ-///. Sphinx directives forbidden inside ///. Mentl has no Sphinx; substrate carries the structure.
 37	Σ-/// drift (=== header inside ///)	^///.*={3,}	ka	Σ-///. No internal headers inside ///. Declaration name IS the heading.
 37	Σ-/// drift (lifecycle vocabulary)	^///.*\b(deprecated|legacy|previously|no longer|migration|backward[- ]compat|removed in)\b	ka	Σ-///. Positive-form discipline (CLAUDE.md global). Doc shows what IS, not what was.
 37	Σ-/// drift (subjective-gating prose)	^///.*\b(non-trivial|nontrivial|non-obvious|nonobvious|noteworthy|interesting|advanced|important|may want to|might consider)\b	ka	Σ-///. Subjective-gating language shouldn't appear in substrate-derived voice. Either the tentacle's silence_predicate fires or it doesn't.
 37	Σ-/// drift (// ═══ decoration on file)	^//\s*═	ka	Σ-///. // ═══ decorations are flat-file scaffolding. Pattern A: delete. Pattern B: consolidate to /// lede. Pattern C: strip ═══, keep plain // text.
 #
 # --- Disintermediation drift (mascot-as-command-prefix; F.1) ---
-38	Mascot-as-command (mentl <verb> CLI)	\bmentl\s+(audit|compile|check|run|teach|query|build|new|test|doc|crucibles)\b	all	F.1 + EH walkthrough. Every command is `inka <verb>`. Mentl is the voice; not the command prefix. (Scope: all files including markdown.)
+38	Mascot-as-command (mentl <verb> CLI)	\bmentl\s+(audit|compile|check|run|teach|query|build|new|test|doc|crucibles)\b	all	F.1 + EH walkthrough. Every command is `mentl <verb>`. Mentl is the voice; not the command prefix. (Scope: all files including markdown.)
 #
 # --- Ship-gate drift (agile/scrum vocabulary; project-management drift) ---
 39	Ship-gate vocab (N sessions / timebox / pivot)	\b(\d+\s*sessions?|N\s*sessions?|timebox|pivot criterion|ship[- ]gate|sprint goal)\b	all	No temporal budgets. Progress measured in walkthrough-paragraph → substrate mapping clarity. Scope emerges from substrate necessity. (Scope: all files.)

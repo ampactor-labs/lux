@@ -1,13 +1,13 @@
 # CRU — Crucibles · the thesis fitness function
 
-> **Status:** `[DRAFT 2026-04-23]`. Five crucible `.nx` files that
+> **Status:** `[DRAFT 2026-04-23]`. Five crucible `.mn` files that
 > each exercise one thesis-scale claim. Pass/fail is binary; each
 > failure names its own feature request from the future. **The
 > crucibles replace engineering triage as the prioritization
 > mechanism.**
 
 *The Crucible Pattern (DESIGN.md): aspirational programs that
-exercise features at the boundary of what Inka can express today.
+exercise features at the boundary of what Mentl can express today.
 A crucible that runs is a proof of existence. A crucible that
 fails is a feature request — more honest than a backlog because it
 names what the language must become, not what the team wants to
@@ -36,7 +36,7 @@ crucible proves one domain.
 
 ## 1. The five crucibles
 
-### 1a. `crucibles/crucible_dsp.nx` — real-time audio proves `!Alloc`
+### 1a. `crucibles/crucible_dsp.mn` — real-time audio proves `!Alloc`
 
 **Claim:** a stereo audio callback at 48 kHz with a multi-stage
 effects chain compiles with `!Alloc` propagated transitively through
@@ -56,7 +56,7 @@ absorbing handler. Fix path: factor `!Alloc` into the relevant
 primitive OR install an arena handler inside the callback (both
 are valid; the language must allow both).
 
-### 1b. `crucibles/crucible_ml.nx` — autodiff proves handler-swap training/inference
+### 1b. `crucibles/crucible_ml.mn` — autodiff proves handler-swap training/inference
 
 **Claim:** one `forward` function, compiled, runs under two
 different handlers — one installs a tape-recording `Compute`
@@ -77,7 +77,7 @@ handler's state record doesn't fit γ crystallization #9
 (Records-Are-Handler-State-Shape), or the gradient doesn't close
 because multi-shot resume (Compute → backward) isn't wired.
 
-### 1c. `crucibles/crucible_realtime.nx` — control loop proves `<~` + handler-timing
+### 1c. `crucibles/crucible_realtime.mn` — control loop proves `<~` + handler-timing
 
 **Claim:** a PID controller with `<~ delay(1)` compiles under three
 different clock handlers (`Sample(44100)`, `Tick`, `Clock(wall_ms=10)`)
@@ -97,9 +97,9 @@ if clock handlers can't thread timing through the feedback edge,
 or if the three specializations produce identical code (means the
 timing isn't handler-controlled).
 
-### 1d. `crucibles/crucible_web.nx` — distributed RPC proves handler-cross-wire
+### 1d. `crucibles/crucible_web.mn` — distributed RPC proves handler-cross-wire
 
-**Claim:** two peer services, both written in Inka, communicate via
+**Claim:** two peer services, both written in Mentl, communicate via
 a transport-handler-swappable RPC protocol where function
 invocations cross the wire as `(hash, args)` pairs and handlers
 decide transport (HTTP, WebSocket, in-memory, simulated network).
@@ -118,7 +118,7 @@ addressed, or if `Pack`/`Unpack` can't round-trip a function
 reference, or if handler-swap doesn't cover the transport layer
 (meaning "handler IS the backend" breaks for networking).
 
-### 1e. `crucibles/crucible_oracle.nx` — speculative gradient proves Mentl's thesis
+### 1e. `crucibles/crucible_oracle.mn` — speculative gradient proves Mentl's thesis
 
 **Claim:** at a bare function signature whose body is provably
 `Pure`, Mentl's oracle loop (MO-mentl-oracle-loop.md) surfaces
@@ -134,7 +134,7 @@ close the trail atomically, or if `Synth` handler composition
 doesn't bound the candidate set, or if `verify_obligations` can't
 discharge a trivial pure row.
 
-### 1f. `crucibles/crucible_parallel.nx` — multi-core proves `><` × handler dispatch *(added 2026-04-23)*
+### 1f. `crucibles/crucible_parallel.mn` — multi-core proves `><` × handler dispatch *(added 2026-04-23)*
 
 **Claim:** a compute-bound `><` pipeline parallelizes across N
 cores when `~> parallel_compose` is installed (per TH-threading.md);
@@ -154,14 +154,14 @@ handler, different wall-clock. Proves primitive #3 (`><`) + the
   (determinism by branch-order preservation).
 
 **Fails if:** `Thread` / `SharedMemory` effects aren't declared
-in `lib/runtime/threading.nx`, or `parallel_compose` handler
+in `lib/runtime/threading.mn`, or `parallel_compose` handler
 isn't implemented, or per-thread bump_allocator doesn't isolate
 heap state, or wasi-threads runtime dispatch isn't wired, or
 non-determinism surfaces from thread scheduling (which would
 indicate a compose-semantics bug — tracks must be order-
 preserving regardless of completion timing).
 
-**The embarrassing universe avoided:** Inka only uses one core.
+**The embarrassing universe avoided:** Mentl only uses one core.
 The real universe: adding one `~>` line lights up the rest of
 the CPU.
 
@@ -172,12 +172,12 @@ the CPU.
 ```
 crucibles/
 ├── README.md              — one-line status per crucible (PASS/FAIL/PENDING)
-├── crucible_dsp.nx
-├── crucible_ml.nx
-├── crucible_realtime.nx
-├── crucible_web.nx
-├── crucible_oracle.nx
-└── crucible_parallel.nx   — added 2026-04-23 (TH-threading.md)
+├── crucible_dsp.mn
+├── crucible_ml.mn
+├── crucible_realtime.mn
+├── crucible_web.mn
+├── crucible_oracle.mn
+└── crucible_parallel.mn   — added 2026-04-23 (TH-threading.md)
 ```
 
 `crucibles/` is NOT `examples/` (dissolved per PLAN 2026-04-21) and
@@ -197,7 +197,7 @@ the language follows.**
 Every session, Mentl (or Morgan-as-auditor until Mentl) runs:
 
 ```
-inka crucibles
+mentl crucibles
   crucible_dsp       [FAIL]  missing: DSP module's ~compress with !Alloc
   crucible_ml        [FAIL]  missing: autodiff Compute effect
   crucible_realtime  [FAIL]  missing: LF feedback lowering (item 1)
@@ -217,10 +217,10 @@ compile or they don't.
 
 ## 4. Landing order (recommendation)
 
-1. **Crucible seeds land first** (this walkthrough + 5 `.nx` files).
+1. **Crucible seeds land first** (this walkthrough + 5 `.mn` files).
    Each file is aspirational — deliberately fails until substrate
    lands.
-2. **`inka crucibles` command** — one `--with crucibles_run` entry
+2. **`mentl crucibles` command** — one `--with crucibles_run` entry
    handler that compiles each crucible and reports PASS/FAIL with
    the specific missing piece.
 3. **Each crucible becomes a milestone** — "DSP crucible passes" =
@@ -246,11 +246,11 @@ compile or they don't.
 
 ## 6. Dispatch
 
-- **Crucible seeds (`.nx` files):** dispatch through
-  `inka-implementer` AFTER this walkthrough lands. Each seed
+- **Crucible seeds (`.mn` files):** dispatch through
+  `mentl-implementer` AFTER this walkthrough lands. Each seed
   should be ≤ 100 lines, demonstrating one thesis claim with the
   smallest possible program that exercises it.
-- **`inka crucibles` CLI:** one entry handler (`crucibles_run`),
+- **`mentl crucibles` CLI:** one entry handler (`crucibles_run`),
   resolves crucibles by directory scan, runs each, collates
   report.
 

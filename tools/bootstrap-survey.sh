@@ -4,13 +4,13 @@
 # Per docs/specs/simulations/BT-bootstrap-triage.md §11.4 BT.A.0 +
 # Hβ-bootstrap.md §13 step 3 (commit 95fdc3c).
 #
-# Runs the seed compiler (bootstrap/inka.wasm) against each src/*.nx
-# + lib/**/*.nx file. Categorizes each file's failure shape:
+# Runs the seed compiler (bootstrap/mentl.wasm) against each src/*.mn
+# + lib/**/*.mn file. Categorizes each file's failure shape:
 #
 #   VALIDATES        — output passes wat2wasm + wasm-validate cleanly;
-#                       module compiles standalone (1/15 per BT §1; verify.nx)
+#                       module compiles standalone (1/15 per BT §1; verify.mn)
 #   PARSE-INCOMPLETE — output references undefined locals from import-as-
-#                       identifier handling (per BT §11.1 finding for graph.nx)
+#                       identifier handling (per BT §11.1 finding for graph.mn)
 #   WAT-MALFORMED    — wat2wasm rejects on syntactic grounds beyond imports
 #   CROSS-MODULE-REF — wat2wasm accepts; wasm-validate rejects on missing
 #                       function/symbol references to sibling modules (BT §1
@@ -26,7 +26,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-SEED="bootstrap/inka.wasm"
+SEED="bootstrap/mentl.wasm"
 if [[ ! -f "$SEED" ]]; then
   echo "ERROR: seed compiler not found at $SEED" >&2
   echo "  run: bash bootstrap/build.sh" >&2
@@ -38,9 +38,9 @@ trap "rm -rf $TMPDIR" EXIT
 
 categorize_file() {
   local nx_file="$1"
-  local out_wat="$TMPDIR/$(basename "$nx_file" .nx).wat"
-  local out_wasm="$TMPDIR/$(basename "$nx_file" .nx).wasm"
-  local stderr_log="$TMPDIR/$(basename "$nx_file" .nx).stderr"
+  local out_wat="$TMPDIR/$(basename "$nx_file" .mn).wat"
+  local out_wasm="$TMPDIR/$(basename "$nx_file" .mn).wasm"
+  local stderr_log="$TMPDIR/$(basename "$nx_file" .mn).stderr"
 
   # Run seed; capture stdout to .wat + stderr separately
   if ! cat "$nx_file" | wasmtime run "$SEED" > "$out_wat" 2> "$stderr_log"; then
@@ -57,11 +57,11 @@ categorize_file() {
   line_count="$(wc -l < "$out_wat")"
 
   # Try to assemble; categorize per failure shape
-  local wat2wasm_log="$TMPDIR/$(basename "$nx_file" .nx).wat2wasm.log"
+  local wat2wasm_log="$TMPDIR/$(basename "$nx_file" .mn).wat2wasm.log"
   if wat2wasm "$out_wat" -o "$out_wasm" --debug-names --enable-tail-call \
        2> "$wat2wasm_log"; then
     # wat2wasm succeeded; try wasm-validate
-    local validate_log="$TMPDIR/$(basename "$nx_file" .nx).validate.log"
+    local validate_log="$TMPDIR/$(basename "$nx_file" .mn).validate.log"
     if wasm-validate "$out_wasm" 2> "$validate_log"; then
       echo "VALIDATES:$line_count lines"
     else
@@ -81,14 +81,14 @@ categorize_file() {
   fi
 }
 
-# Find all .nx files in src/ + lib/ (sorted for determinism)
+# Find all .mn files in src/ + lib/ (sorted for determinism)
 nx_files=()
 while IFS= read -r f; do
   nx_files+=("$f")
-done < <(find src lib -name '*.nx' -type f 2>/dev/null | sort)
+done < <(find src lib -name '*.mn' -type f 2>/dev/null | sort)
 
 if [[ ${#nx_files[@]} -eq 0 ]]; then
-  echo "ERROR: no .nx files found under src/ or lib/" >&2
+  echo "ERROR: no .mn files found under src/ or lib/" >&2
   exit 2
 fi
 

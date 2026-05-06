@@ -101,10 +101,10 @@
   ;;                                parallel name-arrays + value-arrays.
   ;;   - Drift 8 (string-keyed):    LBinOp dispatches on integer tag
   ;;                                (140-153 BinOp ADT region per
-  ;;                                src/types.nx). LUnaryOp dispatches
+  ;;                                src/types.mn). LUnaryOp dispatches
   ;;                                on integer tag (160-179 UnaryOp
   ;;                                ADT region: UNeg=160, UNot=161 per
-  ;;                                src/types.nx UnaryOp ADT). NO
+  ;;                                src/types.mn UnaryOp ADT). NO
   ;;                                string-keyed dispatch; structural
   ;;                                ADT discipline at every arm.
   ;;   - Drift 9 (deferred-by-      Every arm bodied. LSuspend's
@@ -119,7 +119,7 @@
   ;;                                site; this is the runtime loop that
   ;;                                copies nc captures from callee to
   ;;                                state_tmp.
-  ;;   - Foreign fluency:           Vocabulary stays Inka — "call",
+  ;;   - Foreign fluency:           Vocabulary stays Mentl — "call",
   ;;                                "tail-call", "binop", "suspend",
   ;;                                "indirect", "transient evidence
   ;;                                record", "fn-ptr field". NEVER
@@ -225,7 +225,7 @@
         (br $iter))))
 
   ;; ─── $emit_lcall — LCall tag 308 emit arm per §2.4 ─────────────────
-  ;; Per src/backends/wasm.nx:1174-1189 W7 closure-call convention:
+  ;; Per src/backends/wasm.mn:1174-1189 W7 closure-call convention:
   ;;   1. emit closure (fn LowExpr) → ptr on stack
   ;;   2. (local.set $state_tmp) — save closure ptr
   ;;   3. (local.get $state_tmp) — push as implicit __state arg
@@ -249,7 +249,7 @@
     (call $ec6_emit_call_indirect_ftN (call $len (local.get $args))))
 
   ;; ─── $emit_ltailcall — LTailCall tag 309 emit arm per §2.4 ─────────
-  ;; Per src/backends/wasm.nx:1191-1200. Same shape as LCall but with
+  ;; Per src/backends/wasm.mn:1191-1200. Same shape as LCall but with
   ;; return_call_indirect — H7 multi-shot's tail-resumptive optimization
   ;; (~85% per SUBSTRATE.md §III "Tail-resumptive").
   (func $emit_ltailcall (param $r i32)
@@ -264,7 +264,7 @@
     (call $ec6_emit_return_call_indirect_ftN (call $len (local.get $args))))
 
   ;; ─── $emit_lbinop — LBinOp tag 306 emit arm per §2.4 ───────────────
-  ;; Per src/backends/wasm.nx:1163-1167 + emit_binop at 1646-1661.
+  ;; Per src/backends/wasm.mn:1163-1167 + emit_binop at 1646-1661.
   ;; Tags 140-153 (parser_infra.wat:329-342) map 1:1 to WAT i32 ops
   ;; for BAdd-BOr (140-152). BConcat (153) dispatches per operand Ty:
   ;;   - TString (102)  → $str_concat
@@ -474,9 +474,9 @@
     (call $emit_byte (i32.const 41)))                                    ;; ')'
 
   ;; ─── $emit_lunaryop — LUnaryOp tag 307 emit arm per §2.4 ───────────
-  ;; Per src/backends/wasm.nx:1163-1166 + emit_unaryop at 1663-1666.
+  ;; Per src/backends/wasm.mn:1163-1166 + emit_unaryop at 1663-1666.
   ;; Dispatches on UnaryOp ADT i32 sentinel (UNeg=160, UNot=161 per
-  ;; src/types.nx UnaryOp ADT in 160-179 reserved region — mirror of
+  ;; src/types.mn UnaryOp ADT in 160-179 reserved region — mirror of
   ;; BinOp 140-153). Drift 8 refusal: integer-tag ADT, not string-keyed.
   (func $emit_lunaryop (param $r i32)
     (local $op i32)
@@ -550,7 +550,7 @@
 
   ;; ─── $emit_lsuspend — LSuspend tag 325 emit arm per §2.4 ───────────
   ;; THE DRIFT 1 LOAD-BEARING ARM. H1.6 polymorphic call with transient
-  ;; evidence record. Per src/backends/wasm.nx:1396-1465 + SUBSTRATE.md
+  ;; evidence record. Per src/backends/wasm.mn:1396-1465 + SUBSTRATE.md
   ;; §I third truth "polymorphic minority":
   ;;
   ;; 1. Save callee closure pointer.
@@ -578,7 +578,7 @@
   ;; is a length-prefixed str_ptr that $emit_str reads at emission.
   ;; Free zones verified by data-offset audit:
   ;;   1856-1869: "alloc_size" (4 hdr + 10 body = 14 bytes;
-  ;;              [1856, 1872) gap pre-1872 "expected" wasm.nx string)
+  ;;              [1856, 1872) gap pre-1872 "expected" wasm.mn string)
   ;;   2244-2257: "state_tmp"  (4 hdr +  9 body = 13 bytes;
   ;;              [2241, 2263) gap post-2216 "handler uninstallable"
   ;;              pre-2264 "over-declared")
@@ -746,7 +746,7 @@
     (call $emit_byte (i32.const 52)) (call $emit_byte (i32.const 41)))
 
   ;; ─── $ec6_emit_capture_copy_loop — runtime nc-driven copy loop ─────
-  ;; Mirror of wheel src/backends/wasm.nx:1434-1454. Emits a (block) +
+  ;; Mirror of wheel src/backends/wasm.mn:1434-1454. Emits a (block) +
   ;; (loop) with (br_if) terminator that copies callee[8+4*i] →
   ;; state_tmp[8+4*i] for i in [0, nc). nc loaded dynamically from
   ;; $callee_closure offset 4.

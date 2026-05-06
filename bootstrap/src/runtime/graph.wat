@@ -18,14 +18,14 @@
   ;; Test:       runtime_test/graph.wat
   ;;
   ;; ═══ DESIGN ═══════════════════════════════════════════════════════
-  ;; Per spec 00 + src/graph.nx (the wheel; this WAT IS the seed
+  ;; Per spec 00 + src/graph.mn (the wheel; this WAT IS the seed
   ;; transcription per Anchor 4 "build the wheel; never wrap the axle"):
   ;;
   ;; State lives in MODULE-LEVEL GLOBALS — pointers into heap regions
   ;; allocated lazily via $alloc on first use. The seed's HM inference
   ;; (Hβ.infer — Wave 2.E) calls these primitives directly to track
   ;; type-variable + row-variable state during compilation. The
-  ;; COMPILED output of src/graph.nx (post-L1 wheel) builds its own
+  ;; COMPILED output of src/graph.mn (post-L1 wheel) builds its own
   ;; effect-handler-shaped graph_handler with state held in heap
   ;; closure records — different storage mechanism, identical algorithm,
   ;; never shares state with the seed's globals.
@@ -74,7 +74,7 @@
   ;;   90-99  reserved for future overlay-substrate records
   ;;
   ;; ═══ CHASE SEMANTICS ═══════════════════════════════════════════════
-  ;; Per spec 00 + src/graph.nx chase_node:
+  ;; Per spec 00 + src/graph.mn chase_node:
   ;;   $graph_chase(handle) walks NBound/NRowBound links with cycle
   ;;   bound at depth 100 (defensive — cycles trigger E_OccursCheck at
   ;;   bind time; this is the runtime safety net). Returns the terminal
@@ -83,7 +83,7 @@
   ;;
   ;; This commit's chase implementation is the TIER-3 BASE: it walks
   ;; NBound/NRowBound directly without the inner Ty-variant inspection
-  ;; that src/graph.nx's chase_node performs (which dispatches on
+  ;; that src/graph.mn's chase_node performs (which dispatches on
   ;; TVar/EfOpen for transitive resolution). The Tier-3 base is
   ;; correct for the common case (terminal NFree/NRowFree/NBound-with-
   ;; non-TVar/NRowBound-with-non-EfOpen); the transitive walk through
@@ -91,7 +91,7 @@
   ;; tag conventions that chase_node depends on.
   ;;
   ;; ═══ ROLLBACK SEMANTICS ═══════════════════════════════════════════
-  ;; Per src/graph.nx revert_trail:
+  ;; Per src/graph.mn revert_trail:
   ;;   Walk trail backwards from trail_len down to target_idx. Each
   ;;   mutation has a precise inverse:
   ;;     MSetNode(h, old) → restore nodes[h] to old
@@ -257,7 +257,7 @@
 
   ;; $graph_node_at — direct read of GNode at handle. Defensive: out-of-
   ;; range handles synthesize NFree(0) so the seed never traps on a
-  ;; well-formed-but-not-yet-bound handle. Per src/graph.nx graph_node_at.
+  ;; well-formed-but-not-yet-bound handle. Per src/graph.mn graph_node_at.
   (func $graph_node_at (param $handle i32) (result i32)
     (call $graph_init)  ;; idempotent
     (if (i32.ge_u (local.get $handle) (call $len (global.get $graph_nodes_ptr)))
@@ -274,7 +274,7 @@
   ;;
   ;; This base implementation does NOT yet decompose Ty/EffRow inner
   ;; structure to follow TVar(handle) / EfOpen(_, handle) transitively.
-  ;; That dispatch lives in chase_node per src/graph.nx and depends on
+  ;; That dispatch lives in chase_node per src/graph.mn and depends on
   ;; the Ty + EffRow tag conventions that Hβ.lower (Wave 2.E) emits.
   ;; For now, NBound terminals return the GNode as-is; the caller
   ;; (Hβ.infer) chases through Ty structure via its own Ty-variant
@@ -295,7 +295,7 @@
     (local.set $g (call $graph_node_at (local.get $handle)))
     (local.set $nk (call $gnode_kind (local.get $g)))
     (local.set $tag (call $node_kind_tag (local.get $nk)))
-    ;; NBound — per src/graph.nx:269-272 chase_node: if the payload is
+    ;; NBound — per src/graph.mn:269-272 chase_node: if the payload is
     ;; TVar(next), follow transitively. Otherwise return the GNode.
     ;; This is the load-bearing fix: without it, two handles bound to
     ;; TVar(each_other) create an infinite unify→unify_types→unify cycle.
@@ -376,7 +376,7 @@
   ;; PRE-CONDITION: caller has run occurs check via $occurs_in (in
   ;; future Hβ.infer Ty-substrate chunk) before invoking. graph.wat
   ;; doesn't perform occurs check here because it doesn't know Ty
-  ;; structure; per src/graph.nx graph_bind's occurs_in lives in the
+  ;; structure; per src/graph.mn graph_bind's occurs_in lives in the
   ;; same compilation unit.
   (func $graph_bind (param $handle i32) (param $ty_ptr i32) (param $reason i32)
     (local $old_gnode i32) (local $new_nk i32) (local $new_g i32)
@@ -455,7 +455,7 @@
   ;; ─── Checkpoint + rollback ────────────────────────────────────────
   ;; $graph_push_checkpoint returns current trail_len; caller stores
   ;; this as the rollback target. Multi-shot oracle loops call this
-  ;; per option. Per src/graph.nx + insight #11.
+  ;; per option. Per src/graph.mn + insight #11.
   (func $graph_push_checkpoint (result i32)
     (call $graph_init)
     (global.get $graph_trail_len_g))

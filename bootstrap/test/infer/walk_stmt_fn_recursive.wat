@@ -2,7 +2,7 @@
   ;; Executes: Hβ-infer-substrate.md §4.2 + state.wat §1 fn-stack —
   ;;           FnStmt arm pre-binds the fn name with placeholder Forall
   ;;           BEFORE walking the body, so the body's recursive VarRef
-  ;;           resolves through env_lookup mid-walk. Per src/infer.nx:279.
+  ;;           resolves through env_lookup mid-walk. Per src/infer.mn:279.
   ;; Setup: synthetic `fn rec(n) = rec` (the body is the simplest
   ;;        possible recursive reference — VarRef("rec")). If the FnStmt
   ;;        arm one-pass'd (walk body before pre-bind), the body's

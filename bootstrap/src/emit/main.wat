@@ -78,7 +78,7 @@
   ;;                the live graph reads happen INSIDE $emit_lexpr's
   ;;                arms.
   ;; 2. Handler?    @resume=OneShot. Wheel's `handle … with wat_emit`
-  ;;                (src/backends/wasm.nx — Emit effect) is OneShot;
+  ;;                (src/backends/wasm.mn — Emit effect) is OneShot;
   ;;                seed maps onto direct $emit_byte side-effect. When
   ;;                the wheel composes Emit-handler-swap (text-output
   ;;                vs binary-output vs LSP-rendering), $inka_emit stays
@@ -155,7 +155,7 @@
   ;;
   ;; Foreign-fluency forbidden:   "compiler driver" / "code generator
   ;;                              entry" / "backend main" / "main entry"
-  ;;                              → Inka-native phrases are "pipeline-
+  ;;                              → Mentl-native phrases are "pipeline-
   ;;                              stage boundary" + "kernel primitive #3
   ;;                              verb projection" + "§10.3 clean
   ;;                              handoff" + "$emit_lowir_program
@@ -180,7 +180,7 @@
   ;;   Lands as the IMMEDIATE next commit per Lock #4.
   ;;
   ;; - Hβ.lower.lowfn-substrate: add LowFn record (tag 350 + 5
-  ;;   accessors) to bootstrap/src/lower/lexpr.wat per src/lower.nx
+  ;;   accessors) to bootstrap/src/lower/lexpr.wat per src/lower.mn
   ;;   LFn ADT; update walk_compound + walk_stmt to construct LowFn
   ;;   properly. Prerequisite for handler-fnref-substrate.
   ;;
@@ -378,7 +378,7 @@
       (call $emit_close)
       (call $emit_space)
       (call $emit_byte (i32.const 34)) ;; '"'
-      ;; The string contents must be properly escaped if we are emitting WAT text, but since Inka only tests alphanumeric/basic ascii in the test suite so far, a raw emit_cstr is sufficient.
+      ;; The string contents must be properly escaped if we are emitting WAT text, but since Mentl only tests alphanumeric/basic ascii in the test suite so far, a raw emit_cstr is sufficient.
       (call $emit_cstr (i32.add (local.get $str) (i32.const 4)) (call $str_len (local.get $str)))
       (call $emit_byte (i32.const 34)) ;; '"'
       (call $emit_close)
@@ -387,7 +387,7 @@
       (br $iter))))
 
   ;; ─── _start Section Emission ──────────────────────────────────────
-  ;; Per src/backends/wasm.nx emit_start: emits `(func $_start (export
+  ;; Per src/backends/wasm.mn emit_start: emits `(func $_start (export
   ;; "_start") ...)`. If "main" appears in the funcref table, calls it
   ;; and drops the result before proc_exit. Export annotation MUST be
   ;; inside the (func ...) form per WAT spec.
@@ -441,13 +441,13 @@
     (call $emit_nl))
 
   ;; ─── Phase H: Function body emission ─────────────────────────────────
-  ;; Per src/backends/wasm.nx:848-963 emit_functions + emit_fn_body.
+  ;; Per src/backends/wasm.mn:848-963 emit_functions + emit_fn_body.
   ;; Deep-walks the LowExpr list to find LMakeClosure nodes and emits
   ;; each as a (func $name ...) WAT definition. Also collects fn names
   ;; for the funcref table + index globals.
 
   ;; $collect_fn_names — walk LowExpr list, collect LMakeClosure fn names.
-  ;; Returns a flat list of name ptrs. Per wasm.nx:848-928 emit_fns_expr.
+  ;; Returns a flat list of name ptrs. Per wasm.mn:848-928 emit_fns_expr.
   ;; Per Hβ.emit.nested-fn-idx-globals: recurses into common LowExpr
   ;; containers (LLet, LBlock, LIf, LCall, LBinOp, LMakeVariant,
   ;; LMakeList, LMakeTuple, LReturn) to collect EVERY LMakeClosure's
@@ -802,7 +802,7 @@
 
   ;; $emit_fn_table_and_globals — emit (table $fns N funcref) + (elem ...)
   ;; + (global $name_idx i32 (i32.const N)) per fn.
-  ;; Per wasm.nx:577-609.
+  ;; Per wasm.mn:577-609.
   (func $emit_fn_table_and_globals (param $names i32)
     (local $n i32) (local $i i32)
     (local.set $n (call $len (local.get $names)))
@@ -935,7 +935,7 @@
     (call $emit_local_decl_cstr (i32.const 4260) (i32.const 6))) ;; loop_i
 
   ;; $emit_fn_body — emit a single (func $name (param $__state i32) ...)
-  ;; Per wasm.nx:930-962 emit_fn_body. W7 calling convention.
+  ;; Per wasm.mn:930-962 emit_fn_body. W7 calling convention.
   (func $emit_fn_body (param $fn_r i32)
     (local $name i32) (local $params i32) (local $body i32)
     (local $arity i32) (local $i i32)
@@ -1426,7 +1426,7 @@
   ;; IS the artifact pipeline-wire's `$proc_exit` flushes via
   ;; $emit_flush.
   ;;
-  ;; Phase H: now emits function definitions per wasm.nx:165-185.
+  ;; Phase H: now emits function definitions per wasm.mn:165-185.
   ;; Order: header → imports → memory → globals → table → fn_idx_globals
   ;;        → functions → top-level body in _start → string data → close.
 

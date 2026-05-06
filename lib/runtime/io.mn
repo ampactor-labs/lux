@@ -1,0 +1,248 @@
+// io.mn — I/O primitives for the Mentl runtime
+//
+// All I/O routes through the WASI effect (declared in types.mn).
+// No print-via-syscall magic. No fd_write call sites scattered
+// across the compiler. All of it lives here, behind named functions.
+//
+// WASI iov layout (at a scratch address decided at compile time):
+//   scratch + 0: ptr  (i32) — pointer to the string payload
+//   scratch + 4: len  (i32) — byte count
+//   scratch + 8: nwritten (i32) — receives bytes-written count
+//
+// Scratch layout in the low stack area (below HEAP_BASE = 4096,
+// safely below the 1 MiB heap start):
+//   0x50  (80):  iov record (8 bytes) — shared by print + fs
+//   0x58  (88):  nwritten/nread result (4 bytes)
+//   0x60  (96):  small scratch buffer for print_int
+//   0x100 (256): fs path scratch (256 bytes — WASI paths max 255)
+//   0x200 (512): fs filestat scratch (64 bytes for filestat_t)
+//   0x240 (576): fs fd result (4 bytes — path_open returns fd here)
+//
+// These all fit under HEAP_BASE = 4096 and never conflict with Mentl
+// heap allocations or the bump allocator. The compiler reserves the
+// first page for exactly this purpose.
+//
+// Effects declared in std/compiler/types.mn — not re-declared here.
+//
+// FS constants (WASI preview1 flags). Mirrored literally from the
+// WASI spec; documented here to avoid magic numbers at call sites.
+//   FS_PREOPEN_FD         = 3   — wasmtime grants via --dir=.
+//   FS_RIGHTS_READ        = 0x2 — fd_read right
+//   FS_RIGHTS_WRITE       = 0x40 — fd_write right
+//   FS_OFLAGS_CREAT       = 0x1 — create if not exists
+//   FS_OFLAGS_TRUNC       = 0x8 — truncate to zero on open
+
+import types
+import runtime/strings
+
+// Stdout
+
+/// print_string — write a flat Mentl string to stdout (fd=1).
+/// Layout: the string pointer carries [len:i32][bytes...].
+/// We fill the iov record in scratch memory then call fd_write.
+fn print_string(s) with Memory + WASI = {
+  let slen = perform load_i32(s)
+  perform store_i32(80, s + 4)
+  perform store_i32(84, slen)
+  perform fd_write(1, 80, 1, 88)
+  ()
+}
+
+/// print_int — convert n to a decimal string and write to stdout.
+fn print_int(n) with Memory + Alloc + WASI = {
+  let s = int_to_str(n)
+  print_string(s)
+}
+
+/// print_newline — write a single newline character (0x0A) to stdout.
+/// Uses a one-byte iov at scratch address 96.
+fn print_newline() with Memory + WASI = {
+  perform store_i8(96, 10)
+  perform store_i32(80, 96)
+  perform store_i32(84, 1)
+  perform fd_write(1, 80, 1, 88)
+  ()
+}
+
+// Stderr
+
+/// eprint_string — write a flat Mentl string to stderr (fd=2).
+fn eprint_string(s) with Memory + WASI = {
+  let slen = perform load_i32(s)
+  perform store_i32(80, s + 4)
+  perform store_i32(84, slen)
+  perform fd_write(2, 80, 1, 88)
+  ()
+}
+
+// Stdin
+
+/// read_stdin — slurp all of stdin into a heap-allocated flat string.
+/// Reads in 4 KB chunks using a temporary 64 KB buffer (one alloc).
+/// Returns a flat Mentl string [len:i32][bytes...].
+fn read_stdin() with Memory + Alloc + WASI = {
+  let initial_cap = 65536
+  let buf = perform alloc(initial_cap)
+  let (final_buf, total) = read_stdin_loop(buf, 0, initial_cap)
+  let str = perform alloc(4 + total)
+  perform store_i32(str, total)
+  perform mem_copy(str + 4, final_buf, total)
+  str
+}
+
+fn read_stdin_loop(buf, offset, capacity) with Memory + Alloc + WASI = {
+  // Grow if less than one chunk of headroom remains.
+  let (cur_buf, cur_cap) = if offset + 4096 > capacity {
+    let new_cap = capacity * 2
+    let new_buf = perform alloc(new_cap)
+    perform mem_copy(new_buf, buf, offset)
+    (new_buf, new_cap)
+  } else { (buf, capacity) }
+  let nread = read_chunk(cur_buf + offset, 4096)
+  if nread == 0 { (cur_buf, offset) }
+  else { read_stdin_loop(cur_buf, offset + nread, cur_cap) }
+}
+
+/// read_chunk — fill iov at scratch and call fd_read(0 = stdin).
+/// Returns the number of bytes actually read (0 = EOF).
+fn read_chunk(buf, size) with Memory + WASI = {
+  perform store_i32(80, buf)
+  perform store_i32(84, size)
+  perform fd_read(0, 80, 1, 88)
+  perform load_i32(88)
+}
+
+// Filesystem (FS) — four impl functions bridging the Filesystem effect
+// ops to WASI path_* syscalls. Each takes a String path (flat [len][bytes...]
+// shape) and delegates through the iov scratch pattern established
+// by print_string / read_chunk. Preopen fd 3 is the base for all
+// path-relative operations (wasmtime's --dir=. convention).
+
+/// Copy a flat Mentl string's byte payload into the fs path scratch
+/// region at offset 256. Returns the byte length. Used by every fs
+/// op before invoking the path_* syscall.
+fn fs_write_path(s) with Memory = {
+  let slen = perform load_i32(s)
+  perform mem_copy(256, s + 4, slen)
+  slen
+}
+
+/// fs_exists — path_filestat_get returns 0 on success, errno otherwise.
+/// The filestat record is written to scratch 512 (64 bytes for
+/// filestat_t) but we discard the contents; existence is the boolean.
+fn fs_exists_impl(path_str) with Memory + WASI = {
+  let path_len = fs_write_path(path_str)
+  let errno = perform path_filestat_get(3, 0, 256, path_len, 512)
+  errno == 0
+}
+
+/// fs_mkdir — path_create_directory relative to preopen fd 3.
+/// Idempotent at the handler level (errno-17 EEXIST ignored).
+fn fs_mkdir_impl(path_str) with Memory + WASI = {
+  let path_len = fs_write_path(path_str)
+  perform path_create_directory(3, 256, path_len)
+  ()
+}
+
+/// fs_read_file — path_open (read flag) + fd_read loop + fd_close.
+/// Returns the file bytes as a flat Mentl String. On open failure
+/// returns an empty string; caller should distinguish via fs_exists.
+fn fs_read_file_impl(path_str) with Memory + Alloc + WASI = {
+  let path_len = fs_write_path(path_str)
+  // path_open(base_fd=3, dirflags=0, path_ptr, path_len, oflags=0,
+  //   rights_base=FS_RIGHTS_READ, rights_inheriting=FS_RIGHTS_READ,
+  //   fdflags=0, fd_result_ptr=576)
+  let open_errno = perform path_open(3, 0, 256, path_len, 0, 2, 2, 0, 576)
+  if open_errno != 0 {
+    let empty = perform alloc(4)
+    perform store_i32(empty, 0)
+    empty
+  } else {
+    let fd = perform load_i32(576)
+    let initial_cap = 65536
+    let buf = perform alloc(initial_cap)
+    let (final_buf, total) = fs_read_loop(fd, buf, 0, initial_cap)
+    perform fd_close(fd)
+    let str = perform alloc(4 + total)
+    perform store_i32(str, total)
+    perform mem_copy(str + 4, final_buf, total)
+    str
+  }
+}
+
+fn fs_read_loop(fd, buf, offset, capacity) with Memory + Alloc + WASI = {
+  // Grow if less than one chunk of headroom remains.
+  let (cur_buf, cur_cap) = if offset + 4096 > capacity {
+    let new_cap = capacity * 2
+    let new_buf = perform alloc(new_cap)
+    perform mem_copy(new_buf, buf, offset)
+    (new_buf, new_cap)
+  } else { (buf, capacity) }
+  perform store_i32(80, cur_buf + offset)
+  perform store_i32(84, 4096)
+  perform fd_read(fd, 80, 1, 88)
+  let nread = perform load_i32(88)
+  if nread == 0 { (cur_buf, offset) }
+  else { fs_read_loop(fd, cur_buf, offset + nread, cur_cap) }
+}
+
+/// fs_write_file — path_open (write+create+trunc) + fd_write + fd_close.
+/// Overwrites any existing file at path.
+fn fs_write_file_impl(path_str, bytes_str) with Memory + WASI = {
+  let path_len = fs_write_path(path_str)
+  // path_open with FS_OFLAGS_CREAT|FS_OFLAGS_TRUNC = 0x9, FS_RIGHTS_WRITE = 0x40
+  let open_errno = perform path_open(3, 0, 256, path_len, 9, 64, 64, 0, 576)
+  if open_errno != 0 { () }
+  else {
+    let fd = perform load_i32(576)
+    let blen = perform load_i32(bytes_str)
+    perform store_i32(80, bytes_str + 4)
+    perform store_i32(84, blen)
+    perform fd_write(fd, 80, 1, 88)
+    perform fd_close(fd)
+    ()
+  }
+}
+
+// FX.A.basics primitives — per FX walkthrough §2.1 (commit 61b2b60).
+// Each lifts one Filesystem op to a WASI syscall via the existing
+// fs_write_path scratch-packing pattern. Returns are domain-free
+// (Int fd / Bool errno); ADT projection lifted to mentl_voice_filesystem.
+
+/// fs_open_impl — path_open for read+write+create. Returns WASI fd
+/// integer or 0 on failure (caller checks via fs_exists for distinction).
+/// FS_OFLAGS_CREAT = 0x1; FS_RIGHTS_READ|WRITE = 0x42.
+fn fs_open_impl(path_str) with Memory + WASI = {
+  let path_len = fs_write_path(path_str)
+  let open_errno = perform path_open(3, 0, 256, path_len, 1, 66, 66, 0, 576)
+  if open_errno != 0 { 0 }
+  else { perform load_i32(576) }
+}
+
+/// fs_close_impl — fd_close; errno absorbed (idempotent at runtime
+/// per WASI errno-9 EBADF semantics).
+fn fs_close_impl(fd) with Memory + WASI = {
+  perform fd_close(fd)
+  ()
+}
+
+/// fs_unlink_impl — path_unlink_file relative to preopen fd 3.
+/// Errno surfaced as Bool (true on success). H6 binary outcome.
+fn fs_unlink_impl(path_str) with Memory + WASI = {
+  let path_len = fs_write_path(path_str)
+  let errno = perform path_unlink_file(3, 256, path_len)
+  errno == 0
+}
+
+/// fs_rename_impl — path_rename within preopen fd 3 to itself. Both
+/// paths packed into adjacent scratch regions: old at 256 (per
+/// fs_write_path), new at 256 + old_len + 1 (one byte gap). Errno
+/// surfaced as Bool.
+fn fs_rename_impl(old_str, new_str) with Memory + WASI = {
+  let old_len = fs_write_path(old_str)
+  let new_offset = 256 + old_len + 1
+  let new_len = perform load_i32(new_str)
+  perform mem_copy(new_offset, new_str + 4, new_len)
+  let errno = perform path_rename(3, 256, old_len, 3, new_offset, new_len)
+  errno == 0
+}

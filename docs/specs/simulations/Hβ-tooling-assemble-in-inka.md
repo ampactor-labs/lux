@@ -1,4 +1,4 @@
-# Hβ-tooling-assemble-in-inka.md — wat2wasm in Inka
+# Hβ-tooling-assemble-in-mentl.md — wat2wasm in Mentl
 
 **Status:** Named cascade. Per PLAN-to-first-light.md §3 post-Tier-3.
 Plan-doc.
@@ -6,11 +6,11 @@ Plan-doc.
 ## Context
 
 Today: `wat2wasm` (from WABT) converts `.wat` text to `.wasm` binary.
-Inka uses it as an external tool. Per Anchor 3 — Inka solves Inka.
-This cascade implements wat2wasm in Inka: parse WAT text, encode to
+Mentl uses it as an external tool. Per Anchor 3 — Mentl solves Mentl.
+This cascade implements wat2wasm in Mentl: parse WAT text, encode to
 binary per the WASM spec, output `.wasm`.
 
-Replacement target: WABT's `wat2wasm` → `tools/wat2wasm.nx`.
+Replacement target: WABT's `wat2wasm` → `tools/wat2wasm.mn`.
 
 This cascade becomes OPTIONAL if `Hβ-emit-binary-direct.md` lands
 first (compiler emits binary directly, no WAT intermediate). But
@@ -23,10 +23,10 @@ hand-authored tests) need a parser.
 1. **Hβ.assemble.wat-lexer** — tokenize WAT s-expressions: parens,
    identifiers, literals, comments.
 2. **Hβ.assemble.wat-parser** — build a tree of WAT s-expressions.
-   Reuse Inka's parser substrate (it's a compiler — parsing
+   Reuse Mentl's parser substrate (it's a compiler — parsing
    s-expressions is trivial).
 3. **Hβ.assemble.wat-to-wasm-translator** — walk the s-expr tree,
-   emit binary per the WASM spec. Reuse `runtime/binary.nx` LEB128
+   emit binary per the WASM spec. Reuse `runtime/binary.mn` LEB128
    helpers.
 4. **Hβ.assemble.section-encoders** — type, function, table, memory,
    global, export, element, code, data sections each get a
@@ -35,7 +35,7 @@ hand-authored tests) need a parser.
    resolve to numeric indices via a symbol table built during the
    first pass.
 6. **Hβ.assemble.validation** — implement `wasm-validate` (also from
-   WABT) in Inka. Same parser; checks types, control-flow, memory
+   WABT) in Mentl. Same parser; checks types, control-flow, memory
    constraints.
 
 ## Acceptance
@@ -57,5 +57,5 @@ resolution) → 6 (validation; can be standalone or integrated).
   toolchain composes).
 - **Made optional by:** `Hβ-emit-binary-direct.md` (compiler skips
   WAT).
-- **Composes with:** `Hβ-tooling-build-in-inka.md`,
-  `Hβ-tooling-runtime-in-inka.md`.
+- **Composes with:** `Hβ-tooling-build-in-mentl.md`,
+  `Hβ-tooling-runtime-in-mentl.md`.

@@ -16,7 +16,7 @@ Every `TRefined` unification performs `verify(...)`; the default
 handler (`verify_ledger`) accumulates obligations rather than
 silently accepting them. This is deliberate: **no stub accepts
 refinements silently.** Obligations are first-class structural
-debt, queryable via `inka query <file> "verification debt"`.
+debt, queryable via `mentl query <file> "verification debt"`.
 
 When Arc F.1 lands, the default handler swaps to `verify_smt` and
 each pending obligation is discharged or promoted to
@@ -26,7 +26,7 @@ each pending obligation is discharged or promoted to
 
 - Your refinements ARE being tracked (not silently dropped).
 - They will be checked when the solver ships in Arc F.1.
-- You can see the full debt via `inka query … "verification debt"`.
+- You can see the full debt via `mentl query … "verification debt"`.
 
 ## Canonical fix
 
@@ -43,6 +43,6 @@ V_Pending: 7 verification obligations pending
   line 27:  index: Nat → self >= 0
   line 42:  name: NonEmpty → len(self) > 0
   ...
-  run `inka query <file> "verification debt"` for the full list.
+  run `mentl query <file> "verification debt"` for the full list.
   solver lands in Arc F.1.
 ```

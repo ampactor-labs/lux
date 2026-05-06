@@ -5,13 +5,13 @@
 
 ---
 
-## 1. The Realization: Inka Solving Inka
+## 1. The Realization: Mentl Solving Mentl
 
-Mentl is the interactive soul of Inka. It needs to know "what type is at the user's cursor?" to provide the signature gradient and hover feedback. 
+Mentl is the interactive soul of Mentl. It needs to know "what type is at the user's cursor?" to provide the signature gradient and hover feedback. 
 
 Historically, this meant standing up a side-car LSP Language Server that maintained its own shadow AST and interval tree. 
 
-Under the **"Inka Solving Inka"** ideal, this is a violation of Primitive #1: *The Graph IS the Program*. We do not build an external index; we project the existing graph. The index is merely a `GraphRead` capability over the universal `Graph` substrate.
+Under the **"Mentl Solving Mentl"** ideal, this is a violation of Primitive #1: *The Graph IS the Program*. We do not build an external index; we project the existing graph. The index is merely a `GraphRead` capability over the universal `Graph` substrate.
 
 ## 2. The 8 Interrogations, Applied
 
@@ -28,16 +28,16 @@ We subjected the Span Index requirement to the eight interrogations:
 
 ## 3. Execution Summary
 
-1. **`types.nx`:** 
+1. **`types.mn`:** 
    - Expanded `Graph` to 5 elements (added `span_index`).
    - Added `graph_index_span(ValidSpan, Int)` to `GraphWrite`.
-2. **`graph.nx`:**
+2. **`graph.mn`:**
    - Initialized `graph_handler` state with `span_index = []`.
    - Wrote the `graph_index_span` accumulator arm.
    - Piped `span_index` into `graph_snapshot`.
-3. **`parser.nx`:**
+3. **`parser.mn`:**
    - Modified `fresh_ph(span: ValidSpan)` to natively emit `perform graph_index_span(span, handle)`.
-4. **`query.nx`:**
+4. **`query.mn`:**
    - Rewrote `QTypeAt(_span)` to take `graph_snapshot()`, fold over `span_index` via `find_tightest`, and chase the resolved handle.
 
 Mentl is now fully contextualized to the cursor.

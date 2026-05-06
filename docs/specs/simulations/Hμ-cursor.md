@@ -14,12 +14,12 @@
 > ("The Graph IS the Program"); `docs/specs/09-mentl.md` (the eight
 > tentacles); `docs/specs/simulations/MV-mentl-voice.md` (Cursor
 > prescription at line 373, voice grammar at §2, eight-form mapping at
-> §2.7.3); `docs/specs/simulations/IE-inka-edit.md` (the IDE as
+> §2.7.3); `docs/specs/simulations/IE-mentl-edit.md` (the IDE as
 > transport of cursor projection); `docs/specs/simulations/H5-mentl-arms.md`
 > (I15 AWrapHandler — the proposal substrate Cursor projects); the
-> hole substrate already live (`src/lexer.nx:90` THole; `src/parser.nx:28,823-825,859`
-> `nhole` production; `src/types.nx:249-273` Reason DAG with 18+
-> variants); `src/mentl.nx:76-200` (Teach effect, mentl_default
+> hole substrate already live (`src/lexer.mn:90` THole; `src/parser.mn:28,823-825,859`
+> `nhole` production; `src/types.mn:249-273` Reason DAG with 18+
+> variants); `src/mentl.mn:76-200` (Teach effect, mentl_default
 > handler, gradient_next + try_each_annotation speculative oracle —
 > live since γ cascade); `protocol_oracle_is_ic.md` (oracle = IC
 > + one cached value; surfaces query, never mutate);
@@ -75,16 +75,16 @@ the developer is mixing into the bus.
 
 | Substrate | Site | Provides |
 |---|---|---|
-| **Hole substrate** | `src/lexer.nx:90` (THole tokenization), `src/parser.nx:28,823-825,859` (nhole production), `src/infer.nx` (fresh tyvar binding) | The developer's `??` syntactic surface — gradient absence marker |
-| **Reason DAG** | `src/types.nx:249-273` (18+ variants including RX.2 high-intent) | Every value carries provenance; teach_why walks bounded depth |
-| **Teach effect** | `src/mentl.nx:76-82` (five ops); `mentl_default` at lines 98-121 | teach_here, teach_gradient, teach_why, teach_error, teach_unlock |
-| **Speculative oracle** | `src/mentl.nx:126-166` (gradient_next + try_each_annotation with checkpoint/apply/verify/rollback) | "Picks ONE suggestion per compile" (SUBSTRATE.md §VII) — the per-handle gradient computation |
-| **Annotation ADT** | `src/mentl.nx:32-43` (APure/ANotAlloc/ANotIO/ANotNetwork/ARefined/AOwn/ARef/AWrapHandler) | The candidate space the gradient enumerates |
-| **Synth effect (shape)** | `src/mentl.nx:89-93` (propose/verify_candidate/enumerate_inhabitants — MultiShot stub) | The proposer interface; H7 will fill MultiShot semantics |
-| **Verify ledger** | `src/verify.nx` (V_Pending obligations, verify_ledger handler) | Refinement predicates discharged at construction sites |
-| **Ownership tracker** | `src/own.nx` (Consume effect, ownership classification) | own/ref status at every binding |
-| **Effect row algebra** | `src/effects.nx` (`+ - & ! Pure`, row_subsumes) | Boolean algebra over capabilities at every position |
-| **IC cache substrate** | `src/cache.nx:29-50` (KaiFile, Pack/Unpack, FNV-1a hashing); `protocol_oracle_is_ic.md` (oracle = IC + one cached value) | Per-module cached env + (future) oracle_queue; invalidation by source/import hash |
+| **Hole substrate** | `src/lexer.mn:90` (THole tokenization), `src/parser.mn:28,823-825,859` (nhole production), `src/infer.mn` (fresh tyvar binding) | The developer's `??` syntactic surface — gradient absence marker |
+| **Reason DAG** | `src/types.mn:249-273` (18+ variants including RX.2 high-intent) | Every value carries provenance; teach_why walks bounded depth |
+| **Teach effect** | `src/mentl.mn:76-82` (five ops); `mentl_default` at lines 98-121 | teach_here, teach_gradient, teach_why, teach_error, teach_unlock |
+| **Speculative oracle** | `src/mentl.mn:126-166` (gradient_next + try_each_annotation with checkpoint/apply/verify/rollback) | "Picks ONE suggestion per compile" (SUBSTRATE.md §VII) — the per-handle gradient computation |
+| **Annotation ADT** | `src/mentl.mn:32-43` (APure/ANotAlloc/ANotIO/ANotNetwork/ARefined/AOwn/ARef/AWrapHandler) | The candidate space the gradient enumerates |
+| **Synth effect (shape)** | `src/mentl.mn:89-93` (propose/verify_candidate/enumerate_inhabitants — MultiShot stub) | The proposer interface; H7 will fill MultiShot semantics |
+| **Verify ledger** | `src/verify.mn` (V_Pending obligations, verify_ledger handler) | Refinement predicates discharged at construction sites |
+| **Ownership tracker** | `src/own.mn` (Consume effect, ownership classification) | own/ref status at every binding |
+| **Effect row algebra** | `src/effects.mn` (`+ - & ! Pure`, row_subsumes) | Boolean algebra over capabilities at every position |
+| **IC cache substrate** | `src/cache.mn:29-50` (KaiFile, Pack/Unpack, FNV-1a hashing); `protocol_oracle_is_ic.md` (oracle = IC + one cached value) | Per-module cached env + (future) oracle_queue; invalidation by source/import hash |
 
 **What Hμ.cursor adds (residue, ~250 lines total):**
 
@@ -93,7 +93,7 @@ the developer is mixing into the bus.
   argmax score. Resolves MV §"Cursor update discipline" open question.
 - **§2** `CursorView` record — the eight-aspect projection shape.
 - **§2** `AnnotationSuggestion` ADT (promotion from GR §3.2 spec to
-  live `src/types.nx`).
+  live `src/types.mn`).
 - **§2** `SuggestionKind` enum (4 variants, per GR §3.2).
 - **§2** `PipeContext` enum (4 variants — small typology of pipe
   surroundings: `NoPipe | InsidePipe(PipeKind) | StartingPipe |
@@ -129,11 +129,11 @@ the residue must see explicit names, not silence.
   web-playground, vim, browser-WASM) that surface `cursor_default`'s
   CursorView through different render targets. Cadence-decision
   (real-time / idle-debounced / on-save / on-explicit-ask) lives
-  here. Inka solves Inka's UX-tradeoff problem via handler-swap
-  per IE-inka-edit.md §0.b. NOT this handle.
+  here. Mentl solves Mentl's UX-tradeoff problem via handler-swap
+  per IE-mentl-edit.md §0.b. NOT this handle.
 - **Hμ.synth-proposer** — the real Synth handler that returns
   multi-shot candidates (replaces the current OneShot stub at
-  `src/mentl.nx:404-438` returning `[]`). Substrate-gated on H7
+  `src/mentl.mn:404-438` returning `[]`). Substrate-gated on H7
   MultiShot emit completion. NOT this handle. After this lands,
   `synth_propose` returns enumerated candidates with constraint
   proofs; today's stub returns empty; Hμ.cursor's
@@ -167,7 +167,7 @@ the residue must see explicit names, not silence.
   the live wheel; lux3.wasm is not the arbiter (Anchor 0).
 - **Hμ.cursor first.** All four named peer handles depend on
   `cursor_default` existing; this handle must land before any peer.
-- **No bootstrap dependency.** `src/cursor.nx` extends the wheel; the
+- **No bootstrap dependency.** `src/cursor.mn` extends the wheel; the
   bootstrap seed transcribes the wheel after first-light-L1; until
   then, Cursor is wheel-only. This is the inverse of the seed-first
   Hβ cascade discipline — but it is consistent with the kernel-closure
@@ -178,7 +178,7 @@ the residue must see explicit names, not silence.
 
 ## §1 The eight interrogations applied to "what is Cursor"
 
-Per CLAUDE.md ⌁ Mentl's anchor: before any line of Inka, ask the
+Per CLAUDE.md ⌁ Mentl's anchor: before any line of Mentl, ask the
 eight. This walkthrough applies them to **the question itself** —
 "what is Cursor?" — to confirm zero invention. If any interrogation's
 answer requires a new primitive, the proposal is reaching beyond the
@@ -236,7 +236,7 @@ ownership rules.
 ### 1.6 Refinement? — What predicate already bounds Cursor's values?
 
 **Answer:** `Cursor.handle: Handle` is refined to `Handle = Int where
-0 <= self` (per `src/types.nx:291`). `Cursor.impact: Float` is
+0 <= self` (per `src/types.mn:291`). `Cursor.impact: Float` is
 unbounded (could be 0.0 for "fully annotated, no suggestion"; ∞
 sentinel for `??`-pinned positions). `CursorView` fields each carry
 their substrate's predicates (NodeKind, EffRow, etc., all already
@@ -266,16 +266,16 @@ the medium's own editing surface.
 
 ---
 
-## §2 Cursor ADT — the only new types.nx additions
+## §2 Cursor ADT — the only new types.mn additions
 
 ### 2.1 The five new types
 
-Inserted in `src/types.nx` immediately after the Reason ADT (line 273
+Inserted in `src/types.mn` immediately after the Reason ADT (line 273
 `DocstringReason` is the last RX.2 variant; insertion site is line
 274 in pre-edit numbering). Five additions; nothing else in
-`src/types.nx` moves.
+`src/types.mn` moves.
 
-```inka
+```mentl
 // Cursor — the gradient's global argmax over the live graph at this
 // moment. Cursor is attention, not position. The text-caret biases
 // the locus via proximity weighting; the caret does NOT define it.
@@ -341,7 +341,7 @@ the human is looking at + why Mentl thinks so." Under the new
 ontology, that structure is the **caret** — the user's text-attention
 position — not the cursor proper. Hμ.cursor renames it:
 
-```inka
+```mentl
 // Caret — the user's text-attention position. One input among many to
 // Cursor's argmax computation. Updated by the editor's transport
 // handler on every focus event (mouse, keyboard, drag-select, arrow
@@ -377,7 +377,7 @@ as input via the bias function. One unified pipeline; no double-state.
 - Span / Handle / Predicate / Ty / NodeKind / EffRow / Ownership
   / PipeKind — unchanged. CursorView reads them.
 
-**Net new types in src/types.nx: 5** (Cursor, CursorView,
+**Net new types in src/types.mn: 5** (Cursor, CursorView,
 AnnotationSuggestion, SuggestionKind, PipeContext) **+ 1 rename**
 (MV Cursor → Caret). All other substrate read.
 
@@ -391,7 +391,7 @@ AnnotationSuggestion, SuggestionKind, PipeContext) **+ 1 rename**
 positions in the live graph, scores each by `gates_unlocked ×
 caret_proximity`, returns the maximum.
 
-```inka
+```mentl
 fn cursor_argmax_compute(caret) with GraphRead + !Mutate = {
   let candidates = enumerate_gradient_positions()
   let scored     = candidates |> map((h) => score_with_caret_bias(h, caret))
@@ -491,7 +491,7 @@ slot. No mode switch, no separate code path.
 
 ### 4.1 The Cursor effect
 
-```inka
+```mentl
 effect Cursor {
   cursor_at(Span) -> CursorView                 @resume=OneShot
   cursor_argmax(Caret) -> Cursor                @resume=OneShot
@@ -504,7 +504,7 @@ that lives in Synth (the proposer Cursor calls into).
 
 ### 4.2 cursor_default — the handler
 
-```inka
+```mentl
 handler cursor_default with !Mutate {
 
   cursor_at(span) => {
@@ -540,25 +540,25 @@ handler cursor_default with !Mutate {
 
 | `perform` call | Substrate site | Status |
 |---|---|---|
-| `graph_handle_at_span` | `src/graph.nx` | LIVE |
-| `graph_node_kind_at` | `src/graph.nx` (via `graph_chase`) | LIVE |
-| `synth_propose` | `src/mentl.nx:89-93` Synth effect (OneShot stub returns []; H7-gated for real candidates) | LIVE in shape |
-| `infer_ty_at` | `src/infer.nx` (via NBound chase) | LIVE |
-| `infer_row_at` | `src/infer.nx` | LIVE |
-| `mentl_context_at` | `src/mentl.nx` Context ADT construction | LIVE |
-| `graph_pipe_context` | new helper in `src/graph.nx` (small — walks parent chain to find PipeExpr ancestor) | NEW (small) |
-| `ownership_at` | `src/own.nx` ownership tracker | LIVE |
-| `verify_pending_at` | `src/verify.nx` Verify ledger | LIVE |
-| `teach_gradient` | `src/mentl.nx:104-105` mentl_default arm | LIVE |
-| `teach_why` | `src/mentl.nx:107-108` mentl_default arm | LIVE |
-| `graph_span_of` | `src/graph.nx` | LIVE |
+| `graph_handle_at_span` | `src/graph.mn` | LIVE |
+| `graph_node_kind_at` | `src/graph.mn` (via `graph_chase`) | LIVE |
+| `synth_propose` | `src/mentl.mn:89-93` Synth effect (OneShot stub returns []; H7-gated for real candidates) | LIVE in shape |
+| `infer_ty_at` | `src/infer.mn` (via NBound chase) | LIVE |
+| `infer_row_at` | `src/infer.mn` | LIVE |
+| `mentl_context_at` | `src/mentl.mn` Context ADT construction | LIVE |
+| `graph_pipe_context` | new helper in `src/graph.mn` (small — walks parent chain to find PipeExpr ancestor) | NEW (small) |
+| `ownership_at` | `src/own.mn` ownership tracker | LIVE |
+| `verify_pending_at` | `src/verify.mn` Verify ledger | LIVE |
+| `teach_gradient` | `src/mentl.mn:104-105` mentl_default arm | LIVE |
+| `teach_why` | `src/mentl.mn:107-108` mentl_default arm | LIVE |
+| `graph_span_of` | `src/graph.mn` | LIVE |
 
 **One new helper** (`graph_pipe_context`) — small, 10–20 lines,
 walks parent chain in graph, returns PipeContext. Trivial. Could
-be inlined in cursor.nx if preferred (see §10 open question).
+be inlined in cursor.mn if preferred (see §10 open question).
 
 **Net: zero new effects beyond Cursor itself; one small helper in
-graph.nx; everything else composition.**
+graph.mn; everything else composition.**
 
 ### 4.4 mentl_default and cursor_default are the same handler at different abstraction levels
 
@@ -570,7 +570,7 @@ graph.nx; everything else composition.**
 *at a position*. It's the same projection at a higher abstraction —
 "give me everything Mentl knows about this position, in one record."
 
-A transport handler can install either one. `inka edit` installs
+A transport handler can install either one. `mentl edit` installs
 `cursor_default` because it wants the eight-aspect view per cursor
 move. A CLI debugger might install `mentl_default` and call individual
 ops as the user issues commands. Same substrate, two abstraction
@@ -582,7 +582,7 @@ layers — `~>` chain composition lets them coexist.
 
 ### 5.1 The bias function in detail
 
-```inka
+```mentl
 fn caret_proximity_weight(caret, target_span) with Pure = {
   let Caret(caret_handle, _) = caret
   let caret_span = perform graph_span_of(caret_handle)
@@ -620,7 +620,7 @@ a 4-gate annotation that just became available because of A's
 rewrite, its score is `4 × 0.4 = 1.6`. **Module C wins.** The Cursor
 moves to Module C. The developer's text-caret stays in Module A; the
 Cursor surfaces Module C's proposal in the Mentl panel. Per
-IE-inka-edit.md §0.e the IDE shows the eight tentacles voiced for
+IE-mentl-edit.md §0.e the IDE shows the eight tentacles voiced for
 the Cursor's position, regardless of where the caret is.
 
 This is the bus-compressor behavior: the developer's local action
@@ -663,7 +663,7 @@ to focus a different `??` to surface its proposals.
 
 ### 6.2 What the developer experiences
 
-```inka
+```mentl
 // User types in their editor:
 fn process(samples) = ??
                        ^
@@ -813,21 +813,21 @@ the constraints that survive and the incumbent's presence.
 Three modules. Fully annotated. All clean. No outstanding gradient
 suggestions.
 
-```inka
-// Module A — module_a.nx
+```mentl
+// Module A — module_a.mn
 fn compute(x: Int) -> Int with Pure = x * 2
 ```
 
-```inka
-// Module B — module_b.nx
+```mentl
+// Module B — module_b.mn
 import a/module_a {compute}
 
 fn double_compute(y: Int) -> Int with Pure =
   compute(y) + compute(y)
 ```
 
-```inka
-// Module C — module_c.nx
+```mentl
+// Module C — module_c.mn
 import a/module_a {compute}
 
 /// Process a list by applying compute to each element.
@@ -843,7 +843,7 @@ and the user's code declares `with !Alloc + Arena` — clean.
 
 ### 9.2 The user rewrites Module A
 
-```inka
+```mentl
 // Module A — after rewrite
 fn compute(x: Int) -> Int with Pure = {
   let doubled = x * 2
@@ -886,7 +886,7 @@ functionally invisible to the gradient.
 
 Now suppose the rewrite IS substantial:
 
-```inka
+```mentl
 // Module A — after substantial rewrite
 fn compute(x: Int) -> Int = {
   perform log_compute(x)  // performs LogIO effect (was previously absent)
@@ -927,7 +927,7 @@ The most pedagogically useful case: **A's rewrite removes the only
 impure call from a transitive chain, making something downstream
 *provably more pure than the user declared*.**
 
-```inka
+```mentl
 // Module A — original
 fn compute(x: Int) = perform log_compute(x); x * 2
                             // performs LogIO
@@ -942,7 +942,7 @@ fn f(xs: List<Int>) -> List<Int> =
 
 User rewrites A:
 
-```inka
+```mentl
 // Module A — after rewrite (removes the perform)
 fn compute(x: Int) -> Int with Pure = x * 2
 ```
@@ -978,7 +978,7 @@ argmax: C's `f`, score 0.8.
 Cursor surfaces the proposal. The Mentl panel shows:
 
 ```
-Mentl @ module_c.nx::f (line N)
+Mentl @ module_c.mn::f (line N)
 ────────────────────────────────────────────────
 Caret    │ Module A, line M (your text-caret is elsewhere)
 Cursor   │ Module C, line N — function `f` body
@@ -988,11 +988,11 @@ Teach    │ Adding `with Pure` to `f`'s signature would unlock:
          │     inputs known)
 Why      │ `f` body is now provably Pure because:
          │   • `f` calls `map(compute)` (line N)
-         │   • `compute` was rewritten in module_a.nx (line K) to
+         │   • `compute` was rewritten in module_a.mn (line K) to
          │     remove `perform log_compute`; now `with Pure`
          │   • `map` over `Pure` callee inherits `Pure`
-         │ Located(module_c.nx:line N, InferredCallReturn("compute",
-         │         Inferred("Pure after module_a.nx:line K rewrite")))
+         │ Located(module_c.mn:line N, InferredCallReturn("compute",
+         │         Inferred("Pure after module_a.mn:line K rewrite")))
 Propose  │ [Accept] [Defer] [Why deeper] [Don't show again]
 ```
 
@@ -1033,20 +1033,20 @@ CursorView to the human:
 
 | Cadence | When | Best for |
 |---|---|---|
-| Real-time | Every keystroke | Inka edit (browser playground); zero-friction discovery |
+| Real-time | Every keystroke | Mentl edit (browser playground); zero-friction discovery |
 | Idle-debounced (~250ms) | Pause in typing | Most editors; default |
 | On-save | Explicit save event | Heavy projects; reduces visual noise |
 | On-explicit-ask | User invokes "what's next?" | CLI; interactive shell |
 
 These are four handler implementations. Same kernel. Same Cursor
 substrate. The user picks via configuration which transport
-handler is installed. Inka solves Inka's UX-tradeoff problem
+handler is installed. Mentl solves Mentl's UX-tradeoff problem
 through handler-swap, exactly as SUBSTRATE.md §III "The Handler IS
 the Backend" prescribes for any multi-target output.
 
 ### 10.4 Default cadence
 
-Recommendation for `inka edit` (Hμ.cursor.transport): idle-debounced
+Recommendation for `mentl edit` (Hμ.cursor.transport): idle-debounced
 ~250ms. Rationale:
 - Real-time on every keystroke creates visual flicker and breaks the
   developer's focus during typing.
@@ -1080,7 +1080,7 @@ tentacle types via a function-pointer table.
 **Mitigation:** `cursor_at` is a graph query that calls eight named
 `perform` ops. There is no table at any layer — source, LowIR, WAT,
 or emitted binary. Per SUBSTRATE.md §I "The Heap Has One Story":
-"the word 'vtable' never appears in any correct description of Inka
+"the word 'vtable' never appears in any correct description of Mentl
 dispatch." Cursor honors this — it composes named handler effects.
 
 **Verdict: PASS.**
@@ -1233,7 +1233,7 @@ each commit in §13 sequence.
 | 10. Canonical layout enforcement (parser; PipeKind in spec 10) | LIVE | `CursorView.topology` field; `graph_pipe_context` (new small helper) |
 
 **Ten substrate pieces. One new small helper (graph_pipe_context).
-Five new ADTs in types.nx. One new effect (Cursor) with three ops.
+Five new ADTs in types.mn. One new effect (Cursor) with three ops.
 One new handler (cursor_default).** Everything else is composition.
 
 Per `protocol_kernel_closure.md`: "the next phase is composition,
@@ -1284,18 +1284,18 @@ post-commit.
 2. **Walkthrough commit** — `docs/specs/simulations/Hμ-cursor.md`
    (this file). Pre-audit on four axes: eight + SYNTAX + SUBSTRATE +
    wheel. (Pre-audit completed inline with §1, §11 above.)
-3. **Memory protocol commit** — `~/.claude/projects/-home-suds-Projects-inka/memory/protocol_cursor_is_argmax.md`.
+3. **Memory protocol commit** — `~/.claude/projects/-home-suds-Projects-mentl/memory/protocol_cursor_is_argmax.md`.
    (Local to ~/.claude; not in repo.)
-4. **types.nx + GR commit** — five ADT additions; GR §3.2 promoted
+4. **types.mn + GR commit** — five ADT additions; GR §3.2 promoted
    from shape to live. Drift-audit clean.
-5. **mentl.nx commit** — teach_gradient + gradient_next return
+5. **mentl.mn commit** — teach_gradient + gradient_next return
    AnnotationSuggestion. Drift-audit clean.
-6. **cursor.nx commit** — `src/cursor.nx` end-to-end + small
-   `graph_pipe_context` helper added to `src/graph.nx`. Drift-audit
+6. **cursor.mn commit** — `src/cursor.mn` end-to-end + small
+   `graph_pipe_context` helper added to `src/graph.mn`. Drift-audit
    clean.
 7. **Authority docs commit** — SUBSTRATE.md §VI subsection; DESIGN.md
    Mentl chapter; CLAUDE.md anchor + JIT-trigger; 09-mentl.md
-   Cursor section; MV-mentl-voice.md rename + tighten; IE-inka-edit.md
+   Cursor section; MV-mentl-voice.md rename + tighten; IE-mentl-edit.md
    tighten.
 8. **ROADMAP.md commit** — Phase μ section + Hμ.cursor entry +
    peer handle list (.transport, .synth-proposer, .gradient-delta,
@@ -1316,24 +1316,24 @@ The handle is closed when **all six** hold:
    pass the four-axis audit (eight interrogations + SYNTAX.md
    token-discipline + SUBSTRATE.md theorem-alignment + wheel-
    canonical match).
-3. **Composition tally verified** — every `perform` in `src/cursor.nx`
+3. **Composition tally verified** — every `perform` in `src/cursor.mn`
    resolves to a substrate site that already exists (see §4.3 +
    §12.1 tables).
 4. **Drift-mode audit clean** — explicit walk through the nine modes
    per §11 confirms PASS for all nine.
 5. **Authority docs cite each other** — closed loop:
    - SUBSTRATE.md §VI new "Cursor: The Gradient's Global Argmax"
-     subsection references `src/cursor.nx` and this walkthrough.
-   - CLAUDE.md JIT-trigger references `src/cursor.nx` + the new
+     subsection references `src/cursor.mn` and this walkthrough.
+   - CLAUDE.md JIT-trigger references `src/cursor.mn` + the new
      SUBSTRATE.md subsection + `protocol_cursor_is_argmax.md`.
    - DESIGN.md Mentl chapter cross-references SUBSTRATE.md §VI.
    - 09-mentl.md cross-references this walkthrough.
    - MV-mentl-voice.md uses the new Caret/Cursor split.
-   - IE-inka-edit.md cites `cursor_default` as the canonical eight-
+   - IE-mentl-edit.md cites `cursor_default` as the canonical eight-
      tentacle read.
 6. **Three-module worked example traceable** — §9 of this walkthrough
-   traces the example through `cursor.nx`'s code; a reader following
-   §9 step-by-step against the cursor.nx source can see exactly which
+   traces the example through `cursor.mn`'s code; a reader following
+   §9 step-by-step against the cursor.mn source can see exactly which
    `perform` fires at which moment.
 
 End-to-end runtime test is **not** part of acceptance (Anchor 0:
@@ -1349,7 +1349,7 @@ loop empirically when it lands.
 |---|---|---|
 | **Hμ.cursor.transport** | CursorView shape; cursor_default handler; cadence config interface | NEXT after Hμ.cursor |
 | **Hμ.synth-proposer** | The Cursor effect's `propose` field as consumer; H7 MultiShot emit landing | Gated on H7; can land in parallel with Hμ.cursor.transport |
-| **Hμ.gradient-delta** | AnnotationSuggestion ADT (lands here in types.nx); GR §2 inverse-direction substrate | After Hμ.cursor; before Hμ.cursor.transport for full surfacing |
+| **Hμ.gradient-delta** | AnnotationSuggestion ADT (lands here in types.mn); GR §2 inverse-direction substrate | After Hμ.cursor; before Hμ.cursor.transport for full surfacing |
 | **Hμ.cursor.cache** | `(env, oracle_queue)` cache extension per `protocol_oracle_is_ic.md`; depends on Hμ.cursor reading the cache it extends | After Hμ.cursor; performance-only |
 | **Hμ.eight-interrogation-loop** | Cursor's eight-aspect read as the canonical pattern to automate | After all four above |
 
@@ -1364,10 +1364,10 @@ proceeds in parallel branches once the root lands.
 
 Currently §4.3 names a new helper `graph_pipe_context(handle) ->
 PipeContext` of ~10–20 lines walking the parent chain. This could
-alternatively be inlined in cursor.nx as a private fn.
+alternatively be inlined in cursor.mn as a private fn.
 
 **Recommendation:** Inline initially (closer to point of use); if a
-second consumer arrives, factor to graph.nx per "three instances
+second consumer arrives, factor to graph.mn per "three instances
 earn the abstraction." Today there's no second consumer.
 
 ### 16.2 Caret rename — backwards compatibility in MV walkthrough?

@@ -57,7 +57,7 @@
   ;; Hβ-infer-substrate.md §8.1 + docs/errors/ catalog (per-code .md
   ;; files for E_TypeMismatch, E_MissingVariable, E_OccursCheck,
   ;; E_FeedbackNoContext, E_HandlerUninstallable, E_PatternInexhaustive,
-  ;; T_OverDeclared) + src/infer.nx canonical `report` calls (lines
+  ;; T_OverDeclared) + src/infer.mn canonical `report` calls (lines
   ;; 597, 680, 791, 856, 964, 1073, 1529, 1538, 1712 + 330).
   ;;
   ;; What diagnostic emission IS in the seed:
@@ -89,7 +89,7 @@
   ;;     $infer_emit_type_mismatch(handle, ty_a, ty_b, reason)
   ;;       — emitted by $unify_shapes when no Ty-pair arm matches per
   ;;         spec 04 §Unification + §Error handling. Reason payload:
-  ;;         UnifyFailed(ty_a, ty_b) per src/types.nx Reason ADT line
+  ;;         UnifyFailed(ty_a, ty_b) per src/types.mn Reason ADT line
   ;;         247 (reason.wat tag 233).
   ;;     $infer_emit_missing_var(handle, name_str, reason)
   ;;       — emitted by VarRef / ConsCall / pattern arms on env_lookup
@@ -105,7 +105,7 @@
   ;;         wrapped reason verbatim through the `reason` parameter.
   ;;
   ;;   Additional infer-emitted catalog codes (per docs/errors/ +
-  ;;   src/infer.nx report call inventory):
+  ;;   src/infer.mn report call inventory):
   ;;     $infer_emit_feedback_no_context(handle, reason)
   ;;       — emitted by `<~` arm in walk_expr.wat when no iterative
   ;;         context handler (Clock/Tick/Sample) is in scope per
@@ -136,14 +136,14 @@
   ;;     $infer_emit_not_a_record_type(handle, type_name, reason)
   ;;       — emitted by NamedRecordExpr arm when env_lookup resolves
   ;;         the type-name to a non-RecordSchemeKind Scheme (per
-  ;;         src/infer.nx:609). Message: "E_NotARecordType: at
+  ;;         src/infer.mn:609). Message: "E_NotARecordType: at
   ;;         handle <h> — '<type_name>' is not a record type\n".
   ;;         Reason payload: Inferred("not a record type"). Per
   ;;         docs/errors/E_NotARecordType.md.
   ;;     $infer_emit_record_field_extra(handle, field_name, type_name, reason)
   ;;       — emitted by check_nominal_record_fields when provided
   ;;         record literal has a field name no declared field
-  ;;         matches (per src/infer.nx:1406, 1442). Message:
+  ;;         matches (per src/infer.mn:1406, 1442). Message:
   ;;         "E_RecordFieldExtra: at handle <h> — record literal has
   ;;         unknown field '<field_name>' for type <type_name>\n".
   ;;         Reason payload: Inferred("record field extra"). Per
@@ -151,14 +151,14 @@
   ;;     $infer_emit_record_field_missing(handle, field_name, type_name, reason)
   ;;       — emitted by check_nominal_record_fields when declared
   ;;         record type has a field the literal omits (per
-  ;;         src/infer.nx:1415, 1434). Message: "E_RecordFieldMissing:
+  ;;         src/infer.mn:1415, 1434). Message: "E_RecordFieldMissing:
   ;;         at handle <h> — record literal missing field '<field_name>'
   ;;         for type <type_name>\n". Reason payload: Inferred("record
   ;;         field missing"). Per docs/errors/E_RecordFieldMissing.md.
   ;;     $infer_emit_cannot_negate_capability(handle, capability_name, reason)
   ;;       — emitted by expand_capabilities when an ENamed(s) resolves
   ;;         to CapabilityScheme(_) AND `negated == true` (per
-  ;;         src/infer.nx:433). Per ROADMAP item 2 (commit 63b25ce):
+  ;;         src/infer.mn:433). Per ROADMAP item 2 (commit 63b25ce):
   ;;         CapabilityScheme is the fifth canonical SchemeKind variant
   ;;         (FnScheme, ConstructorScheme, EffectOpScheme,
   ;;         RecordSchemeKind, CapabilityScheme); this helper is the
@@ -182,7 +182,7 @@
   ;; their respective walkthroughs):
   ;;
   ;;   docs/errors/E_PurityViolated      — emitted by row-side (spec 01
-  ;;                                       effects.nx unify_row); the
+  ;;                                       effects.mn unify_row); the
   ;;                                       seed's row.wat sibling-emit
   ;;                                       chunk lands these when row-
   ;;                                       diagnostic substrate emerges.
@@ -196,7 +196,7 @@
   ;;   docs/errors/E_RefinementRejected  — emitted by verify.wat SMT
   ;;                                       swap (Arc F.1, B.6); ledger
   ;;                                       in seed accumulates.
-  ;;   docs/errors/E_ReplayExhausted     — emitted by clock.nx replay
+  ;;   docs/errors/E_ReplayExhausted     — emitted by clock.mn replay
   ;;                                       handlers (post-L1 substrate).
   ;;   docs/errors/E_UnresolvedType      — emitted by Hβ.lower's
   ;;                                       lookup_ty_graph handler (Layer
@@ -221,10 +221,10 @@
   ;;   this commit): The four codes E_NotARecordType /
   ;;   E_RecordFieldExtra / E_RecordFieldMissing /
   ;;   E_CannotNegateCapability previously sat as deferred-without-
-  ;;   catalog-files; canonical src/infer.nx (lines 609, 1406+1442,
+  ;;   catalog-files; canonical src/infer.mn (lines 609, 1406+1442,
   ;;   1415+1434, 433) DOES emit them. Per drift mode 9 + ROADMAP §4
   ;;   acceptance ("no bootstrap header or walkthrough text says 'not
-  ;;   emitted by Hβ.infer' when canonical src/infer.nx does emit
+  ;;   emitted by Hβ.infer' when canonical src/infer.mn does emit
   ;;   it"): catalog files landed + helpers landed in this commit.
   ;;   E_CannotNegateCapability's earlier deferral cited "wait for
   ;;   SchemeKind to grow CapabilityScheme"; ROADMAP item 2 (commit
@@ -252,7 +252,7 @@
   ;; 2. Handler?    Direct functions at the seed level. The wheel's
   ;;                compiled form routes $infer_emit_* through the
   ;;                `report` effect handler chain (spec 06 +
-  ;;                src/diagnostic.nx canonical default handler). One
+  ;;                src/diagnostic.mn canonical default handler). One
   ;;                function, two handler paths — seed writes directly
   ;;                to stderr; wheel routes the same payload through
   ;;                the report effect's @resume=OneShot arm. The
@@ -518,7 +518,7 @@
   ;;   - TFun(params, ret, row): "fn(...) -> " + render(ret).
   ;;     Full params + row rendering deferred — TParam substrate +
   ;;     row.wat render not yet landed; render the return type as the
-  ;;     load-bearing diagnostic surface (the wheel src/types.nx:815
+  ;;     load-bearing diagnostic surface (the wheel src/types.mn:815
   ;;     show_type does fuller rendering; the seed's diagnostic surface
   ;;     reads the return type for unify mismatch context).
   ;;   - TName(name, args): name + (if args: "<" + comma-joined render
@@ -534,7 +534,7 @@
   ;;     would be additive when needed).
   ;;   - TAlias(name, _): name verbatim — preserves authored alias
   ;;     per RN.1 substrate (intent-aware; $chase_deep also preserves
-  ;;     TAlias per ty.wat:551-552 + src/types.nx:48).
+  ;;     TAlias per ty.wat:551-552 + src/types.mn:48).
 
   (func $render_ty (param $ty i32) (result i32)
     (call $render_ty_loop (local.get $ty) (i32.const 0)))
@@ -765,7 +765,7 @@
   ;; ─── $infer_emit_handler_uninstallable — E_HandlerUninstallable ─
   ;;
   ;; Per spec I14/I16 + docs/errors/E_HandlerUninstallable.md +
-  ;; src/infer.nx:680. Emitted by HandleExpr arm when handler arm
+  ;; src/infer.mn:680. Emitted by HandleExpr arm when handler arm
   ;; effects exceed the enclosing fn's declared row. Message:
   ;; "E_HandlerUninstallable: at handle <h> — handler arms require
   ;; effects not admitted by enclosing row\n". Reason payload:
@@ -788,7 +788,7 @@
   ;; ─── $infer_emit_pattern_inexhaustive — E_PatternInexhaustive ───
   ;;
   ;; Per spec 04 + docs/errors/E_PatternInexhaustive.md +
-  ;; src/infer.nx:1712. Emitted by MatchExpr arm when match's arms
+  ;; src/infer.mn:1712. Emitted by MatchExpr arm when match's arms
   ;; don't cover every variant of scrutinee's ADT. Message:
   ;; "E_PatternInexhaustive: at handle <h> — match does not cover
   ;; every variant of scrutinee\n". Reason payload:
@@ -810,7 +810,7 @@
 
   ;; ─── $infer_emit_over_declared — T_OverDeclared (Warning kind) ──
   ;;
-  ;; Per spec I19 + docs/errors/T_OverDeclared.md + src/infer.nx:330.
+  ;; Per spec I19 + docs/errors/T_OverDeclared.md + src/infer.mn:330.
   ;; Emitted by FnStmt declared-effects check when the declared row is
   ;; strictly wider than the inferred body row. Warning kind, NOT
   ;; Error — does NOT bind to NErrorHole; the program is well-typed,
@@ -838,7 +838,7 @@
 
   ;; ─── $infer_emit_not_a_record_type — E_NotARecordType ───────────
   ;;
-  ;; Per spec 04 + docs/errors/E_NotARecordType.md + src/infer.nx:609.
+  ;; Per spec 04 + docs/errors/E_NotARecordType.md + src/infer.mn:609.
   ;; Emitted by NamedRecordExpr arm when env_lookup resolves the
   ;; type-name to a non-RecordSchemeKind Scheme. Message:
   ;; "E_NotARecordType: at handle <h> — '<type_name>' is not a record

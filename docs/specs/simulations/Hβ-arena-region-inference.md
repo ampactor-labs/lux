@@ -5,7 +5,7 @@
 
 ## Context
 
-Inka's memory model today: bump allocator, monotonic, never frees
+Mentl's memory model today: bump allocator, monotonic, never frees
 (CLAUDE.md memory model). Traps at 16MB. GC is the named handler
 substrate (Arc F.4). Tofte-Talpin region inference fits the kernel:
 each handler scope IS a region; refinement types tag each value's

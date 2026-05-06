@@ -150,7 +150,7 @@ Algebra applied at handler elimination:
 ## Rejected alternatives
 
 - **Capabilities as the primary mechanism.** Koka/Effekt schism.
-  Modal Effect Types resolves by encoding both. Inka presents rows at
+  Modal Effect Types resolves by encoding both. Mentl presents rows at
   the surface; capabilities fall out as a view.
 - **Scala 3 `^` capture syntax.** Parallel mechanism to rows.
   Fractures the one-mechanism thesis. Rejected.

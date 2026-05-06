@@ -7,7 +7,7 @@ writes about effect absence and what the substrate understands."*
 **Status: 2026-04-22 · seeded post-FV.1 substrate finding.** The original
 FV.1 framing (declare `!E` on hot-path fns) proved decorative on
 monomorphic closed-row sites because `Closed(A) & !Closed(B)` normalizes
-to `Closed(A - B) = Closed(A)` when `B ⊄ A` (effects.nx:150-154). The
+to `Closed(A - B) = Closed(A)` when `B ⊄ A` (effects.mn:150-154). The
 real FV.1 is a three-peer substrate cluster closing the intent
 round-trip. This walkthrough names the substrate decisions.
 
@@ -15,7 +15,7 @@ round-trip. This walkthrough names the substrate decisions.
 
 ## §1 Frame
 
-Inka's primitive #4 is the full Boolean effect algebra: `+ - & ! Pure`.
+Mentl's primitive #4 is the full Boolean effect algebra: `+ - & ! Pure`.
 The manifesto claim: `!E` proves ABSENCE, strictly more expressive
 than Rust + Haskell + Koka + Austral combined. The README example
 case: `!Alloc` proves real-time.
@@ -55,11 +55,11 @@ stance: "real-time," "sandboxed") diverges from the textual form
 
 ### §2.1 Explicit `!E` lost at normalization
 
-**Trace.** `std/compiler/parser.nx:418-447` builds `effs : List<(EffName, negated: Bool)>` per fn signature. `std/compiler/infer.nx:376-387` (`build_declared_from`) iterates the list and builds an `EffRow` via `union_row` / `inter_row(_, neg_row(_))`. `std/compiler/effects.nx:134-156` (`normalize_inter`) reduces `Closed(A) & !Closed(B)` to `Closed(A - B)` — algebraically correct, but after this reduction the pair `(Name, negated=true)` is no longer recoverable from the normalized row.
+**Trace.** `std/compiler/parser.mn:418-447` builds `effs : List<(EffName, negated: Bool)>` per fn signature. `std/compiler/infer.mn:376-387` (`build_declared_from`) iterates the list and builds an `EffRow` via `union_row` / `inter_row(_, neg_row(_))`. `std/compiler/effects.mn:134-156` (`normalize_inter`) reduces `Closed(A) & !Closed(B)` to `Closed(A - B)` — algebraically correct, but after this reduction the pair `(Name, negated=true)` is no longer recoverable from the normalized row.
 
-**Consequence.** `row_subsumes(body_row, declared_row)` correctly catches violations; that's not the issue. The issue is that downstream consumers — `mentl_voice_default`, `inka audit`, hover-info handlers, capability-report generators — reading the function's effect type get only the normalized row. The `!Alloc` the author typed is gone. The author wrote intent; the substrate kept only effect.
+**Consequence.** `row_subsumes(body_row, declared_row)` correctly catches violations; that's not the issue. The issue is that downstream consumers — `mentl_voice_default`, `mentl audit`, hover-info handlers, capability-report generators — reading the function's effect type get only the normalized row. The `!Alloc` the author typed is gone. The author wrote intent; the substrate kept only effect.
 
-**What's preserved today.** The `FnStmt(name, params, ret_ann, effs, body_node)` AST node at `types.nx` holds `effs` in authored form. It's reachable by traversing the AST. Nothing in the compiler currently threads it through to Mentl / audit / hover handlers.
+**What's preserved today.** The `FnStmt(name, params, ret_ann, effs, body_node)` AST node at `types.mn` holds `effs` in authored form. It's reachable by traversing the AST. Nothing in the compiler currently threads it through to Mentl / audit / hover handlers.
 
 **What's missing.** An access path. A new query-style effect that reads authored negations by handle: `perform capability_intent(handle) -> List<(EffName, negated: Bool)>`. Or — simpler — the existing `Query` effect surfaces authored `declared_effs` alongside the normalized row.
 
@@ -79,7 +79,7 @@ With no positive entries, `acc` never leaves `EfPure`. Each negated entry does `
 
 ### §2.3 No named capability bundles
 
-**Trace.** The grammar accepts `with <EffectName> [+ <EffectName> ...]` (parser.nx:418). Each `EffectName` is either `ENamed(String)` or `EParameterized(String, args)`. The parser has no path for "alias that expands to a row expression."
+**Trace.** The grammar accepts `with <EffectName> [+ <EffectName> ...]` (parser.mn:418). Each `EffectName` is either `ENamed(String)` or `EParameterized(String, args)`. The parser has no path for "alias that expands to a row expression."
 
 **Intent.** `RealTime = !Alloc & !IO & !Network` — a one-word capability stance that composes the primitive effects into a named capability. `fn process(block) with Memory + RealTime = ...` reads as "this is the real-time process callback," matching the DSP engineer's mental stance.
 
@@ -150,7 +150,7 @@ fn plugin(input)  with Sandboxed          = ...
 
 **Mentl's choice: B.** Parser stays pure (syntactic only); semantic resolution at infer time matches the rest of the compiler's separation. `build_declared_from` becomes: for each entry, look up name → effect (single), capability (splice in), or unknown (emit `E_UnknownEffect`).
 
-**Load.** Moderate-heavy. New top-level decl syntax (parser.nx). New SchemeKind variant (types.nx). New resolution branch in `build_declared_from` (infer.nx). `cache.nx` serialization of `CapabilityScheme`. `show_scheme` support.
+**Load.** Moderate-heavy. New top-level decl syntax (parser.mn). New SchemeKind variant (types.mn). New resolution branch in `build_declared_from` (infer.mn). `cache.mn` serialization of `CapabilityScheme`. `show_scheme` support.
 
 **Interaction with FV.1.γ.** A `capability` declaration whose body is pure-negation (e.g. `capability RealTime = !Alloc & !IO & !Network`) resolves to an `EfNeg` or `EfInter(EfNeg, EfNeg, ...)` form. When spliced into a call site's declared row via `build_declared_from`, it composes the same way authored negations do. FV.1.γ must land before FV.1.δ — if lone `!E` still collapses to `Pure`, `capability Sandboxed = !Network & !Filesystem` would resolve to `EfPure` before splicing, breaking the capability.
 
@@ -158,11 +158,11 @@ fn plugin(input)  with Sandboxed          = ...
 
 **Candidate sites** (after α + γ + δ land):
 
-- **`fn realtime_map(f: fn(A) -> B with E + !Alloc, xs)`** in a new `std/realtime.nx` module — explicit DSP combinator that restricts callbacks. Doesn't touch prelude.
-- **`fn map(f, xs)` in prelude.nx** — adding `!Diagnostic` to callback rows would restrict what callers can pass. High risk, high value: maps that never propagate reporting.
+- **`fn realtime_map(f: fn(A) -> B with E + !Alloc, xs)`** in a new `std/realtime.mn` module — explicit DSP combinator that restricts callbacks. Doesn't touch prelude.
+- **`fn map(f, xs)` in prelude.mn** — adding `!Diagnostic` to callback rows would restrict what callers can pass. High risk, high value: maps that never propagate reporting.
 - **Handler-constraint on installed handlers.** `fn pipeline(source, handlers: List<Handler with !Mutate + v>)` — handler chains that provably don't mutate declared state.
 
-**Mentl's choice: new `std/realtime.nx` module.** Lowest-risk, highest-exemplar-clarity. Prelude stays general-purpose; realtime ops are a focused capability-typed library. The exemplar lives in a module whose existence proves primitive #4's polymorphic expressive power.
+**Mentl's choice: new `std/realtime.mn` module.** Lowest-risk, highest-exemplar-clarity. Prelude stays general-purpose; realtime ops are a focused capability-typed library. The exemplar lives in a module whose existence proves primitive #4's polymorphic expressive power.
 
 **Load.** Light-moderate, post-α+γ+δ. One module (~50-80 lines). Shows named capabilities + lone `!E` + polymorphic narrowing composing end-to-end.
 
@@ -170,7 +170,7 @@ fn plugin(input)  with Sandboxed          = ...
 
 ## §4 Layer-by-layer trace
 
-### §4.1 Parser (parser.nx)
+### §4.1 Parser (parser.mn)
 
 **α:** No change. Parser already emits `effs` in authored form.
 
@@ -182,7 +182,7 @@ Wait — current syntax is `+` for effect composition in fn declarations. For ca
 
 Actually — `RealTime = !Alloc & !IO & !Network` — this is `!Alloc ∩ !IO ∩ !Network`, which per De Morgan = `!(Alloc + IO + Network)`. So it's the negation of a union. Grammar: accept `!A & !B & !C` as syntactic sugar for `!(A + B + C)`. Parser flattens.
 
-### §4.2 Types / Schemes (types.nx)
+### §4.2 Types / Schemes (types.mn)
 
 **α:** No change to `EffRow`. Authored `effs` lives on the FnStmt AST node as today.
 
@@ -190,7 +190,7 @@ Actually — `RealTime = !Alloc & !IO & !Network` — this is `!Alloc ∩ !IO �
 
 **δ:** Add SchemeKind variant `CapabilityScheme(EffRow)`. `show_scheme` arm added.
 
-### §4.3 Inference (infer.nx)
+### §4.3 Inference (infer.mn)
 
 **α:** Add a query handler op `capability_intent(handle) -> List<(EffName, Negated)>`. Wire to the AST via an existing AST-side handler (TBD — may already exist as part of `Query`).
 
@@ -204,7 +204,7 @@ build_from_partition(pos, neg) =
     fold(neg, base, (acc, n) => inter_row(acc, neg_row(Closed([n]))))
   }
 ```
-(Pseudocode; real implementation uses Inka verbs.)
+(Pseudocode; real implementation uses Mentl verbs.)
 
 **δ:** `build_declared_from` gains a resolution step per entry:
 ```
@@ -216,17 +216,17 @@ resolve_entry(name) = match env_lookup(name) {
 ```
 Entry handling splices capabilities into the partition. Negation of a capability: De Morgan via `neg_row`.
 
-### §4.4 Backends / emit (wasm.nx)
+### §4.4 Backends / emit (wasm.mn)
 
 No change. Effect rows are compile-time only; emitter works from the lowered IR.
 
-### §4.5 Mentl / audit / hover handlers (mentl.nx, future audit.nx)
+### §4.5 Mentl / audit / hover handlers (mentl.mn, future audit.mn)
 
 **α:** New handler `capability_intent_reader` reads authored `effs`. Mentl's `teach` arm queries it when surfacing capability stances.
 
 **δ:** Mentl's capability surfacer matches resolved `declared_row` against known `CapabilityScheme` bundles in env; when the row equals a capability's row, Mentl surfaces the capability name (`"real-time"`) rather than the raw negation list. This is the round-trip closed: author writes `with RealTime` → substrate knows the row → Mentl says "real-time" in hover.
 
-### §4.6 Cache (cache.nx)
+### §4.6 Cache (cache.mn)
 
 **δ:** `cache_show_kind` + `cache_parse_kind` gain a `CapabilityScheme` case. Serialized form: `"CAP:" ++ show_effrow(row)`. Deserialization parses the row string.
 
@@ -303,7 +303,7 @@ handle per the roadmap's peer sub-handle discipline.
 | α | — | — | ~20L | — | ~30L | — | AT1-3 |
 | γ | — | — | ~40L | — | — | — | AT4-6 |
 | δ | ~50L | ~15L | ~60L | — | — | ~20L | AT7-10 |
-| β | — | — | — | — | — | — | AT11-12 + new std/realtime.nx ~80L |
+| β | — | — | — | — | — | — | AT11-12 + new std/realtime.mn ~80L |
 | MV.2.cap | — | — | — | — | ~60L | — | AT13-14 |
 
 Total: ~375 lines compiler-side. Spread across 4 peer commits. Each
@@ -357,4 +357,4 @@ the voice says "real-time." One word, one meaning, one capability,
 one round-trip. **This is the gap between intent and machine, closed
 at primitive #4's surface.**
 
-*The medium Inka speaks of must be the medium Inka is.*
+*The medium Mentl speaks of must be the medium Mentl is.*

@@ -37,7 +37,7 @@ at all.
 
 - Mentl (teach, audit, voice per MV-mentl-voice.md)
 - LSP hover
-- `inka audit` reports
+- `mentl audit` reports
 - Error messages / diagnostics
 - Gradient next-step suggestions
 - Capability graphs
@@ -177,7 +177,7 @@ queries; RN / OW / EN / DS for vocabulary.
 identities, VK verb topology, DS docstrings) plus optionally the
 normalized / resolved form below.
 
-**AT-IR5.** `inka audit` reports speak capability-stance vocabulary
+**AT-IR5.** `mentl audit` reports speak capability-stance vocabulary
 per fn and per module. Audit rows name (via IR): capability stance
 (EN.δ), ownership stance (OW), feedback structure (VK), handler chain
 (HI), declared-vs-inferred delta (GR), refinement aliases in use (RN).
@@ -211,7 +211,7 @@ rendering of that scope.
 
 ## §8 Residue
 
-*The medium Inka speaks of must be the medium Inka is.*
+*The medium Mentl speaks of must be the medium Mentl is.*
 
 At primitive #2 the developer sees the handler chain; hover names the
 provider. (HI)
@@ -219,13 +219,13 @@ provider. (HI)
 At primitive #3 the developer writes `<~`; LowIR realizes it; audit
 names the feedback. (VK)
 
-At primitive #4 the developer writes `with RealTime`; Inka understands
+At primitive #4 the developer writes `with RealTime`; Mentl understands
 it; Mentl speaks it. (EN)
 
-At primitive #5 the developer writes `own`; Inka proves linearity;
+At primitive #5 the developer writes `own`; Mentl proves linearity;
 errors speak it. (OW)
 
-At primitive #6 the developer writes `type Port`; Inka validates by
+At primitive #6 the developer writes `type Port`; Mentl validates by
 predicate; hover names it. (RN)
 
 At primitive #7 the developer writes nothing; Mentl teaches what would

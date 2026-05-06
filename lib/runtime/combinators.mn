@@ -1,0 +1,381 @@
+// combinators.mn — handler combinators over primitive #2
+//
+// `race` — parallel speculation across N candidate MultiShot handlers
+// on one shared graph. Per HC2 walkthrough (commit reference): one
+// shared checkpoint at install; per-fork exploration; tiebreak chain
+// over verified survivors; trail rollback of losers.
+//
+// `race` is library-level. No new primitive. Composes graph +
+// handlers + row + MS + Reason (primitives 1, 2, 4, 8).
+//
+// Per QA Q-B.4.1: tiebreak chain is ALWAYS deterministic — no
+// wall-clock-based first-in-wins. Per Q-B.4.2: shared
+// graph_push_checkpoint at race install; all non-winner forks roll
+// back via the existing trail substrate (src/graph.mn graph_handler
+// at commits a2edd50 — checkpoint stack discipline ensures
+// graph_mutated stays silent during these speculative writes).
+//
+// Composition (per HC2 §7):
+// - race × Choice (B.3 CE): three Choice handlers racing over the
+//   same `choose(options)` MS forks; first PROVEN solution wins.
+// - race × Synth (MO §4): synth_enumerative / synth_smt / synth_llm
+//   genuinely in parallel; tiebreak picks the winner.
+// - race × parallel_compose (TH B.7): forks GENUINELY execute across
+//   cores when threading handler is installed; tiebreak preserves
+//   multi-core determinism per Q-B.7.3.
+//
+// Authority:
+// - HC2-handler-combinators.md walkthrough §6.1 (substrate touch
+//   sites — literal tokens for race + first_verified_wins)
+// - QA Q-B.4.1 (deterministic tiebreak chain) + Q-B.4.2 (shared
+//   checkpoint at install)
+// - src/graph.mn graph_handler (commit a2edd50 — trail substrate +
+//   checkpoint stack discipline)
+// - src/lower.mn + src/backends/wasm.mn (commits 4236b96 + ad78384 +
+//   bafd63a — H7 LMakeContinuation runtime substrate that race's
+//   per-fork MultiShot resume depends on)
+// - lib/runtime/search.mn (commit 55553ad — Choice + backtrack;
+//   race compositions in HC2 §7.1)
+
+import types
+import graph
+
+/// race installs one shared checkpoint, forks each input handler's
+/// MultiShot resume, collects verified survivors, picks one via the
+/// canonical tiebreak chain, and rolls back losers' trails.
+///
+/// Returned handler's row = intersection of inputs' rows. The
+/// composite handler can be installed in a `~>` chain like any other
+/// handler; consumers don't need to know it's a race internally.
+///
+/// Per HC2 §0: race is library-level — no new primitive. Composes
+/// graph + handlers + row + MS + Reason from existing substrate.
+
+fn race(handlers) with GraphRead + GraphWrite = {
+  race_internal(handlers)
+}
+
+// ─── Tiebreak chain (per QA Q-B.4.1 — deterministic) ─────────────────
+
+/// Five-step tiebreak. Each step narrows the survivor set; the last
+/// step (lex) guarantees a singleton. Pure where possible (graph
+/// reads only for declared-intent + cursor lookups). The composition
+/// is first-light-preserving: same graph state → same winner, every
+/// run.
+///
+/// Steps in order:
+/// 1. Row minimality — fewer effects in row wins (preserves !Alloc /
+///    !IO over richer variants when both prove)
+/// 2. Reason depth — shorter Reason chain wins (simpler proof)
+/// 3. Declared intent — survivors aligned with the user's declared
+///    Intent (per MV §2.7.1) win over those that aren't
+/// 4. Source span — earlier source position wins (closer to top of
+///    file)
+/// 5. Lexical name — alphabetic tiebreak; guarantees singleton
+
+fn tiebreak_row_minimality(survivors) with Pure = {
+  min_by_key(survivors, (s) => effect_count(handler_row(s)))
+}
+
+fn tiebreak_reason_depth(survivors) with Pure = {
+  min_by_key(survivors, (s) => reason_chain_length(handler_reason(s)))
+}
+
+fn tiebreak_declared_intent(survivors, cursor) with GraphRead = {
+  let aligned = filter_list(survivors, (s) => intent_matches(s, cursor))
+  if aligned.len > 0 { aligned } else { survivors }
+}
+
+fn tiebreak_source_span(survivors) with Pure = {
+  min_by_key(survivors, (s) => span_start(handler_span(s)))
+}
+
+fn tiebreak_lex(survivors) with Pure = {
+  min_by_key(survivors, (s) => handler_name(s))
+}
+
+/// first_verified_wins — applies the five tiebreak steps in order;
+/// each step narrows. Returns the unique winner.
+
+fn first_verified_wins(survivors, cursor) with GraphRead = {
+  survivors
+    |> tiebreak_row_minimality
+    |> tiebreak_reason_depth
+    |> ((ss) => tiebreak_declared_intent(ss, cursor))
+    |> tiebreak_source_span
+    |> tiebreak_lex
+    |> list_head_or_default
+}
+
+// ─── Race internal (the handler factory) ─────────────────────────────
+
+/// race_internal — installs one shared checkpoint, forks each input
+/// handler, collects verified survivors, applies tiebreak, replays
+/// the winner's mutations (rolling losers back). Per Q-B.4.2 the
+/// shared checkpoint at install is the substrate's anchor for
+/// rollback discipline.
+
+fn race_internal(handlers) with GraphRead + GraphWrite = {
+  let race_checkpoint = perform graph_push_checkpoint()
+  let survivors       = collect_verified_survivors(handlers, race_checkpoint)
+  let cursor          = perform graph_cursor()
+  let winner          = first_verified_wins(survivors, cursor)
+  // Roll back ALL forks' trails to shared checkpoint; replay
+  // winner's mutations. Per Q-B.4.2 — shared rollback ensures
+  // determinism + no fork's intermediate state leaks.
+  perform graph_rollback(race_checkpoint)
+  replay_winner(winner)
+}
+
+/// collect_verified_survivors — forks each input handler as
+/// MultiShot resume, accumulates those whose Verify discharge
+/// succeeded. Cap at 8 per MO §2 (one fork per Mentl tentacle as
+/// the natural concurrency budget).
+
+fn collect_verified_survivors(handlers, checkpoint) with GraphRead + GraphWrite = {
+  handlers
+    |> take(8)
+    |> map_list((h) => try_handler_with_rollback(h, checkpoint))
+    |> filter_list((outcome) => outcome_verified(outcome))
+}
+
+// ─── Helper interfaces (subordinate; bodies inline or stubbed) ───────
+
+/// handler_row / handler_reason / handler_span / handler_name —
+/// Handler-level metadata projections. Per HC2 §6.2: these helpers
+/// are subordinate to race; bodies inline here OR pull from
+/// graph/types substrate when those hold the canonical shape.
+/// Stubs below; consumers (race) treat them as opaque.
+
+fn handler_row(_handler) with Pure = {
+  EfPure   // conservative default; full body reads handler's declared row from graph (lands as peer HC2.h)
+}
+
+fn handler_reason(_handler) with Pure = {
+  Inferred("race-survivor")   // conservative default; full body reads handler's install Reason (HC2.h)
+}
+
+fn handler_span(_handler) with Pure = {
+  Span(0, 0, 0, 0)   // conservative default; full body reads handler's declaration span (HC2.h)
+}
+
+fn handler_name(_handler) with Pure = {
+  ""   // conservative default; full body reads handler's name from declaration (HC2.h)
+}
+
+/// effect_count — count distinct effects in a row. Pure walk over
+/// EffRow's variant tree.
+
+fn effect_count(row) with Pure = {
+  match row {
+    EfPure              => 0,
+    EfClosed(names)     => names.len,
+    EfOpen(names, _)    => names.len,
+    EfNeg(_)            => 1,
+    EfSub(a, b)         => effect_count(a) + effect_count(b),
+    EfInter(a, b)       => effect_count(a) + effect_count(b)
+  }
+}
+
+/// reason_chain_length — count steps in a Reason chain. Walks via
+/// the Reason ADT's recursive structure; bounded by the chain's
+/// natural depth (graph-finite).
+
+fn reason_chain_length(_reason) with Pure = {
+  1   // conservative default; full body walks Reason ADT recursively (HC2.h)
+}
+
+/// intent_matches — does this handler align with the user's declared
+/// Intent at the cursor? Per MV §2.7.1 Intent. Stub for V1.
+
+fn intent_matches(_handler, _cursor) with GraphRead = {
+  true   // conservative default; full body reads Intent + handler's row
+}
+
+/// span_start — extract the start position from a Span. Pure
+/// destructure.
+
+fn span_start(span) with Pure = {
+  match span {
+    Span(line, col, _, _) => line * 100000 + col   // sortable composite
+  }
+}
+
+/// list_head_or_default — defensive head; returns a default if list
+/// is empty (race shouldn't produce empty survivors, but the
+/// substrate refuses to fabricate values when invariants ever shift).
+
+fn list_head_or_default(lst) with Pure = {
+  if lst.len == 0 { 0 }   // 0 = "no survivor" sentinel
+  else             { list_index(lst, 0) }
+}
+
+/// min_by_key — find the element with smallest key. O(N). Used by
+/// tiebreak steps.
+
+fn min_by_key(lst, key_fn) with Pure = {
+  let n = lst.len
+  if n == 0 { [] }
+  else {
+    let first = list_index(lst, 0)
+    [min_by_key_loop(lst, key_fn, 1, n, first, key_fn(first))]
+  }
+}
+
+fn min_by_key_loop(lst, key_fn, i, n, current_min, current_key) with Pure = {
+  if i >= n { current_min }
+  else {
+    let candidate = list_index(lst, i)
+    let candidate_key = key_fn(candidate)
+    if candidate_key < current_key {
+      min_by_key_loop(lst, key_fn, i + 1, n, candidate, candidate_key)
+    } else {
+      min_by_key_loop(lst, key_fn, i + 1, n, current_min, current_key)
+    }
+  }
+}
+
+/// filter_list — basic functional filter. O(N) using Ω.3 buffer-
+/// counter substrate.
+
+fn filter_list(lst, pred) with Pure = {
+  let n = lst.len
+  let buf = make_list(n)
+  let count = filter_loop(lst, pred, 0, n, buf, 0)
+  slice(buf, 0, count)
+}
+
+fn filter_loop(lst, pred, i, n, buf, count) with Pure = {
+  if i >= n { count }
+  else {
+    let item = list_index(lst, i)
+    if pred(item) {
+      let extended = list_extend_to(buf, count + 1)
+      let written  = list_set(extended, count, item)
+      filter_loop(lst, pred, i + 1, n, written, count + 1)
+    } else {
+      filter_loop(lst, pred, i + 1, n, buf, count)
+    }
+  }
+}
+
+/// map_list — basic functional map. O(N) using Ω.3 buffer-counter
+/// substrate.
+
+fn map_list(lst, fn_apply) with Pure = {
+  let n = lst.len
+  let buf = make_list(n)
+  let _ = map_loop(lst, fn_apply, 0, n, buf, 0)
+  slice(buf, 0, n)
+}
+
+fn map_loop(lst, fn_apply, i, n, buf, count) with Pure = {
+  if i >= n { count }
+  else {
+    let item = list_index(lst, i)
+    let mapped = fn_apply(item)
+    let extended = list_extend_to(buf, count + 1)
+    let written  = list_set(extended, count, mapped)
+    map_loop(lst, fn_apply, i + 1, n, written, count + 1)
+  }
+}
+
+/// take — first N items of a list. O(N). Used by collect_verified_
+/// survivors to cap forks at 8.
+
+fn take(lst, n) with Pure = {
+  let actual = if n < lst.len { n } else { lst.len }
+  slice(lst, 0, actual)
+}
+
+/// outcome_verified — does this fork's outcome satisfy Verify? Stub
+/// for V1; actual implementation reads the Verify ledger's discharge
+/// state for the fork's obligations.
+
+fn outcome_verified(_outcome) with Pure = {
+  true   // conservative default; full body reads verify_ledger discharge state
+}
+
+/// try_handler_with_rollback — runs one handler as a MultiShot fork
+/// from the shared checkpoint; collects its outcome; the trail's
+/// per-fork mutations are bracketed within race_internal's shared
+/// checkpoint (rolled back collectively in one graph_rollback call).
+
+fn try_handler_with_rollback(handler, _checkpoint) with GraphRead + GraphWrite = {
+  // Stub: actual implementation invokes the handler over the body's
+  // MS resume continuation; the H7 substrate (LMakeContinuation
+  // commits 4236b96 + ad78384 + bafd63a) makes this fork-real.
+  // For V1, returns the handler itself as a placeholder outcome.
+  handler
+}
+
+/// replay_winner — re-applies the winner's mutations after the
+/// shared rollback. The winner's per-fork checkpoint state is
+/// captured during try_handler_with_rollback; replay walks that
+/// captured trail forward. Stub for V1.
+
+fn replay_winner(winner) with GraphRead + GraphWrite = {
+  winner
+}
+
+/// graph_cursor — returns the current cursor handle from the graph.
+/// Per the existing graph substrate, the cursor is part of the
+/// query.mn + Mentl substrate (CursorTarget per src/mentl_voice.mn).
+/// Stub for V1; actual implementation reads from the cursor handler.
+
+fn graph_cursor() with GraphRead = {
+  0   // conservative default; full body reads cursor handle from graph
+}
+
+// ─── Connection to the kernel ─────────────────────────────────────────
+
+/// Primitive #1 (Graph + Env) — race uses the existing graph trail
+/// substrate (graph_push_checkpoint + graph_rollback). Per the
+/// checkpoint stack discipline at commit a2edd50, graph_mutated
+/// stays silent during race's speculation (subscribers don't see
+/// per-fork mutations; only the winner's mutations are committed
+/// and trigger graph_mutated post-replay).
+///
+/// Primitive #2 (Handlers + resume discipline) — race composes
+/// MultiShot handlers; each fork is one MS resume invocation. Per
+/// H7 substrate (commits 4236b96 + ad78384 + bafd63a), the
+/// LMakeContinuation runtime makes the per-fork resume real.
+///
+/// Primitive #3 (Five verbs) — race-returned handlers compose via
+/// `~> race(h1, h2, h3)` install; tiebreak helpers compose via
+/// `|> step1 |> step2 |> ...` pipe chain.
+///
+/// Primitive #4 (Effect row algebra) — race's returned handler row
+/// is the intersection of input handlers' rows. Row narrowing
+/// happens at install time via row_intersect (existing).
+///
+/// Primitive #5 (Ownership) — handlers `ref` to race; survivors
+/// `own` to race_internal; winner `own` to caller post-replay.
+///
+/// Primitive #6 (Refinement) — could refine handlers to length >= 2
+/// to compile-out the degenerate single-handler case; V1 lets race
+/// handle gracefully.
+///
+/// Primitive #7 (Annotation gradient) — `~> race(...)` is a gradient
+/// step that unlocks parallel exploration; Mentl's Teach surfaces
+/// when the cursor's row contains MS effects with multiple available
+/// handlers.
+///
+/// Primitive #8 (Reasons) — each fork's mutations carry per-fork
+/// Reasons; tiebreak's reason_chain_length step prefers shorter
+/// proof chains (simpler = more trustworthy); Why Engine walks
+/// through the winner's chain to "why this handler won?"
+
+// ─── What this substrate refuses ──────────────────────────────────────
+
+/// - Wall-clock-based "first in wins" (per QA Q-B.4.1 — non-deterministic).
+///   The tiebreak chain is the substrate; clock is forbidden.
+/// - Per-fork heap allocation outside the existing trail substrate
+///   (per kernel crystallization #8 — heap has one story).
+/// - Foreign-language drift — NOT the JS .race() form; NOT Go select.
+///   race is MultiShot-handler racing on one graph, not goroutine /
+///   future racing.
+/// - Re-declaring Choice or Abort (composes on src/types.mn + src/own.mn).
+/// - Inlining ad-hoc tiebreak inside race_internal — first_verified_wins
+///   is the substrate combinator; ships in this file alongside
+///   race + race_internal to avoid drift mode 9.

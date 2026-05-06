@@ -1,8 +1,8 @@
 # LF — `<~` feedback state-machine lowering walkthrough
 
-> **Status:** `[PENDING]`. Closes the last Priority 1 substrate gap. Gates Pending Work item 1 (`LFeedback` lowering implementation; ~100 lines emit-side in `src/backends/wasm.nx`). After this walkthrough closes, item 1 is prescriptive — no design left, transcription only.
+> **Status:** `[PENDING]`. Closes the last Priority 1 substrate gap. Gates Pending Work item 1 (`LFeedback` lowering implementation; ~100 lines emit-side in `src/backends/wasm.mn`). After this walkthrough closes, item 1 is prescriptive — no design left, transcription only.
 
-*`<~` is Inka's genuine novelty — the only mainstream feedback operator with typed context and compile-time optimization. The verb, row, and type inference fire; emit is stubbed. This walkthrough specifies the LIR-to-WAT lowering.*
+*`<~` is Mentl's genuine novelty — the only mainstream feedback operator with typed context and compile-time optimization. The verb, row, and type inference fire; emit is stubbed. This walkthrough specifies the LIR-to-WAT lowering.*
 
 ---
 
@@ -18,11 +18,11 @@ From DESIGN §2.5: `<~` is the feedback operator. `a <~ spec(N)` says "a's outpu
 **Same verb. Handler decides the unit.** An IIR filter and an RNN are the SAME TOPOLOGY (per DESIGN §10.2).
 
 **Current state of `<~` in the compiler:**
-- Parser recognizes `TLtTilde` token (§`parser.nx`).
+- Parser recognizes `TLtTilde` token (§`parser.mn`).
 - AST: `PipeExpr(PFeedback, body, spec)` constructed correctly.
 - Inference: H3.1 landed `Sample(44100)` parameterized effects; `<~` correctly requires iterative ctx (`Sample | Tick | Clock` in effect row).
 - Lower: `LFeedback(handle, body, spec)` LIR node constructed.
-- **Emit: STUBBED.** `src/backends/wasm.nx` at the `LFeedback` arm currently emits `;; <~ feedback (iterative ctx)` as a WAT comment. The body is emitted but the feedback edge is not realized.
+- **Emit: STUBBED.** `src/backends/wasm.mn` at the `LFeedback` arm currently emits `;; <~ feedback (iterative ctx)` as a WAT comment. The body is emitted but the feedback edge is not realized.
 
 **What this walkthrough resolves:**
 - The LIR-to-WAT lowering for `LFeedback`.
@@ -32,7 +32,7 @@ From DESIGN §2.5: `<~` is the feedback operator. `a <~ spec(N)` says "a's outpu
 
 **What this walkthrough does NOT cover:**
 - Non-`<~` verb emission (already live).
-- Iterative-context handler implementations (live in `src/clock.nx`; already substrate).
+- Iterative-context handler implementations (live in `src/clock.mn`; already substrate).
 - Multi-shot × arena policy (tracked separately; default Replay-safe per Decisions Ledger).
 
 ---
@@ -41,7 +41,7 @@ From DESIGN §2.5: `<~` is the feedback operator. `a <~ spec(N)` says "a's outpu
 
 ### 1.1 The LFeedback LIR shape
 
-Current form (already in `src/lower.nx` and `src/types.nx`):
+Current form (already in `src/lower.mn` and `src/types.mn`):
 
 ```
 type LowExpr
@@ -97,7 +97,7 @@ Rationale: first-light's compiler doesn't use `<~` at all (no feedback in the co
 At `LFeedback`'s lower step, the compiler allocates a slot in the enclosing handler's state record:
 
 ```
-// In src/lower.nx, during LFeedback lowering:
+// In src/lower.mn, during LFeedback lowering:
 fn lower_feedback(handle, body, spec) with LowerCtx = {
   // Allocate a slot in the current handler's state.
   let slot_offset = perform alloc_handler_state_slot("__fb_" ++ show(handle), i32_type)
@@ -114,7 +114,7 @@ This requires:
 
 ### 1.5 WAT emission
 
-At emit, the `LFeedback` arm in `src/backends/wasm.nx` replaces the current stub with:
+At emit, the `LFeedback` arm in `src/backends/wasm.mn` replaces the current stub with:
 
 ```
 LFeedback(_h, body, spec_compiled) => {
@@ -227,7 +227,7 @@ Each LFeedback emission leaves a Reason: `Located(span, Inferred("feedback slot 
 
 ## 4. Edits as literal tokens
 
-### 4.1 Extend `src/lower.nx`
+### 4.1 Extend `src/lower.mn`
 
 Add to the LFeedback lowering arm:
 
@@ -260,7 +260,7 @@ fn compile_spec(spec, slot_offset) = match spec {
 
 ~15 lines.
 
-### 4.4 Rewrite `LFeedback` arm in `src/backends/wasm.nx`
+### 4.4 Rewrite `LFeedback` arm in `src/backends/wasm.mn`
 
 Replace current stub with the emission pattern from §1.5:
 
@@ -300,7 +300,7 @@ New entry: `docs/errors/E_FeedbackDelayGreaterThanOne.md` (or better name). Docu
 ## 5. Post-edit audit command
 
 ```
-bash tools/drift-audit.sh src/lower.nx src/backends/wasm.nx
+bash tools/drift-audit.sh src/lower.mn src/backends/wasm.mn
 ```
 
 Verifies:
@@ -315,7 +315,7 @@ Verifies:
 
 LF lands as ONE commit (item 1 execution), after NS-naming + NS-structure + EH + SIMP close. Rationale: the feedback emit reads current-source state that's shaped by simplification; if LF lands first, simplification may rewrite it.
 
-Actually — revision: LF is **independent of naming/structure/simplification** at the semantic level. It only touches `src/lower.nx` + `src/backends/wasm.nx`. BUT: those files will be renamed / moved during the restructure sweep. LF's edits would be churned by item 17' restructure.
+Actually — revision: LF is **independent of naming/structure/simplification** at the semantic level. It only touches `src/lower.mn` + `src/backends/wasm.mn`. BUT: those files will be renamed / moved during the restructure sweep. LF's edits would be churned by item 17' restructure.
 
 **Decision:** LF lands AFTER item 17' restructure (so file paths are stable). LF rides through the existing structure at that point.
 
@@ -323,7 +323,7 @@ Actually — revision: LF is **independent of naming/structure/simplification** 
 
 ## 7. Dispatch
 
-**Option A (dual-tier Sonnet):** for the implementation edits in src/lower.nx + src/backends/wasm.nx. Sonnet can follow the prescriptive rewrite patterns from §4.
+**Option A (dual-tier Sonnet):** for the implementation edits in src/lower.mn + src/backends/wasm.mn. Sonnet can follow the prescriptive rewrite patterns from §4.
 
 **Option B (Opus-on-Opus):** if a subtle interaction surfaces during implementation — e.g., feedback-value type dispatch turns out more complex than §4.5 anticipates.
 
@@ -337,7 +337,7 @@ Actually — revision: LF is **independent of naming/structure/simplification** 
 
 - Item 1 (LFeedback state-machine lowering) complete.
 - `<~ delay(1)` works end-to-end: parse → infer → lower → emit → WAT.
-- `lib/dsp/signal.nx` + `lib/dsp/processors.nx` + `lib/ml/autodiff.nx` compile successfully.
+- `lib/dsp/signal.mn` + `lib/dsp/processors.mn` + `lib/ml/autodiff.mn` compile successfully.
 - The DSP thesis scenario (DESIGN 10.2, a-day.md "1000 DSP + RT") fires in WAT, not just in paper simulation.
 - The scoreboard `docs/traces/a-day.md` flips the `[substrate pending]` tag for `<~` to `[LIVE]`.
 
@@ -351,7 +351,7 @@ Actually — revision: LF is **independent of naming/structure/simplification** 
 
 ## 9. Riffle-back
 
-1. Verify `lib/dsp/signal.nx` tests pass after LF. Deterministic output, proper frequency response for test signals.
+1. Verify `lib/dsp/signal.mn` tests pass after LF. Deterministic output, proper frequency response for test signals.
 2. Verify compile time hasn't regressed materially (~100 lines of emit code shouldn't slow things down).
 3. Check that non-`<~` emit paths unchanged by the LF edits (no regression in existing compile outputs).
 
@@ -359,7 +359,7 @@ Actually — revision: LF is **independent of naming/structure/simplification** 
 
 ## 10. Closing
 
-LF closes the last Priority 1 substrate gap. The `<~` verb — Inka's genuine novelty — compiles to WAT correctly for the v1 scope of `delay(1)`. DSP and ML stdlib modules work end-to-end. The `[substrate pending]` tag on feedback in `a-day.md` flips to `[LIVE]`.
+LF closes the last Priority 1 substrate gap. The `<~` verb — Mentl's genuine novelty — compiles to WAT correctly for the v1 scope of `delay(1)`. DSP and ML stdlib modules work end-to-end. The `[substrate pending]` tag on feedback in `a-day.md` flips to `[LIVE]`.
 
 **One walkthrough, one commit, feedback fully realized.**
 
@@ -370,13 +370,13 @@ LF closes the last Priority 1 substrate gap. The `<~` verb — Inka's genuine no
 *Per Anchor 7: riffle-back captures how prior decisions read in
 the substrate that actually shipped. This addendum is the audit of
 the walkthrough against commit `7f8ff5f` (B.9 emit landing) +
-commit `bba8d4d` (lib/dsp/feedback.nx first composition demo).*
+commit `bba8d4d` (lib/dsp/feedback.mn first composition demo).*
 
 ### 11.1 What landed exactly as designed
 
 - **Load-tee-store cycle (§1.5).** The WAT shape matches the
   walkthrough's pseudo-WAT exactly: load prior → emit body → tee
-  current → store current → reload. Lives at `src/backends/wasm.nx`
+  current → store current → reload. Lives at `src/backends/wasm.mn`
   LFeedback emit arm.
 - **Per-site locals (§4.5).** Both `$__fb_prev_<h>` and `$__fb_<h>`
   declared in the let-locals walker. Body's lowered LIR has access
@@ -385,10 +385,10 @@ commit `bba8d4d` (lib/dsp/feedback.nx first composition demo).*
   walkthrough scoped; longer delays + accumulator + filter_spec
   remain peer sub-handles LF.1 / LF.2 / LF.3.
 - **Iterative-context gate (§1.7).** Unchanged; existing
-  IterativeContext effect + handlers in `lib/dsp/clock.nx` continue
-  to gate `<~` per `src/infer.nx:961` `perform check_iterative_context()`.
+  IterativeContext effect + handlers in `lib/dsp/clock.mn` continue
+  to gate `<~` per `src/infer.mn:961` `perform check_iterative_context()`.
 - **Cache version bump (§5).** `cache_compiler_version` 4→5 per
-  `src/cache.nx:44` so cached LIR pre-B.9 invalidates correctly.
+  `src/cache.mn:44` so cached LIR pre-B.9 invalidates correctly.
 
 ### 11.2 What landed differently from §1.4-§1.5 (and why)
 
@@ -422,7 +422,7 @@ commit `bba8d4d` (lib/dsp/feedback.nx first composition demo).*
   source-level name that resolves to it. So body LIR can't read the
   prior — the load-tee-store cycle emits but body computes only on
   current input.
-  - **Effect on `lib/dsp/feedback.nx` (commit `bba8d4d`):** the IIR
+  - **Effect on `lib/dsp/feedback.mn` (commit `bba8d4d`):** the IIR
     filter functions are STRUCTURAL — they emit valid WAT with a
     feedback shape, but the body multiplies input by alpha alone;
     the prior-iteration term is absent.

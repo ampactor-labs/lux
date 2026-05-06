@@ -1,0 +1,96 @@
+// crucible_oracle.mn — speculative gradient proves Mentl's thesis (C.2)
+//
+// Per CRU walkthrough §1e + the just-landed MS substrate (B.5
+// commit 78075ee + the multi-shot quartet H7 + CE + HC2 + AM):
+// at a bare function signature whose body is provably Pure, Mentl's
+// oracle surfaces exactly one gradient hint — APure with unlocks
+// [CMemoize, CParallelize, CCompileTimeEval] — within a 50ms
+// interactive budget. The hint's Reason chain walks back to the
+// arithmetic primitive where * resolves to integer multiply.
+//
+// This crucible IS the conversation with Mentl's future self per
+// INSIGHTS L1161 — writes the program we wish existed; the
+// compilation/audit success or failure tells us what substrate is
+// done vs missing.
+//
+// Per the realization-loop discipline: this crucible exercises the
+// just-landed continuous oracle (commit f87abf3) + multi-shot
+// quartet end-to-end. The fitness is binary: `mentl teach
+// crucibles/crucible_oracle.mn` emits one T_Gradient for `double`'s
+// signature with [CMemoize, CParallelize, CCompileTimeEval] unlocks
+// + the hint's Reason chain walks to integer multiply. Pass = MS
+// substrate runtime-real; fail = still gaps somewhere in the chain.
+//
+// Authority: CRU walkthrough §1e + MO walkthrough §5 (gradient
+// surfacing semantics) + INSIGHTS §"The Continuous Oracle IS IC
+// Plus One Cached Value" (commit 636c365)
+
+import types
+
+/// double — the canonical bare-Pure-body function. Mentl's oracle
+/// should propose exactly one annotation: `with Pure` (gradient
+/// step APure). The unlocks: CMemoize (same input → same output
+/// guarantee), CParallelize (no side effects to race),
+/// CCompileTimeEval (if input is known).
+///
+/// The bare signature is the hole — `??` semantically (no annotation
+/// committed). Mentl's Synth tentacle proposes APure; Verify
+/// discharges (body is provably Pure — `*` is integer multiply,
+/// no effects). Survivor: APure(span). Surface as VoiceLine via
+/// `mentl teach`.
+
+fn double(x) =
+  x * 2
+
+/// triple — same shape, same expected gradient. Two functions in
+/// the same crucible exercise that the oracle's per-position state
+/// is per-fn-handle, not project-wide noise.
+
+fn triple(x) =
+  x * 3
+
+/// quadruple — composes `double`. Mentl should still propose APure
+/// at the call site; `double` being inferred Pure transitively
+/// implies quadruple is Pure too.
+
+fn quadruple(x) =
+  double(double(x))
+
+// ─── Acceptance criteria (per CRU §1e + plan C.2) ────────────────────
+//
+// 1. `mentl check crucibles/crucible_oracle.mn` passes.
+// 2. `mentl teach crucibles/crucible_oracle.mn` emits one T_Gradient
+//    for `double` (and another for `triple`, and another for
+//    `quadruple` — three positions, three identical-shape hints).
+// 3. The gradient hint's annotation is APure(span).
+// 4. The unlocks list is [CMemoize, CParallelize, CCompileTimeEval]
+//    (in that order — kernel order per primitive #4 row narrowing).
+// 5. The Reason chain walks back to BMul (the integer multiply
+//    primitive at `x * 2`); for `quadruple`, the chain walks
+//    through the call to `double` and on to BMul.
+// 6. Latency: gradient hint produced within 50ms after the cursor
+//    settles on `fn double` (per MO §5 interactive budget).
+// 7. Same source → same hint, deterministic across runs (per
+//    INSIGHTS §"The Continuous Oracle IS IC Plus One Cached Value"
+//    + the Mentl-is-100%-deterministic doctrine).
+//
+// Fails meaningfully if:
+// - graph_push_checkpoint / graph_rollback don't close the trail
+//   atomically (substrate at src/graph.mn commit a2edd50 should
+//   ensure this — checkpoint stack discipline)
+// - Synth handler composition doesn't bound the candidate set
+//   (substrate at src/mentl.mn:155-175 + lib/runtime/combinators.mn
+//   commit 3da8d79's race tiebreak should bound)
+// - verify_obligations can't discharge a trivial Pure row (substrate
+//   at src/verify.mn + EffRow algebra should discharge trivially)
+// - Mentl's project queue doesn't surface this as a TUnlock-tier
+//   item (per src/mentl_oracle.mn commit f87abf3's PriorityTier
+//   substrate)
+// - Latency exceeds 50ms (would indicate either: pre-B.2 sequential
+//   exploration is too slow, OR caching isn't kicking in via
+//   lib/runtime/cache_map.mn commit b35c239)
+//
+// This crucible IS the conversation with Mentl's future self per
+// INSIGHTS L1161. Pass = the substrate landed in commits f87abf3
+// through 78075ee delivers the thesis claim mechanically. Fail =
+// the chain is incomplete somewhere; the failure tells us where.

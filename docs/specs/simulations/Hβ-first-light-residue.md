@@ -15,8 +15,8 @@
 >
 > *Claim in one sentence:* **First-light-L1 is multi-handle Phase H
 > tail work that this document scopes by empirical evidence — a
-> direct seed-compile of `find src -name '*.nx' | sort` + `find lib
-> -name '*.nx' | sort` produces a syntactically-valid stub module of
+> direct seed-compile of `find src -name '*.mn' | sort` + `find lib
+> -name '*.mn' | sort` produces a syntactically-valid stub module of
 > 1 function (`heap_base` with `(unreachable)` body), exit 0, with 13
 > `E_UnresolvedType` diagnostics at lower-time; the seed silently
 > emits a stub when the wheel exercises substrate it can't yet
@@ -32,25 +32,25 @@
 Per `CLAUDE.md` operational essentials:
 
 ```
-cat src/*.nx lib/**/*.nx | wasmtime run bootstrap/inka.wasm > inka2.wat
+cat src/*.mn lib/**/*.mn | wasmtime run bootstrap/mentl.wasm > inka2.wat
 wat2wasm inka2.wat -o inka2.wasm
-cat src/*.nx lib/**/*.nx | wasmtime run inka2.wasm > inka3.wat
+cat src/*.mn lib/**/*.mn | wasmtime run inka2.wasm > inka3.wat
 diff inka2.wat inka3.wat    # empty = first-light
 ```
 
-The `cat src/*.nx lib/**/*.nx` form is order-sensitive (depends on
+The `cat src/*.mn lib/**/*.mn` form is order-sensitive (depends on
 shell glob behavior). The substrate-canonical input form per
-`tools/determinism-gate.sh` is `find src -name '*.nx' | sort`
-followed by `find lib -name '*.nx' | sort` — 51 files in stable
+`tools/determinism-gate.sh` is `find src -name '*.mn' | sort`
+followed by `find lib -name '*.mn' | sort` — 51 files in stable
 sorted order. Both forms compile through the seed; the substrate-
 canonical form is what L1 requires.
 
 ### 0.2 Empirical L1 stage-1 state (2026-05-02)
 
 ```
-$ cat $(find src -name '*.nx' -type f | sort) \
-       $(find lib -name '*.nx' -type f | sort) \
-   | wasmtime run bootstrap/inka.wasm > /tmp/inka2.wat 2>/tmp/inka2.err
+$ cat $(find src -name '*.mn' -type f | sort) \
+       $(find lib -name '*.mn' -type f | sort) \
+   | wasmtime run bootstrap/mentl.wasm > /tmp/inka2.wat 2>/tmp/inka2.err
 
 exit=0
 inka2.wat=19 lines
@@ -172,8 +172,8 @@ From `walk_stmt.wat` (lines 56-134), `walk_compound.wat` (62-100),
 
 | Named follow-up | Blocks | Substrate today |
 |---|---|---|
-| **Hβ.lower.letstmt-destructure** | `let GNode(kind, reason) = ...` (PCon patterns in let) | `$lower_walk_stmt_let` only handles PVar (tag 130); other patterns lower to `LConst(h, 0)` sentinel. Wheel uses PCon-let extensively (cursor.nx lines 84, 106, 172; types.nx; mentl.nx). |
-| **Hβ.lower.match-arm-pattern-substrate** | Match-arm pattern lowering | `$lower_match` lowers scrutinee but emits empty arms list. Wheel uses match extensively (cursor.nx lines 149-155, 169-174, 201-204; mentl.nx; mentl_voice.nx). |
+| **Hβ.lower.letstmt-destructure** | `let GNode(kind, reason) = ...` (PCon patterns in let) | `$lower_walk_stmt_let` only handles PVar (tag 130); other patterns lower to `LConst(h, 0)` sentinel. Wheel uses PCon-let extensively (cursor.mn lines 84, 106, 172; types.mn; mentl.mn). |
+| **Hβ.lower.match-arm-pattern-substrate** | Match-arm pattern lowering | `$lower_match` lowers scrutinee but emits empty arms list. Wheel uses match extensively (cursor.mn lines 149-155, 169-174, 201-204; mentl.mn; mentl_voice.mn). |
 | **Hβ.lower.fn-stmt-closure-substrate** | Closure-capture collection for nested fns + lambdas | `$lower_lambda` emits LMakeClosure with empty captures. Wheel's closures (`(c) => score(c, caret)`) need capture lists. |
 | **Hβ.lower.fn-stmt-frame-discipline** | Frame-stack discipline for nested fns | Inert. Affects nested fn body lowering. |
 | **Hβ.lower.handler-arm-decls-substrate** | Handler-arm lowering to module-level fns | `$lower_handler_arms_as_decls` returns empty list — handler arms never become module-level fns, so emit can't produce `$op_<name>` functions; perform calls have nothing to dispatch to. |
@@ -193,11 +193,11 @@ From `emit_const.wat`, `emit_call.wat`, `emit_control.wat`,
 
 | Named follow-up | Blocks | Substrate today |
 |---|---|---|
-| **Hβ.emit.float-substrate** | TFloat literal emission + scientific-notation lexer | `1e308`, `0.85`, `0.7`, `0.4`, `0.2` all in cursor.nx + lib/dsp + lib/ml; lexer can't tokenize `1e308`; emit has no `(f64.const ...)` arm. |
+| **Hβ.emit.float-substrate** | TFloat literal emission + scientific-notation lexer | `1e308`, `0.85`, `0.7`, `0.4`, `0.2` all in cursor.mn + lib/dsp + lib/ml; lexer can't tokenize `1e308`; emit has no `(f64.const ...)` arm. |
 | **Hβ.emit.lmatch-pattern-compile** | Nonempty match-arm emission | `$emit_lmatch` traps `(unreachable)` for non-empty arms (no pattern compilation yet). Pairs with Hβ.lower.match-arm-pattern-substrate. |
 | **Hβ.emit.lexpr-dispatch-extension** | New LowExpr tags requiring emit arms | Various tags retrofit; mostly closed but needs sweep audit. |
 | **Hβ.emit.memory-arena-handler** | LRegion arena enter/exit emit | Inert; W5 arena handler-swap. |
-| **Hβ.emit.list-concat-runtime-call** *(implicit)* | `++` on lists routes to `$list_concat` runtime fn | Currently `$emit_lbinop` for BinOpConcat (tag 153) emits `i32.add` instead of `$list_concat`. `[scored_head] ++ score_all_positions(tail, caret)` (cursor.nx:164) compiles wrong. |
+| **Hβ.emit.list-concat-runtime-call** *(implicit)* | `++` on lists routes to `$list_concat` runtime fn | Currently `$emit_lbinop` for BinOpConcat (tag 153) emits `i32.add` instead of `$list_concat`. `[scored_head] ++ score_all_positions(tail, caret)` (cursor.mn:164) compiles wrong. |
 | **Hβ.emit.float-arithmetic** *(implicit)* | f64.add, f64.mul, f64.div for Float-typed BinOps | Currently all BinOp tags map to i32 ops; float arithmetic is structurally lost. |
 
 **These six are the emit-layer residue.** Closely tied to the
@@ -217,23 +217,23 @@ These are minor; not L1-critical (Cursor isn't in the bootstrap-target wheel).
 
 ### 1.5 Bootstrap-target wheel — what L1 actually requires
 
-L1 closure does NOT require compiling all of `src/*.nx + lib/**/*.nx`.
-It requires compiling the **minimum self-compiling Inka compiler** —
+L1 closure does NOT require compiling all of `src/*.mn + lib/**/*.mn`.
+It requires compiling the **minimum self-compiling Mentl compiler** —
 the bootstrap-target wheel. Per Hβ-bootstrap.md, this is:
 
-- `src/lexer.nx`
-- `src/parser.nx`
-- `src/types.nx`
-- `src/infer.nx`
-- `src/lower.nx`
-- `src/backends/wasm.nx` (the wheel's emitter; produces WAT)
-- `src/main.nx` (driver; reads stdin, runs the pipeline, writes stdout)
-- `src/effects.nx`, `src/graph.nx`, `src/own.nx`, `src/verify.nx` (kernel substrate consumed by the above)
-- `lib/prelude.nx` (Iterate effect + map/filter/fold)
-- `lib/runtime/strings.nx`, `lib/runtime/lists.nx`, `lib/runtime/binary.nx`, `lib/runtime/io.nx`, `lib/runtime/memory.nx`
+- `src/lexer.mn`
+- `src/parser.mn`
+- `src/types.mn`
+- `src/infer.mn`
+- `src/lower.mn`
+- `src/backends/wasm.mn` (the wheel's emitter; produces WAT)
+- `src/main.mn` (driver; reads stdin, runs the pipeline, writes stdout)
+- `src/effects.mn`, `src/graph.mn`, `src/own.mn`, `src/verify.mn` (kernel substrate consumed by the above)
+- `lib/prelude.mn` (Iterate effect + map/filter/fold)
+- `lib/runtime/strings.mn`, `lib/runtime/lists.mn`, `lib/runtime/binary.mn`, `lib/runtime/io.mn`, `lib/runtime/memory.mn`
 
 That's ~16 files (a strict subset of the 51). **Mentl/Cursor/IC/
-multi-shot/inka edit/MV-voice/oracle/LSP — none of these are in the
+multi-shot/mentl edit/MV-voice/oracle/LSP — none of these are in the
 bootstrap-target wheel.** They are the projection-layer wheel that
 grows post-L1 via Tier 3.
 
@@ -311,13 +311,13 @@ output is genuinely substantial:
 
 1. **Hμ.cursor wheel-side closed** (7 commits + memory protocols).
    The keystone realization (Cursor IS the gradient's global argmax)
-   crystallized into `src/cursor.nx`, `docs/specs/simulations/Hμ-cursor.md`,
+   crystallized into `src/cursor.mn`, `docs/specs/simulations/Hμ-cursor.md`,
    `docs/ULTIMATE_MEDIUM.md`, the authority docs alignment, and two
    memory protocols (`protocol_cursor_is_argmax.md`,
    `protocol_ultimate_medium.md`). All drift-clean.
 
 2. **Phase μ thesis statement** (`docs/ULTIMATE_MEDIUM.md`) — the
-   highest-altitude anchor for what Inka IS. Authored once;
+   highest-altitude anchor for what Mentl IS. Authored once;
    inherited by every future session.
 
 3. **ROADMAP Phase μ + peer handles named** — six peer handles
@@ -377,13 +377,13 @@ This document is that residue.
 
 The handle chain `Hβ.first-light.*` is closed when **all** hold:
 
-1. `cat $(find src -name '*.nx' -type f | sort) $(find lib -name '*.nx' -type f | sort) | wasmtime run bootstrap/inka.wasm > inka2.wat`
+1. `cat $(find src -name '*.mn' -type f | sort) $(find lib -name '*.mn' -type f | sort) | wasmtime run bootstrap/mentl.wasm > inka2.wat`
    produces a real compilation (not the stub-with-`heap_base`-only
    form documented in §0.2).
 
 2. `wat2wasm inka2.wat -o inka2.wasm` validates without error.
 
-3. `cat $(find src -name '*.nx' -type f | sort) $(find lib -name '*.nx' -type f | sort) | wasmtime run inka2.wasm > inka3.wat`
+3. `cat $(find src -name '*.mn' -type f | sort) $(find lib -name '*.mn' -type f | sort) | wasmtime run inka2.wasm > inka3.wat`
    produces a result equal to `inka2.wat`.
 
 4. `diff inka2.wat inka3.wat` is empty.
@@ -395,7 +395,7 @@ The handle chain `Hβ.first-light.*` is closed when **all** hold:
    suite (extending it to include the L1 fixpoint).
 
 After L1 closes, `Hμ.cursor.seed` lands automatically (the seed
-compiles `src/cursor.nx` → `bootstrap/src/cursor/*.wat`). Every Phase
+compiles `src/cursor.mn` → `bootstrap/src/cursor/*.wat`). Every Phase
 μ peer handle's seed transcription falls out the same way. The
 post-L1 cascade roadmap (ROADMAP lines 308-340) opens.
 

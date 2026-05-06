@@ -5,7 +5,7 @@
   ;;             walk_expr.wat:824 BlockExpr arm) +
   ;;             docs/specs/04-inference.md §What the walk produces +
   ;;             docs/specs/03-typed-ast.md (canonical Stmt shape) +
-  ;;             canonical wheel src/infer.nx:182-260 (infer_program /
+  ;;             canonical wheel src/infer.mn:182-260 (infer_program /
   ;;             infer_stmt_list / infer_stmt) +
   ;;             :262-369 (infer_fn — two-pass discipline) +
   ;;             :2001-2019 (mint_params / build_param_types) +
@@ -80,7 +80,7 @@
   ;;                $infer_walk_expr (which this chunk delegates to for
   ;;                every stmt body).
   ;; 4. Row?        EffectDeclStmt arm WOULD seed env entries whose schemes
-  ;;                carry $graph_fresh_row handles per src/infer.nx:2081-
+  ;;                carry $graph_fresh_row handles per src/infer.mn:2081-
   ;;                2098 register_effect_ops. Seed-stubbed pending row.wat
   ;;                composition substrate (Hβ.infer.row-normalize +
   ;;                Hβ.infer.effect-ops named follow-ups). FnStmt's own
@@ -96,7 +96,7 @@
   ;;                wired), not here.
   ;; 6. Refinement? RefineStmt arm WOULD construct TAlias(name,
   ;;                TRefined(base, pred)) + emit verify obligation per
-  ;;                src/infer.nx:230-235. Seed-stubbed pending parser
+  ;;                src/infer.mn:230-235. Seed-stubbed pending parser
   ;;                surfacing the pred record stably (Hβ.infer.refine-stmt
   ;;                named follow-up).
   ;; 7. Gradient?   Each $env_extend with `Forall([], _)` is a monomorphic
@@ -109,11 +109,11 @@
   ;;                generalized".
   ;; 8. Reason?     Every $env_extend's reason is a non-trivial Reason
   ;;                chain. FnStmt: $reason_make_located(span,
-  ;;                $reason_make_declared(name)) matching src/infer.nx:280.
+  ;;                $reason_make_declared(name)) matching src/infer.mn:280.
   ;;                LetStmt PVar arm: $reason_make_located(span,
   ;;                $reason_make_letbinding(name,
   ;;                  $reason_make_inferred("pattern"))) matching
-  ;;                src/infer.nx:1589-1591. FnStmt body unify uses
+  ;;                src/infer.mn:1589-1591. FnStmt body unify uses
   ;;                $reason_make_fnreturn(name,
   ;;                  $reason_make_inferred("return")) matching :289.
   ;;
@@ -185,12 +185,12 @@
   ;;                                    04 §Three operations.
   ;; - Foreign fluency — let-generalization at let-stmt: NO. Per
   ;;                                    walkthrough §12 + Damas-Milner +
-  ;;                                    src/infer.nx:1588-1591: PVar binds
+  ;;                                    src/infer.mn:1588-1591: PVar binds
   ;;                                    Forall([], TVar(eh)) —
   ;;                                    monomorphic. Generalization
   ;;                                    happens ONLY at FnStmt exit.
   ;; - Foreign fluency — pre-resolution of recursive fn: YES. Per
-  ;;                                    src/infer.nx:279, the fn name is
+  ;;                                    src/infer.mn:279, the fn name is
   ;;                                    bound BEFORE walking the body so
   ;;                                    `fact(n - 1)` inside the body
   ;;                                    resolves. The arm SHAPE here is
@@ -217,21 +217,21 @@
   ;; ═══ NAMED FOLLOW-UPS (per Drift 9 + Hβ-infer §12) ═══════════════════
   ;;
   ;; - Hβ.infer.constructors: TypeDefStmt arm seed-stub. Wheel's
-  ;;   register_type_constructors (src/infer.nx:2028-2066) iterates
+  ;;   register_type_constructors (src/infer.mn:2028-2066) iterates
   ;;   variants + env_extends each ConstructorScheme(tag_id, total). Seed
   ;;   landing gates on parser_decl.wat:30-118 variant emission stabilizing
   ;;   the variant-record offset shape.
   ;; - Hβ.infer.effect-ops: EffectDeclStmt arm seed-stub. Wheel's
-  ;;   register_effect_ops (src/infer.nx:2081-2098) registers each op as
+  ;;   register_effect_ops (src/infer.mn:2081-2098) registers each op as
   ;;   Forall([], TFun(params, ret, mk_ef_closed([ENamed(eff)]))) under
   ;;   EffectOpScheme(eff). Seed landing gates on row.wat sibling for
   ;;   mk_ef_closed substrate.
   ;; - Hβ.infer.handler-decls: HandlerDeclStmt arm seed-stub. Wheel's
-  ;;   register_handler (src/infer.nx:2100-2109) env-extends with
+  ;;   register_handler (src/infer.mn:2100-2109) env-extends with
   ;;   TName("Handler", [TName(eff)]) under FnScheme. Seed landing gates
   ;;   on parser surfacing the handler-decl record shape stably.
   ;; - Hβ.infer.refine-stmt: RefineStmt arm seed-stub. Wheel
-  ;;   (src/infer.nx:230-235) constructs TAlias(name, TRefined(base, pred))
+  ;;   (src/infer.mn:230-235) constructs TAlias(name, TRefined(base, pred))
   ;;   + emits verify obligation. Verify.wat substrate already exists;
   ;;   landing gates on parser surfacing the pred ADT.
   ;; - Hβ.infer.docstring-reason: Documented arm seed-stub (parser doesn't
@@ -246,23 +246,23 @@
   ;;   needs them per the renderer's TParam recursion.
   ;; - Hβ.infer.ref-escape-fn-exit: FnStmt arm currently leaves
   ;;   $infer_ref_escape state untouched at scope_exit. Wheel
-  ;;   (src/infer.nx:296) walks the ref-escape candidates against the
+  ;;   (src/infer.mn:296) walks the ref-escape candidates against the
   ;;   return position via $infer_ref_escape_check_at_return. Lands when
   ;;   the seed has return-position substrate (currently parser emits
   ;;   LitUnit at offset 12, opaque to seed).
   ;; - Hβ.infer.declared-effs-enforcement: FnStmt's parser-level effs
-  ;;   list (offset 16) currently empty. Wheel (src/infer.nx:298-362)
+  ;;   list (offset 16) currently empty. Wheel (src/infer.mn:298-362)
   ;;   subsumes the inferred row against the declared row; lands when
   ;;   row.wat's $row_subsumes substrate matures.
   ;; - Hβ.infer.toplevel-pre-register: $infer_program seed walks stmts
-  ;;   in declared order. Wheel (src/infer.nx:96-149)
+  ;;   in declared order. Wheel (src/infer.mn:96-149)
   ;;   pre_register_fn_sigs walks all FnStmts FIRST with placeholder
-  ;;   schemes so forward-references resolve. Lands when first src/*.nx
-  ;;   breaks the topological ordering (currently src/*.nx satisfies it).
+  ;;   schemes so forward-references resolve. Lands when first src/*.mn
+  ;;   breaks the topological ordering (currently src/*.mn satisfies it).
   ;; - Hβ.infer.fnstmt-ret-annotation: FnStmt offset 12 (parser ret) is
   ;;   currently parsed as LitUnit-N when no annotation is present;
   ;;   when an explicit return type is given the wheel
-  ;;   (src/infer.nx:286-289) unifies it against ret_h. Lands when
+  ;;   (src/infer.mn:286-289) unifies it against ret_h. Lands when
   ;;   parse_fn_stmt surfaces the annotation handle vs sentinel.
 
   ;; ─── Data segment — Reason-inner string fragments ────────────────────
@@ -307,7 +307,7 @@
 
   ;; $walk_stmt_build_inferred_params(arg_handles) — for each handle h,
   ;; build TParam(name=anon, ty=TVar(h), authored=Inferred,
-  ;; resolved=Inferred). Mirrors src/infer.nx:2021-2026
+  ;; resolved=Inferred). Mirrors src/infer.mn:2021-2026
   ;; build_inferred_params + walk_expr.wat:365
   ;; $walk_expr_build_inferred_params (which is private to that chunk —
   ;; per Anchor 4 we duplicate rather than cross-chunk private export).
@@ -395,7 +395,7 @@
     ;; cross-category handle reuse (row slot minted as TY-fresh) that
     ;; corrupts later chase. Row generalization is the named follow-up
     ;; Hβ.infer.row-normalize; until it ships, the seed pins row.
-    ;; Wheel canonical: src/infer.nx:96-149 + 1818-1834.
+    ;; Wheel canonical: src/infer.mn:96-149 + 1818-1834.
     (call $env_extend
       (local.get $name)
       (call $scheme_make_forall
@@ -485,13 +485,13 @@
 
   ;; ─── Per-Stmt-variant arms ───────────────────────────────────────────
 
-  ;; LetStmt arm (tag 120) — src/infer.nx:200-204 + 1588-1592.
+  ;; LetStmt arm (tag 120) — src/infer.mn:200-204 + 1588-1592.
   ;; Layout: [tag=120][pat][val] per parser_infra.wat:163.
   ;; Walk the value expression; delegate to $infer_walk_pat (B.5 landed)
   ;; for all Pat variants: PVar binding, PWild no-op, PLit constraint,
   ;; PCon constructor destructure, PTuple, PList. PRecord deferred.
   ;;
-  ;; Per walkthrough §12 + Damas-Milner + src/infer.nx:1588-1591: PVar
+  ;; Per walkthrough §12 + Damas-Milner + src/infer.mn:1588-1591: PVar
   ;; binds Forall([], TVar(eh)) — MONOMORPHIC. Generalization happens at
   ;; FnStmt only. NEVER call $generalize here.
   (func $infer_walk_stmt_let
@@ -514,7 +514,7 @@
     (call $infer_walk_pat (local.get $pat) (local.get $eh) (local.get $span))
     )
 
-  ;; FnStmt arm (tag 121) — src/infer.nx:206-210 + infer_fn 262-369.
+  ;; FnStmt arm (tag 121) — src/infer.mn:206-210 + infer_fn 262-369.
   ;; Layout: [tag=121][name][params][ret][effs][body] per
   ;; parser_infra.wat:171-179.
   ;;
@@ -533,7 +533,7 @@
   ;;     tag 190 carries name at offset 4; substrate TParam built via
   ;;     $walk_stmt_build_inferred_params uses anon names per
   ;;     Hβ.infer.fn-stmt-param-names.
-  ;;   - check_escape (src/infer.nx:296): omitted at seed per
+  ;;   - check_escape (src/infer.mn:296): omitted at seed per
   ;;     Hβ.infer.ref-escape-fn-exit.
   (func $infer_walk_stmt_fn
         (export "infer_walk_stmt_fn")
@@ -661,7 +661,7 @@
 
     ;; ─── Walk fn body ────────────────────────────────────────────────
     (local.set $body_h (call $infer_walk_expr (local.get $body_node)))
-    ;; Body's type unifies with declared return per src/infer.nx:289
+    ;; Body's type unifies with declared return per src/infer.mn:289
     ;; unify(body_handle, ret_handle, span, FnReturn(name,
     ;;                                              Inferred("body"))).
     (call $unify
@@ -691,7 +691,7 @@
   ;;
   ;; Seed handles monomorphic types directly. Polymorphic generics
   ;; (Tree<A>, List<A>, Option<A>) defer to peer cascade
-  ;; `Hβ-infer-constructors-generics.md` post-L1 — when first src/*.nx
+  ;; `Hβ-infer-constructors-generics.md` post-L1 — when first src/*.mn
   ;; site exercises generic constructor instantiation that needs proper
   ;; TVar handling beyond the productive-under-error fallback below.
   (func $walk_stmt_parser_ty_to_ty (param $pty i32) (result i32)
@@ -795,7 +795,7 @@
 
   ;; ─── TypeDefStmt arm (tag 122) — Phase B.2 ultimate-form substrate ──
   ;;
-  ;; Per src/infer.nx:212-213 + register_type_constructors 2028-2066 +
+  ;; Per src/infer.mn:212-213 + register_type_constructors 2028-2066 +
   ;; deep-toasting-bachman plan Phase B.2.
   ;;
   ;; For each variant in TypeDefStmt(name, targs, variants) the arm
@@ -814,7 +814,7 @@
   ;; Drift-6 closure: nullary AND N-ary variants pass through the SAME
   ;; ConstructorScheme registration. No Bool special-case. Bool's True/
   ;; False are nullary variants under `type Bool = False | True` per
-  ;; types.nx:32 — they get ConstructorScheme(0, 2) and (1, 2) just like
+  ;; types.mn:32 — they get ConstructorScheme(0, 2) and (1, 2) just like
   ;; any other ADT's nullary variants.
     (func $infer_register_typedef_ctors
         (param $type_name i32) (param $variants i32) (param $span i32)
@@ -885,7 +885,7 @@
 
   ;; ─── EffectDeclStmt arm (tag 123) — Phase B.3 ultimate-form ──────
   ;;
-  ;; Per src/infer.nx:215-216 + register_effect_ops 2081-2098.
+  ;; Per src/infer.mn:215-216 + register_effect_ops 2081-2098.
   ;;
   ;; For each op in EffectDeclStmt(name, ops) where each op is a
   ;; 3-tuple (op_name, param_types, ret_ty): build TFun(param_tys,
@@ -950,7 +950,7 @@
 
   ;; ─── HandlerDeclStmt arm (tag 124) — H.1.c register_handler ────────
   ;;
-  ;; Per src/infer.nx:2227-2236 register_handler — wheel canonical:
+  ;; Per src/infer.mn:2227-2236 register_handler — wheel canonical:
   ;;   fn register_handler(hname, ename, arms) = {
   ;;     let row_h = perform graph_fresh_row(Inferred("handler row"))
   ;;     perform env_extend(hname,
@@ -1230,7 +1230,7 @@
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $iter))))
 
-  ;; ExprStmt arm (tag 125) — src/infer.nx:225-226. Wraps a bare
+  ;; ExprStmt arm (tag 125) — src/infer.mn:225-226. Wraps a bare
   ;; expression at statement position. Layout: [tag=125][node]. Walk the
   ;; inner node via $infer_walk_expr.
   (func $infer_walk_stmt_expr
@@ -1242,7 +1242,7 @@
     (local.set $node (i32.load offset=4 (local.get $stmt)))
     (drop (call $infer_walk_expr (local.get $node))))
 
-  ;; ImportStmt arm (tag 126) — src/infer.nx:228 (NStmt(ImportStmt(_)) =>
+  ;; ImportStmt arm (tag 126) — src/infer.mn:228 (NStmt(ImportStmt(_)) =>
   ;; ()). Module imports are env-composition concerns the seed doesn't
   ;; resolve (single-module compilation). Hβ.infer.overlay (named
   ;; follow-up §12) lands cross-module env composition.
@@ -1253,7 +1253,7 @@
     (drop (local.get $handle))
     (drop (local.get $span)))
 
-  ;; RefineStmt arm (tag 127) — src/infer.nx:230-235. Constructs
+  ;; RefineStmt arm (tag 127) — src/infer.mn:230-235. Constructs
   ;; TAlias(name, TRefined(base_ty, pred)), env-extends with
   ;; Forall([], aliased), then emits a verify obligation (seed-stub per
   ;; Hβ.infer.refine-stmt — verify.wat substrate already exists, but the
@@ -1265,7 +1265,7 @@
     (drop (local.get $handle))
     (drop (local.get $span)))
 
-  ;; Documented arm (tag 128) — src/infer.nx:240-257. Wraps an inner
+  ;; Documented arm (tag 128) — src/infer.mn:240-257. Wraps an inner
   ;; stmt with a docstring; recurses on the inner stmt + threads
   ;; docstring as DocstringReason in the env entry. Inert seed-stub per
   ;; Hβ.infer.docstring-reason named follow-up (parser doesn't emit
@@ -1279,7 +1279,7 @@
 
   ;; ─── Per-Stmt dispatch ──────────────────────────────────────────────
   ;;
-  ;; $infer_stmt(node) — per src/infer.nx:197-260. Reads N's body to get
+  ;; $infer_stmt(node) — per src/infer.mn:197-260. Reads N's body to get
   ;; the NStmt tag (111), reads NStmt's inner Stmt tag (120-128),
   ;; dispatches to the per-variant arm.
   ;;
@@ -1336,7 +1336,7 @@
     ;; prevention).
     (unreachable))
 
-  ;; $infer_stmt_list(stmts) — per src/infer.nx:188-193. Iterate flat
+  ;; $infer_stmt_list(stmts) — per src/infer.mn:188-193. Iterate flat
   ;; list of stmt N nodes, walk each via $infer_stmt. Productive-under-
   ;; error: a stmt that fails (e.g., unbound name in expr; PCon-on-pat
   ;; at the seed) emits diagnostic via emit_diag chain and returns; the
@@ -1359,18 +1359,18 @@
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $each))))
 
-  ;; $infer_program(stmts) — per src/infer.nx:182-186. Top-level entry
+  ;; $infer_program(stmts) — per src/infer.mn:182-186. Top-level entry
   ;; from main.wat (peer Tier 8 chunk pending). Initializes graph + env +
   ;; infer state, then walks the stmt list. The wheel wraps in
   ;; `handle … with infer_ctx` (effect handler for row accumulation);
   ;; seed has no row accumulation so the handler is inert.
   ;;
-  ;; Toplevel pre-register pass (src/infer.nx:96-149 pre_register_fn_sigs):
+  ;; Toplevel pre-register pass (src/infer.mn:96-149 pre_register_fn_sigs):
   ;; the wheel pre-registers all FnStmt names with placeholder schemes
   ;; before walking, so forward-references resolve. SEED-STUB per
   ;; Hβ.infer.toplevel-pre-register named follow-up — at the seed
   ;; FnStmts must be defined in topological order (which currently
-  ;; src/*.nx satisfies).
+  ;; src/*.mn satisfies).
   (func $infer_program (export "infer_program")
         (param $stmts i32)
     (call $graph_init)
@@ -1384,8 +1384,8 @@
     ;; — causing graph_fresh_ty to silently mint a handle whose GNode
     ;; gets clobbered when walks subsequently graph_bind the AST node
     ;; at the same numeric index. The wheel canonical uses ONE handle
-    ;; counter via the FreshHandle effect (src/parser.nx mint(...) +
-    ;; src/infer.nx graph_fresh_ty share); the seed approximates that
+    ;; counter via the FreshHandle effect (src/parser.mn mint(...) +
+    ;; src/infer.mn graph_fresh_ty share); the seed approximates that
     ;; with a sync at inference entry: graph counter starts past the
     ;; parser's high-water mark. Drift mode 8 closure: NO mode flag —
     ;; one handle counter logically (split mechanically across two

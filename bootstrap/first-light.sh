@@ -2,17 +2,17 @@
 # first-light.sh -- WABT-backed seed compiler proof harness.
 #
 # Current gate: the hand-WAT seed assembles and validates, then projects
-# tiny Inka programs into WAT that also assemble, validate, inspect, and run.
+# tiny Mentl programs into WAT that also assemble, validate, inspect, and run.
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-WAT="bootstrap/inka.wat"
-WASM="bootstrap/inka.wasm"
+WAT="bootstrap/mentl.wat"
+WASM="bootstrap/mentl.wasm"
 TMP_ROOT="${TMPDIR:-/tmp}"
-WORKDIR="$(mktemp -d "$TMP_ROOT/inka-first-light.XXXXXX")"
+WORKDIR="$(mktemp -d "$TMP_ROOT/mentl-first-light.XXXXXX")"
 trap 'rm -rf "$WORKDIR"' EXIT
 
 require_tool() {
@@ -59,7 +59,7 @@ compile_sample() {
   printf "%s|%s|%s|%s\n" "$out_wat" "$out_wasm" "$sections" "$disasm"
 }
 
-echo "=== Inka Bootstrap: first-light WABT gate ==="
+echo "=== Mentl Bootstrap: first-light WABT gate ==="
 
 echo "[0/7] Checking toolchain..."
 require_tool wat2wasm
@@ -121,7 +121,7 @@ echo "[8/8] L1 fixpoint probe..."
 # that holds, the probe surfaces the empirical state (wheel-fn count,
 # NFre count, fixpoint diff size) so closures register as visible
 # progress per the plan's §4 ritual closure check.
-L1_INPUT="$WORKDIR/l1-input.nx"
+L1_INPUT="$WORKDIR/l1-input.mn"
 L1_OUT_2="$WORKDIR/l1-pass2.wat"
 L1_OUT_3="$WORKDIR/l1-pass3.wat"
 L1_ERR_2="$WORKDIR/l1-pass2.err"
@@ -129,8 +129,8 @@ L1_WASM_2="$WORKDIR/l1-pass2.wasm"
 
 # Concatenate the wheel in canonical order (src then lib, same as
 # CLAUDE.md operational essentials).
-{ find src -name '*.nx' -type f | sort | xargs cat
-  find lib -name '*.nx' -type f | sort | xargs cat
+{ find src -name '*.mn' -type f | sort | xargs cat
+  find lib -name '*.mn' -type f | sort | xargs cat
 } > "$L1_INPUT"
 
 # Pass 2: seed → wheel → inka2.wat

@@ -3,7 +3,7 @@
   ;;           TList(TVar(h_a)) refused-gradient path. Calling
   ;;           $unify_types(TVar(h_a), TList(TVar(h_a))) directly
   ;;           bypasses $unify's NFree short-circuit and goes through the
-  ;;           104-arm. Per src/infer.nx:1067-1078: TVar arm runs
+  ;;           104-arm. Per src/infer.mn:1067-1078: TVar arm runs
   ;;           $occurs_in(h_a, b); $free_in_ty(TList(TVar(h_a))) yields
   ;;           [h_a]; the linear-scan finds it; $occurs_in returns 1; the
   ;;           arm calls $infer_emit_occurs_check which (per

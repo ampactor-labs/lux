@@ -17,7 +17,7 @@
 > `$program_stmts` removed (§4.3), `$ty_make_terror_hole` ownership
 > + tag pinned (§11), lower-vs-infer diagnostic boundary pinned
 > (§11), line estimates revised (§7.4 + §13). Audit residue at
-> `/tmp/inka-plans/Hβ-lower-audit-2026-04-27.md`. Walkthrough is now
+> `/tmp/mentl-plans/Hβ-lower-audit-2026-04-27.md`. Walkthrough is now
 > transcription-ready per §12.3 dep order.
 >
 > Sub-walkthrough peer to
@@ -40,9 +40,9 @@
 > `docs/specs/simulations/Hβ-infer-substrate.md` (sibling — produces
 > the typed AST + graph state Hβ.lower reads);
 > `docs/specs/simulations/H7-multishot-runtime.md` (LMakeContinuation
-> emit substrate already in src/lower.nx + src/backends/wasm.nx);
+> emit substrate already in src/lower.mn + src/backends/wasm.mn);
 > `docs/specs/simulations/LF-feedback-lowering.md` (LFeedback emit
-> per <~ verb, landed `7f8ff5f`); `src/lower.nx` (1284 lines, the
+> per <~ verb, landed `7f8ff5f`); `src/lower.mn` (1284 lines, the
 > wheel — this WAT IS its seed transcription).
 >
 > *Claim in one sentence:* **The seed's lowering walks the typed AST
@@ -66,7 +66,7 @@ the current seed does **lex → parse → direct-emit** with no inference
 or lowering pass. The seed's parser hands AST nodes to emit chunks
 (emit_*.wat) which template WAT directly from AST shape — losing
 type information, losing handler-chain info, producing degenerate
-output for graph.nx + 34 other src/*.nx files.
+output for graph.mn + 34 other src/*.mn files.
 
 Hβ.infer (sibling walkthrough) lands the inference layer. **Hβ.lower
 lands the lowering layer that bridges inferred types → WAT-shaped
@@ -80,8 +80,8 @@ choices.
 |-----------|----------|----------------------|
 | Wave 2.A–D Layer 1 | alloc / str / int / list / record / closure / cont / graph / env / row / verify | every heap allocation; reading types via $graph_chase; row classification via $row_is_pure/closed/open; LMakeContinuation field layout via cont.wat |
 | Hβ.infer | typed AST + populated graph (every node's handle in NBound or NErrorHole) | $graph_chase + $env_lookup return ground answers |
-| **H7 substrate (already landed in src/*.nx)** | LMakeContinuation variant + emit arm + capture/ev-store helpers + LowerState effect at src/lower.nx:45-92 | the seed transcribes the SAME variant into bootstrap/src/lower/cont.wat (sub-chunk) so the seed's lowering and the wheel's lowering share LMakeContinuation shape |
-| **LF substrate (landed `7f8ff5f`)** | LFeedback state-machine lowering at src/backends/wasm.nx | seed's lowering uses the same LFeedback shape per spec 10 + LF walkthrough |
+| **H7 substrate (already landed in src/*.mn)** | LMakeContinuation variant + emit arm + capture/ev-store helpers + LowerState effect at src/lower.mn:45-92 | the seed transcribes the SAME variant into bootstrap/src/lower/cont.wat (sub-chunk) so the seed's lowering and the wheel's lowering share LMakeContinuation shape |
+| **LF substrate (landed `7f8ff5f`)** | LFeedback state-machine lowering at src/backends/wasm.mn | seed's lowering uses the same LFeedback shape per spec 10 + LF walkthrough |
 
 ### 0.3 What Hβ.lower designs (this walkthrough)
 
@@ -125,15 +125,15 @@ choices.
   rename. Hβ.lower emits LowIR with module-local references;
   link.py renames at assembly time.
 
-### 0.5 Relationship to spec 05 + src/lower.nx + H7 + LF
+### 0.5 Relationship to spec 05 + src/lower.mn + H7 + LF
 
-Spec 05 names the algorithm. `src/lower.nx` (1284 lines) is the
-wheel's lowering implementation in Inka — already extended per H7
+Spec 05 names the algorithm. `src/lower.mn` (1284 lines) is the
+wheel's lowering implementation in Mentl — already extended per H7
 (LMakeContinuation variant + lower_perform MS dispatch + LowerState
 effect) + per LF (LFeedback emit completion). This walkthrough
-projects spec 05 + src/lower.nx onto the WAT substrate.
+projects spec 05 + src/lower.mn onto the WAT substrate.
 
-Per Anchor 4: src/lower.nx IS the wheel; this WAT IS its seed
+Per Anchor 4: src/lower.mn IS the wheel; this WAT IS its seed
 transcription. Per H7 §6: H7's substrate already composes on
 graph.wat / cont.wat / closure.wat — Hβ.lower's seed transcription
 uses the same. Per LF: <~ feedback verb lowers to state-slot
@@ -207,7 +207,7 @@ helpers.
 (global $lower_initialized    (mut i32) (i32.const 0))
 ```
 
-Helpers per spec 05 + src/lower.nx ls_bind_local / ls_lookup_local /
+Helpers per spec 05 + src/lower.mn ls_bind_local / ls_lookup_local /
 ls_bind_capture:
 
 ```wat
@@ -228,12 +228,12 @@ ls_bind_capture:
 
 (func $ls_reset_function ()
   ;; Clears locals + captures + resets next_slot. Called at FnStmt
-  ;; entry per src/lower.nx ms_reset_function precedent (LowerState
+  ;; entry per src/lower.mn ms_reset_function precedent (LowerState
   ;; effect's reset op).
   ...)
 ```
 
-LowerState (the H7 substrate at src/lower.nx:45-92) is already
+LowerState (the H7 substrate at src/lower.mn:45-92) is already
 declared in graph.wat's tag region; the seed transcribes its
 behavior here as direct calls.
 
@@ -241,7 +241,7 @@ behavior here as direct calls.
 
 ## §2 LowExpr — ADT shape at the WAT layer
 
-Per spec 05 + src/lower.nx LowExpr ADT (already extended per H7
+Per spec 05 + src/lower.mn LowExpr ADT (already extended per H7
 + LF):
 
 ```
@@ -304,7 +304,7 @@ delegates to $lookup_ty which dispatches via $graph_chase.
 
 ## §3 Handler elimination
 
-Per spec 05 §Handler elimination + src/lower.nx classify_handler.
+Per spec 05 §Handler elimination + src/lower.mn classify_handler.
 Three strategies:
 
 | Strategy | When | Lowering |
@@ -318,7 +318,7 @@ Three strategies:
 Returns 0=TailResumptive, 1=Linear, 2=MultiShot. Reads via
 $lookup_ty + extracts TCont.discipline (the resume-discipline tag
 on the continuation type — per spec 02 + spec 02 ResumeDiscipline
-ADT at src/types.nx:70-73).
+ADT at src/types.mn:70-73).
 
 ```wat
 (func $classify_handler (param $handler_handle i32) (result i32)
@@ -328,7 +328,7 @@ ADT at src/types.nx:70-73).
   (if (i32.ne (call $tag_of (local.get $ty)) (i32.const 112))    ;; TCONT_TAG
     (then (unreachable)))   ;; classify on non-TCont is a bug
   (local.set $disc (call $record_get (local.get $ty) (i32.const 1)))
-  ;; ResumeDiscipline tags (per src/types.nx:70-73 conventions; tag
+  ;; ResumeDiscipline tags (per src/types.mn:70-73 conventions; tag
   ;; region relocated 2026-04-26 from 220/221/222 → 250/251/252 to
   ;; resolve collision with reason.wat's 220-242 Reason variants;
   ;; canonical layout now in Hβ-infer-substrate.md §2.3):
@@ -350,7 +350,7 @@ ADT at src/types.nx:70-73).
 
 `$is_tail_resumptive(handler_handle)` walks the handler arm body
 checking if every `resume` is in tail position. Returns 0 for
-TailResumptive; 1 for Linear. Implementation per src/lower.nx
+TailResumptive; 1 for Linear. Implementation per src/lower.mn
 classify_handler — structural walk over the handler's body
 LowExpr.
 
@@ -399,7 +399,7 @@ hot-path handling.)
 
 ## §4 The lowering walk — `$lower_expr` + `$lower_stmt`
 
-Per spec 05 + src/lower.nx lower_expr.
+Per spec 05 + src/lower.mn lower_expr.
 
 ### 4.1 `$lower_expr(node) -> i32` (LowExpr pointer)
 
@@ -590,7 +590,7 @@ Each chunk's edit sites pass all eight per CLAUDE.md / DESIGN.md §0.5.
 | 5 | **Ownership?** | Captured closure record's ownership flows per H1 evidence reification. |
 | 6 | **Refinement?** | N/A. |
 | 7 | **Gradient?** | Monomorphic-handler-chain IS the gradient signal for direct call (the gain from rich row inference). |
-| 8 | **Reason?** | Each LCall vs LMakeClosure choice records a Reason per src/lower.nx convention. |
+| 8 | **Reason?** | Each LCall vs LMakeClosure choice records a Reason per src/lower.mn convention. |
 
 ### 5.3 At the lowering walk
 
@@ -651,9 +651,9 @@ backend land.
 - **Drift 9:** Every AST variant has a $lower_<variant> arm. No
   `_ =>` silent fallback. Trap via `(unreachable)` on unknown.
 - **Foreign fluency — LLVM IR / GHC Core / OCaml closure conversion:**
-  LowExpr is an Inka-internal IR shaped per spec 05 + the kernel's
+  LowExpr is an Mentl-internal IR shaped per spec 05 + the kernel's
   five verbs + handler-elimination trio. NOT a generic SSA / CPS /
-  closure-conversion IR. Vocabulary stays Inka: LowExpr / LowerCtx /
+  closure-conversion IR. Vocabulary stays Mentl: LowExpr / LowerCtx /
   classify_handler / monomorphic_at / row_is_ground.
 
 ---
@@ -694,7 +694,7 @@ bootstrap/src/lower/
 ```
 
 11 chunks. Total ~2500-4000 WAT lines (estimate per spec 05 +
-src/lower.nx 1284 lines projected at 1.5-2.5×).
+src/lower.mn 1284 lines projected at 1.5-2.5×).
 
 ### 7.2 Layer extension
 
@@ -730,10 +730,10 @@ Per Morgan: WABT tools welcome along the way.
 After each chunk lands:
 ```bash
 bash bootstrap/build.sh                     # assemble + wat2wasm
-wasm-validate bootstrap/inka.wasm           # structural validation
+wasm-validate bootstrap/mentl.wasm           # structural validation
 bash bootstrap/first-light.sh                # lexer proof-of-life unchanged
-wasm-objdump -x bootstrap/inka.wasm | grep '<lower_'   # confirm new fns
-wasm-decompile bootstrap/inka.wasm | sed -n '/function lookup_ty/,/^}/p'
+wasm-objdump -x bootstrap/mentl.wasm | grep '<lower_'   # confirm new fns
+wasm-decompile bootstrap/mentl.wasm | sed -n '/function lookup_ty/,/^}/p'
                                               # spot-check decompiled body
 ```
 
@@ -760,8 +760,8 @@ After walk_call.wat:
 | state.wat | ~150 | this §1.2 + spec 06 LowerCtx |
 | lookup.wat | ~200 | this §1.1 + §3.2 + spec 05 §LookupTy |
 | lexpr.wat | ~600 | spec 05 §LowIR + this §2 — 35 variants × ~17 lines/variant |
-| classify.wat | ~250 | this §3 + src/lower.nx classify_handler |
-| walk_const.wat | ~150 | spec 05 + src/lower.nx |
+| classify.wat | ~250 | this §3 + src/lower.mn classify_handler |
+| walk_const.wat | ~150 | spec 05 + src/lower.mn |
 | walk_call.wat | ~400 | spec 05 §No subst threading + H1 + H7 |
 | walk_handle.wat | ~350 | spec 05 + spec 10 + H7 + LF |
 | walk_compound.wat | ~500 | spec 05 + spec 10 |
@@ -844,7 +844,7 @@ simple): handler installation (~>), perform (with $classify_handler
 + $lower_perform's MS dispatch), pipe verbs other than implicit
 function call, refinement obligations, ownership consume, MS
 continuation alloc. Those are exercised by larger programs (e.g.,
-src/graph.nx itself).
+src/graph.mn itself).
 
 ---
 
@@ -870,7 +870,7 @@ must be EXTENDED to consume LowExpr instead of AST:
 - Emit reads LowExpr via $lexpr_handle + $tag_of dispatch.
 - $lexpr_ty (= $lookup_ty($lexpr_handle(_))) gives the type when
   emit needs `ty_to_wasm` per spec 05 §Emitter handoff.
-- LMakeContinuation emit arm at src/backends/wasm.nx (already
+- LMakeContinuation emit arm at src/backends/wasm.mn (already
   there per H7) gets transcribed into bootstrap/src/lower or
   stays in emit chunks per existing convention.
 
@@ -889,7 +889,7 @@ to runtime calls into cont.wat.
 
 ### 9.4 Hβ.lower × LFeedback (LF)
 
-Per spec 10 + LF walkthrough (substrate at src/backends/wasm.nx
+Per spec 10 + LF walkthrough (substrate at src/backends/wasm.mn
 commit `7f8ff5f`). $lower_pipe_feedback emits LFeedback LowExpr.
 The state-slot allocation per LF §1.12 of Hβ-bootstrap.md: lower
 records the feedback slot index in the enclosing handler's state
@@ -901,8 +901,8 @@ LF.
 Per insight #11 (oracle = IC + cached value). Mentl's Synth
 handlers compose ON the H7 substrate post-L1; Hβ.lower's job is
 to emit LMakeContinuation + LPerform for the Synth ops in
-src/mentl.nx. The seed never INVOKES Synth (Mentl is a wheel-time
-+ post-compile concern); the seed COMPILES src/mentl.nx + friends
+src/mentl.mn. The seed never INVOKES Synth (Mentl is a wheel-time
++ post-compile concern); the seed COMPILES src/mentl.mn + friends
 correctly so the wheel can run the oracle.
 
 ---
@@ -914,9 +914,9 @@ correctly so the wheel can run the oracle.
 - [ ] `bootstrap/src/lower/` directory exists with 11 chunks per §7.1.
 - [ ] `bootstrap/src/lower/INDEX.tsv` declares each chunk.
 - [ ] `bootstrap/build.sh` CHUNKS[] includes lower chunks at Layer 5.
-- [ ] `wat2wasm bootstrap/inka.wat` succeeds.
-- [ ] `wasm-validate bootstrap/inka.wasm` passes.
-- [ ] `wasm-objdump -x bootstrap/inka.wasm | grep '<lower_'` lists
+- [ ] `wat2wasm bootstrap/mentl.wat` succeeds.
+- [ ] `wasm-validate bootstrap/mentl.wasm` passes.
+- [ ] `wasm-objdump -x bootstrap/mentl.wasm | grep '<lower_'` lists
       $lookup_ty, $lower_expr, $lower_stmt, $classify_handler,
       $monomorphic_at, $lower_program (at minimum).
 
@@ -930,16 +930,16 @@ correctly so the wheel can run the oracle.
 - [ ] Lowering a known polymorphic call site emits LMakeClosure
       with evidence slots populated.
 - [ ] Lowering a `perform choose([...])` site (post-CE/B.3 in
-      lib/runtime/search.nx) emits LMakeContinuation + LPerform.
+      lib/runtime/search.mn) emits LMakeContinuation + LPerform.
 - [ ] Lowering a `<~ delay(1)` site emits LFeedback per LF.
 
 ### 10.3 Self-compile acceptance (Hβ.lower in service of L1)
 
-- [ ] `cat src/verify.nx | wasmtime run bootstrap/inka.wasm` produces
+- [ ] `cat src/verify.mn | wasmtime run bootstrap/mentl.wasm` produces
       WAT that wasm-validates after linking.
-- [ ] `cat src/graph.nx | wasmtime run bootstrap/inka.wasm` produces
+- [ ] `cat src/graph.mn | wasmtime run bootstrap/mentl.wasm` produces
       non-degenerate WAT (improvement against BT.A.0 baseline).
-- [ ] `cat src/types.nx | wasmtime run bootstrap/inka.wasm` produces
+- [ ] `cat src/types.mn | wasmtime run bootstrap/mentl.wasm` produces
       validating WAT.
 
 ### 10.4 Drift-clean
@@ -954,9 +954,9 @@ correctly so the wheel can run the oracle.
 |----------|-----------|
 | Tag values for LowExpr — coordinate with Hβ.emit? | Yes — §2 names the 300-349 range; lock in coordination with Hβ.emit chunk extensions. |
 | Resume-discipline tag values for ResumeDiscipline ADT? | LOCKED 2026-04-26: OneShot=250 / MultiShot=251 / Either=252 (region 250-259). Earlier draft used 220/221/222 but Wave 2.E.infer.reason landed Reason variants at 220-242 (commit `2609c82`); per Wave 2.E.infer.ty agent gap-finding, ResumeDiscipline relocated to 250-259 to preserve $tag_of uniqueness across the heap. Canonical layout in Hβ-infer-substrate.md §2.3. |
-| Either-discipline strategy — what's the seed's default? | Linear (1) when handler body's static check can't classify TailResumptive. Per src/lower.nx classify_handler precedent. |
+| Either-discipline strategy — what's the seed's default? | Linear (1) when handler body's static check can't classify TailResumptive. Per src/lower.mn classify_handler precedent. |
 | Cross-module function symbol resolution? | Hβ.link (BT.A.2) via link.py + symbol-rename. Hβ.lower emits module-local references; link resolves at assembly time. |
-| Does the seed lower MultiShot ops at all in Tier-3 base? | Yes — per H7 §2.5 substrate already in src/lower.nx; the seed transcribes the same. |
+| Does the seed lower MultiShot ops at all in Tier-3 base? | Yes — per H7 §2.5 substrate already in src/lower.mn; the seed transcribes the same. |
 | `$ty_make_terror_hole` ownership + tag value? | LOCKED 2026-04-27 audit (riffle-back against landed Hβ.infer): lookup.wat-private constructor; tag value 114 (next free after ty.wat 100-113); lookup-time-only sentinel (the type system never produces NErrorHole at the Ty layer; NErrorHole is at the GNode layer per graph.wat:55-59). Lower's `$lookup_ty` returns this for NERRORHOLE NodeKinds; emit dispatches it to (unreachable). NOT a 15th Ty variant — staying lower-private preserves ty.wat's 14-variant ADT discipline. |
 | `$walk_expr_node_handle` cross-layer reuse vs. lower-private re-derive? | LOCKED 2026-04-27: lower's lookup.wat + walk_const/var_ref/binop/call USE `$walk_expr_node_handle` directly (Hβ.infer landed it at walk_expr.wat:306-307; cross-layer convergence per Anchor 4). Optional cleanup follow-up `Hβ.shared.node_handle` — rename to `$node_handle` and move to `parser_infra.wat` as a runtime-shared helper. Three sites earn the abstraction (parser builds, infer reads, lower reads); ready when Hβ.lower's walk arms land + create the third. |
 | Lower-private vs. infer-owned diagnostics — boundary? | Per §D.3 audit: `$lower_emit_unresolved_type` IS lower-owned (NFree at lookup time means inference didn't bind a handle that lower expects bound; it's a lowering-stage compiler bug, not an inference user error). All Hazel productive-under-error user diagnostics remain in `bootstrap/src/infer/emit_diag.wat` (infer-owned per `88992bc` boundary canonicalization). Lower's `emit_diag.wat` chunk is purely for lower-private classes (e.g., unsupported pipe verb at lower target, monomorphic gate logic-bug). |
@@ -990,7 +990,7 @@ fluency + per-handle walkthrough reading.
 
 | Chunk | Dispatch | Rationale |
 |-------|----------|-----------|
-| state.wat | Opus inline OR Sonnet via inka-implementer | small; mechanical |
+| state.wat | Opus inline OR Sonnet via mentl-implementer | small; mechanical |
 | lookup.wat | Opus inline | $lookup_ty correctness load-bearing for everything downstream |
 | lexpr.wat | Opus inline OR Sonnet | constructors per §2 tag conventions; mechanical |
 | classify.wat | **Opus inline only** | $classify_handler + $is_tail_resumptive subtle; structural body check |
@@ -1040,7 +1040,7 @@ Hβ.emit's WAT text input. Per spec 05: "Lower the typed AST to LowIR
 by reading types LIVE from the Graph. No cached types in LowExpr.
 No per-module subst snapshot."
 
-This walkthrough projects spec 05 + src/lower.nx + H7 + LF onto
+This walkthrough projects spec 05 + src/lower.mn + H7 + LF onto
 the Wave 2.A–D Layer-1 substrate (alloc + str + int + list +
 record + closure + cont + graph + env + row + verify) + Hβ.infer's
 output (typed AST + populated graph). **The substrate exists; the
@@ -1051,8 +1051,8 @@ Per Anchor 0 dream-code discipline: walkthrough specifies what
 Hβ.lower IS in ultimate form, assuming Wave 2.A–D substrate +
 Hβ.infer are perfect. The architecture rises to meet it.
 
-Per Anchor 4 + Hβ §0: the wheel is src/lower.nx (1284 lines of
-substantively-real Inka per plan §16); this walkthrough's substrate
+Per Anchor 4 + Hβ §0: the wheel is src/lower.mn (1284 lines of
+substantively-real Mentl per plan §16); this walkthrough's substrate
 is its seed transcription; both kept forever.
 
 **Eleven chunks. Three handler-elimination strategies. One
@@ -1063,8 +1063,8 @@ Combined with Hβ-infer-substrate.md, the FULL CONTRACT for the
 seed's missing layers (inference + lowering) is now locked. Per
 insight #12 compound interest: any future-Opus session can
 transcribe substrate from these two walkthroughs without re-
-deriving from spec 04 / spec 05 / src/infer.nx / src/lower.nx /
-src/types.nx / src/effects.nx — the corpus already projected onto
+deriving from spec 04 / spec 05 / src/infer.mn / src/lower.mn /
+src/types.mn / src/effects.mn — the corpus already projected onto
 the Wave 2.A–D substrate.
 
 Sibling walkthroughs to write next (per Hβ §13 named follow-ups):
@@ -1085,13 +1085,13 @@ transcribers cite this walkthrough's §s.*
 
 **Hβ.infer + Hβ.lower together = the cliff named, mapped, ready to
 climb.** Per insight #11 (Mentl IS speculative inference firing on
-every save), per Hβ §0 (Inka bootstraps through Inka), per Anchor 0
+every save), per Hβ §0 (Mentl bootstraps through Mentl), per Anchor 0
 (dream code), per Anchor 4 (build the wheel; never wrap the axle).
 The two walkthroughs locked together unblock the full Wave 2.E
 substrate transcription. Estimated combined scope:
 ~6430 WAT lines across 21 chunks. Plus existing Hβ.lex/parse/emit
 extensions per their named follow-ups. The seed becomes a full
-Inka compiler when these chunks land.
+Mentl compiler when these chunks land.
 
 **The wheel awaits its seed.** The seed's substrate awaits its
 transcription. The transcription awaits its ratification — but the

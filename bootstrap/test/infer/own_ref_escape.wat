@@ -1,5 +1,5 @@
   ;; ═══ own_ref_escape.wat — trace-harness ═══════════════════════════
-  ;; Executes: Hβ-infer-substrate.md §5 + src/own.nx:371-376 +
+  ;; Executes: Hβ-infer-substrate.md §5 + src/own.mn:371-376 +
   ;;           §11.2 acceptance — ref-escape candidate matches return
   ;;           leaf, NErrorHole bound + diagnostic emitted; silent
   ;;           path negation also covered.

@@ -1,0 +1,1409 @@
+// parser.mn — recursive descent, builds types.mn Nodes directly (spec 03)
+//
+// The parser produces types.mn's Node ADT directly. No intermediate
+// "parser AST." Every construction performs graph_fresh_ty(
+// Placeholder(span)) to mint a handle at parse time — inference
+// binds the handle once the expression's type is known (one-walk
+// HM). Every node has a full Span (spec 03 non-negotiable).
+//
+// Declares: with GraphWrite + Diagnostic.
+// Errors follow Hazel: a parse failure emits report(...) and plants
+// an NHole; parsing continues. Ten syntax errors → ten holes.
+
+import types
+import graph
+import lexer
+
+// Handle minting and node wrapping
+
+fn fresh_ph(span: ValidSpan) = {
+  let h = perform graph_fresh_ty(Placeholder(span))
+  perform graph_index_span(span, h)
+  h
+}
+
+fn nexpr(e, span: ValidSpan) = N(NExpr(e), span, fresh_ph(span))
+fn nstmt(s, span: ValidSpan) = N(NStmt(s), span, fresh_ph(span))
+fn npat(p, span: ValidSpan)  = N(NPat(p), span, fresh_ph(span))
+fn nhole(id, span: ValidSpan) = N(NHole(id), span, fresh_ph(span))
+
+// Token navigation
+// Tokens are typed: `Tok(TokenKind, Span)`. Helpers extract payload
+// or compare kinds. Per SYNTAX.md, dispatch uses exhaustive match
+// on TokenKind variants — no string equality at parse time.
+
+// kind_at returns the TokenKind variant at position pos (or TEof if past end).
+fn kind_at(ref tokens, pos) = {
+  if pos >= tokens.len { TEof }
+  else { token_kind(tokens[pos]) }
+}
+
+// span_at returns the span of the token at position pos.
+fn span_at(ref tokens, pos) = {
+  if pos >= tokens.len { span_zero() }
+  else { token_span(tokens[pos]) }
+}
+
+// kind_eq compares two TokenKind values for variant identity. Used
+// at the few sites where dispatch needs a passed-in kind value;
+// most sites just pattern-match directly via `match kind_at(...)`.
+fn kind_eq(a, b) with Pure = match a {
+  TFn        => match b { TFn        => true, _ => false },
+  TLet       => match b { TLet       => true, _ => false },
+  TIf        => match b { TIf        => true, _ => false },
+  TElse      => match b { TElse      => true, _ => false },
+  TMatch     => match b { TMatch     => true, _ => false },
+  TType      => match b { TType      => true, _ => false },
+  TEffect    => match b { TEffect    => true, _ => false },
+  THandle    => match b { THandle    => true, _ => false },
+  THandler   => match b { THandler   => true, _ => false },
+  TWith      => match b { TWith      => true, _ => false },
+  TResume    => match b { TResume    => true, _ => false },
+  TPerform   => match b { TPerform   => true, _ => false },
+  TImport    => match b { TImport    => true, _ => false },
+  TWhere     => match b { TWhere     => true, _ => false },
+  TOwn       => match b { TOwn       => true, _ => false },
+  TRef       => match b { TRef       => true, _ => false },
+  TPure      => match b { TPure      => true, _ => false },
+  TTrue      => match b { TTrue      => true, _ => false },
+  TFalse     => match b { TFalse     => true, _ => false },
+  TIdent(_)  => match b { TIdent(_)  => true, _ => false },
+  TInt(_)    => match b { TInt(_)    => true, _ => false },
+  TFloat(_)  => match b { TFloat(_)  => true, _ => false },
+  TString(_) => match b { TString(_) => true, _ => false },
+  TDocComment(_)  => match b { TDocComment(_)  => true, _ => false },
+  TStringPart(_)  => match b { TStringPart(_)  => true, _ => false },
+  TStringSplice   => match b { TStringSplice   => true, _ => false },
+  TEqEq      => match b { TEqEq      => true, _ => false },
+  TBangEq    => match b { TBangEq    => true, _ => false },
+  TLtEq      => match b { TLtEq      => true, _ => false },
+  TGtEq      => match b { TGtEq      => true, _ => false },
+  TArrow     => match b { TArrow     => true, _ => false },
+  TFatArrow  => match b { TFatArrow  => true, _ => false },
+  TPlusPlus  => match b { TPlusPlus  => true, _ => false },
+  TPipeGt    => match b { TPipeGt    => true, _ => false },
+  TLtPipe    => match b { TLtPipe    => true, _ => false },
+  TGtLt      => match b { TGtLt      => true, _ => false },
+  TTildeGt   => match b { TTildeGt   => true, _ => false },
+  TLtTilde   => match b { TLtTilde   => true, _ => false },
+  TAndAnd    => match b { TAndAnd    => true, _ => false },
+  TOrOr      => match b { TOrOr      => true, _ => false },
+  TColonColon => match b { TColonColon => true, _ => false },
+  TLParen    => match b { TLParen    => true, _ => false },
+  TRParen    => match b { TRParen    => true, _ => false },
+  TLBrace    => match b { TLBrace    => true, _ => false },
+  TRBrace    => match b { TRBrace    => true, _ => false },
+  TLBracket  => match b { TLBracket  => true, _ => false },
+  TRBracket  => match b { TRBracket  => true, _ => false },
+  TComma     => match b { TComma     => true, _ => false },
+  TDot       => match b { TDot       => true, _ => false },
+  TColon     => match b { TColon     => true, _ => false },
+  TSemicolon => match b { TSemicolon => true, _ => false },
+  TPlus      => match b { TPlus      => true, _ => false },
+  TMinus     => match b { TMinus     => true, _ => false },
+  TStar      => match b { TStar      => true, _ => false },
+  TSlash     => match b { TSlash     => true, _ => false },
+  TPercent   => match b { TPercent   => true, _ => false },
+  TEq        => match b { TEq        => true, _ => false },
+  TLt        => match b { TLt        => true, _ => false },
+  TGt        => match b { TGt        => true, _ => false },
+  TBang      => match b { TBang      => true, _ => false },
+  TPipe      => match b { TPipe      => true, _ => false },
+  TTilde     => match b { TTilde     => true, _ => false },
+  TAt        => match b { TAt        => true, _ => false },
+  THole      => match b { THole      => true, _ => false },
+  TNewline   => match b { TNewline   => true, _ => false },
+  TEof       => match b { TEof       => true, _ => false }
+}
+
+// at: predicate form of kind_eq for a position-and-expected pair.
+fn at(ref tokens, pos, kind) = kind_eq(kind_at(tokens, pos), kind)
+
+fn skip_ws(ref tokens, pos) = {
+  match kind_at(tokens, pos) {
+    TNewline => skip_ws(tokens, pos + 1),
+    _        => pos
+  }
+}
+
+fn skip_sep(ref tokens, pos) = {
+  match kind_at(tokens, pos) {
+    TSemicolon => skip_sep(tokens, pos + 1),
+    TNewline   => skip_sep(tokens, pos + 1),
+    _          => pos
+  }
+}
+
+// show_token_kind: human-readable name for diagnostics.
+fn show_token_kind(k) with Pure = match k {
+  TFn => "fn", TLet => "let", TIf => "if", TElse => "else",
+  TMatch => "match", TType => "type", TEffect => "effect",
+  THandle => "handle", THandler => "handler", TWith => "with",
+  TResume => "resume", TPerform => "perform",
+  TImport => "import", TWhere => "where",
+  TOwn => "own", TRef => "ref", TPure => "Pure",   // drift-audit: ignore — human-facing token-display rendering, not effect keying; tracked for item 11.B token-rendering normalization
+  TTrue => "true", TFalse => "false",
+  TIdent(s) => s,
+  TInt(_) => "<int>", TFloat(_) => "<float>", TString(_) => "<string>",
+  TDocComment(_) => "<doc-comment>",
+  TStringPart(_) => "<string-part>",
+  TStringSplice  => "<string-splice>",
+  TEqEq => "==", TBangEq => "!=", TLtEq => "<=", TGtEq => ">=",   // drift-audit: ignore — TokenKind→display-text rendering for diagnostics; not runtime comparison; tracked for item 11.B token-rendering normalization
+  TArrow => "->", TFatArrow => "=>", TPlusPlus => "++",
+  TPipeGt => "|>", TLtPipe => "<|", TGtLt => "><",
+  TTildeGt => "~>", TLtTilde => "<~",
+  TAndAnd => "&&", TOrOr => "||", TColonColon => "::",
+  TLParen => "(", TRParen => ")",
+  TLBrace => "{", TRBrace => "}",
+  TLBracket => "[", TRBracket => "]",
+  TComma => ",", TDot => ".", TColon => ":", TSemicolon => ";",
+  TPlus => "+", TMinus => "-", TStar => "*", TSlash => "/", TPercent => "%",
+  TEq => "=", TLt => "<", TGt => ">", TBang => "!",
+  TPipe => "|", TTilde => "~", TAt => "@", THole => "??",
+  TNewline => "<newline>", TEof => "<eof>"
+}
+
+// expect: consume the given kind or report a parse error.
+fn expect(ref tokens, pos, kind) = {
+  if at(tokens, pos, kind) { pos + 1 }
+  else {
+    perform report("parser", "P_ExpectedToken", "ParseError",
+      "expected "
+        |> str_concat(show_token_kind(kind))
+        |> str_concat(", got ")
+        |> str_concat(show_token_kind(kind_at(tokens, pos))),
+      span_at(tokens, pos), "MaybeIncorrect")
+    pos
+  }
+}
+
+// Payload extractors — return defaults if the kind doesn't match.
+// Most call sites should pattern-match directly via `match
+// kind_at(tokens, pos) { TIdent(s) => …, TInt(n) => …, … }`;
+// these helpers are for the few sites (e.g., parse_fn extracting
+// the function name after dispatching past TFn) where the parent
+// has already verified the variant and just needs the payload.
+fn ident_at(ref tokens, pos) = {
+  match kind_at(tokens, pos) {
+    TIdent(s) => s,
+    _         => ""
+  }
+}
+
+fn int_at(ref tokens, pos) = {
+  match kind_at(tokens, pos) {
+    TInt(n) => n,
+    _       => 0
+  }
+}
+
+fn float_at(ref tokens, pos) = {
+  match kind_at(tokens, pos) {
+    TFloat(f) => f,
+    _         => 0.0
+  }
+}
+
+fn string_at(ref tokens, pos) = {
+  match kind_at(tokens, pos) {
+    TString(s) => s,
+    _          => ""
+  }
+}
+
+// Operator precedence table — per SYNTAX.md. Higher number = tighter binding.
+
+fn op_prec(k) with Pure = match k {
+  TOrOr      => 1,
+  TAndAnd    => 2,
+  TEqEq      => 3,
+  TBangEq    => 3,
+  TLt        => 4,
+  TGt        => 4,
+  TLtEq      => 4,
+  TGtEq      => 4,
+  TPlusPlus  => 5,
+  TGtLt      => 6,
+  TPipeGt    => 7,
+  TLtPipe    => 8,
+  TLtTilde   => 9,
+  TTildeGt   => 10,
+  TPlus      => 11,
+  TMinus     => 11,
+  TStar      => 12,
+  TSlash     => 12,
+  TPercent   => 12,
+  _          => 0
+}
+
+/// Layout-sensitive `~>` pipe-kind mapping (I11). Per DESIGN Ch 2:
+/// - newline before `~>` → `PTeeBlock` — wraps the whole prior chain
+/// - no newline          → `PTeeInline` — wraps the preceding stage
+/// Block form carries the LOWEST pipe precedence so it binds outside
+/// everything on its left; inline form keeps high precedence (10).
+fn op_to_pipe_kind_layout(k, saw_newline) with Pure = match k {
+  TTildeGt => if saw_newline { Some(PTeeBlock) } else { Some(PTeeInline) },
+  TPipeGt  => Some(PForward),
+  TLtPipe  => Some(PDiverge),
+  TGtLt    => Some(PCompose),
+  TLtTilde => Some(PFeedback),
+  _        => None
+}
+
+/// Effective precedence: block-form `~>` lowers to 1 so it binds
+/// looser than every other pipe verb and every binary operator,
+/// capturing the whole preceding chain as its body. Inline form
+/// keeps the base precedence.
+fn effective_prec(k, saw_newline) with Pure = match k {
+  TTildeGt => if saw_newline { 1 } else { op_prec(k) },
+  _        => op_prec(k)
+}
+
+fn skip_ws_tracked(ref tokens, pos) = {
+  skip_ws_tracked_loop(tokens, pos, false)
+}
+
+fn skip_ws_tracked_loop(ref tokens, pos, saw) = {
+  match kind_at(tokens, pos) {
+    TNewline => skip_ws_tracked_loop(tokens, pos + 1, true),
+    _        => (saw, pos)
+  }
+}
+
+/// Map a binop `TokenKind` to `Some(BinOp)`, or `None` if `k` is not
+/// a binop-producing token. Caller matches `Some`/`None` explicitly;
+/// `None` at that site is unreachable (caller has already filtered via
+/// `op_prec(k) > 0` + `op_to_pipe_kind_layout == None`), but the
+/// unreachability is expressed at the call site — not fabricated here
+/// via a wildcard arm.
+///
+/// Future form (named peer 11.B.1.R): refinement-typed parameter
+///   `fn op_to_binop(k) -> BinOp where is_binop_token(k)`
+/// exercises primitive #6 and eliminates the `Option` entirely.
+fn op_to_binop(k) with Pure = match k {
+  TPlus      => Some(BAdd),
+  TMinus     => Some(BSub),
+  TStar      => Some(BMul),
+  TSlash     => Some(BDiv),
+  TPercent   => Some(BMod),
+  TPlusPlus  => Some(BConcat),
+  TEqEq      => Some(BEq),
+  TBangEq    => Some(BNe),
+  TLt        => Some(BLt),
+  TGt        => Some(BGt),
+  TLtEq      => Some(BLe),
+  TGtEq      => Some(BGe),
+  TAndAnd    => Some(BAnd),
+  TOrOr      => Some(BOr),
+  _          => None
+}
+
+// Program — top-level loop
+
+/// Buffer-pattern helper for recursive parse loops. Each parse loop
+/// allocates an initial buffer, threads `(buf, count)` through tail-
+/// recursion, and slices at the end. O(N) total allocation per loop
+/// regardless of element count.
+fn push_node(own buf, count, node) = {
+  let extended = list_extend_to(buf, count + 1)
+  let written  = list_set(extended, count, node)
+  (written, count + 1)
+}
+
+fn parse_program(ref tokens) = {
+  let buf = make_list(16)
+  let (final_buf, final_count, _) = parse_stmt_list(tokens, 0, buf, 0)
+  slice(final_buf, 0, final_count)
+}
+
+fn parse_stmt_list(ref tokens, pos, own buf, count) = {
+  let p = skip_ws(tokens, pos)
+  if at(tokens, p, TEof) { (buf, count, p) }
+  else {
+    let (stmt, next) = parse_stmt(tokens, p)
+    let (b1, c1) = push_node(buf, count, stmt)
+    parse_stmt_list(tokens, skip_sep(tokens, next), b1, c1)
+  }
+}
+
+// Statements
+
+fn parse_stmt(ref tokens, pos) = match kind_at(tokens, pos) {
+  TFn       => parse_fn(tokens, pos + 1),
+  TLet      => parse_let(tokens, pos + 1),
+  TType     => parse_type_decl(tokens, pos + 1),
+  TEffect   => parse_effect_decl(tokens, pos + 1),
+  THandler  => parse_handler_decl(tokens, pos + 1),
+  TCapability => parse_capability_decl(tokens, pos + 1),
+  TImport   => parse_import(tokens, pos + 1),
+  // DS.2 — docstring attachment: collect consecutive /// lines,
+  // parse the following declaration, wrap in Documented(doc, stmt).
+  TDocComment(first_line) => {
+    let doc_span = span_at(tokens, pos)
+    let (full_doc, p) = collect_docstring(tokens, pos + 1, first_line)
+    let p2 = skip_sep(tokens, p)
+    let (inner_stmt, p3) = parse_stmt(tokens, p2)
+    let N(body, inner_span, h) = inner_stmt
+    (N(NStmt(Documented(full_doc, inner_stmt)), doc_span, h), p3)
+  },
+  _         => {
+    let start_span = span_at(tokens, pos)
+    let (expr, next) = parse_expr(tokens, pos)
+    (nstmt(ExprStmt(expr), start_span), next)
+  }
+}
+
+/// DS.2 — concatenate consecutive `///` lines into one docstring.
+fn collect_docstring(ref tokens, pos, own acc) = {
+  let p = skip_sep(tokens, pos)
+  match kind_at(tokens, p) {
+    TDocComment(next_line) =>
+      collect_docstring(tokens, p + 1,
+        acc |> str_concat("\n") |> str_concat(next_line)),
+    _ => (acc, p)
+  }
+}
+
+/// Parse `fn name(params) [-> retty] [with effects] = body`.
+fn parse_fn(ref tokens, pos) = {
+  let start = span_at(tokens, pos)
+  let name = ident_at(tokens, pos)
+  let p = expect(tokens, pos + 1, TLParen)
+  let (params, p2) = parse_fn_params(tokens, p)
+
+  let p3 = skip_ws(tokens, p2)
+  let (ret_node, p4) =
+    if at(tokens, p3, TArrow) {
+      parse_type_expr(tokens, skip_ws(tokens, p3 + 1))
+    } else {
+      (nexpr(LitUnit, start), p3)
+    }
+
+  let p5 = skip_ws(tokens, p4)
+  let (effs, p6) =
+    if at(tokens, p5, TWith) {
+      parse_effect_list(tokens, skip_ws(tokens, p5 + 1))
+    } else {
+      ([], p5)
+    }
+
+  let p7 = skip_ws(tokens, p6)
+  let p8 = if at(tokens, p7, TEq) { p7 + 1 } else { p7 }
+  let (body, p9) = parse_body(tokens, skip_ws(tokens, p8))
+
+  let stmt_node = nstmt(FnStmt(name, params, ret_node, effs, body), start)
+  let N(_, _, h) = stmt_node
+  perform graph_index_intent(h, effs)
+  (stmt_node, p9)
+}
+
+fn parse_fn_params(ref tokens, pos) = {
+  let p = skip_ws(tokens, pos)
+  if at(tokens, p, TRParen) { ([], p + 1) }
+  else {
+    let buf = make_list(4)
+    let (first, p2) = parse_one_param(tokens, p)
+    let (b1, c1) = push_node(buf, 0, first)
+    let (final_buf, final_count, final_pos) = parse_params_tail(tokens, p2, b1, c1)
+    (slice(final_buf, 0, final_count), final_pos)
+  }
+}
+
+fn parse_params_tail(ref tokens, pos, own buf, count) = {
+  let p = skip_ws(tokens, pos)
+  if at(tokens, p, TComma) {
+    let (next, p2) = parse_one_param(tokens, skip_ws(tokens, p + 1))
+    let (b1, c1) = push_node(buf, count, next)
+    parse_params_tail(tokens, p2, b1, c1)
+  } else {
+    (buf, count, expect(tokens, p, TRParen))
+  }
+}
+
+fn parse_one_param(ref tokens, pos) = {
+  let (own_marker, p) = match kind_at(tokens, pos) {
+    TOwn => (Own, skip_ws(tokens, pos + 1)),
+    TRef => (Ref, skip_ws(tokens, pos + 1)),
+    _    => (Inferred, pos)
+  }
+
+  let name = ident_at(tokens, p)
+  let p2 = skip_ws(tokens, p + 1)
+
+  if at(tokens, p2, TColon) {
+    let (ty, p3) = parse_type_ty(tokens, skip_ws(tokens, p2 + 1))
+    (TParam(name, ty, own_marker, own_marker), p3)
+  } else {
+    // Type inferred via TVar allocated at parse
+    let placeholder_span = span_at(tokens, p)
+    let h = fresh_ph(placeholder_span)
+    (TParam(name, TVar(h), own_marker, own_marker), p2)
+  }
+}
+
+/// Effect lists use `+` per SYNTAX.md (`with E1 + E2 + !E3`). Each
+/// entry parses through `parse_one_effect`; the row is built from this
+/// list at infer time (`build_declared_row`).
+fn parse_effect_list(ref tokens, pos) = {
+  let (name, negated, p) = parse_one_effect(tokens, pos)
+  let entry = (name, negated)
+  let p2 = skip_ws(tokens, p)
+  if at(tokens, p2, TPlus) {
+    let (rest, p3) = parse_effect_list(tokens, skip_ws(tokens, p2 + 1))
+    ([entry] ++ rest, p3)
+  } else {
+    ([entry], p2)
+  }
+}
+
+/// Parse a single effect entry — bare `IO`, negated `!IO`,
+/// parameterized `Sample(44100)`, or negated parameterized
+/// `!Sample(44100)`. Args are scalar literals (int/float/string);
+/// identifier / expression args land in a v2 walkthrough.
+fn parse_one_effect(ref tokens, pos) = {
+  let (negated, p) =
+    if at(tokens, pos, TBang) { (true, pos + 1) }
+    else { (false, pos) }
+  let name = ident_at(tokens, p)
+  let p1 = p + 1
+  let p2 = skip_ws(tokens, p1)
+  if at(tokens, p2, TLParen) {
+    let (args, p3) = parse_eff_args(tokens, skip_ws(tokens, p2 + 1))
+    (EParameterized(name, args), negated, p3)
+  } else {
+    (ENamed(name), negated, p1)
+  }
+}
+
+fn parse_eff_args(ref tokens, pos) = {
+  let p = skip_ws(tokens, pos)
+  if at(tokens, p, TRParen) { ([], p + 1) }
+  else {
+    let buf = make_list(2)
+    let (first, p2) = parse_one_eff_arg(tokens, p)
+    let (b1, c1) = push_node(buf, 0, first)
+    let (final_buf, final_count, final_pos) =
+      parse_eff_args_tail(tokens, p2, b1, c1)
+    (slice(final_buf, 0, final_count), final_pos)
+  }
+}
+
+fn parse_eff_args_tail(ref tokens, pos, own buf, count) = {
+  let p = skip_ws(tokens, pos)
+  if at(tokens, p, TComma) {
+    let (next, p2) = parse_one_eff_arg(tokens, skip_ws(tokens, p + 1))
+    let (b1, c1) = push_node(buf, count, next)
+    parse_eff_args_tail(tokens, p2, b1, c1)
+  } else {
+    (buf, count, expect(tokens, p, TRParen))
+  }
+}
+
+fn parse_one_eff_arg(ref tokens, pos) = match kind_at(tokens, pos) {
+  TInt(n)    => (EAInt(n), pos + 1),
+  TFloat(f)  => (EAFloat(f), pos + 1),
+  TString(s) => (EAString(s), pos + 1),
+  _          => (EAInt(0), pos + 1)    // diagnostic deferred — see error catalog
+}
+
+/// Parse `let pat [: ty] = expr`.
+fn parse_let(ref tokens, pos) = {
+  let start = span_at(tokens, pos)
+  let (pat, p) = parse_pat(tokens, pos)
+  let p2 = skip_ws(tokens, p)
+  let p3 = if at(tokens, p2, TColon) {
+    let (_, p_ty) = parse_type_ty(tokens, skip_ws(tokens, p2 + 1))
+    skip_ws(tokens, p_ty)
+  } else { p2 }
+  let p4 = expect(tokens, p3, TEq)
+  let (val, p5) = parse_expr(tokens, skip_ws(tokens, p4))
+  (nstmt(LetStmt(pat, val), start), p5)
+}
+
+/// Parse `type X = V1 | V2(fields) | ...` or `type X = T where P`.
+fn parse_type_decl(ref tokens, pos) = {
+  let start = span_at(tokens, pos)
+  let name = ident_at(tokens, pos)
+  let p = skip_ws(tokens, pos + 1)
+  let p2 = if at(tokens, p, TEq) { skip_ws(tokens, p + 1) } else { p }
+
+  let base_val = ident_at(tokens, p2)
+  let probe = skip_ws(tokens, p2 + 1)
+  if at(tokens, probe, TWhere) {
+    let (base_ty, _p3) = parse_type_ty(tokens, p2)
+    let (pred, p4) = parse_predicate(tokens, skip_ws(tokens, probe + 1))
+    (nstmt(RefineStmt(name, base_ty, pred), start), p4)
+  } else if at(tokens, p2, TLBrace) {
+    // H2.3 nominal record: `type Person = {name: String, age: Int}`.
+    // Single-variant type whose body is the record. Reuse
+    // parse_record_type_fields so the field-sort invariant matches
+    // structural records exactly.
+    let (flds, p3) = parse_record_type_fields(tokens, skip_ws(tokens, p2 + 1))
+    let sorted = sort_record_type_fields(flds)
+    let body = TRecord(sorted)
+    let variant = (name, [body])     // single variant named after the type
+    (nstmt(TypeDefStmt(name, [], [variant]), start), p3)
+  } else {
+    let (variants, p3) = parse_variants(tokens, p2)
+    (nstmt(TypeDefStmt(name, [], variants), start), p3)
+  }
+}
+
+fn parse_variants(ref tokens, pos) = {
+  let p = skip_ws(tokens, pos)
+  let vname = ident_at(tokens, p)
+  let p2 = p + 1
+  let (fields, p3) =
+    if at(tokens, p2, TLParen) {
+      parse_variant_fields(tokens, skip_ws(tokens, p2 + 1))
+    } else {
+      ([], p2)
+    }
+  let variant = (vname, fields)
+  let p4 = skip_ws(tokens, p3)
+  if at(tokens, p4, TPipe) {
+    let (rest, p5) = parse_variants(tokens, skip_ws(tokens, p4 + 1))
+    ([variant] ++ rest, p5)
+  } else {
+    ([variant], p4)
+  }
+}
+
+fn parse_variant_fields(ref tokens, pos) = {
+  let p = skip_ws(tokens, pos)
+  if at(tokens, p, TRParen) { ([], p + 1) }
+  else {
+    let (ty, p2) = parse_type_ty(tokens, p)
+    let p3 = skip_ws(tokens, p2)
+    if at(tokens, p3, TComma) {
+      let (rest, p4) = parse_variant_fields(tokens, skip_ws(tokens, p3 + 1))
+      ([ty] ++ rest, p4)
+    } else {
+      ([ty], expect(tokens, p3, TRParen))
+    }
+  }
+}
+
+/// Parse `effect X { op(args) -> ret @resume=Disc }`.
+fn parse_effect_decl(ref tokens, pos) = {
+  let start = span_at(tokens, pos)
+  let name = ident_at(tokens, pos)
+  let p = expect(tokens, skip_ws(tokens, pos + 1), TLBrace)
+  let (ops, p2) = parse_effect_ops(tokens, skip_ws(tokens, p))
+  (nstmt(EffectDeclStmt(name, ops), start), p2)
+}
+
+fn parse_effect_ops(ref tokens, pos) = {
+  let p = skip_ws(tokens, pos)
+  if at(tokens, p, TRBrace) { ([], p + 1) }
+  else {
+    let op_name = ident_at(tokens, p)
+    let p2 = expect(tokens, skip_ws(tokens, p + 1), TLParen)
+    let (param_tys, p3) = parse_op_params(tokens, skip_ws(tokens, p2))
+    let p4 = skip_ws(tokens, p3)
+    let (ret_ty, p5) =
+      if at(tokens, p4, TArrow) {
+        parse_type_ty(tokens, skip_ws(tokens, p4 + 1))
+      } else {
+        (TUnit, p4)
+      }
+    let p6 = skip_sep(tokens, p5)
+    let (rest, p7) = parse_effect_ops(tokens, p6)
+    ([(op_name, param_tys, ret_ty)] ++ rest, p7)
+  }
+}
+
+fn parse_op_params(ref tokens, pos) = {
+  let p = skip_ws(tokens, pos)
+  if at(tokens, p, TRParen) { ([], p + 1) }
+  else {
+    let (ty, p2) = parse_type_ty(tokens, p)
+    let p3 = skip_ws(tokens, p2)
+    if at(tokens, p3, TComma) {
+      let (rest, p4) = parse_op_params(tokens, skip_ws(tokens, p3 + 1))
+      ([ty] ++ rest, p4)
+    } else {
+      ([ty], expect(tokens, p3, TRParen))
+    }
+  }
+}
+
+/// Parse `handler X { arms }`.
+fn parse_handler_decl(ref tokens, pos) = {
+  let start = span_at(tokens, pos)
+  let name = ident_at(tokens, pos)
+  let p = expect(tokens, skip_ws(tokens, pos + 1), TLBrace)
+  let (arms, p2) = parse_handler_arms(tokens, skip_ws(tokens, p))
+  (nstmt(HandlerDeclStmt(name, "", arms), start), p2)
+}
+
+fn parse_handler_arms(ref tokens, pos) = {
+  let p = skip_ws(tokens, pos)
+  if at(tokens, p, TRBrace) { ([], p + 1) }
+  else {
+    let op_name = ident_at(tokens, p)
+    let p2 = expect(tokens, skip_ws(tokens, p + 1), TLParen)
+    let (args, p3) = parse_arg_names(tokens, skip_ws(tokens, p2))
+    let p4 = expect(tokens, skip_ws(tokens, p3), TFatArrow)
+    let (body, p5) = parse_expr(tokens, skip_ws(tokens, p4))
+    let p6 = skip_sep(tokens, p5)
+    let (rest, p7) = parse_handler_arms(tokens, p6)
+    // Per Ω.5 frame-record discipline + H1.4 future wiring,
+    // arms are records keyed by field name. New fields (e.g.,
+    // arm_fn_idx for handler arm fn indexing) land additively.
+    let arm = {args: args, body: body, op_name: op_name}
+    ([arm] ++ rest, p7)
+  }
+}
+
+/// Parse `capability X = effs`.
+fn parse_capability_decl(ref tokens, pos) = {
+  let start = span_at(tokens, pos)
+  let name = ident_at(tokens, pos)
+  let p = expect(tokens, skip_ws(tokens, pos + 1), TEq)
+  let (effs, p2) = parse_effect_list(tokens, skip_ws(tokens, p))
+  (nstmt(CapabilityDeclStmt(name, effs), start), p2)
+}
+
+fn parse_arg_names(ref tokens, pos) = {
+  let p = skip_ws(tokens, pos)
+  if at(tokens, p, TRParen) { ([], p + 1) }
+  else {
+    let name = ident_at(tokens, p)
+    let p2 = skip_ws(tokens, p + 1)
+    if at(tokens, p2, TComma) {
+      let (rest, p3) = parse_arg_names(tokens, skip_ws(tokens, p2 + 1))
+      ([name] ++ rest, p3)
+    } else {
+      ([name], expect(tokens, p2, TRParen))
+    }
+  }
+}
+
+/// Parse `import path/to/module`.
+fn parse_import(ref tokens, pos) = {
+  let start = span_at(tokens, pos)
+  let (path, p) = parse_import_path(tokens, pos, "")
+  (nstmt(ImportStmt(path), start), p)
+}
+
+fn parse_import_path(ref tokens, pos, own acc) = {
+  let name = ident_at(tokens, pos)
+  let joined = acc |> str_concat(name)
+  let p = pos + 1
+  if at(tokens, p, TSlash) {
+    parse_import_path(tokens, p + 1,
+      joined |> str_concat("/"))
+  } else {
+    (joined, p)
+  }
+}
+
+// Expressions — precedence-climbing
+
+fn parse_expr(ref tokens, pos) = {
+  parse_binop(tokens, pos, 1)
+}
+
+fn parse_binop(ref tokens, pos, min_prec) = {
+  let (left, p) = parse_postfix(tokens, pos)
+  binop_loop(tokens, left, p, min_prec)
+}
+
+fn binop_loop(ref tokens, left, pos, min_prec) = {
+  let (saw_newline, p) = skip_ws_tracked(tokens, pos)
+  let k = kind_at(tokens, p)
+  let prec = effective_prec(k, saw_newline)
+  if prec >= min_prec && prec > 0 {
+    let op_span = span_at(tokens, p)
+    let (right, p2) = parse_binop(tokens, p + 1, prec + 1)
+    let N(_, left_span, _) = left
+    let combined_span = span_join(left_span, op_span)
+    let node = match op_to_pipe_kind_layout(k, saw_newline) {
+      Some(pk) => nexpr(PipeExpr(pk, left, right), combined_span),
+      None     => match op_to_binop(k) {
+        Some(bo) => nexpr(BinOpExpr(bo, left, right), combined_span),
+        None     => {
+          // Unreachable per caller invariant: op_prec(k) > 0 and
+          // op_to_pipe_kind_layout returned None together imply k
+          // IS a binop token. ICE rather than fabricate a BinOp —
+          // if this ever fires, op_prec and op_to_binop have
+          // drifted out of sync.
+          perform report("parser", "E_InternalInvariant", "Internal",
+            "op_to_binop returned None for token with op_prec > 0", // drift-audit: ignore
+            op_span, "Unspecified")
+          nexpr(BinOpExpr(BAdd, left, right), combined_span)
+        }
+      }
+    }
+    binop_loop(tokens, node, p2, min_prec)
+  } else {
+    (left, p)
+  }
+}
+
+/// Postfix: call, field access, indexing.
+fn parse_postfix(ref tokens, pos) = {
+  let (e, p) = parse_primary(tokens, pos)
+  postfix_loop(tokens, e, p)
+}
+
+fn postfix_loop(ref tokens, e, pos) = match kind_at(tokens, pos) {
+  TLParen => {
+    let (args, p2) = parse_call_args(tokens, skip_ws(tokens, pos + 1))
+    let N(_, start_span, _) = e
+    let end_span = span_at(tokens, p2 - 1)
+    postfix_loop(tokens,
+      nexpr(CallExpr(e, args), span_join(start_span, end_span)),
+      p2)
+  },
+  TDot => {
+    let field = ident_at(tokens, pos + 1)
+    let N(_, start_span, _) = e
+    let field_span = span_at(tokens, pos + 1)
+    postfix_loop(tokens,
+      nexpr(FieldExpr(e, field), span_join(start_span, field_span)),
+      pos + 2)
+  },
+  TLBrace => {
+    // H2.3 nominal record literal: `Person{name: "Morgan", ...}`.
+    // The brace must immediately follow a type-name VarRef (no
+    // whitespace between — postfix_loop is called with pos at the
+    // very next token). Type names are capitalized; lowercase
+    // identifiers fall through and the brace stays a separate
+    // construct (block at expr position, not a record literal).
+    let N(body, start_span, _) = e
+    let is_named_record = match body {
+      NExpr(VarRef(name)) =>
+        name.len > 0 &&
+        first_char_code(name) >= 65 &&
+        first_char_code(name) <= 90,
+      _ => false
+    }
+    if is_named_record {
+      let type_name = match body {
+        NExpr(VarRef(n)) => n,
+        _                => ""
+      }
+      let (sorted, p2) = parse_named_record_body(tokens, pos + 1)
+      let end_span = span_at(tokens, p2 - 1)
+      postfix_loop(tokens,
+        nexpr(NamedRecordExpr(type_name, sorted), span_join(start_span, end_span)),
+        p2)
+    } else { (e, pos) }
+  },
+  _ => (e, pos)
+}
+
+/// Parse the body of a nominal record literal — same shape as
+/// `parse_record_fields` but invoked from a different surface
+/// (postfix-suffix vs primary). Sorts fields by name at parse time
+/// to maintain the substrate-wide invariant.
+fn parse_named_record_body(ref tokens, pos) = {
+  let buf = make_list(4)
+  let (final_buf, final_count, p) = parse_record_fields(tokens, pos, buf, 0)
+  let sorted = sort_record_fields(slice(final_buf, 0, final_count))
+  (sorted, p)
+}
+
+fn parse_call_args(ref tokens, pos) = {
+  let p = skip_ws(tokens, pos)
+  if at(tokens, p, TRParen) { ([], p + 1) }
+  else {
+    let (arg, p2) = parse_expr(tokens, p)
+    let p3 = skip_ws(tokens, p2)
+    if at(tokens, p3, TComma) {
+      let (rest, p4) = parse_call_args(tokens, skip_ws(tokens, p3 + 1))
+      ([arg] ++ rest, p4)
+    } else {
+      ([arg], expect(tokens, p3, TRParen))
+    }
+  }
+}
+
+// Primary expressions
+
+fn parse_primary(ref tokens, pos) = {
+  let span = span_at(tokens, pos)
+  match kind_at(tokens, pos) {
+    TInt(n)      => (nexpr(LitInt(n), span), pos + 1),
+    TFloat(f)    => (nexpr(LitFloat(f), span), pos + 1),
+    TString(s)   => (nexpr(LitString(s), span), pos + 1),
+    TTrue        => (nexpr(LitBool(true), span), pos + 1),
+    TFalse       => (nexpr(LitBool(false), span), pos + 1),
+    TIdent(name) => (nexpr(VarRef(name), span), pos + 1),
+    THole        => {
+      let id = fresh_ph(span)
+      (nhole(id, span), pos + 1)
+    },
+    TLParen      => parse_paren_or_tuple(tokens, pos + 1, span),
+    TLBracket    => parse_list_literal(tokens, pos + 1, span),
+    TLBrace      => parse_brace_expr(tokens, pos + 1, span),
+    TIf          => parse_if(tokens, pos + 1, span),
+    TMatch       => parse_match(tokens, pos + 1, span),
+    THandle      => parse_handle(tokens, pos + 1, span),
+    TPerform     => parse_perform(tokens, pos + 1, span),
+    TResume      => parse_resume(tokens, pos + 1, span),
+    TPipe        => parse_lambda(tokens, pos + 1, span),
+    // SYNTAX.md §148-190: fn (params) => expr — explicit lambda form // drift-audit: ignore
+    // for block bodies and tuple destructuring in params.
+    TFn          => {
+      let p = skip_ws(tokens, pos + 1)
+      let p2 = expect(tokens, p, TLParen)
+      let (params, p3) = parse_fn_params(tokens, p2)
+      let p4 = expect(tokens, skip_ws(tokens, p3), TFatArrow)
+      let (body, p5) = parse_body(tokens, skip_ws(tokens, p4))
+      (nexpr(LambdaExpr(params, body), span), p5)
+    },
+    TMinus       => {
+      let (inner, p) = parse_primary(tokens, pos + 1)
+      (nexpr(UnaryOpExpr(UNeg, inner), span), p)
+    },
+    TBang        => {
+      let (inner, p) = parse_primary(tokens, pos + 1)
+      (nexpr(UnaryOpExpr(UNot, inner), span), p)
+    },
+    _ => {
+      perform report("parser", "P_UnexpectedToken", "ParseError",
+        "unexpected token: " |> str_concat(show_token_kind(kind_at(tokens, pos))),
+        span, "MaybeIncorrect")
+      let id = fresh_ph(span)
+      (nhole(id, span), pos + 1)
+    }
+  }
+}
+
+fn parse_paren_or_tuple(ref tokens, pos, start_span) = {
+  let p = skip_ws(tokens, pos)
+  if at(tokens, p, TRParen) {
+    (nexpr(LitUnit, start_span), p + 1)
+  } else {
+    let (first, p2) = parse_expr(tokens, p)
+    let p3 = skip_ws(tokens, p2)
+    if at(tokens, p3, TComma) {
+      let buf = make_list(4)
+      let (b1, c1) = push_node(buf, 0, first)
+      let (final_buf, final_count, final_pos) =
+        parse_tuple_tail(tokens, skip_ws(tokens, p3 + 1), b1, c1)
+      (nexpr(MakeTupleExpr(slice(final_buf, 0, final_count)), start_span), final_pos)
+    } else {
+      (first, expect(tokens, p3, TRParen))
+    }
+  }
+}
+
+fn parse_tuple_tail(ref tokens, pos, own buf, count) = {
+  let p = skip_ws(tokens, pos)
+  if at(tokens, p, TRParen) { (buf, count, p + 1) }
+  else {
+    let (elem, p2) = parse_expr(tokens, p)
+    let (b1, c1) = push_node(buf, count, elem)
+    let p3 = skip_ws(tokens, p2)
+    if at(tokens, p3, TComma) {
+      parse_tuple_tail(tokens, skip_ws(tokens, p3 + 1), b1, c1)
+    } else {
+      (b1, c1, expect(tokens, p3, TRParen))
+    }
+  }
+}
+
+fn parse_list_literal(ref tokens, pos, start_span) = {
+  let buf = make_list(4)
+  let (final_buf, final_count, p) = parse_list_elems(tokens, pos, buf, 0)
+  (nexpr(MakeListExpr(slice(final_buf, 0, final_count)), start_span), p)
+}
+
+fn parse_list_elems(ref tokens, pos, own buf, count) = {
+  let p = skip_ws(tokens, pos)
+  if at(tokens, p, TRBracket) { (buf, count, p + 1) }
+  else {
+    let (elem, p2) = parse_expr(tokens, p)
+    let (b1, c1) = push_node(buf, count, elem)
+    let p3 = skip_ws(tokens, p2)
+    if at(tokens, p3, TComma) {
+      parse_list_elems(tokens, skip_ws(tokens, p3 + 1), b1, c1)
+    } else {
+      (b1, c1, expect(tokens, p3, TRBracket))
+    }
+  }
+}
+
+/// Disambiguate `{`: record literal vs block. Per SYNTAX.md, after the
+/// opening brace + whitespace, an `Identifier` followed by `:` (typed
+/// field) or `,`/`}` (puned field) signals a record literal.
+/// Anything else is a block. Lookahead is bounded to two tokens past
+/// the brace — no backtracking, no ambiguity that escapes the parser.
+fn parse_brace_expr(ref tokens, pos, start_span) = {
+  let p = skip_ws(tokens, pos)
+  match kind_at(tokens, p) {
+    TIdent(_) => {
+      let p2 = skip_ws(tokens, p + 1)
+      match kind_at(tokens, p2) {
+        TColon  => parse_record_literal(tokens, pos, start_span),
+        TComma  => parse_record_literal(tokens, pos, start_span),
+        TRBrace => parse_record_literal(tokens, pos, start_span),
+        _       => parse_block_expr(tokens, pos, start_span)
+      }
+    },
+    _ => parse_block_expr(tokens, pos, start_span)
+  }
+}
+
+/// Record literal: `{name: expr, age: expr, ...}` or with field
+/// puning `{name, age}` ≡ `{name: name, age: age}`. Fields sort by
+/// name at parse time so downstream sees one canonical layout.
+fn parse_record_literal(ref tokens, pos, start_span) = {
+  let buf = make_list(4)
+  let (final_buf, final_count, p) = parse_record_fields(tokens, pos, buf, 0)
+  let sorted = sort_record_fields(slice(final_buf, 0, final_count))
+  (nexpr(MakeRecordExpr(sorted), start_span), p)
+}
+
+fn parse_record_fields(ref tokens, pos, own buf, count) = {
+  let p = skip_ws(tokens, pos)
+  if at(tokens, p, TRBrace) { (buf, count, p + 1) }
+  else {
+    let name = ident_at(tokens, p)
+    let name_span = span_at(tokens, p)
+    let p1 = p + 1
+    let p2 = skip_ws(tokens, p1)
+    let (value, p3) =
+      if at(tokens, p2, TColon) {
+        parse_expr(tokens, skip_ws(tokens, p2 + 1))
+      } else {
+        // Field puning: {name} desugars to {name: name}.
+        (nexpr(VarRef(name), name_span), p1)
+      }
+    let (b1, c1) = push_node(buf, count, (name, value))
+    let p4 = skip_ws(tokens, p3)
+    if at(tokens, p4, TComma) {
+      parse_record_fields(tokens, skip_ws(tokens, p4 + 1), b1, c1)
+    } else {
+      (b1, c1, expect(tokens, p4, TRBrace))
+    }
+  }
+}
+
+/// Insertion sort by field name. N≤~16 in practice; insertion is the
+/// natural shape and keeps the parser dependency-free.
+fn sort_record_fields(fields) = {
+  sort_record_fields_loop(fields, 0, fields.len, [])
+}
+
+fn sort_record_fields_loop(fields, i, n, own acc) = {
+  if i >= n { acc }
+  else {
+    sort_record_fields_loop(fields, i + 1, n,
+      record_field_insert(acc, list_index(fields, i)))
+  }
+}
+
+fn record_field_insert(sorted, entry) = {
+  let (name, _) = entry
+  let n = sorted.len
+  let pos = record_field_find_pos(sorted, name, 0, n)
+  if pos < n {
+    let buf = make_list(n + 1)
+    let prefix = list_copy_into(sorted, buf, 0, pos)
+    let with_ins = list_set(prefix, pos, entry)
+    record_field_copy_suffix(sorted, with_ins, pos, pos, n)
+  } else {
+    let buf = make_list(n + 1)
+    let copied = list_copy_into(sorted, buf, 0, n)
+    list_set(copied, n, entry)
+  }
+}
+
+fn record_field_find_pos(sorted, name, i, n) = {
+  if i >= n { n }
+  else {
+    let (existing, _) = list_index(sorted, i)
+    if str_lt(existing, name) {
+      record_field_find_pos(sorted, name, i + 1, n)
+    } else { i }
+  }
+}
+
+fn record_field_copy_suffix(src, dst, src_idx, dst_idx, n) = {
+  if src_idx >= n { dst }
+  else {
+    record_field_copy_suffix(
+      src, list_set(dst, dst_idx + 1, list_index(src, src_idx)),
+      src_idx + 1, dst_idx + 1, n
+    )
+  }
+}
+
+fn parse_block_expr(ref tokens, pos, start_span) = {
+  let buf = make_list(8)
+  let (final_buf, final_count, final_e, p) = parse_block_body(tokens, pos, buf, 0)
+  (nexpr(BlockExpr(slice(final_buf, 0, final_count), final_e), start_span), p)
+}
+
+fn parse_block_body(ref tokens, pos, own buf, count) = {
+  let p = skip_ws(tokens, pos)
+  if at(tokens, p, TRBrace) {
+    let start = span_at(tokens, p)
+    (buf, count, nexpr(LitUnit, start), p + 1)
+  } else {
+    let is_decl = match kind_at(tokens, p) {
+      TLet => true,
+      TFn  => true,
+      _    => false
+    }
+    if is_decl {
+      let (stmt, p2) = parse_stmt(tokens, p)
+      let (b1, c1) = push_node(buf, count, stmt)
+      parse_block_body(tokens, skip_sep(tokens, p2), b1, c1)
+    } else {
+      let (expr, p2) = parse_expr(tokens, p)
+      let p3 = skip_ws(tokens, p2)
+      if at(tokens, p3, TRBrace) {
+        (buf, count, expr, p3 + 1)
+      } else {
+        let start = span_at(tokens, p)
+        let (b1, c1) = push_node(buf, count, nstmt(ExprStmt(expr), start))
+        parse_block_body(tokens, skip_sep(tokens, p3), b1, c1)
+      }
+    }
+  }
+}
+
+fn parse_if(ref tokens, pos, span: ValidSpan) = {
+  let (cond, p) = parse_expr(tokens, pos)
+  let p2 = skip_ws(tokens, p)
+  let (then_e, p3) =
+    if at(tokens, p2, TLBrace) {
+      parse_block_expr(tokens, p2 + 1, span_at(tokens, p2))
+    } else {
+      parse_expr(tokens, p2)
+    }
+  let p4 = skip_ws(tokens, p3)
+  if at(tokens, p4, TElse) {
+    let p5 = skip_ws(tokens, p4 + 1)
+    let (else_e, p6) =
+      if at(tokens, p5, TIf) {
+        parse_if(tokens, p5 + 1, span_at(tokens, p5))
+      } else if at(tokens, p5, TLBrace) {
+        parse_block_expr(tokens, p5 + 1, span_at(tokens, p5))
+      } else {
+        parse_expr(tokens, p5)
+      }
+    (nexpr(IfExpr(cond, then_e, else_e), span), p6)
+  } else {
+    (nexpr(IfExpr(cond, then_e, nexpr(LitUnit, span)), span), p4)
+  }
+}
+
+fn parse_match(ref tokens, pos, span: ValidSpan) = {
+  let (scrutinee, p) = parse_expr(tokens, pos)
+  let p2 = expect(tokens, skip_ws(tokens, p), TLBrace)
+  let buf = make_list(4)
+  let (final_buf, final_count, p3) =
+    parse_match_arms(tokens, skip_ws(tokens, p2), buf, 0)
+  (nexpr(MatchExpr(scrutinee, slice(final_buf, 0, final_count)), span), p3)
+}
+
+fn parse_match_arms(ref tokens, pos, own buf, count) = {
+  let p = skip_ws(tokens, pos)
+  if at(tokens, p, TRBrace) { (buf, count, p + 1) }
+  else {
+    let (pat, p2) = parse_pat(tokens, p)
+    let p3 = expect(tokens, skip_ws(tokens, p2), TFatArrow)
+    let (body, p4) = parse_expr(tokens, skip_ws(tokens, p3))
+    let p5 = skip_ws(tokens, p4)
+    let p6 = if at(tokens, p5, TComma) { p5 + 1 } else { p5 }
+    let (b1, c1) = push_node(buf, count, (pat, body))
+    parse_match_arms(tokens, skip_ws(tokens, p6), b1, c1)
+  }
+}
+
+fn parse_handle(ref tokens, pos, span: ValidSpan) = {
+  let p = skip_ws(tokens, pos)
+  let (body, p2) =
+    if at(tokens, p, TLBrace) {
+      parse_block_expr(tokens, p + 1, span_at(tokens, p))
+    } else {
+      parse_expr(tokens, p)
+    }
+  let p3 = skip_ws(tokens, p2)
+  let (arms, p4) =
+    if at(tokens, p3, TWith) {
+      let p_open = expect(tokens,
+        skip_ws(tokens, skip_past_ident(tokens, p3 + 1)),
+        "LBrace")
+      parse_handler_arms(tokens, skip_ws(tokens, p_open))
+    } else if at(tokens, p3, TLBrace) {
+      parse_handler_arms(tokens, skip_ws(tokens, p3 + 1))
+    } else {
+      ([], p3)
+    }
+  (nexpr(HandleExpr(body, arms), span), p4)
+}
+
+fn skip_past_ident(ref tokens, pos) = {
+  match kind_at(tokens, pos) {
+    TIdent(_) => pos + 1,
+    _         => pos
+  }
+}
+
+fn parse_perform(ref tokens, pos, span: ValidSpan) = {
+  let op_name = ident_at(tokens, pos)
+  let p = expect(tokens, skip_ws(tokens, pos + 1), TLParen)
+  let (args, p2) = parse_call_args(tokens, skip_ws(tokens, p))
+  (nexpr(PerformExpr(op_name, args), span), p2)
+}
+
+fn parse_resume(ref tokens, pos, span: ValidSpan) = {
+  let p = expect(tokens, skip_ws(tokens, pos), TLParen)
+  let (val, p2) = parse_expr(tokens, skip_ws(tokens, p))
+  let p3 = expect(tokens, skip_ws(tokens, p2), TRParen)
+  (nexpr(ResumeExpr(val, []), span), p3)
+}
+
+fn parse_lambda(ref tokens, pos, span: ValidSpan) = {
+  let buf = make_list(4)
+  let (final_buf, final_count, p) = parse_lambda_params(tokens, pos, buf, 0)
+  let (body, p2) = parse_expr(tokens, skip_ws(tokens, p))
+  (nexpr(LambdaExpr(slice(final_buf, 0, final_count), body), span), p2)
+}
+
+fn parse_lambda_params(ref tokens, pos, own buf, count) = {
+  let p = skip_ws(tokens, pos)
+  if at(tokens, p, TPipe) { (buf, count, p + 1) }
+  else {
+    let name = ident_at(tokens, p)
+    let h = fresh_ph(span_at(tokens, p))
+    let param = TParam(name, TVar(h), Inferred, Inferred)
+    let (b1, c1) = push_node(buf, count, param)
+    let p2 = skip_ws(tokens, p + 1)
+    if at(tokens, p2, TComma) {
+      parse_lambda_params(tokens, skip_ws(tokens, p2 + 1), b1, c1)
+    } else {
+      (b1, c1, expect(tokens, p2, TPipe))
+    }
+  }
+}
+
+fn parse_body(ref tokens, pos) = {
+  let p = skip_ws(tokens, pos)
+  if at(tokens, p, TLBrace) {
+    parse_block_expr(tokens, p + 1, span_at(tokens, p))
+  } else {
+    parse_expr(tokens, p)
+  }
+}
+
+// Patterns
+
+fn parse_pat(ref tokens, pos) = {
+  match kind_at(tokens, pos) {
+    TIdent(v) => {
+      if str_eq(v, "_") { (PWild, pos + 1) }
+      else {
+        let first_code = first_char_code(v)
+        if first_code >= 65 && first_code <= 90 {
+          // Capitalized identifier — constructor pattern
+          let p2 = pos + 1
+          if at(tokens, p2, TLParen) {
+            let (sub, p3) = parse_pat_args(tokens, skip_ws(tokens, p2 + 1))
+            (PCon(v, sub), p3)
+          } else {
+            (PCon(v, []), p2)
+          }
+        } else {
+          (PVar(v), pos + 1)
+        }
+      }
+    },
+    TInt(n)    => (PLit(LVInt(n)), pos + 1),
+    TFloat(f)  => (PLit(LVFloat(f)), pos + 1),
+    TString(s) => (PLit(LVString(s)), pos + 1),
+    TTrue      => (PLit(LVBool(true)), pos + 1),
+    TFalse     => (PLit(LVBool(false)), pos + 1),
+    TLParen    => {
+      let (sub, p) = parse_pat_args(tokens, skip_ws(tokens, pos + 1))
+      (PTuple(sub), p)
+    },
+    TLBracket  => {
+      let (sub, p) = parse_pat_list_args(tokens, skip_ws(tokens, pos + 1))
+      (PList(sub), p)
+    },
+    TLBrace    => {
+      let (flds, p) = parse_pat_record_fields(tokens, skip_ws(tokens, pos + 1))
+      (PRecord(sort_pat_fields(flds)), p)
+    },
+    _ => (PWild, pos + 1)
+  }
+}
+
+/// Parse `{name, age}` or `{name: sub_pat, age: sub_pat}`. Field
+/// puning is the default — `{name}` ≡ `{name: PVar("name")}`.
+fn parse_pat_record_fields(ref tokens, pos) = {
+  let p = skip_ws(tokens, pos)
+  if at(tokens, p, TRBrace) { ([], p + 1) }
+  else {
+    let name = ident_at(tokens, p)
+    let p1 = p + 1
+    let p2 = skip_ws(tokens, p1)
+    let (sub_pat, p3) =
+      if at(tokens, p2, TColon) {
+        parse_pat(tokens, skip_ws(tokens, p2 + 1))
+      } else {
+        (PVar(name), p1)
+      }
+    let p4 = skip_ws(tokens, p3)
+    if at(tokens, p4, TComma) {
+      let (rest, p5) = parse_pat_record_fields(tokens, skip_ws(tokens, p4 + 1))
+      ([(name, sub_pat)] ++ rest, p5)
+    } else {
+      ([(name, sub_pat)], expect(tokens, p4, TRBrace))
+    }
+  }
+}
+
+fn sort_pat_fields(fields) = {
+  sort_record_fields_loop(fields, 0, fields.len, [])
+}
+
+fn parse_pat_args(ref tokens, pos) = {
+  let p = skip_ws(tokens, pos)
+  if at(tokens, p, TRParen) { ([], p + 1) }
+  else {
+    let (pat, p2) = parse_pat(tokens, p)
+    let p3 = skip_ws(tokens, p2)
+    if at(tokens, p3, TComma) {
+      let (rest, p4) = parse_pat_args(tokens, skip_ws(tokens, p3 + 1))
+      ([pat] ++ rest, p4)
+    } else {
+      ([pat], expect(tokens, p3, TRParen))
+    }
+  }
+}
+
+fn parse_pat_list_args(ref tokens, pos) = {
+  let p = skip_ws(tokens, pos)
+  if at(tokens, p, TRBracket) { ([], p + 1) }
+  else {
+    let (pat, p2) = parse_pat(tokens, p)
+    let p3 = skip_ws(tokens, p2)
+    if at(tokens, p3, TComma) {
+      let (rest, p4) = parse_pat_list_args(tokens, skip_ws(tokens, p3 + 1))
+      ([pat] ++ rest, p4)
+    } else {
+      ([pat], expect(tokens, p3, TRBracket))
+    }
+  }
+}
+
+fn first_char_code(s) = {
+  if s.len == 0 { 0 }
+  else { char_code(chars(s)[0]) }
+}
+
+// Type expressions
+
+fn parse_type_ty(ref tokens, pos) = match kind_at(tokens, pos) {
+  TIdent(v) => {
+    if str_eq(v, "Int")        { (TInt, pos + 1) }
+    else if str_eq(v, "Float")  { (TFloat, pos + 1) }
+    else if str_eq(v, "String") { (TString, pos + 1) }
+    else if str_eq(v, "Bool")   { (TName("Bool", []), pos + 1) }
+    else if str_eq(v, "Unit")   { (TUnit, pos + 1) }
+    else                        { (TName(v, []), pos + 1) }
+  },
+  TLParen => {
+    let p = skip_ws(tokens, pos + 1)
+    if at(tokens, p, TRParen) { (TUnit, p + 1) }
+    else {
+      let (first, p2) = parse_type_ty(tokens, p)
+      let p3 = skip_ws(tokens, p2)
+      if at(tokens, p3, TComma) {
+        let buf = make_list(4)
+        let (b1, c1) = push_node(buf, 0, first)
+        let (final_buf, final_count, p4) =
+          parse_type_ty_tail(tokens, skip_ws(tokens, p3 + 1), b1, c1)
+        (TTuple(slice(final_buf, 0, final_count)), p4)
+      } else {
+        (first, expect(tokens, p3, TRParen))
+      }
+    }
+  },
+  TLBrace => {
+    // Structural record type: `{name: Ty, age: Ty}`. Sorted at parse;
+    // mk_record_open applied if a `...R` row variable is present
+    // (deferred — first form is closed records only).
+    let (flds, p) = parse_record_type_fields(tokens, skip_ws(tokens, pos + 1))
+    (TRecord(sort_record_type_fields(flds)), p)
+  },
+  _ => (TUnit, pos + 1)
+}
+
+fn parse_type_ty_tail(ref tokens, pos, own buf, count) = {
+  let p = skip_ws(tokens, pos)
+  if at(tokens, p, TRParen) { (buf, count, p + 1) }
+  else {
+    let (ty, p2) = parse_type_ty(tokens, p)
+    let (b1, c1) = push_node(buf, count, ty)
+    let p3 = skip_ws(tokens, p2)
+    if at(tokens, p3, TComma) {
+      parse_type_ty_tail(tokens, skip_ws(tokens, p3 + 1), b1, c1)
+    } else {
+      (b1, c1, expect(tokens, p3, TRParen))
+    }
+  }
+}
+
+fn parse_record_type_fields(ref tokens, pos) = {
+  let p = skip_ws(tokens, pos)
+  if at(tokens, p, TRBrace) { ([], p + 1) }
+  else {
+    let name = ident_at(tokens, p)
+    let p1 = expect(tokens, p + 1, TColon)
+    let (ty, p2) = parse_type_ty(tokens, skip_ws(tokens, p1))
+    let p3 = skip_ws(tokens, p2)
+    if at(tokens, p3, TComma) {
+      let (rest, p4) = parse_record_type_fields(tokens, skip_ws(tokens, p3 + 1))
+      ([(name, ty)] ++ rest, p4)
+    } else {
+      ([(name, ty)], expect(tokens, p3, TRBrace))
+    }
+  }
+}
+
+fn sort_record_type_fields(fields) = {
+  sort_record_type_fields_loop(fields, 0, fields.len, [])
+}
+
+fn sort_record_type_fields_loop(fields, i, n, own acc) = {
+  if i >= n { acc }
+  else {
+    sort_record_type_fields_loop(fields, i + 1, n,
+      record_field_insert(acc, list_index(fields, i)))
+  }
+}
+
+fn parse_type_expr(ref tokens, pos) = {
+  let (ty, p) = parse_type_ty(tokens, pos)
+  let span = span_at(tokens, pos)
+  // Return as a dummy node holding the annotation type.
+  (nexpr(LitUnit, span), p)
+}
+
+// Predicates — minimal (expressions after `where`)
+
+fn parse_predicate(ref tokens, pos) = {
+  // Phase 1: collect tokens up to semicolon or newline as PTrue.
+  // Full predicate parsing (comparisons, logical ops) in Arc F.1.
+  let p = skip_to_stmt_end(tokens, pos)
+  (PTrue, p)
+}
+
+fn skip_to_stmt_end(ref tokens, pos) = match kind_at(tokens, pos) {
+  TSemicolon => pos,
+  TNewline   => pos,
+  TEof       => pos,
+  TRBrace    => pos,
+  _          => skip_to_stmt_end(tokens, pos + 1)
+}

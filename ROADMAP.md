@@ -1,4 +1,4 @@
-# Inka — ROADMAP
+# Mentl — ROADMAP
 
 > **Canonical roadmap.** This file is the single source of truth for
 > execution order, current status, and session-to-session agent
@@ -78,7 +78,7 @@ Current branch expectation:
 Current architectural state:
 
 - the eight-primitives kernel is structurally live
-- the MultiShot substrate quartet is landed in `src/*.nx`
+- the MultiShot substrate quartet is landed in `src/*.mn`
 - bootstrap rewrite is framed as **kernel-complete first, bootstrap
   second**
 - Hβ bootstrap work is the critical path to first-light
@@ -146,7 +146,7 @@ Current Hβ.lower bootstrap state — **CASCADE CLOSED (11/11 chunks live)**:
     |> lex |> parse_program |> $inka_infer |> $inka_lower
     |> $emit_program |> proc_exit`.
   - **Hβ.lower.toplevel-pre-register** — wheel-parity two-pass globals
-    pre-registration per src/lower.nx:1106-1110 + Lock #1.
+    pre-registration per src/lower.mn:1106-1110 + Lock #1.
   - **Hβ.lower.emit-extension** — extend Layer 6 emit_*.wat to consume
     LowExpr per Hβ-lower-substrate.md §9.2; Hβ-emit-substrate.md walkthrough
     TBD per Hβ-lower §13 sibling list.
@@ -168,7 +168,7 @@ Current Hβ.emit + Hβ.arena cascade state — **Hβ.arena CLOSED; Hβ.emit CHUN
 - Hβ-emit-substrate.md authored 2026-04-28: `e8aa29d` (initial draft)
   → `4c876bc` (eight-interrogations re-audit per SYNTAX/SUBSTRATE
   alignment; surfaced EmitMemory effect substrate per wheel canonical
-  src/backends/wasm.nx:55-110) → `4c8a22a` (second-pass riffle-back,
+  src/backends/wasm.mn:55-110) → `4c8a22a` (second-pass riffle-back,
   parallel-cascade design). Four-axis pre-audited per
   `protocol_walkthrough_pre_audit.md`.
 - Hβ-arena-substrate.md authored 2026-04-28: `4c8a22a` in parallel with
@@ -220,7 +220,7 @@ These are the live operating rules for roadmap execution:
 4. No substrate proposal from partial corpus reads.
 5. No drift-budget vocabulary: no “timebox”, no “N sessions”, no
    “pivot criterion”.
-6. Mentl is not a CLI prefix; commands are `inka <verb>`.
+6. Mentl is not a CLI prefix; commands are `mentl <verb>`.
 7. `///` reaches the graph; markdown does not.
 8. `ROADMAP.md` is the live roadmap; old roadmap files are
    compatibility shims only.
@@ -266,7 +266,7 @@ Anchor 7).
      env's SchemeKind (no spurious env_lookup); recursive walk_pat
    - B.6 — DEFERRED (arena routing for transient Reasons); bump-pressure
      gate LIFTED by B.2-B.5 fixes — pipeline wire parse→infer→emit
-     survives EXIT=0 on types.nx/infer.nx/parser.nx
+     survives EXIT=0 on types.mn/infer.mn/parser.mn
    - B.7 — trace harnesses (deferred; existing 70/70 + real-source
      probes provide sufficient coverage)
 
@@ -308,7 +308,7 @@ Anchor 7).
 After Phase H closes, the cursor advances to the **post-L1 cascade
 roadmap** — peer cascades that compose on Phase A-H's substrate:
 
-- `Hβ-bootstrap-seed-in-inka.md` — seed in Inka, not WAT (~3-5K lines
+- `Hβ-bootstrap-seed-in-mentl.md` — seed in Mentl, not WAT (~3-5K lines
   rewrite); stage 0 becomes ZERO foreign code
 - `Hβ-bootstrap-no-seed.md` — first-compile is the only foreign step;
   every subsequent compile is the wheel compiling itself
@@ -318,16 +318,16 @@ roadmap** — peer cascades that compose on Phase A-H's substrate:
 - `Hβ-emit-binary-direct.md` — emit WASM binary directly (skip WAT-text
   roundtrip)
 - `Hβ-emit-native-target.md` — Cranelift/LLVM native machine code
-- `Hβ-emit-js.md` — browser-runnable JavaScript (Mentl-era; `inka edit`
+- `Hβ-emit-js.md` — browser-runnable JavaScript (Mentl-era; `mentl edit`
   web playground)
 - `Hβ-emit-refinement-typed-layout.md` — refinement predicates on field
   offsets; type-directed field access
 - `Hβ-pipeline-streaming.md` — token/AST/LowExpr streaming `|>` chain
-- `Hβ-tooling-build-in-inka.md` — bootstrap/build.sh becomes
-  bootstrap_build.nx with Assemble effect handler
-- `Hβ-tooling-assemble-in-inka.md` — wat2wasm + wasm-validate become
-  Inka modules; Verify ledger IS the validator
-- `Hβ-tooling-runtime-in-inka.md` — wasmtime crutch removed; LowIR-direct
+- `Hβ-tooling-build-in-mentl.md` — bootstrap/build.sh becomes
+  bootstrap_build.mn with Assemble effect handler
+- `Hβ-tooling-assemble-in-mentl.md` — wat2wasm + wasm-validate become
+  Mentl modules; Verify ledger IS the validator
+- `Hβ-tooling-runtime-in-mentl.md` — wasmtime crutch removed; LowIR-direct
   interpreter for development; native compile for production
 - `Hβ-parser-refinement-typed-constructors.md` — every $mk_<X> is a
   TOTAL function whose REFINED type enforces well-formedness
@@ -335,7 +335,7 @@ roadmap** — peer cascades that compose on Phase A-H's substrate:
   LookupTy effect; LowExpr-as-separate-tree retires
 - `verify_smt` witness path → first-light-L2
 - Mentl substrate composition (oracle = IC + cached value)
-- `inka edit` web playground (Mentl V1 surface; LSP one transport)
+- `mentl edit` web playground (Mentl V1 surface; LSP one transport)
 
 ---
 
@@ -359,7 +359,7 @@ which Phase μ landings naturally feed into.
 
 **Status: AUTHORING 2026-05-02.** See
 `docs/specs/simulations/Hμ-cursor.md` (12-section walkthrough),
-`src/cursor.nx` (~250 lines wheel-canonical Inka), SUBSTRATE.md §VI
+`src/cursor.mn` (~250 lines wheel-canonical Mentl), SUBSTRATE.md §VI
 "Cursor: The Gradient's Global Argmax" (theorem-set entry),
 `protocol_cursor_is_argmax.md` (discipline crystallization).
 
@@ -374,7 +374,7 @@ the human; eight tentacles is eight aspects of one read.**
 Composition tally: ten substrate pieces (hole substrate / Synth
 effect / gradient_next / Reason DAG / IC cache / Teach effect /
 Verify ledger / ownership tracker / effect row algebra / canonical
-layout); five new ADTs in types.nx (Cursor / CursorView /
+layout); five new ADTs in types.mn (Cursor / CursorView /
 AnnotationSuggestion / SuggestionKind / PipeContext) + one rename
 (MV's `Cursor(Handle, Reason)` → `Caret(Handle, Reason)`); one new
 effect (`Cursor` with three ops); one new handler (`cursor_default
@@ -386,10 +386,10 @@ with !Mutate`). Zero invented kernel substrate.
   web-WASM, vim) that surface `cursor_default`'s `CursorView`
   through different render targets. Cadence-decision (real-time /
   idle-debounced ~250ms / on-save / on-explicit-ask) lives here.
-  Per IE-inka-edit.md §0.b "Live everything" + SUBSTRATE.md §III
+  Per IE-mentl-edit.md §0.b "Live everything" + SUBSTRATE.md §III
   "The Handler IS the Backend." Opens after Hμ.cursor.
 - **Hμ.synth-proposer** — replaces the OneShot stub at
-  `src/mentl.nx:404-438` returning `[]` with the real MultiShot
+  `src/mentl.mn:404-438` returning `[]` with the real MultiShot
   enumeration. Substrate-gated on H7 MultiShot emit completion.
   Cursor's `propose` field gains real candidates.
 - **Hμ.gradient-delta** — the inverse-direction gradient per GR
@@ -405,7 +405,7 @@ with !Mutate`). Zero invented kernel substrate.
   eight interrogations as a code loop firing on every graph node at
   compile time. Today the discipline is human-applied. After
   Hμ.cursor + Hμ.cursor.cache, the substrate is ready.
-- **Hμ.cursor.seed** — the seed's transcription of `src/cursor.nx`
+- **Hμ.cursor.seed** — the seed's transcription of `src/cursor.mn`
   into `bootstrap/src/cursor/*.wat`. Per Anchor 0 +
   `Hβ-bootstrap.md` §12.5 Tier 3 growth pattern + the disposable-
   bootstrap thesis (DESIGN.md "the bootstrap translator becomes
@@ -416,17 +416,17 @@ with !Mutate`). Zero invented kernel substrate.
   via Tier 3 incremental self-hosting where each new line traces
   byte-for-byte to a wheel line. Cursor is wheel-only until L1
   closes; at L1 closure, the seed's `$inka_emit` reads
-  `src/cursor.nx` and produces `bootstrap/src/cursor/*.wat`
+  `src/cursor.mn` and produces `bootstrap/src/cursor/*.wat`
   automatically; the diff is audited; the chunks land. One commit;
   full transcription; byte-for-byte tied to the wheel.
 
   **Pre-L1 hand-transcription is refused** per Anchor 0 (lux3.wasm
   is not the arbiter; verification is by walkthrough + audit + Tier
   3 self-compile) AND per Anchor 4 ("build the wheel; never wrap
-  the axle"): the wheel-canonical `src/cursor.nx` is the substrate,
+  the axle"): the wheel-canonical `src/cursor.mn` is the substrate,
   and a parallel handwritten WAT encoding would be drift mode 7 at
   the architectural level (parallel structures of one thing). The
-  ULTIMATE MEDIUM (Mentl + Cursor + multi-shot + IC + `inka edit`)
+  ULTIMATE MEDIUM (Mentl + Cursor + multi-shot + IC + `mentl edit`)
   is wheel-only; its WAT is produced by self-compilation post-L1,
   never by hand. See `protocol_cursor_is_argmax.md` and
   `docs/ULTIMATE_MEDIUM.md` for the discipline lock-in.
@@ -532,7 +532,7 @@ Goals:
 - plan audit
 - effect registry audit
 - drift sentinels
-- `.inka/` project-local substrate polish
+- `.mentl/` project-local substrate polish
 
 ### Phase F — Post-First-Light Dissolutions
 
@@ -540,7 +540,7 @@ Status: **future**
 
 Goals:
 
-- `inka doc`
+- `mentl doc`
 - retirement of markdown as live orientation surface
 - real SMT backend
 - further crucibles
@@ -574,7 +574,7 @@ Phases A through G remain closed; Phase H residue narrows handle-by-handle. Pipe
 
 ## MultiShot Status
 
-Inka’s MultiShot continuation mechanism is part of the critical path,
+Mentl’s MultiShot continuation mechanism is part of the critical path,
 not a side experiment.
 
 Live substrate pieces:
@@ -595,7 +595,7 @@ Live principle:
 - MultiShot is not async/await with different spelling
 - the substrate must stay explicit, deterministic, and handler-native
 
-This mechanism is one of Inka’s strongest differentiators and should
+This mechanism is one of Mentl’s strongest differentiators and should
 be protected with real tests and careful canonicalization.
 
 ---
@@ -607,7 +607,7 @@ Use these as the default verification surface during bootstrap work:
 ```bash
 git status --short
 bash bootstrap/build.sh
-wasm-validate bootstrap/inka.wasm
+wasm-validate bootstrap/mentl.wasm
 bash bootstrap/first-light.sh
 bash tools/drift-audit.sh <file>
 ```
@@ -615,9 +615,9 @@ bash tools/drift-audit.sh <file>
 For Hβ.infer chunk validation:
 
 ```bash
-wasm-objdump -x bootstrap/inka.wasm
-rg -n "report\\(" src/infer.nx
-rg -n "generalize|instantiate|free_in_ty|subst_ty" src/infer.nx
+wasm-objdump -x bootstrap/mentl.wasm
+rg -n "report\\(" src/infer.mn
+rg -n "generalize|instantiate|free_in_ty|subst_ty" src/infer.mn
 ```
 
 ---
@@ -662,8 +662,8 @@ All five items landed before the rest of the cascade:
 
 1. **Env ABI** — canonical 4-tuple `(name, Scheme, Reason, SchemeKind)`
    landed in `683f064`.
-2. **SchemeKind** — `CapabilityScheme` is canonical in `src/types.nx`
-   alongside the other three variants; `src/types.nx` and `src/infer.nx`
+2. **SchemeKind** — `CapabilityScheme` is canonical in `src/types.mn`
+   alongside the other three variants; `src/types.mn` and `src/infer.mn`
    agree.
 3. **`scheme.wat` recursion parity** — `b2b9e82` closed TFun params +
    record fields recursion; `tparam.wat` substrate-gap closure landed

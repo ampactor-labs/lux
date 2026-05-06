@@ -17,7 +17,7 @@
   ;; CLAUDE.md drift mode 7): ONE record holds (data, count); never
   ;; passed as parallel-arrays (List, Int).
   ;;
-  ;; Symmetric to lib/runtime/buffer.nx (the wheel-canonical Buffer<A>);
+  ;; Symmetric to lib/runtime/buffer.mn (the wheel-canonical Buffer<A>);
   ;; this WAT is the seed binding that lets the seed compile against
   ;; the wheel's Buffer<A> contract.
 

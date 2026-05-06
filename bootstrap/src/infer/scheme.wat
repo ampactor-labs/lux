@@ -62,12 +62,12 @@
   ;; ═══ DESIGN ═══════════════════════════════════════════════════════
   ;;
   ;; Per spec 04 (04-inference.md §Env+Scheme + §Generalizations +
-  ;; §Instantiations) + Hβ-infer-substrate.md §2 + src/types.nx
+  ;; §Instantiations) + Hβ-infer-substrate.md §2 + src/types.mn
   ;; canonical Scheme ADT (line 78-79: `Scheme = Forall(List, Ty)`) +
-  ;; src/infer.nx canonical algorithms (generalize 1818-1834,
+  ;; src/infer.mn canonical algorithms (generalize 1818-1834,
   ;; chase_deep 1841-1867, free_in_ty 1891-1924, instantiate 1931-1998).
   ;;
-  ;; What schemes ARE (per spec 04 + src/types.nx:74-79):
+  ;; What schemes ARE (per spec 04 + src/types.mn:74-79):
   ;;   `Forall(quantified_handles, body_type)`. A monomorphic binding
   ;;   is `Forall([], ty)`. env_lookup returns Option<(Scheme, Reason)>;
   ;;   FnStmt exit generalizes the inferred body type into a Scheme +
@@ -79,15 +79,15 @@
   ;;   - $scheme_make_forall(qs, body) — record(SCHEME_TAG=200, arity=2).
   ;;   - $instantiate(scheme) — walks body, replaces TVar(q) with
   ;;     TVar(fresh_handle) per a substitution map built once per call.
-  ;;     Per src/infer.nx:1931-1938 + spec 04 §Instantiations.
+  ;;     Per src/infer.mn:1931-1938 + spec 04 §Instantiations.
   ;;   - $generalize(fn_handle) — chases the handle through the graph,
   ;;     dispatches on NodeKind. NBound → walk Ty to collect free
   ;;     handles, wrap as Forall(body_free, body_ty). Non-NBound →
-  ;;     monotype Forall([], TVar(handle)). Per src/infer.nx:1818-1834.
+  ;;     monotype Forall([], TVar(handle)). Per src/infer.mn:1818-1834.
   ;;   - $free_in_ty(ty) — recursive walker collecting handles
-  ;;     reachable via TVar variants. Per src/infer.nx:1891-1924.
+  ;;     reachable via TVar variants. Per src/infer.mn:1891-1924.
   ;;   - $ty_substitute(ty, map) — recursive walker rewriting TVar(q)
-  ;;     to TVar(map[q]) where map.contains(q). Per src/infer.nx:1951-
+  ;;     to TVar(map[q]) where map.contains(q). Per src/infer.mn:1951-
   ;;     1973 (subst_ty). Other variants pass through unchanged or
   ;;     recurse on sub-types per the 14-variant Ty ADT.
   ;;
@@ -99,13 +99,13 @@
   ;;   entry one record. Per drift-mode-7 audit + γ insight #9
   ;;   "records are the handler-state shape." Linear-scan lookup is
   ;;   fine at the typical per-scheme quantification count (0-3 per
-  ;;   src/infer.nx evidence — `fn id(x) = x` is 1; most fns are
+  ;;   src/infer.mn evidence — `fn id(x) = x` is 1; most fns are
   ;;   monomorphic Forall([], _)).
   ;;
   ;; $generalize seed-tier-base (per Hβ-infer §2.4 + canonical wheel):
   ;;   The walkthrough §2.4 names an aspirational algorithm involving
   ;;   $set_diff(body_free, env_free). The canonical wheel
-  ;;   (src/infer.nx:1818-1834) does NOT compute env_free — line 1825-
+  ;;   (src/infer.mn:1818-1834) does NOT compute env_free — line 1825-
   ;;   1827 says "env_free_vars is optional — if unavailable, treat as
   ;;   empty. Conservatively: quantify all body-free handles."
   ;;
@@ -127,7 +127,7 @@
   ;;
   ;;   Per H6 wildcard discipline: $generalize dispatches explicitly on
   ;;   ALL 5 NodeKind variants (NBOUND/NFREE/NROWBOUND/NROWFREE/
-  ;;   NERRORHOLE — per src/infer.nx:1822-1832 same shape). No `_ =>`
+  ;;   NERRORHOLE — per src/infer.mn:1822-1832 same shape). No `_ =>`
   ;;   silent fallback that fabricates a monotype.
   ;;
   ;; TParam + TRecord recursion parity (closed 2026-04-26 per ROADMAP §3
@@ -135,9 +135,9 @@
   ;;   Earlier draft of this chunk treated TFun's params + TRecord/
   ;;   TRecordOpen's fields as opaque, matching ty.wat's $chase_deep
   ;;   precedent. ROADMAP §3 surfaced this as a load-bearing recursion-
-  ;;   parity gap: canonical src/infer.nx:1898 (free_in_params) +
-  ;;   src/infer.nx:1900-1901 (free_in_fields) + src/infer.nx:1961-1962
-  ;;   (subst_params) + src/infer.nx:1967-1968 (subst_fields) DO recurse
+  ;;   parity gap: canonical src/infer.mn:1898 (free_in_params) +
+  ;;   src/infer.mn:1900-1901 (free_in_fields) + src/infer.mn:1961-1962
+  ;;   (subst_params) + src/infer.mn:1967-1968 (subst_fields) DO recurse
   ;;   through these list shapes. Without parity, `fn id(x: a) = x`
   ;;   generalizes wrong (param's TVar handle missed in body_free) and
   ;;   instantiated polymorphic record-shaped types lose substitution
@@ -148,7 +148,7 @@
   ;;   chunk's $free_in_ty / $ty_substitute extend their TFun + TRecord
   ;;   + TRecordOpen arms to recurse via $free_in_params / $free_in_fields
   ;;   / $ty_substitute_params / $ty_substitute_fields. Coverage now
-  ;;   matches src/infer.nx:1890-1990 exactly.
+  ;;   matches src/infer.mn:1890-1990 exactly.
   ;;
   ;;   ty.wat's $chase_deep is a separate substrate concern (ROADMAP §3
   ;;   acceptance scope is scheme.wat's $free_in_ty + $ty_substitute);
@@ -246,7 +246,7 @@
   ;;                fn handle persists). $instantiate records
   ;;                `Instantiation(scheme_origin, Fresh(old_handle))`
   ;;                per quantified slot via $reason_make_instantiation
-  ;;                wrapping $reason_make_fresh — matches src/infer.nx:
+  ;;                wrapping $reason_make_fresh — matches src/infer.mn:
   ;;                1944's `mint(Instantiation("inst", Fresh(old)))`.
   ;;
   ;; ═══ FORBIDDEN PATTERNS AUDIT (per Hβ-infer-substrate.md §7.1) ═══
@@ -310,14 +310,14 @@
   ;;                                    Schemes are Damas-Milner Forall
   ;;                                    per spec 04; no higher-rank or
   ;;                                    type-class machinery (out of
-  ;;                                    Inka scope per spec 02).
+  ;;                                    Mentl scope per spec 02).
   ;; - Foreign fluency — Algorithm W:   $instantiate / $generalize
   ;;                                    are NOT named after Algorithm
   ;;                                    W's `instantiate(σ)` /
   ;;                                    `generalize(Γ, τ)`; they ARE
   ;;                                    those operations but their
   ;;                                    signatures + return shapes
-  ;;                                    follow spec 04 + src/infer.nx
+  ;;                                    follow spec 04 + src/infer.mn
   ;;                                    canonical (no `(subst, type)`
   ;;                                    return tuple — the graph
   ;;                                    holds the subst).
@@ -326,10 +326,10 @@
   ;;
   ;; SCHEME_TAG=200; arity=2.
   ;;   field_0 = quantified handles (flat list of i32 — handle ints
-  ;;             from src/types.nx Forall(List, Ty) per src/types.nx:79)
+  ;;             from src/types.mn Forall(List, Ty) per src/types.mn:79)
   ;;   field_1 = body Ty (heap pointer)
   ;;
-  ;; Per src/types.nx:78-79 + Hβ-infer §2.1 layout. A monomorphic
+  ;; Per src/types.mn:78-79 + Hβ-infer §2.1 layout. A monomorphic
   ;; binding has an empty quantified list ($len returns 0).
 
   (func $scheme_make_forall (param $qs i32) (param $body i32) (result i32)
@@ -355,7 +355,7 @@
   ;;   field_1 = fresh handle (i32 — minted via $graph_fresh_ty)
   ;;
   ;; Map IS a flat list of these record pointers. $subst_map_lookup
-  ;; linear-scans (typical map size 0-3 per src/infer.nx evidence).
+  ;; linear-scans (typical map size 0-3 per src/infer.mn evidence).
   ;; Lookup returns -1 (signed) when not found — handles are unsigned
   ;; i32 ≥ 0, so -1 (= 0xFFFFFFFF) is unambiguous as the "absent"
   ;; sentinel. Callers compare `result < 0` (signed).
@@ -398,7 +398,7 @@
 
   ;; $subst_map_lookup(map, len, old) -> i32
   ;;   Linear scan over (old, fresh) pairs. Returns the fresh handle
-  ;;   on hit; returns -1 (0xFFFFFFFF) when not found. Per src/infer.nx
+  ;;   on hit; returns -1 (0xFFFFFFFF) when not found. Per src/infer.mn
   ;;   find_mapping (1993-1998) which uses -1 as the absent sentinel.
   (func $subst_map_lookup (param $map i32) (param $len i32) (param $old i32)
                            (result i32)
@@ -416,12 +416,12 @@
 
   ;; ─── $free_in_ty — Ty walker collecting free TVar handles ───────
   ;;
-  ;; Per src/infer.nx:1891-1924. Recursive walker over the 14 Ty
+  ;; Per src/infer.mn:1891-1924. Recursive walker over the 14 Ty
   ;; variants; returns a flat list of i32 handles (each TVar's handle
   ;; appended as encountered). Per H6 wildcard discipline: each
   ;; variant has its arm explicit; trap on unknown.
   ;;
-  ;; Coverage discipline (canonical parity with src/infer.nx:1890-1924
+  ;; Coverage discipline (canonical parity with src/infer.mn:1890-1924
   ;; closed 2026-04-26 per ROADMAP §3 + tparam.wat sibling chunk):
   ;;   - Nullary sentinels (TInt/TFloat/TString/TUnit): empty list.
   ;;   - TVar(h): singleton [h].
@@ -430,18 +430,18 @@
   ;;   - TFun(params, ret, row): concat $free_in_params(params) +
   ;;     $free_in_ty(ret). Row stays opaque — row.wat owns the row's
   ;;     free-handle walk; this chunk reaches Ty-side parity only.
-  ;;     Per src/infer.nx:1898-1899 exact recursion shape.
+  ;;     Per src/infer.mn:1898-1899 exact recursion shape.
   ;;   - TName(name, args): recurse on each arg via $free_in_list.
   ;;   - TRecord(fields): recurse via $free_in_fields over field-pair
-  ;;     list. Per src/infer.nx:1900.
+  ;;     list. Per src/infer.mn:1900.
   ;;   - TRecordOpen(fields, rowvar): [rowvar] ++ $free_in_fields(fields).
-  ;;     Per src/infer.nx:1901 exact shape.
+  ;;     Per src/infer.mn:1901 exact shape.
   ;;   - TRefined(base, pred): recurse on base; predicate ptr passed
   ;;     verbatim (verify.wat:39 precedent — predicate opaque to
   ;;     scheme; verify_smt walks it structurally).
   ;;   - TCont(ret, disc): recurse on ret; discipline sentinel passed
   ;;     verbatim (ResumeDiscipline ADT; ty.wat owns).
-  ;;   - TAlias(name, resolved): recurse on resolved (per src/infer.nx:
+  ;;   - TAlias(name, resolved): recurse on resolved (per src/infer.mn:
   ;;     1905 — alias's inner Ty contributes free handles).
 
   (func $free_in_ty (param $ty i32) (result i32)
@@ -486,7 +486,7 @@
       (then (return
         (call $free_in_fields (call $ty_trecord_fields (local.get $ty))))))
     ;; ── TRecordOpen(fields, rowvar) — rowvar IS a free handle +
-    ;;    fields recurse via $free_in_fields. Per src/infer.nx:1901
+    ;;    fields recurse via $free_in_fields. Per src/infer.mn:1901
     ;;    `[v] ++ free_in_fields(fields)` exact parity. ──────────────
     (if (i32.eq (local.get $tag) (i32.const 110))
       (then (return
@@ -585,7 +585,7 @@
     (local.get $out))
 
   ;; $free_in_params(params) — concat $free_in_ty across each TParam's
-  ;; Ty field. Per src/infer.nx:1911-1916 free_in_params recursion shape.
+  ;; Ty field. Per src/infer.mn:1911-1916 free_in_params recursion shape.
   (func $free_in_params (param $params i32) (result i32)
     (local $n i32) (local $i i32)
     (local $sub i32) (local $sub_n i32) (local $sub_j i32)
@@ -618,7 +618,7 @@
     (call $slice (local.get $out) (i32.const 0) (local.get $out_n)))
 
   ;; $free_in_fields(fields) — same pattern over field-pair list.
-  ;; Per src/infer.nx:1918-1923.
+  ;; Per src/infer.mn:1918-1923.
   (func $free_in_fields (param $fields i32) (result i32)
     (local $n i32) (local $i i32)
     (local $sub i32) (local $sub_n i32) (local $sub_j i32)
@@ -652,13 +652,13 @@
 
   ;; ─── $ty_substitute — Ty walker rewriting TVar(q) to TVar(map[q]) ─
   ;;
-  ;; Per src/infer.nx:1951-1973 (subst_ty). Recursive walker over the
+  ;; Per src/infer.mn:1951-1973 (subst_ty). Recursive walker over the
   ;; 14 Ty variants; rebuilds composite types only where substitution
   ;; OR sub-substitution applies. Identity semantics where no
   ;; substitution touches (returns the input pointer unchanged for
   ;; nullary sentinels; rebuilds for composites).
   ;;
-  ;; Coverage discipline (canonical parity with src/infer.nx:1950-1990
+  ;; Coverage discipline (canonical parity with src/infer.mn:1950-1990
   ;; closed 2026-04-26 per ROADMAP §3 + tparam.wat sibling chunk):
   ;;   - Nullary sentinels: identity (return as-is).
   ;;   - TVar(q): if map.contains(q), return TVar(map[q]); else identity.
@@ -712,7 +712,7 @@
             (local.get $map) (local.get $map_len))))))
     ;; ── TFun(params, ret, row) — substitute params (via TParam list
     ;;    walk) + ret. Row stays opaque per Hβ-infer §6.1 answer-4 +
-    ;;    §12 row-normalize follow-up. Per src/infer.nx:1961-1965 exact
+    ;;    §12 row-normalize follow-up. Per src/infer.mn:1961-1965 exact
     ;;    recursion shape (subst_params + subst_ty + eff verbatim). ──
     (if (i32.eq (local.get $tag) (i32.const 107))
       (then (return
@@ -733,7 +733,7 @@
             (call $ty_tname_args (local.get $ty))
             (local.get $map) (local.get $map_len))))))
     ;; ── TRecord(fields) — substitute via field-pair list walk. Per
-    ;;    src/infer.nx:1967 `TRecord(subst_fields(fields, mapping))`. ──
+    ;;    src/infer.mn:1967 `TRecord(subst_fields(fields, mapping))`. ──
     (if (i32.eq (local.get $tag) (i32.const 109))
       (then (return
         (call $ty_make_trecord
@@ -743,7 +743,7 @@
     ;; ── TRecordOpen(fields, rowvar) — substitute fields via field-pair
     ;;    list walk; preserve rowvar verbatim (rowvar substitution awaits
     ;;    row.wat $row_substitute extension — Hβ-infer §12 named follow-
-    ;;    up). Per src/infer.nx:1968 `mk_record_open(subst_fields(fields,
+    ;;    up). Per src/infer.mn:1968 `mk_record_open(subst_fields(fields,
     ;;    mapping), v)` — at the WAT layer the smart constructor is just
     ;;    $ty_make_trecordopen with the substituted fields + original v. ─
     (if (i32.eq (local.get $tag) (i32.const 110))
@@ -805,7 +805,7 @@
 
   ;; $ty_substitute_params — apply $ty_substitute to each TParam's Ty
   ;; field, preserving name / authored / resolved Ownership verbatim.
-  ;; Per src/infer.nx:1978-1983.
+  ;; Per src/infer.mn:1978-1983.
   (func $ty_substitute_params (param $params i32) (param $map i32)
                                (param $map_len i32) (result i32)
     (local $n i32) (local $i i32) (local $out i32) (local $p i32)
@@ -831,7 +831,7 @@
     (local.get $out))
 
   ;; $ty_substitute_fields — apply $ty_substitute to each field-pair's
-  ;; Ty field, preserving name verbatim. Per src/infer.nx:1985-1990.
+  ;; Ty field, preserving name verbatim. Per src/infer.mn:1985-1990.
   (func $ty_substitute_fields (param $fields i32) (param $map i32)
                                (param $map_len i32) (result i32)
     (local $n i32) (local $i i32) (local $out i32) (local $f i32)
@@ -856,20 +856,20 @@
 
   ;; ─── $instantiate(scheme) -> Ty ────────────────────────────────────
   ;;
-  ;; Per src/infer.nx:1931-1998 + spec 04 §Instantiations. Walks
+  ;; Per src/infer.mn:1931-1998 + spec 04 §Instantiations. Walks
   ;; scheme.body, substituting each quantified handle with one fresh-
   ;; minted via $graph_fresh_ty. The substitution map is built once
   ;; per call ($build_inst_mapping); $ty_substitute walks the body
   ;; once.
   ;;
   ;; Empty quantification short-circuits to identity (return body as-
-  ;; is). Per src/infer.nx:1933 — `if len(qs) == 0 { ty }`.
+  ;; is). Per src/infer.mn:1933 — `if len(qs) == 0 { ty }`.
   ;;
-  ;; Reason discipline (per src/infer.nx:1944 + Hβ-infer §6.1 answer-8):
+  ;; Reason discipline (per src/infer.mn:1944 + Hβ-infer §6.1 answer-8):
   ;;   Each fresh handle's reason is `Instantiation("inst",
   ;;   Fresh(old_handle))` — $reason_make_instantiation wraps
   ;;   $reason_make_fresh. The "inst" string is the seed's literal per
-  ;;   src/infer.nx parity; the wheel's compiled form passes a richer
+  ;;   src/infer.mn parity; the wheel's compiled form passes a richer
   ;;   ctx string (e.g., the scheme's origin name when known). Tier-5
   ;;   base uses the constant string at offset 1620 below.
 
@@ -894,7 +894,7 @@
   ;;   wrapped in `Instantiation("inst", Fresh(old))` Reason. Returns
   ;;   the populated map (flat list of subst-pair records).
   ;;
-  ;; Per src/infer.nx:1940-1946 build_inst_mapping. Length tracked
+  ;; Per src/infer.mn:1940-1946 build_inst_mapping. Length tracked
   ;; alongside the list reference per the seed convention (caller
   ;; passes qs_n; map_len = qs_n at completion).
   (func $build_inst_mapping (param $qs i32) (param $qs_n i32) (result i32)
@@ -928,7 +928,7 @@
 
   ;; ─── $generalize(fn_handle) -> Scheme ─────────────────────────────
   ;;
-  ;; Per src/infer.nx:1818-1834 + spec 04 §Generalizations + Hβ-infer
+  ;; Per src/infer.mn:1818-1834 + spec 04 §Generalizations + Hβ-infer
   ;; §2.4. Chases the fn_handle through the graph; dispatches on the
   ;; terminal NodeKind:
   ;;
@@ -940,7 +940,7 @@
   ;;   - NFree(_) | NRowBound(_) | NRowFree(_) | NErrorHole(_):
   ;;     monotype Forall([], TVar(handle)) — the handle is unresolved
   ;;     or non-Ty-shaped; can't quantify what isn't determined.
-  ;;     Per src/infer.nx:1829-1832 H6 exhaustive enumeration —
+  ;;     Per src/infer.mn:1829-1832 H6 exhaustive enumeration —
   ;;     EVERY non-NBound NodeKind variant gets its arm explicit so
   ;;     a future variant addition fails at this site rather than
   ;;     silently wraps.

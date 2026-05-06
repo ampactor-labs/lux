@@ -1,0 +1,527 @@
+// mentl_oracle.mn — the continuous oracle as IC + one cached value
+//
+// Mentl IS speculative inference. The oracle uses inference's primitives
+// (graph_bind via trail-rollback) to explore alternate realities at every
+// position with active dependents. She is not a peer to inference; she
+// is inference run forward with hypothetical bindings rolled back, the
+// survivors recorded as candidates.
+//
+// The oracle's exploration is Pure over (env + handler_chain + intent),
+// matching IC's existing Pure over (ast + imports + handler_chain +
+// intent). Per "Incremental Compilation Plus One Cached Value": IC's
+// Cache handler stores (env, oracle_queue) per module instead of just
+// env. Same invalidation discipline; same Pure-enables-memoization
+// principle; the oracle's continuous-subscription substrate falls out
+// of IC for free.
+//
+// Project queue = sorted merge of per-module cached queues. Surfaces
+// query via OracleQuery; surface query is itself memoizable (Pure over
+// the set of cache hashes).
+//
+// The build IS a `<~` feedback loop: source change → IC invalidates
+// affected modules → re-infer + re-explore → project queue refreshes →
+// highest-priority next-step surfaces → user acts → loop. Silence ONLY
+// when the project queue is empty — the gradient's top, the proven-
+// complete state.
+//
+// Authority:
+// - SUBSTRATE.md §"Incremental Compilation: Purity Enables Caching" (L480-505)
+// - SUBSTRATE.md §"Inference IS the Light" (L50-66)
+// - SUBSTRATE.md §"The Duty of Inference is Reification" (L77-90)
+// - SUBSTRATE.md §"The Hole Is the Gradient's Absence Marker" (commit 7505ade)
+// - SUBSTRATE.md §"Feedback Is Mentl's Genuine Novelty" (L1761-1796)
+// - CLAUDE.md Mentl's anchor + eight interrogations
+// - src/mentl.mn:155-175 (existing speculative loop — extends here)
+// - src/graph.mn graph_handler (trail substrate already in place)
+// - src/cache.mn Cache handler (extends here to store oracle_queue)
+
+import types
+import mentl
+import graph
+
+// ─── QueueItem — one proven candidate in the oracle's queue ──────────
+
+/// QueueItem — one proven candidate Mentl could surface. Each carries
+/// the position the candidate applies to, the candidate itself (an
+/// Annotation per src/mentl.mn), the capability it would unlock, an
+/// OraclePriority for ranking, the proof-chain Reason that justified
+/// inclusion, and the module that owns it. Surfaces query the queue
+/// and render the highest-priority item visible at the cursor or
+/// project-wide.
+///
+/// Primitives: #2 (Propose — the candidate); #6 (Verify — the proof);
+/// #7 (Teach — the gradient direction); #8 (Reason — the chain).
+
+type QueueItem
+  = QueueItem({
+      position:    Int,              // graph Handle where item applies
+      candidate:   Annotation,       // what to add (per src/mentl.mn Annotation)
+      capability:  Capability,       // what it unlocks (per src/mentl.mn Capability)
+      impact:      OraclePriority,
+      reason:      Reason,
+      module_path: String
+    })
+
+/// OraclePriority — ranking dimension. The priority function composes
+/// tier (compile-blocking first) + intent_weight (per declared user
+/// Intent — `IntRealTime` weights `!Alloc` violations heavier) +
+/// surface_area (count of dependent positions affected) + locality_bias
+/// (distance from cursor in bytes; 0 = exact). Total order via
+/// priority_lt. The composition discipline is "compile-blocking
+/// always wins; among same-tier items, intent-weight wins; among
+/// same-intent items, surface-area wins; among same-surface items,
+/// locality wins."
+
+type OraclePriority
+  = OraclePriority({
+      tier:          PriorityTier,
+      intent_weight: Int,            // 0-100; higher = more weighted
+      surface_area:  Int,            // count of dependent positions
+      locality_bias: Int             // distance bytes from cursor; 0 = exact
+    })
+
+/// PriorityTier — five tiers in compile-impact order. TBlocking is the
+/// fix-this-or-nothing-compiles tier (always wins). TViolation is
+/// declared-row contradicted (E_PurityViolated, E_OwnershipViolation,
+/// E_RowSubsumptionFailed). TPending is V_Pending refinement obligation
+/// not yet discharged. TUnlock is gradient capability available
+/// (`with !Alloc`, `with Pure`, refinement narrowing). TStyle is
+/// topology nudge (use `|>` instead of nested calls). H6 exhaustive.
+
+type PriorityTier
+  = TBlocking
+  | TViolation
+  | TPending
+  | TUnlock
+  | TStyle
+
+/// OracleQueue — per-module sorted list of QueueItems. Ranked by
+/// descending priority. Cached alongside the module's env via the
+/// extended IC Cache handler; invalidates together with env on any
+/// cache miss. Pure over (env + handler_chain + intent).
+
+type OracleQueue
+  = OracleQueue(List)               // List<QueueItem>, sorted by priority_gt
+
+// ─── Mutate effect extension — graph_mutated event ───────────────────
+
+/// graph_mutated is performed by graph_handler at the OUTERMOST commit
+/// boundary — speculative writes (between graph_push_checkpoint and
+/// graph_rollback) DO NOT emit; they reach this only if committed.
+/// Otherwise Mentl would subscribe to her own speculations and
+/// recursively explore forever.
+///
+/// Subscribers (cached_check_with_oracle) catch this event and walk
+/// the dependency graph to invalidate affected per-module cache entries
+/// per the Q-2 (B) scope rule (transitive dependents via Reason chain).
+///
+/// The Mutate effect at types.mn:641 was a marker effect with no ops;
+/// this extends it. Composition lands in types.mn in the same commit
+/// as this substrate.
+
+// (The op declaration lives in types.mn; this file documents intent.)
+
+// ─── OracleQuery effect — surfaces read oracle state ─────────────────
+
+/// OracleQuery — read-only queries from surfaces. The `!Mutate`
+/// constraint on subscriber rows proves no surface can corrupt the
+/// oracle. All ops are Pure-over-cached-state — surfaces query without
+/// triggering re-exploration; the oracle re-explores only when
+/// graph_mutated fires (which IC governs).
+///
+/// Five surfaces today subscribe through these ops:
+/// - `voice_queue_walk` (cursor-time MV) — query_project_queue +
+///   cursor_relevant
+/// - `mentl doc` (F.1 batch) — query_module_queue per decl
+/// - LSP hover — query_at_position(cursor_handle)
+/// - `mentl teach` CLI — query_at_position OR query_project_queue
+/// - Web playground — same as LSP, push via WebSocket on queue change
+
+effect OracleQuery {
+  query_at_position(Int)            -> List   @resume=OneShot   // List<QueueItem> at this Handle
+  query_project_queue()             -> List   @resume=OneShot   // List<QueueItem> merged from all modules
+  query_module_queue(String)        -> List   @resume=OneShot   // List<QueueItem> for one module
+  cursor_relevant(Int, Int)         -> List   @resume=OneShot   // (cursor_handle, max_distance_bytes); locality-filtered
+}
+
+// ─── cached_check_with_oracle — IC Cache shape extension ─────────────
+
+/// cached_check_with_oracle — extends IC's Cache handler shape to store
+/// (env, oracle_queue) per module instead of just env. Same hash key
+/// (ast + imports + handler_chain + intent); same invalidation
+/// discipline; one extra cached value.
+///
+/// Per the IC + oracle composition: oracle is Pure over (env +
+/// handler_chain + intent), matching IC's Pure over (ast + imports +
+/// handler_chain + intent). Both invalidate together on any input
+/// change — there is no separate oracle cache layer; one cache, two
+/// values.
+///
+/// graph_mutated arm is the IC trigger: when inference commits writes
+/// at the outermost level, walk the dependency graph and invalidate
+/// affected per-module entries.
+
+handler cached_check_with_oracle
+  with cache = empty_cache() {
+
+  /// infer arm — cache lookup; on miss, run check + oracle, store both.
+  /// Returns (env, oracle_queue) so downstream handlers (project queue
+  /// merger, voice_queue_walk) read both from the same call.
+  infer(ast) => {
+    let key = oracle_cache_key(ast)
+    match cache_lookup(cache, key) {
+      Some(entry)   => {
+        let CachedEntry(env, queue) = entry
+        resume((env, queue))
+      },
+      None          => {
+        let env       = run_check(ast)
+        let queue     = run_oracle(env, module_path_of(ast))
+        let new_cache = cache_store(cache, key, CachedEntry(env, queue))
+        resume((env, queue))
+          with cache = new_cache
+      }
+    }
+  },
+
+  /// graph_mutated arm — IC's invalidation trigger. Walks the
+  /// dependency graph (Q-2 (B) scope) — every module whose cached env
+  /// transitively depends on the mutated handle gets invalidated. Per-
+  /// module queue contributions invalidate together with env.
+  graph_mutated(epoch, mutation) => {
+    let affected_modules = invalidation_walk(cache, mutation)
+    let new_cache        = cache_invalidate_set(cache, affected_modules)
+    resume()
+      with cache = new_cache
+  }
+}
+
+// ─── project_queue_merger — derived merge of per-module queues ───────
+
+/// project_queue_merger — the project-wide priority queue is a sorted
+/// merge of per-module cached queues. Cheap to assemble (per-module
+/// queues are already sorted; merge is O(N log M) for N total items
+/// across M modules). Itself memoizable: if no module's cache hash
+/// changed, the merged queue is unchanged. Pure over the set of cache
+/// hashes.
+///
+/// query_project_queue checks the cache-hash-set; if unchanged, returns
+/// last_merge_queue; if changed, re-merges and updates state.
+
+handler project_queue_merger
+  with last_merge_hash = 0,
+       merged_queue    = OracleQueue([]) {
+
+  /// query_project_queue — returns the merged project-wide queue.
+  /// Memoized: cache-hash-set unchanged → return last merge.
+  query_project_queue() => {
+    let current_hash = perform compute_cache_hash_set()
+    if current_hash == last_merge_hash {
+      let OracleQueue(items) = merged_queue
+      resume(items)
+    } else {
+      let queues  = perform collect_module_queues()
+      let merged  = merge_priority_queues(queues)
+      let OracleQueue(items) = merged
+      resume(items)
+        with last_merge_hash = current_hash,
+             merged_queue    = merged
+    }
+  },
+
+  /// query_at_position — items in the queue that apply at this Handle.
+  /// Filters the project queue; cheap because items carry their position.
+  query_at_position(handle) => {
+    let queue = perform query_project_queue()
+    resume(filter_at_position(queue, handle))
+  },
+
+  /// query_module_queue — items for one module (cache-direct read).
+  query_module_queue(module_path) => {
+    let entry = perform cache_get_module_entry(module_path)
+    match entry {
+      Some(CachedEntry(_, OracleQueue(items)))  => resume(items),
+      None                                      => resume([])
+    }
+  },
+
+  /// cursor_relevant — locality-filtered items. Surfaces use this when
+  /// they want to bias toward the cursor's region (LSP hover, inline
+  /// hints) but fall back to project-wide priority when cursor's
+  /// region is silent. The fallback decision lives in the surface
+  /// (voice_queue_walk), not here.
+  cursor_relevant(cursor_handle, max_distance_bytes) => {
+    let queue = perform query_project_queue()
+    resume(filter_by_locality(queue, cursor_handle, max_distance_bytes))
+  }
+}
+
+// ─── run_oracle — per-module exploration producing an OracleQueue ────
+
+/// run_oracle — produces a per-module OracleQueue from a checked env.
+/// Walks every position in the module that has dependents (Q-2 (B)
+/// scope), runs speculative-inference candidate enumeration per the
+/// existing src/mentl.mn try_each_annotation_loop pattern, ranks
+/// survivors via priority_lt, returns the sorted queue.
+///
+/// Pure-equivalent over (env + handler_chain + intent) — performs only
+/// Verify (refinement obligations) and uses graph_push_checkpoint /
+/// graph_rollback (from `Speculate` row, an effect-row commitment that
+/// the writes will be reverted). Same memoizability discipline as
+/// inference.
+///
+/// Pre-B.2: candidate enumeration is OneShot per candidate (sequential).
+/// Post-B.2: candidate enumeration parallelizes via MultiShot fork; same
+/// substrate; just faster (the kernel claim "hundreds of universes per
+/// second" lands at this point — speculative forks per position run
+/// concurrently, survivors merge into the queue).
+
+fn run_oracle(env, module_path) with Verify = {
+  let positions = collect_positions_with_dependents(env)
+  let n         = positions.len
+  let buf       = make_list(n * 4)        // generous estimate; over-alloc fine
+  let count     = explore_positions(positions, 0, n, env, module_path, buf, 0)
+  OracleQueue(sort_by_priority(slice(buf, 0, count)))
+}
+
+/// explore_positions — fold over positions; per-position, enumerate
+/// candidates and try each. Tail-recursive accumulator; flat-buffer-
+/// plus-counter substrate (Ω.3 — list_extend_to + list_set + counter +
+/// slice; the substrate idiom that avoids the appended-bracket-x
+/// O(N²) loop pattern).
+
+fn explore_positions(positions, i, n, env, module_path, buf, count) with Verify = {
+  if i >= n { count }
+  else {
+    let handle = list_index(positions, i)
+    let candidates = enumerate_candidates_at(handle, env)
+    let new_count  = try_each_candidate_to_queue(handle, candidates, env, module_path, buf, count)
+    explore_positions(positions, i + 1, n, env, module_path, buf, new_count)
+  }
+}
+
+/// try_each_candidate_to_queue — for each candidate at a position,
+/// checkpoint → tentative apply → verify → rollback → on success,
+/// append a QueueItem to the buffer with computed priority. Extends
+/// src/mentl.mn try_each_annotation_loop to write to the queue
+/// instead of returning a tuple list.
+
+fn try_each_candidate_to_queue(handle, candidates, env, module_path, buf, count) with Verify = {
+  let n = candidates.len
+  try_each_candidate_loop(handle, candidates, 0, n, env, module_path, buf, count)
+}
+
+fn try_each_candidate_loop(handle, candidates, i, n, env, module_path, buf, count) with Verify = {
+  if i >= n { count }
+  else {
+    let cand    = list_index(candidates, i)
+    let cp      = perform graph_push_checkpoint()
+    let _       = apply_candidate_tentatively(handle, cand, env)
+    let proven  = verify_after_apply(handle)
+    let _       = perform graph_rollback(cp)
+    if proven {
+      let priority = compute_priority(handle, cand, env, module_path)
+      let item     = QueueItem({
+        position:    handle,
+        candidate:   cand,
+        capability:  unlock_capability(cand),
+        impact:      priority,
+        reason:      OracleVerified(handle, cand),
+        module_path: module_path
+      })
+      let extended = list_extend_to(buf, count + 1)
+      let written  = list_set(extended, count, item)
+      try_each_candidate_loop(handle, candidates, i + 1, n, env, module_path, written, count + 1)
+    }
+    else {
+      try_each_candidate_loop(handle, candidates, i + 1, n, env, module_path, buf, count)
+    }
+  }
+}
+
+// ─── silence_predicate (revised per Q-Morgan-B) ──────────────────────
+
+/// silence_predicate — Mentl is silent ONLY when the project queue is
+/// empty. The gradient's top: nothing more to add; everything proven.
+/// Until then, Mentl always surfaces the highest-priority next step.
+///
+/// This REPLACES the per-Topic novelty check from D.1.c. Earlier
+/// silence semantics were too coarse — silenced Mentl when she had
+/// more to say project-wide. New semantics: silence ONLY when the
+/// project is at the gradient's top.
+///
+/// The per-Topic / per-tentacle render-or-not decision moves to the
+/// surface (voice_queue_walk — see queue_to_voicelines). What this
+/// predicate gates is the STRONG silence: no more proven next-steps
+/// anywhere in the project.
+
+fn silence_predicate_oracle(situation) with OracleQuery = {
+  let queue = perform query_project_queue()
+  match queue {
+    []        => true,    // gradient at top — full silence
+    [_ | _]   => false    // queue has items — Mentl surfaces something
+  }
+}
+
+// ─── Priority function — total order over OraclePriority ─────────────
+
+/// priority_lt — total order. Tier wins first; among same-tier,
+/// intent_weight wins; among same-intent, surface_area wins; among
+/// same-surface, locality wins (closer to cursor wins).
+
+fn priority_lt(a, b) with Pure = {
+  let OraclePriority(pa) = a
+  let OraclePriority(pb) = b
+  if !tier_eq(pa.tier, pb.tier)                 { tier_lt(pa.tier, pb.tier) }
+  else if pa.intent_weight != pb.intent_weight  { pa.intent_weight > pb.intent_weight }
+  else if pa.surface_area != pb.surface_area    { pa.surface_area > pb.surface_area }
+  else                                          { pa.locality_bias < pb.locality_bias }
+}
+
+/// priority_gt — descending order; just !priority_lt for non-equal.
+fn priority_gt(a, b) with Pure = {
+  !priority_lt(a, b) && !priority_eq(a, b)
+}
+
+fn priority_eq(a, b) with Pure = {
+  let OraclePriority(pa) = a
+  let OraclePriority(pb) = b
+  tier_eq(pa.tier, pb.tier)
+    && pa.intent_weight == pb.intent_weight
+    && pa.surface_area  == pb.surface_area
+    && pa.locality_bias == pb.locality_bias
+}
+
+/// tier_lt — total order over PriorityTier (TBlocking < TViolation <
+/// TPending < TUnlock < TStyle). H6 exhaustive 5-arm match via tier_rank.
+
+fn tier_lt(a, b) with Pure = {
+  tier_rank(a) < tier_rank(b)
+}
+
+fn tier_eq(a, b) with Pure = {
+  tier_rank(a) == tier_rank(b)
+}
+
+fn tier_rank(t) with Pure = {
+  match t {
+    TBlocking   => 0,
+    TViolation  => 1,
+    TPending    => 2,
+    TUnlock     => 3,
+    TStyle      => 4
+  }
+}
+
+// ─── Helper interfaces (bodies live in their primitive's home file) ──
+
+/// oracle_cache_key — the cache key composing ast + imports +
+/// handler_chain + intent. Body lives in src/cache.mn alongside
+/// existing IC keys. Declared here for the contract.
+
+fn oracle_cache_key(ast) with Memory = {
+  perform compute_oracle_cache_key(ast)
+}
+
+/// invalidation_walk — given a graph mutation, compute the set of
+/// per-module cache keys that should be invalidated. Walks the
+/// dependency graph IC already uses (per Q-2 (B) scope rule). Body
+/// in src/cache.mn.
+
+fn invalidation_walk(cache, mutation) with GraphRead = {
+  perform compute_invalidation_set(cache, mutation)
+}
+
+/// merge_priority_queues — sorted merge of List<OracleQueue>.
+/// Body in lib/runtime/lists.mn (or this file extends if no good home).
+/// O(N log M) where N = total items, M = module count.
+
+fn merge_priority_queues(queues) with Memory = {
+  // Implemented by merge_sorted_lists with priority_gt as comparator.
+  perform merge_lists_by(queues, priority_gt)
+}
+
+/// filter_at_position / filter_by_locality / collect_module_queues /
+/// compute_cache_hash_set / cache_get_module_entry / module_owning /
+/// module_path_of / collect_positions_with_dependents /
+/// enumerate_candidates_at / apply_candidate_tentatively /
+/// verify_after_apply / unlock_capability — all delegate to their
+/// primitive's home file (src/cache.mn for cache ops; src/mentl.mn
+/// for candidate enumeration; src/graph.mn for position/dependents
+/// walks). Declared here as the contract; substrate in their home
+/// files lands in subsequent commits.
+
+// ─── Connection to the kernel ─────────────────────────────────────────
+
+/// Primitive #1 (Graph + Env) — the oracle reads from the same graph
+/// inference reads from; per-position state lives at the position's
+/// Handle; oracle_queue is itself a graph-resident value (cached per-
+/// module via IC).
+///
+/// Primitive #2 (Handlers + resume discipline) — oracle is structured
+/// as handlers (cached_check_with_oracle, project_queue_merger);
+/// candidate enumeration uses MultiShot resume discipline (post-B.2)
+/// for parallel speculation. Pre-B.2 uses OneShot sequential per the
+/// existing src/mentl.mn pattern; same substrate, just faster post-B.2.
+///
+/// Primitive #3 (Five verbs) — the build IS a `<~` feedback loop:
+/// `compile ~> cached_check_with_oracle <~ user_action`. Per
+/// INSIGHTS L1761 ("Feedback Is Mentl's Genuine Novelty"), the cycle
+/// is visible at the syntactic level.
+///
+/// Primitive #4 (Effect row algebra) — oracle handler performs
+/// `Verify + GraphRead + Speculate`; surfaces declare `OracleQuery +
+/// !Mutate` proving they can't corrupt oracle state.
+///
+/// Primitive #5 (Ownership) — base graph `ref` to oracle; speculative
+/// fork writes `own` to the oracle (rolled back); cached oracle_queue
+/// `own` to the cache; surfaces read via `ref`.
+///
+/// Primitive #6 (Refinement) — every QueueItem must satisfy
+/// verify_after_apply to enter the queue (proven candidate); items
+/// without proven verification never reach the surface.
+///
+/// Primitive #7 (Annotation gradient) — the oracle IS the gradient's
+/// runtime substrate; QueueItem.candidate IS one gradient step;
+/// surfaces show the highest-priority next step per the "ONE step per
+/// turn" discipline (INSIGHTS L731-734); silence ONLY at gradient top.
+///
+/// Primitive #8 (HM inference + Reasons) — every QueueItem carries
+/// its proof-chain Reason (OracleVerified); the Why Engine walks back
+/// to "why did Mentl propose this?"
+///
+/// Mentl tentacle mapping:
+/// - Query reads cached env state at the cursor's position
+/// - Propose surfaces QueueItem candidates from the queue
+/// - Topology proposes |> rewrites (TStyle tier)
+/// - Unlock surfaces TUnlock-tier items at the cursor
+/// - Trace surfaces TViolation-tier items
+/// - Verify surfaces TPending-tier items
+/// - Teach surfaces the highest-priority TUnlock + cursor-locality
+/// - Why walks the QueueItem.reason chain on user request
+///
+/// One oracle, eight tentacle projections, one queue. Mentl's eight
+/// tentacles are filtered views over the same priority queue.
+
+// ─── What this substrate refuses ──────────────────────────────────────
+
+/// - Separate continuous oracle process. The oracle IS IC + one cached
+///   value; no daemon; no concurrent-runtime layer; IC is the scheduler.
+/// - Per-Topic silence-gating. Earlier silence_predicate (D.1.c) is
+///   superseded — the surface decides what to render based on cursor-
+///   relevance + global fallback; silence is now the strong "gradient
+///   top" signal only.
+/// - Eager per-position re-exploration on every keystroke. The oracle
+///   re-explores when IC says the relevant module needs re-inference;
+///   IC's existing dependency graph IS the invalidation scope.
+/// - Subscribing to Mentl's own speculative writes. graph_mutated fires
+///   only at outermost commit boundaries; speculative writes between
+///   checkpoint-rollback never reach subscribers (otherwise infinite
+///   recursion).
+/// - Surfaces mutating oracle state. OracleQuery is read-only; the
+///   `!Mutate` row constraint on subscribers proves the substrate
+///   discipline at compile time.
+///
+/// Mentl solves Mentl. The oracle is what falls out of IC + Pure-over-
+/// broader-input + the existing speculative-inference loop. No new
+/// substrate primitives; one extra cached value; one event boundary.

@@ -1,11 +1,11 @@
-# F.1 — `inka doc` walkthrough
+# F.1 — `mentl doc` walkthrough
 
 *The terminal-handler manifestation of the toolchain unification. The
 same pipe that produces binaries produces understanding when the doc
 handler is installed.*
 
 **Handle:** F.1 (Phase F — post-first-light surface; design contract
-lands ahead of substrate per Inka's substrate-first posture).
+lands ahead of substrate per Mentl's substrate-first posture).
 **Status:** 2026-04-24 · seeded.
 **Authority:** `docs/DESIGN.md` §9.12 (Documentation as handler);
 `docs/SUBSTRATE.md` §VIII "The Graph IS the Program" + §III "The
@@ -17,13 +17,13 @@ the vision-level claims this walkthrough composes from) +
 §"AI Obsolescence Mechanized" (L689).
 **Walkthrough peers:** `DS-docstring-edge.md` (substrate for `///` →
 graph), `MV-mentl-voice.md` (Mentl's tentacle handlers), `EH-entry-handlers.md`
-(`inka --with` dispatch), `CRU-crucibles.md` (crucible framing).
+(`mentl --with` dispatch), `CRU-crucibles.md` (crucible framing).
 
 ---
 
 ## §0 Framing
 
-`inka doc` is the terminal-handler manifestation of the toolchain
+`mentl doc` is the terminal-handler manifestation of the toolchain
 unification. The same compile pipeline that produces binaries produces
 understanding when the doc handler is installed. There is no
 documentation generator separate from the compiler — there is one
@@ -40,7 +40,7 @@ extract from a parse external to their compiler; F.1 reads the same
 graph the compiler proves on.
 
 The "AI obsolescence mechanized" claim (INSIGHTS L689) has its
-doc-surface manifestation here. F.1 is what makes Inka's docs
+doc-surface manifestation here. F.1 is what makes Mentl's docs
 un-driftable from code, which makes them strictly more useful than
 any extracted-comment doc to LLM-tool consumers (Cursor / Aider /
 Continue / RAG frameworks) — because the proof always exists in the
@@ -70,8 +70,8 @@ lands ahead of substrate. Substrate gates, in dependency order:
    picks one for cursor surface; F.1 renders all. The wrap is one fold
    over the 8 tentacles; additive over the in-flight handler arms.
 4. **Synthetic Module handle** — graph extension; one variant on
-   `NodeBody` (`NModule(path, decls)`) wired in `pipeline.nx` or
-   `driver.nx`. Module-level `///` attaches via DS to the Module
+   `NodeBody` (`NModule(path, decls)`) wired in `pipeline.mn` or
+   `driver.mn`. Module-level `///` attaches via DS to the Module
    handle, not to a workaround. Per INSIGHTS L1858 — re-parsing source
    to find module docs would be reading-the-shadow.
 5. **F.1 substrate proper** — doc handler + render handlers + transport
@@ -142,7 +142,7 @@ Per INSIGHTS L1858, every "output" is a handler reading the same graph.
 For module-level `///` to reach F.1's projection, the module must be a
 first-class graph entity — anything else is reading-the-shadow.
 
-**Substrate addition** (`src/types.nx`):
+**Substrate addition** (`src/types.mn`):
 
 ```nx
 type NodeBody
@@ -150,7 +150,7 @@ type NodeBody
   | NModule({ path: String, decls: List<Handle>, span: Span })
 ```
 
-**Wiring** (`src/pipeline.nx` or `src/driver.nx`): per-file inference
+**Wiring** (`src/pipeline.mn` or `src/driver.mn`): per-file inference
 creates one `NModule` handle. The `Documented(String, Stmt)` wrapper at
 the start of a file (no preceding declaration) attaches its docstring
 to the Module handle's `DocstringReason`, not to the next declaration.
@@ -159,12 +159,12 @@ to the Module handle's `DocstringReason`, not to the next declaration.
 docstrings; per-module pages render the module-level `///` as the
 opening prose for the page.
 
-**Acceptance:** `inka doc src/graph.nx` (no symbol arg) renders the
+**Acceptance:** `mentl doc src/graph.mn` (no symbol arg) renders the
 Module handle's docstring + decl list. Drift-clean.
 
 ### §3.3 `mentl_voice_default` — interface refinement
 
-Current in-flight MV.2 substrate (per `src/mentl_voice.nx`) is shaped
+Current in-flight MV.2 substrate (per `src/mentl_voice.mn`) is shaped
 around per-tentacle handler arms each producing one `VoiceLine`.
 The cursor-time use case picks one per LSP surface (hover / inlayHint
 / diagnostic / codeAction). F.1's batch use case wants all 8 (silence-
@@ -195,7 +195,7 @@ Each target is a peer handler (per INSIGHTS L1346 — "Handler IS the
 Backend"); transport-mode flag would be drift mode 8 (int-coded
 dispatch, see CLAUDE.md drift modes).
 
-**Substrate** (`lib/doc/render.nx`):
+**Substrate** (`lib/doc/render.mn`):
 
 ```nx
 type RenderedDecl
@@ -241,7 +241,7 @@ all four; per-target form differs in output bytes, not in op set.
 ### §3.5 The `doc_handler`
 
 ```nx
-// lib/doc/handler.nx
+// lib/doc/handler.mn
 
 handler doc_handler {
   // Captures DocstringReason reads via GraphRead.
@@ -281,14 +281,14 @@ Four peer handlers; each implements `Render`'s four ops:
   invocation. Reason links as `[label](path#anchor)`. Handler chains
   as fenced code blocks preserving `~>` indentation per INSIGHTS L1601.
 - `render_html` — HTML for `--serve`. Reason links as `<a>` clickable.
-  CSS canonical (Inka-styled, single theme). No JavaScript except for
+  CSS canonical (Mentl-styled, single theme). No JavaScript except for
   Reason-DAG-walk navigation. Handler chains rendered with the same
   visual indentation as canonical formatter.
 - `render_llms` — `llms.txt` and `llms-full.txt` per the 2026 standard.
   Markdown-formatted index for AI-tool consumers. Substrate-cited form;
   every claim carries its Reason citation inline. Transport writes both
   files to project root.
-- `render_terminal` — plain text for stdout. Single decl when `inka doc
+- `render_terminal` — plain text for stdout. Single decl when `mentl doc
   <symbol>` invoked. Reason links as `path:line` (editor go-to format).
 
 **No "default render handler" picked at the Render effect declaration
@@ -315,11 +315,11 @@ Reuse existing transports:
 ### §3.8 Adaptive shell dispatch
 
 Per the testing-as-handler-swap doctrine (plan §99 + EH walkthrough):
-`inka run` → `compile_run`; `inka test` → `test_run`; `inka chaos` →
-`chaos_run`. Same shape for `inka doc`:
+`mentl run` → `compile_run`; `mentl test` → `test_run`; `mentl chaos` →
+`chaos_run`. Same shape for `mentl doc`:
 
 ```nx
-// src/main.nx — inka doc dispatch
+// src/main.mn — mentl doc dispatch
 fn dispatch_doc(argv) =
   let focus  = parse_focus_arg(argv)          // Option<symbol-name-or-path>
   let target = parse_target_arg(argv)         // explicit --target=X | --serve | None
@@ -339,15 +339,15 @@ downstream.
 
 | Invocation | Render | Transport | When |
 |------------|--------|-----------|------|
-| `inka doc` | render_html | http_serve | TTY context |
-| `inka doc` | render_md | stdout_console | Pipe context |
-| `inka doc <symbol>` | render_terminal | stdout_console | Focused decl |
-| `inka doc src/graph.nx` | render_html OR render_md | http_serve OR stdout_console | Module focus |
-| `inka doc --target=md` | render_md | file_io to `inka-doc/` | Explicit md tree |
-| `inka doc --target=html` | render_html | file_io to `inka-doc/` | Explicit html tree |
-| `inka doc --target=llms` | render_llms | file_io to project root | Explicit llms |
-| `inka doc --serve [--port=N]` | render_html | http_serve | Explicit serve |
-| `inka doc --crucibles` | (target-per-context) | (transport-per-context) | Crucibles index focus |
+| `mentl doc` | render_html | http_serve | TTY context |
+| `mentl doc` | render_md | stdout_console | Pipe context |
+| `mentl doc <symbol>` | render_terminal | stdout_console | Focused decl |
+| `mentl doc src/graph.mn` | render_html OR render_md | http_serve OR stdout_console | Module focus |
+| `mentl doc --target=md` | render_md | file_io to `mentl-doc/` | Explicit md tree |
+| `mentl doc --target=html` | render_html | file_io to `mentl-doc/` | Explicit html tree |
+| `mentl doc --target=llms` | render_llms | file_io to project root | Explicit llms |
+| `mentl doc --serve [--port=N]` | render_html | http_serve | Explicit serve |
+| `mentl doc --crucibles` | (target-per-context) | (transport-per-context) | Crucibles index focus |
 
 ---
 
@@ -401,7 +401,7 @@ Single-pole IIR low-pass with cutoff frequency parameterized by the
 sample rate. Real-time-safe.
 
 ─── Mentl (substrate voice, only tentacles silence_predicate passes) ─
-[Query]   Bound at lib/dsp/processors.nx:42. Row !Alloc proven
+[Query]   Bound at lib/dsp/processors.mn:42. Row !Alloc proven
           transitively (state stack-alloc; <~ feedback no heap;
           inner ops all !Alloc).
 [Verify]  Sample refined `Float where -1.0 <= self <= 1.0`. All
@@ -457,12 +457,12 @@ mode 32 — wildcard-on-load-bearing-ADT analog at the prose layer):
 
 ### §6.1 Module pages
 
-When `inka doc src/graph.nx` (path arg) is invoked, the focus is the
-Module handle for `src/graph.nx`. Render shape:
+When `mentl doc src/graph.mn` (path arg) is invoked, the focus is the
+Module handle for `src/graph.mn`. Render shape:
 
 ```
 ─── canonical module declaration (substrate) ──────────────────────
-module src/graph.nx
+module src/graph.mn
 
 ─── /// (module-level author voice, when present) ─────────────────
 Graph substrate (spec 00). O(1) chase via flat-array representation;
@@ -504,10 +504,10 @@ when SMT class doesn't apply (Q-B.6.3 nested chain).
 absorbs:        Verify
 performs:       SmtSolve, Cache (state)
 resume:         OneShot per op
-install sites:  3 (src/main.nx:42, src/driver.nx:118, lib/test.nx:67)
+install sites:  3 (src/main.mn:42, src/driver.mn:118, lib/test.mn:67)
 
 ─── Composition (rendered with canonical multi-line ~> shape) ──────
-Default install chain at src/main.nx:42:
+Default install chain at src/main.mn:42:
 
 source
     |> lex |> parse |> infer
@@ -521,9 +521,9 @@ source
 [Verify]  State refinement: cache.size <= MAX_CACHE_ENTRIES.
           Discharged at install time via verify_ledger.
 ─── Reasons ────────────────────────────────────────────────────────
-↗ HandlerDeclared(verify_smt, src/verify.nx:201, Reason::SmtBridge)
+↗ HandlerDeclared(verify_smt, src/verify.mn:201, Reason::SmtBridge)
 ↗ AbsorbsRowProof(Verify, ...)
-↗ InstallReason(src/main.nx:42, Reason::DefaultPipeline)
+↗ InstallReason(src/main.mn:42, Reason::DefaultPipeline)
 ```
 
 **Handler-chain rendering preserves canonical multi-line `~>` shape**
@@ -533,12 +533,12 @@ Don't collapse to bullet list.
 ### §6.3 Crucible pages
 
 Per INSIGHTS L1161, crucibles are NOT tests. They are conversations
-with Inka's future self. Per plan F.1, F.1 surfaces the crucible-to-
+with Mentl's future self. Per plan F.1, F.1 surfaces the crucible-to-
 ecosystem-disintermediation map. Render shape:
 
 ```
 ─── crucible declaration ───────────────────────────────────────────
-crucible crucible_dsp at crucibles/crucible_dsp.nx
+crucible crucible_dsp at crucibles/crucible_dsp.mn
 
 ─── /// (author's disintermediation claim, when present) ───────────
 The DSP processor JUCE wishes it could be. Allocation-free in the
@@ -551,7 +551,7 @@ transitively because C++ has no transitive allocation analysis.
 
 ─── Compilation status (substrate fact) ────────────────────────────
 compiles: true
-runtime:  passes (when invoked via `inka run crucibles/crucible_dsp.nx`)
+runtime:  passes (when invoked via `mentl run crucibles/crucible_dsp.mn`)
 
 ─── Mentl over the crucible source (gated as usual) ────────────────
 [Query]   The crucible exercises 3 effect rows: Sample(rate), !Alloc,
@@ -564,14 +564,14 @@ runtime:  passes (when invoked via `inka run crucibles/crucible_dsp.nx`)
           filter compare), ~> (handler attach for Sample(rate)).
 
 ─── Reasons ────────────────────────────────────────────────────────
-↗ CrucibleDeclared(crucible_dsp, crucibles/crucible_dsp.nx:1)
+↗ CrucibleDeclared(crucible_dsp, crucibles/crucible_dsp.mn:1)
 ↗ RowProof(!Alloc, crucible_dsp, transitive)
 ↗ DocstringReason("The DSP processor JUCE wishes ...", L1)
 ```
 
-**`inka doc --crucibles`** renders the crucibles index — list of
+**`mentl doc --crucibles`** renders the crucibles index — list of
 `RenderedConversation` values. Index framing per INSIGHTS L1161 is
-"conversations Inka has had with its future self," NOT test-summary.
+"conversations Mentl has had with its future self," NOT test-summary.
 Each entry shows: name, compiles bool, author's claim's first
 sentence, link to the per-crucible page.
 
@@ -581,7 +581,7 @@ sentence, link to the per-crucible page.
 
 `--serve` includes structural search. Per the "Mentl is 100%
 deterministic" doctrine + INSIGHTS L1858 ("Graph IS the Program") +
-the substrate-IS-the-knowledge-graph thesis, Inka does NOT use
+the substrate-IS-the-knowledge-graph thesis, Mentl does NOT use
 semantic embeddings or vector search. The substrate carries enough
 information that structural queries return precise answers.
 
@@ -600,11 +600,11 @@ information that structural queries return precise answers.
   (and by transitivity, every caller of those).
 
 **No free-text search v1. No embeddings ever.** SOTA systems' move
-toward embeddings is a response to impoverished doc surfaces. Inka's
+toward embeddings is a response to impoverished doc surfaces. Mentl's
 substrate carries effect rows + refinements + Reason chains; structural
 search is strictly more discriminating. AI tools downstream
 (consuming `llms.txt`) do their own semantic-search-against-the-richest-
-corpus thing — Inka provides them the corpus, not the search.
+corpus thing — Mentl provides them the corpus, not the search.
 
 ---
 
@@ -615,12 +615,12 @@ three transport handlers are PEER handlers, not modes on a single
 generator. Per drift mode 8 (CLAUDE.md): `target == 0/1/2` int-coded
 dispatch is forbidden; `RenderTarget` is an ADT.
 
-Default selection is at the dispatch boundary (`src/main.nx`) per
+Default selection is at the dispatch boundary (`src/main.mn`) per
 adaptive rules in §3.8. Same `doc_handler` upstream of every
 combination; transport context picks the handler combo at runtime.
 
-This matches the testing-as-handler-swap doctrine: `inka run` →
-`compile_run`; `inka test` → `test_run`; `inka doc` → adaptive
+This matches the testing-as-handler-swap doctrine: `mentl run` →
+`compile_run`; `mentl test` → `test_run`; `mentl doc` → adaptive
 selection of (render, transport) handlers from the doc family.
 
 ---
@@ -630,7 +630,7 @@ selection of (render, transport) handlers from the doc family.
 Per CLAUDE.md's nine named drift modes + generalized fluency-taint
 check. Edit sites + per-site forbidden patterns:
 
-**`lib/doc/render_*.nx`** (four render handlers):
+**`lib/doc/render_*.mn`** (four render handlers):
 - **Drift 1 (Rust vtable):** no `dispatch_table[target_idx](decl)`.
   Handlers are peer instances of `Render` effect; resolve via existing
   handler chain.
@@ -641,9 +641,9 @@ check. Edit sites + per-site forbidden patterns:
   is an effect op the doc_handler performs; render handler captures.
 - **Foreign-framework drift:** not Pandoc-shape templating; not Jinja;
   not Handlebars; not Mustache; not Jekyll; not Hugo. Render handlers
-  produce strings via Inka's existing string substrate (lib/runtime/strings.nx).
+  produce strings via Mentl's existing string substrate (lib/runtime/strings.mn).
 
-**`lib/doc/handler.nx`** (doc_handler):
+**`lib/doc/handler.mn`** (doc_handler):
 - **Drift 9 (deferred-by-omission):** doc_handler walks ALL decl
   shapes (regular, handler, crucible, module). No "todo: handle
   crucibles later" inside a "complete" commit. If crucible support
@@ -659,20 +659,20 @@ check. Edit sites + per-site forbidden patterns:
   output. Do NOT collapse `~>` chains to bullet lists or comma-
   separated names. Verb-shape on the page IS the doc element.
 - **Foreign drift (Sphinx :func: directives, JSDoc @-tags):** none.
-  Handler chain is rendered as inka source per the canonical
-  formatter; cross-references are inka identifiers in backticks,
+  Handler chain is rendered as mentl source per the canonical
+  formatter; cross-references are mentl identifiers in backticks,
   resolved by render handler.
 
-**`lib/doc/transport_http_serve.nx`** (new transport):
+**`lib/doc/transport_http_serve.mn`** (new transport):
 - **Drift 21/24 (async/await):** no `async fn handle_request`. HTTP
   ops are `Network` effect performs; handler arms.
 - **Drift 1:** no routing table as data structure; route patterns
   match in handler arms.
 - **Foreign drift:** not Express middleware shape; not Rails routes;
-  not Phoenix plugs. Inka's request handling IS handler chain on
+  not Phoenix plugs. Mentl's request handling IS handler chain on
   Network effect.
 
-**`src/main.nx` (adaptive dispatch addition):**
+**`src/main.mn` (adaptive dispatch addition):**
 - **Drift 8:** `RenderTarget` ADT, not flag-as-int.
 - **Drift 9:** all four targets (Md, Html, LlmsTxt, Terminal) wired
   in dispatch in one commit; no "register md, html later."
@@ -680,34 +680,34 @@ check. Edit sites + per-site forbidden patterns:
 **Generalized fluency-taint check across all sites:**
 - Pattern came from rustdoc / ExDoc / DocC / Sphinx / Hoogle? If yes,
   restructure until it composes from the eight primitives alone. The
-  shape Inka draws is not "rustdoc but with effect rows added on";
+  shape Mentl draws is not "rustdoc but with effect rows added on";
   it's the substrate-cited form that those systems can't produce.
 
 ---
 
 ## §10 Acceptance
 
-**AT-F1.1** `inka doc src/graph.nx` (TTY) starts http_serve at
+**AT-F1.1** `mentl doc src/graph.mn` (TTY) starts http_serve at
 `localhost:<port>`; opening the URL renders the graph module's page —
 module-level `///` + decl list + per-decl rendered pages reachable.
 Reason chains walkable via `<a>` links.
 
-**AT-F1.2** `inka doc src/graph.nx | bat` (pipe) writes markdown to
+**AT-F1.2** `mentl doc src/graph.mn | bat` (pipe) writes markdown to
 stdout; same content as AT-F1.1, transport-format markdown.
 
-**AT-F1.3** `inka doc lowpass_filter` (focused symbol) renders one
+**AT-F1.3** `mentl doc lowpass_filter` (focused symbol) renders one
 decl in terminal form to stdout; signature + `///` + Mentl tentacles
 + Reason links as `path:line`.
 
-**AT-F1.4** `inka doc --target=md` writes `inka-doc/` mirror tree of
+**AT-F1.4** `mentl doc --target=md` writes `mentl-doc/` mirror tree of
 markdown files; per-source-file rendered to per-`*.md`.
 
-**AT-F1.5** `inka doc --target=llms` writes `llms.txt` (index) +
+**AT-F1.5** `mentl doc --target=llms` writes `llms.txt` (index) +
 `llms-full.txt` (full corpus) to project root. Cursor / Aider /
 Continue can ingest `llms-full.txt` and see substrate-cited
 declarations.
 
-**AT-F1.6** `inka doc --crucibles` lists crucible conversations with
+**AT-F1.6** `mentl doc --crucibles` lists crucible conversations with
 their disintermediation claims (author's `///` first sentence) + a
 "compiles ✓" or "compiles ✗" badge per crucible.
 
@@ -715,20 +715,20 @@ their disintermediation claims (author's `///` first sentence) + a
 hover surface; same `mentl_voice_default(situation)` call, same
 silence-gating, single VoiceLine returned via tentacle filter. F.1's
 batch render shows all 8. Same machinery; different iteration scope.
-**No drift between hover info and `inka doc` content** — they cite
+**No drift between hover info and `mentl doc` content** — they cite
 the same Reasons.
 
-**AT-F1.8** A `.nx` decl with no `///` renders without an author-voice
+**AT-F1.8** A `.mn` decl with no `///` renders without an author-voice
 section; Mentl tentacles still fire per silence_predicate; no
 "empty docstring" placeholder.
 
-**AT-F1.9** A `///` example block containing inka source: the example
+**AT-F1.9** A `///` example block containing mentl source: the example
 IS rendered (syntax-highlighted on HTML, fenced on markdown). If
-the example doesn't compile, `inka doc` ITSELF fails at the
+the example doesn't compile, `mentl doc` ITSELF fails at the
 inference site — there is no separate doc-test runner per INSIGHTS
 L398. **No `--check` flag.**
 
-**AT-F1.10** `inka doc` re-run with no source change is bit-identical.
+**AT-F1.10** `mentl doc` re-run with no source change is bit-identical.
 Pure projection of the graph; same graph → same docs. Memoization
 via `with Pure` on the per-decl projector + `(graph_hash,
 decl_handle)` cache key.
@@ -742,13 +742,13 @@ deterministic and ordered by structural relevance.
 `~> read_only_serve` outside `http_serve` and inside `doc_handler`
 gates network writes; row algebra proves http_serve cannot perform
 graph writes (even though doc_handler reads graph). Verifiable via
-`inka check`.
+`mentl check`.
 
 ---
 
-## §11 What `inka doc` replaces (disintermediation map)
+## §11 What `mentl doc` replaces (disintermediation map)
 
-| External system | What it does | What `inka doc` does instead |
+| External system | What it does | What `mentl doc` does instead |
 |-----------------|--------------|------------------------------|
 | rustdoc / docs.rs | Extract from `///` + signatures, emit HTML; doctests as compilable examples | doc_handler reads `DocstringReason` (DS substrate); signatures carry effect row + refinements rustdoc cannot render; `///` example code uses the same compile pipeline as production (no separate doctest runner per INSIGHTS L398) |
 | ExDoc / hexdocs.pm | Auto-link across deps + dark mode UX + llms.txt + version dropdown | Capability-stack handler installs cross-package linker (`~> remote_doc_resolver`); `--target=llms` is peer transport from day one; UX is render_html concern; versioning is git-tag context, not in-doc dropdown |
@@ -761,10 +761,10 @@ graph writes (even though doc_handler reads graph). Verifiable via
 **The disintermediation claim** (per plan §1693, §1697): post-first-light
 + Mentl-at-cursor + F.1, the markdown corpus retires (`docs/DESIGN.md`
 + `docs/SUBSTRATE.md` + walkthroughs become historical archive).
-Runtime orientation comes from Mentl's voice + `inka doc` projection +
+Runtime orientation comes from Mentl's voice + `mentl doc` projection +
 `///` on declarations. **The claim is mechanical, not aspirational** —
 every other system requires the doc generator to drift from the
-compiler; `inka doc` is the compiler reading itself out loud.
+compiler; `mentl doc` is the compiler reading itself out loud.
 
 ---
 
@@ -793,16 +793,16 @@ Per plan-style open-question resolution. Each answer cites authority.
 
 **Q-F1.4.** Crucible disintermediation as per-crucible decl extension?
 
-> **Yes** plus `inka doc --crucibles` index. Framing per INSIGHTS L1161
-> is "conversations Inka has had with its future self," NOT
+> **Yes** plus `mentl doc --crucibles` index. Framing per INSIGHTS L1161
+> is "conversations Mentl has had with its future self," NOT
 > test-pass/fail summary. Substrate per §6.3.
 
-**Q-F1.5.** Doc tests via `inka test`; `inka doc --check` runs both?
+**Q-F1.5.** Doc tests via `mentl test`; `mentl doc --check` runs both?
 
-> **No.** Per INSIGHTS L398 — Inka has no doc-tests as a separate
+> **No.** Per INSIGHTS L398 — Mentl has no doc-tests as a separate
 > category. `///` example code uses the same compile pipeline as
 > production. Compilation IS the verification. **No `--check` flag.**
-> If a `///` example fails to compile, `inka doc` itself fails at the
+> If a `///` example fails to compile, `mentl doc` itself fails at the
 > inference site.
 
 **Q-F1.6.** Existing `docs/` markdown corpus retires?
@@ -810,7 +810,7 @@ Per plan-style open-question resolution. Each answer cites authority.
 > **Yes** post-first-light. F.1 doesn't try to derive DESIGN/INSIGHTS
 > from substrate — those are authoring-period crystallizations, not
 > substrate residue. The retirement claim is "developers no longer
-> need to read DESIGN.md to use Inka because `inka doc` covers
+> need to read DESIGN.md to use Mentl because `mentl doc` covers
 > everything they need at-cursor and at-batch."
 
 **Q-F1.7.** F.1 reuses MV.2.e directly, gates on D.1.e first?
@@ -853,7 +853,7 @@ Reason edge?
 
 **Q-F1.13.** Theming?
 
-> Inka-canonical only v1. Theme = handler swap on render but not
+> Mentl-canonical only v1. Theme = handler swap on render but not
 > a v1 surface. Single CSS for `render_html`.
 
 **Q-F1.14.** `@deprecated` / `@since` markers?
@@ -881,29 +881,29 @@ Reason edge?
 
 ## §13 Implementation notes
 
-For the future implementer (Sonnet via inka-implementer; Opus authors
+For the future implementer (Sonnet via mentl-implementer; Opus authors
 this plan; PostToolUse drift-audit verifies):
 
 **File creation order** (after gates §1 are satisfied):
 
-1. `src/types.nx` — add `NModule({path, decls, span})` to `NodeBody`.
+1. `src/types.mn` — add `NModule({path, decls, span})` to `NodeBody`.
    One variant; ~3 lines; drift-clean.
-2. `src/pipeline.nx` (or `src/driver.nx`) — wire `NModule` handle
+2. `src/pipeline.mn` (or `src/driver.mn`) — wire `NModule` handle
    creation per file in inference; route module-level `Documented(...)`
    wrapper to attach `DocstringReason` to Module handle.
-3. `src/mentl_voice.nx` — `mentl_voice_default` interface refinement
+3. `src/mentl_voice.mn` — `mentl_voice_default` interface refinement
    to return `List<VoiceLine>` (D.1.e dependency; lands as part of
    D.1.e itself). Fold over 8 tentacles + silence-gating.
-4. `lib/doc/render.nx` — declare `Render` effect + `RenderedX` records.
-5. `lib/doc/handler.nx` — `doc_handler` body. Walks Situation per decl;
+4. `lib/doc/render.mn` — declare `Render` effect + `RenderedX` records.
+5. `lib/doc/handler.mn` — `doc_handler` body. Walks Situation per decl;
    calls `mentl_voice_default`; performs `Render` ops.
-6. `lib/doc/render_md.nx` — markdown render handler.
-7. `lib/doc/render_html.nx` — HTML render handler.
-8. `lib/doc/render_llms.nx` — llms.txt + llms-full.txt render handler.
-9. `lib/doc/render_terminal.nx` — terminal stdout render handler.
-10. `lib/doc/transport_http_serve.nx` — http_serve transport for
+6. `lib/doc/render_md.mn` — markdown render handler.
+7. `lib/doc/render_html.mn` — HTML render handler.
+8. `lib/doc/render_llms.mn` — llms.txt + llms-full.txt render handler.
+9. `lib/doc/render_terminal.mn` — terminal stdout render handler.
+10. `lib/doc/transport_http_serve.mn` — http_serve transport for
     `--serve`. Performs `Network + WASI`.
-11. `src/main.nx` — adaptive dispatch addition per §3.8.
+11. `src/main.mn` — adaptive dispatch addition per §3.8.
 
 Each file lands as its own commit with walkthrough citation in body.
 Drift-audit (`bash tools/drift-audit.sh <file>`) must exit 0 before
@@ -942,7 +942,7 @@ arrives without changing F.1's surface.
   L1858 reading-the-shadow doctrine.
 - **Mode flags.** Render targets are peer handlers (Md | Html | LlmsTxt
   | Terminal as ADT); not `target == 0/1/2` int dispatch (drift mode 8).
-- **Doctests.** Per INSIGHTS L398. `///` example code IS just inka
+- **Doctests.** Per INSIGHTS L398. `///` example code IS just mentl
   source; the compile pipeline verifies it. No separate runner.
 - **Editorial gating.** No "non-trivial" / "non-obvious" / "interesting"
   predicates between substrate and render. silence_predicate (pure,
@@ -952,7 +952,7 @@ arrives without changing F.1's surface.
   + refinements + Reason chains; structural search is strictly more
   discriminating than embeddings.
 - **JSDoc/JavaDoc-style tags inside `///`.** No `@param`, `@returns`,
-  `@throws`. Inka's effect row + refinement substrate already carries
+  `@throws`. Mentl's effect row + refinement substrate already carries
   that information; tags would duplicate.
 - **Markdown-as-substrate-of-`///`.** The `///` content is raw String
   per DS §8. Render handlers interpret per target (HTML may render
@@ -988,7 +988,7 @@ Per CLAUDE.md / DESIGN.md §0.5 — F.1 composes from the eight primitives:
 - **Primitive #7 (Annotation gradient)** — F.1's per-decl projector
   invites `with Pure` (memoize) + `with !Alloc` (real-time) + `with
   !Network` (no-exfil-proof). For docs PRODUCED: Teach tentacle's
-  per-decl render IS the gradient surface — what makes Inka docs
+  per-decl render IS the gradient surface — what makes Mentl docs
   unique.
 - **Primitive #8 (HM inference + Reasons)** — every VoiceLine cites
   its Reason; doc generation itself records `DocProjected` Reason;
@@ -1001,6 +1001,6 @@ makes it manifest at scale.
 
 ---
 
-*Inka solves Inka. The pipe doesn't just flow data — it flows
+*Mentl solves Mentl. The pipe doesn't just flow data — it flows
 understanding. F.1 is the terminal handler where that flow becomes
 the reader's substrate.*

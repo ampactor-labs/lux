@@ -1,0 +1,472 @@
+// eight_loop.mn — Hμ.eight-interrogation-loop peer handle
+//
+// The eight interrogations as substrate. Today the discipline lives
+// in CLAUDE.md as authoring practice — eight questions cleared
+// before each line of Mentl. This file lifts that discipline to
+// runtime: the medium runs the eight on every graph node at compile
+// time, surfacing positions where one or more interrogations don't
+// clear.
+//
+// The thesis-completing move: when the eight run as code, the
+// medium IS the discipline. Authoring discipline simulates what the
+// substrate does continuously. The mascot framing crystallizes —
+// Mentl is an octopus because the kernel has eight primitives AND
+// the medium runs eight reads at every position AND the developer's
+// discipline mirrors the medium's projection. **One method at every
+// level.**
+//
+// Anchor 0 dream code. Wheel canonical IS the ULTIMATE FORM.
+// Verification by simulation, walkthrough, audit. lux3.wasm is not
+// the arbiter. After first-light-L1, the seed transcribes this
+// substrate via Tier 3 growth.
+//
+// Anchor 4 — build the wheel; never wrap the axle. The eight
+// interrogations are CLAUDE.md's authoring discipline AND
+// SUBSTRATE.md §I's eight-fold lock AND Mentl's eight tentacles AND
+// (now) the medium's automated read at every graph node. Same eight,
+// four roles, one method.
+//
+// Composition tally — every read is from substrate that exists today:
+//
+//   graph_chase / NodeKind / Reason          — src/graph.mn + types.mn
+//   query_default (Query tentacle)           — src/query.mn
+//   synth_propose (Propose tentacle)         — src/mentl.mn
+//   PipeContext / pipe_context_of_node       — src/cursor.mn
+//   row_of_node / EffRow                     — src/cursor.mn + effects.mn
+//   ownership_of_node / Ownership            — src/cursor.mn + own.mn
+//   verify_pending_at / Predicate            — src/cursor.mn + verify.mn
+//   teach_gradient (Teach tentacle)          — src/mentl.mn
+//   teach_why (Why tentacle)                 — src/mentl.mn
+//
+// The eight interrogations IS the CursorView projection. This file
+// adds the *automation* layer: walks the graph; records which
+// interrogations don't clear at which positions; surfaces the
+// audit as a structured artifact (InterrogationReport).
+//
+// Drift modes refused per edit site:
+//
+//   Drift 1 (vtable):       The eight are eight named perform calls,
+//                           not a dispatch table.
+//   Drift 6 (special):      Same eight applied uniformly to every
+//                           binding; no "this kind is special."
+//   Drift 7 (parallel arr): InterrogationVerdict is one record-shape
+//                           with eight Boolean fields; not eight
+//                           parallel lists.
+//   Drift 8 (string flag):  Each interrogation has a tagged
+//                           InterrogationKind; never string-keyed.
+//   Drift 9 (deferred):     All eight bodied; no "later."
+//   Drift 11 (suffix-append): Buffer-counter substrate.
+
+import types
+import effects
+import graph
+import own
+import verify
+import mentl
+import cursor
+
+// ─── The eight interrogations as a tagged ADT ───────────────────────
+//
+// Each tag corresponds 1:1 to one of the eight kernel primitives
+// (DESIGN.md §0.5) and Mentl's eight tentacles (09-mentl.md §The
+// architecture). The numbering is canonical per CLAUDE.md ⌁ Mentl's
+// anchor — Graph(1) / Handler(2) / Verb(3) / Row(4) / Ownership(5)
+// / Refinement(6) / Gradient(7) / Reason(8).
+
+type InterrogationKind
+  = IntGraph                                     // 1: what handle/edge/Reason already encodes this?
+  | IntHandler                                   // 2: what handler projects this — with what @resume?
+  | IntVerb                                      // 3: which of |> <| >< ~> <~ draws this topology?
+  | IntRow                                       // 4: what + - & ! Pure already gates this?
+  | IntOwnership                                 // 5: what own/ref proves linearity?
+  | IntRefinement                                // 6: what predicate or Verify bounds this value?
+  | IntGradient                                  // 7: what annotation would unlock compile-time capability?
+  | IntReason                                    // 8: what Reason edge does this leave for Why?
+
+// ─── Per-interrogation verdict at one position ─────────────────────
+//
+// Each interrogation either CLEARS (the substrate already encodes
+// the answer; no authoring residue needed) or INVITES (the substrate
+// surface is empty here; the developer can answer with one
+// gradient step).
+
+type InterrogationVerdict
+  = VerdictClears(Reason)                        // substrate-honest: Reason walks back to the proof
+  | VerdictInvites(AnnotationSuggestion)         // gradient: the suggestion that fills this slot
+
+// ─── Per-position report — one record-shape (drift 7 closure) ──────
+
+type InterrogationReport
+  = InterrogationReport({
+      handle:     Int,                            // graph handle the report attaches to
+      span:       Span,                           // source span
+      graph_v:    InterrogationVerdict,           // 1
+      handler_v:  InterrogationVerdict,           // 2
+      verb_v:     InterrogationVerdict,           // 3
+      row_v:      InterrogationVerdict,           // 4
+      ownership_v: InterrogationVerdict,          // 5
+      refinement_v: InterrogationVerdict,         // 6
+      gradient_v: InterrogationVerdict,           // 7
+      reason_v:   InterrogationVerdict             // 8
+    })
+
+// ─── The Interrogate effect ─────────────────────────────────────────
+//
+// Mentl's automated discipline. Each op runs the eight at one
+// position OR walks the whole graph emitting reports. Cursor's
+// CursorView IS the per-position read; this effect adds the
+// audit-style projection that surfaces gaps as structured reports.
+
+effect Interrogate {
+  /// Run the eight at one handle. Returns the per-position report.
+  interrogate_at(Int) -> InterrogationReport     @resume=OneShot
+
+  /// Walk the live graph; return reports for every binding-bearing
+  /// node. The audit-style projection. Cursor reads the cached form
+  /// per Hμ.cursor.cache; this op recomputes from scratch.
+  interrogate_all() -> List                       @resume=OneShot
+
+  /// Filter a report: was a specific interrogation kind unclear?
+  /// Used by the IDE's "show me the residue" surface.
+  interrogation_invites(InterrogationReport, InterrogationKind) -> Bool @resume=OneShot
+}
+
+// ─── interrogate_default — the canonical handler ───────────────────
+//
+// `with !Mutate` — read-only over graph + env; same constraint as
+// cursor_default per protocol_oracle_is_ic.md.
+//
+// Composition: each interrogation runs through the existing tentacle
+// substrate (query_default for Query, mentl_default for Teach + Why,
+// cursor_default's helpers for Topology + Row + Ownership + Refinement,
+// synth_default for Propose). The eight reads compose into one
+// InterrogationReport.
+
+handler interrogate_default with !Mutate {
+
+  interrogate_at(handle) => {
+    let GNode(kind, reason) = perform graph_chase(handle)
+    let span = perform graph_span_of(handle)
+
+    // 1. Graph?      — the binding's NodeKind reveals what's encoded.
+    let graph_v = match kind {
+      NBound(_)     => VerdictClears(reason),
+      NRowBound(_)  => VerdictClears(reason),
+      NFree(_)      => VerdictInvites(graph_invite_for(handle, reason)),
+      NRowFree(_)   => VerdictInvites(graph_invite_for(handle, reason)),
+      NErrorHole(r) => VerdictInvites(graph_invite_for(handle, r))
+    }
+
+    // 2. Handler?    — what handler projects this position's effects?
+    let handler_v = handler_verdict_for(handle, kind, reason)
+
+    // 3. Verb?       — what pipe context surrounds this position?
+    let verb_v = verb_verdict_for(handle, kind, reason)
+
+    // 4. Row?        — what effect row gates this binding?
+    let row_v = row_verdict_for(handle, kind, reason)
+
+    // 5. Ownership?  — what own/ref proves linearity?
+    let ownership_v = ownership_verdict_for(handle, kind, reason)
+
+    // 6. Refinement? — what Verify-pending predicate bounds this?
+    let refinement_v = refinement_verdict_for(handle, reason)
+
+    // 7. Gradient?   — what annotation would unlock capability?
+    let gradient_v = match perform teach_gradient(handle) {
+      None => VerdictClears(reason),
+      Some(suggestion) => VerdictInvites(suggestion)
+    }
+
+    // 8. Reason?     — what edge does this leave for Why?
+    let reason_v = match reason {
+      Inferred(_)   => VerdictClears(reason),
+      Declared(_)   => VerdictClears(reason),
+      Located(_, _) => VerdictClears(reason),
+      _             => VerdictInvites(reason_invite_for(handle, reason))
+    }
+
+    resume(InterrogationReport({
+      handle:        handle,
+      span:          span,
+      graph_v:       graph_v,
+      handler_v:     handler_v,
+      verb_v:        verb_v,
+      row_v:         row_v,
+      ownership_v:   ownership_v,
+      refinement_v:  refinement_v,
+      gradient_v:    gradient_v,
+      reason_v:      reason_v
+    }))
+  },
+
+  interrogate_all() => {
+    let snapshot = perform graph_snapshot()
+    let Graph(_nodes, _epoch, next, _overlays, _spans) = snapshot
+    let buf = make_list(next)
+    let kept = walk_all_loop(0, next, buf, 0)
+    resume(slice(buf, 0, kept))
+  },
+
+  interrogation_invites(report, kind) =>
+    resume(verdict_is_invite(extract_verdict(report, kind)))
+}
+
+// ─── Per-interrogation helpers ──────────────────────────────────────
+
+fn handler_verdict_for(handle, kind, reason) with GraphRead + !Mutate = {
+  // Handler clears when the binding lives inside a handler's
+  // effect-row-aware context. The graph already encodes which
+  // handlers are installed; this verdict reads the handler stack
+  // at the position. Today's seed treats all positions as cleared
+  // (handler_stack tracking is named follow-up Hβ.first-light.handler-
+  // stack-substrate).
+  VerdictClears(reason)
+}
+
+fn verb_verdict_for(handle, kind, reason) with GraphRead + !Mutate = {
+  // Verb clears when the position is inside a recognized pipe
+  // topology OR is a leaf expression with no surrounding pipe.
+  // pipe_context_of_node reads the parent chain.
+  match pipe_context_of_node(kind) {
+    NoPipe => VerdictClears(reason),
+    InsidePipe(_) => VerdictClears(reason),
+    StartingPipe => VerdictClears(reason),
+    EndingPipe => VerdictClears(reason)
+  }
+}
+
+fn row_verdict_for(handle, kind, reason) with GraphRead + !Mutate = {
+  // Row clears when the binding's row is bound (resolved at
+  // inference). Free row variables surface as invites.
+  match kind {
+    NBound(ty) =>
+      if row_is_ground(row_of_node(kind)) {
+        VerdictClears(reason)
+      } else {
+        VerdictInvites(row_invite_for(handle, reason))
+      },
+    NRowBound(_) => VerdictClears(reason),
+    _ => VerdictInvites(row_invite_for(handle, reason))
+  }
+}
+
+fn ownership_verdict_for(handle, kind, reason) with GraphRead + !Mutate = {
+  // Ownership clears when authored OR resolved is non-Inferred.
+  // Otherwise the gradient could suggest one (see Hμ.gradient-delta
+  // delta_ownership).
+  match ownership_of_node(kind) {
+    Inferred => VerdictInvites(ownership_invite_for(handle, reason)),
+    _ => VerdictClears(reason)
+  }
+}
+
+fn refinement_verdict_for(handle, reason) with Verify + !Mutate = {
+  // Refinement clears when no Verify-pending predicates attach to
+  // this handle. Pending obligations surface as invites (the
+  // gradient could resolve them via SMT or refinement annotation).
+  let pending = perform verify_pending_at(handle)
+  if pending.len == 0 {
+    VerdictClears(reason)
+  } else {
+    VerdictInvites(refinement_invite_for(handle, reason, list_head(pending)))
+  }
+}
+
+// ─── Invite constructors — each builds an AnnotationSuggestion ─────
+
+fn graph_invite_for(handle, reason) with Pure = {
+  AnnotationSuggestion(
+    SuggestEffectRow,
+    "?? — graph hole; gradient proposes a candidate",
+    [],
+    Located(span_zero(),
+      Inferred("eight-fold: Graph interrogation invites — NFree at this handle"))
+  )
+}
+
+fn row_invite_for(handle, reason) with Pure = {
+  AnnotationSuggestion(
+    SuggestEffectRow,
+    "with <inferred-row>",
+    ["CMemoize", "CCompileTimeEval"],
+    Located(span_zero(),
+      Inferred("eight-fold: Row interrogation invites — row-free at this binding"))
+  )
+}
+
+fn ownership_invite_for(handle, reason) with Pure = {
+  AnnotationSuggestion(
+    SuggestOwnership,
+    "own <param> | ref <param>",
+    ["CDeterministicDrop", "CZeroCopy"],
+    Located(span_zero(),
+      Inferred("eight-fold: Ownership interrogation invites — Inferred at this position"))
+  )
+}
+
+fn refinement_invite_for(handle, reason, predicate) with Pure = {
+  AnnotationSuggestion(
+    SuggestRefinement,
+    "where <predicate>",
+    ["CEliminateBoundsCheck"],
+    Located(span_zero(),
+      Inferred("eight-fold: Refinement interrogation invites — Verify-pending"))
+  )
+}
+
+fn reason_invite_for(handle, reason) with Pure = {
+  AnnotationSuggestion(
+    SuggestEffectRow,
+    "<documented-edge>",
+    [],
+    Located(span_zero(),
+      Inferred("eight-fold: Reason interrogation invites — chain unrooted at named source"))
+  )
+}
+
+// ─── Walking the graph — buffer-counter substrate ──────────────────
+
+fn walk_all_loop(i, n, buf, buf_len) with Interrogate + !Mutate = {
+  if i >= n { buf_len }
+  else {
+    let report = perform interrogate_at(i)
+    list_set(buf, buf_len, report)
+    walk_all_loop(i + 1, n, buf, buf_len + 1)
+  }
+}
+
+// ─── Verdict extraction — for queries against a specific axis ──────
+
+fn extract_verdict(report, kind) with Pure = {
+  let InterrogationReport(r) = report
+  match kind {
+    IntGraph      => r.graph_v,
+    IntHandler    => r.handler_v,
+    IntVerb       => r.verb_v,
+    IntRow        => r.row_v,
+    IntOwnership  => r.ownership_v,
+    IntRefinement => r.refinement_v,
+    IntGradient   => r.gradient_v,
+    IntReason     => r.reason_v
+  }
+}
+
+fn verdict_is_invite(v) with Pure = match v {
+  VerdictClears(_) => false,
+  VerdictInvites(_) => true
+}
+
+fn verdict_is_clear(v) with Pure = match v {
+  VerdictClears(_) => true,
+  VerdictInvites(_) => false
+}
+
+// ─── Aggregate metrics — composed projections of reports ──────────
+//
+// The audit's structured surface. Each metric is a pure transform
+// over a List<InterrogationReport>. Cursor uses these to surface
+// project-wide gradient-density at various granularities.
+
+fn count_invites_by_kind(reports, kind) with Pure = {
+  count_invites_loop(reports, 0, reports.len, kind, 0)
+}
+
+fn count_invites_loop(reports, i, n, kind, acc) with Pure = {
+  if i >= n { acc }
+  else {
+    let report = list_index(reports, i)
+    let next_acc = if verdict_is_invite(extract_verdict(report, kind)) {
+      acc + 1
+    } else { acc }
+    count_invites_loop(reports, i + 1, n, kind, next_acc)
+  }
+}
+
+/// Project-wide eight-tentacle gradient density. Returns one Int per
+/// interrogation kind. The eight numbers ARE the project's
+/// "distance from ULTIMATE FORM" along each axis.
+fn project_gradient_density(reports) with Pure = {
+  let buf = make_list(0)
+  let buf_8 = list_extend_to(buf, 8)
+  list_set(buf_8, 0, count_invites_by_kind(reports, IntGraph))
+  list_set(buf_8, 1, count_invites_by_kind(reports, IntHandler))
+  list_set(buf_8, 2, count_invites_by_kind(reports, IntVerb))
+  list_set(buf_8, 3, count_invites_by_kind(reports, IntRow))
+  list_set(buf_8, 4, count_invites_by_kind(reports, IntOwnership))
+  list_set(buf_8, 5, count_invites_by_kind(reports, IntRefinement))
+  list_set(buf_8, 6, count_invites_by_kind(reports, IntGradient))
+  list_set(buf_8, 7, count_invites_by_kind(reports, IntReason))
+  buf_8
+}
+
+/// Total-clear count: positions where ALL EIGHT clear. Reading
+/// ULTIMATE FORM as the limit.
+fn total_clear_positions(reports) with Pure = {
+  total_clear_loop(reports, 0, reports.len, 0)
+}
+
+fn total_clear_loop(reports, i, n, acc) with Pure = {
+  if i >= n { acc }
+  else {
+    let report = list_index(reports, i)
+    let next_acc = if all_eight_clear(report) { acc + 1 } else { acc }
+    total_clear_loop(reports, i + 1, n, next_acc)
+  }
+}
+
+fn all_eight_clear(report) with Pure = {
+  let InterrogationReport(r) = report
+  verdict_is_clear(r.graph_v)
+    && verdict_is_clear(r.handler_v)
+    && verdict_is_clear(r.verb_v)
+    && verdict_is_clear(r.row_v)
+    && verdict_is_clear(r.ownership_v)
+    && verdict_is_clear(r.refinement_v)
+    && verdict_is_clear(r.gradient_v)
+    && verdict_is_clear(r.reason_v)
+}
+
+// ─── Composition with cursor_default ────────────────────────────────
+//
+// cursor_default's CursorView is the per-position projection. The
+// eight-loop's interrogate_at IS the CursorView audit form. Both
+// read the same eight tentacles; the CursorView surfaces them as
+// human-readable; the InterrogationReport surfaces them as
+// structured artifacts the IDE walks for project-wide audit.
+//
+// Composition: cursor_session(initial) ~> interrogate_default
+// runs the eight as substrate; the IDE displays project-wide
+// "gradient density" as a single number per axis (the eight
+// numbers ARE the developer's distance from ULTIMATE FORM along
+// each kernel primitive).
+
+fn cursor_session_with_audit(initial_caret)
+    with Surface + GraphRead + Cursor + Interrogate + !Mutate = {
+  cursor_session(initial_caret) ~> interrogate_default
+}
+
+// ─── The recursive realization ──────────────────────────────────────
+//
+// CLAUDE.md authoring discipline = humans run the eight before each
+// line.
+// SUBSTRATE.md §I = the eight ARE the kernel primitives.
+// 09-mentl.md = the eight ARE Mentl's tentacles.
+// Hμ.cursor's CursorView = the eight aspects of one read.
+// Hμ.eight-interrogation-loop (this file) = the eight as automated
+//   substrate at every graph node.
+//
+// SAME eight, FIVE roles. The mascot framing closes: Mentl is an
+// octopus because the kernel has eight primitives AND the
+// discipline is eight AND the projection has eight aspects AND the
+// substrate runs the eight AND the human's authoring mirrors all
+// of the above. **One method, every level.**
+//
+// The medium IS the discipline IS the projection IS the kernel IS
+// the cursor IS the gradient argmax. ULTIMATE FORM crystallizes
+// when these collapse into one continuous closed loop — the
+// developer types `??`; the substrate runs the eight; the
+// argmax surfaces; the gradient narrows; the loop closes; the
+// medium teaches itself by being itself.
+//
+// The bus is on. The medium folds itself into its seed.

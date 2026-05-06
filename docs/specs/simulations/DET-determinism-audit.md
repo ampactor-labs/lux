@@ -10,7 +10,7 @@
 
 Determinism is the property that the same compiler compiling the same source produces byte-identical output. **This is load-bearing for first-light** because:
 
-1. **Hand-WAT is the reference.** First-light's fixed-point test diffs `bootstrap/inka.wat` against `inka2.wat` (the compiler's self-compilation output). A single non-deterministic byte in emit = diff non-empty = first-light fails.
+1. **Hand-WAT is the reference.** First-light's fixed-point test diffs `bootstrap/mentl.wat` against `inka2.wat` (the compiler's self-compilation output). A single non-deterministic byte in emit = diff non-empty = first-light fails.
 2. **Non-determinism is latent.** It might pass on one run, fail on another; a determinism bug can ship and hide until a first-light attempt.
 3. **Post-first-light, determinism enables caching.** IC's `(source_hash, handler_chain_hash)` key assumes same inputs → same output. Non-determinism breaks cache correctness.
 
@@ -23,7 +23,7 @@ Sources of non-determinism:
 - Environment-variable reads.
 - Filesystem-iteration-order dependencies.
 
-**Inka is mostly immune by construction:** the substrate is sorted-by-construction (field sort in H2, effect-name sort in H3.1, region-sort in H4, everything-sorted-by-handle), but the emit path + any diagnostic output + any opaque collection iteration could still leak.
+**Mentl is mostly immune by construction:** the substrate is sorted-by-construction (field sort in H2, effect-name sort in H3.1, region-sort in H4, everything-sorted-by-handle), but the emit path + any diagnostic output + any opaque collection iteration could still leak.
 
 This walkthrough gates:
 - Item 24 — determinism audit execution.
@@ -55,8 +55,8 @@ forall source, handler_chain:
 **Primary test:**
 
 ```
-inka compile src/main.nx > /tmp/first.wat
-inka compile src/main.nx > /tmp/second.wat
+mentl compile src/main.mn > /tmp/first.wat
+mentl compile src/main.mn > /tmp/second.wat
 diff /tmp/first.wat /tmp/second.wat
 # must be empty
 ```
@@ -66,8 +66,8 @@ Single-process: rules out env-variable or filesystem-state differences between r
 **Secondary test:**
 
 ```
-inka compile src/*.nx lib/**/*.nx > /tmp/full_first.wat
-inka compile src/*.nx lib/**/*.nx > /tmp/full_second.wat
+mentl compile src/*.mn lib/**/*.mn > /tmp/full_first.wat
+mentl compile src/*.mn lib/**/*.mn > /tmp/full_second.wat
 diff /tmp/full_first.wat /tmp/full_second.wat
 # must be empty
 ```
@@ -78,10 +78,10 @@ Full-tree self-compilation (the compiler compiles itself).
 
 ```
 # session 1
-inka compile src/*.nx > /tmp/session_1.wat
+mentl compile src/*.mn > /tmp/session_1.wat
 
 # session 2 (fresh shell, different PID, potentially different memory layout)
-inka compile src/*.nx > /tmp/session_2.wat
+mentl compile src/*.mn > /tmp/session_2.wat
 
 diff /tmp/session_1.wat /tmp/session_2.wat
 # must be empty
@@ -93,13 +93,13 @@ Verifies no memory-address leakage, no session-state dependency.
 
 Every emit path. Specifically:
 
-1. **`src/backends/wasm.nx`** — the WAT emission handler. Every `emit_*` function's output must be deterministic given its input. All iteration over collections must be sorted by a canonical key.
-2. **`src/lower.nx`** — LowIR construction. Handle allocation order, ADT tag assignment, closure record layout.
-3. **`src/infer.nx`** — type inference. Handle assignment order (must follow source order), Reason attachment order.
-4. **`src/cache.nx`** — `.kai` cache serialization. Sorted fields, canonical string formatting.
-5. **`src/mentl.nx`** — diagnostic output, voice line formatting (relevant for test runs where diagnostics appear in output).
-6. **`src/pipeline.nx`** — handler composition order.
-7. **`lib/runtime/*.nx`** — any runtime function whose behavior could be order-dependent.
+1. **`src/backends/wasm.mn`** — the WAT emission handler. Every `emit_*` function's output must be deterministic given its input. All iteration over collections must be sorted by a canonical key.
+2. **`src/lower.mn`** — LowIR construction. Handle allocation order, ADT tag assignment, closure record layout.
+3. **`src/infer.mn`** — type inference. Handle assignment order (must follow source order), Reason attachment order.
+4. **`src/cache.mn`** — `.kai` cache serialization. Sorted fields, canonical string formatting.
+5. **`src/mentl.mn`** — diagnostic output, voice line formatting (relevant for test runs where diagnostics appear in output).
+6. **`src/pipeline.mn`** — handler composition order.
+7. **`lib/runtime/*.mn`** — any runtime function whose behavior could be order-dependent.
 
 ### 1.4 Determinism rules (prescriptive)
 
@@ -120,7 +120,7 @@ Every site in the emit path must obey these rules:
 
 **Rule 5: Canonical number formatting.** Floats must use a canonical decimal form (e.g., `0.1` not `0.10000000001` — round to a canonical representation). Integers straightforward.
 
-**Rule 6: Handle assignment is source-order.** Every graph handle minted during inference gets the next integer; order is strictly the order of `graph_fresh_ty` calls; those calls are made in source-walk order (infer.nx's single-walk discipline).
+**Rule 6: Handle assignment is source-order.** Every graph handle minted during inference gets the next integer; order is strictly the order of `graph_fresh_ty` calls; those calls are made in source-walk order (infer.mn's single-walk discipline).
 
 **Rule 7: Emit-loop over graph content iterates by handle.** Never iterate over graph nodes by some hash ordering; use `for h in 0 .. graph_next_handle() { emit_node(h) }`.
 
@@ -159,14 +159,14 @@ Every site in the emit path must obey these rules:
 
 ### 2.1 Pass 1 — Static pattern scan
 
-Run pattern scan across `src/*.nx` + `lib/**/*.nx`:
+Run pattern scan across `src/*.mn` + `lib/**/*.mn`:
 - Every pattern from §1.5.
 - Every hit investigated + classified (false-positive, true positive, acceptable).
 - Every true positive fixed in-place.
 
 ### 2.2 Pass 2 — Iteration-order audit
 
-For every `fn emit_*` in `src/backends/wasm.nx`:
+For every `fn emit_*` in `src/backends/wasm.mn`:
 - Identify every iteration over a collection.
 - Verify the iteration is over a sorted or source-ordered collection.
 - Fix any unsorted iteration.
@@ -176,8 +176,8 @@ For every `fn emit_*` in `src/backends/wasm.nx`:
 Run the primary test from §1.2:
 
 ```
-inka compile src/main.nx > /tmp/first.wat
-inka compile src/main.nx > /tmp/second.wat
+mentl compile src/main.mn > /tmp/first.wat
+mentl compile src/main.mn > /tmp/second.wat
 diff /tmp/first.wat /tmp/second.wat
 ```
 
@@ -205,8 +205,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-inka compile src/*.nx lib/**/*.nx > /tmp/det_first.wat
-inka compile src/*.nx lib/**/*.nx > /tmp/det_second.wat
+mentl compile src/*.mn lib/**/*.mn > /tmp/det_first.wat
+mentl compile src/*.mn lib/**/*.mn > /tmp/det_second.wat
 
 if diff -q /tmp/det_first.wat /tmp/det_second.wat > /dev/null; then
   echo "✓ determinism: byte-identical on double-compile"
@@ -218,7 +218,7 @@ else
 fi
 ```
 
-Pre-commit hook runs this on any commit touching `src/*.nx` or `lib/**/*.nx`.
+Pre-commit hook runs this on any commit touching `src/*.mn` or `lib/**/*.mn`.
 
 ---
 
@@ -325,6 +325,6 @@ Each commit gated by running the appropriate test.
 
 ## 10. Closing
 
-DET is how Inka proves its own byte-identity to itself. Every emit path audited, every unsorted iteration sorted, every timestamp removed, every random-dependency eliminated. Post-DET, the single-process double-compile diff is empty; first-light's fixed-point test has a deterministic compiler to diff against the hand-WAT.
+DET is how Mentl proves its own byte-identity to itself. Every emit path audited, every unsorted iteration sorted, every timestamp removed, every random-dependency eliminated. Post-DET, the single-process double-compile diff is empty; first-light's fixed-point test has a deterministic compiler to diff against the hand-WAT.
 
 **One walkthrough, 4 commits, byte-identical compilation guaranteed.**

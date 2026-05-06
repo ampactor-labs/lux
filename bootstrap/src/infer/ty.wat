@@ -47,7 +47,7 @@
   ;;
   ;; Per spec 02 (Ty ADT) + Hβ-infer-substrate.md §2.3 + Hβ-lower-
   ;; substrate.md §7.1 (lower reads via $graph_chase + $tag_of dispatch
-  ;; on the same records this chunk produces) + src/types.nx canonical
+  ;; on the same records this chunk produces) + src/types.mn canonical
   ;; Ty (lines 35-49, 14 variants).
   ;;
   ;; Nullary-sentinel discipline (per HB-bool-transition + γ insight #8
@@ -63,11 +63,11 @@
   ;;   substrate the kernel applies uniformly.
   ;;
   ;; RN.1 substrate (TAlias):
-  ;;   Per src/types.nx:48 + Hβ-infer §2.3 (extended for Wave 2.E.infer.ty
+  ;;   Per src/types.mn:48 + Hβ-infer §2.3 (extended for Wave 2.E.infer.ty
   ;;   gap finding 2026-04-26): TAlias(name, resolved) preserves the
   ;;   developer-authored alias name (e.g. "Port") wrapping the resolved
   ;;   type (e.g. TRefined(TInt, _)). The intent edge is load-bearing —
-  ;;   show_type at src/types.nx:815 returns the alias name verbatim
+  ;;   show_type at src/types.mn:815 returns the alias name verbatim
   ;;   for diagnostics rather than expanding to the resolved form.
   ;;   Without this Ty variant, intent-aware rendering collapses; the
   ;;   user reads expanded refinements where they wrote a single name.
@@ -104,10 +104,10 @@
   ;;
   ;;   100-113 — Ty variants (14 slots; 100-103 nullary sentinels,
   ;;             104-113 record-shaped; 114-119 reserved for future
-  ;;             Ty variants per src/types.nx evolution)
+  ;;             Ty variants per src/types.mn evolution)
   ;;   250-259 — ResumeDiscipline sentinels (3 used, 6 reserved)
   ;;
-  ;; Ty per-variant enumeration (matches src/types.nx:35-49 verbatim):
+  ;; Ty per-variant enumeration (matches src/types.mn:35-49 verbatim):
   ;;   100 = TInt                                              (nullary sentinel)
   ;;   101 = TFloat                                            (nullary sentinel)
   ;;   102 = TString                                           (nullary sentinel)
@@ -123,7 +123,7 @@
   ;;   112 = TCont(Ty, ResumeDiscipline)                       arity 2 (return Ty + discipline sentinel)
   ;;   113 = TAlias(String, Ty)                                arity 2 (RN.1 — alias name + resolved Ty)
   ;;
-  ;; ResumeDiscipline per-variant (matches src/types.nx:70-73 verbatim):
+  ;; ResumeDiscipline per-variant (matches src/types.mn:70-73 verbatim):
   ;;   250 = OneShot                                           (nullary sentinel)
   ;;   251 = MultiShot                                         (nullary sentinel)
   ;;   252 = Either                                            (nullary sentinel)
@@ -144,7 +144,7 @@
   ;;   253-259    reserved future ResumeDiscipline
   ;;   300-349    LowExpr (lower.wat — pending; per Hβ-lower §2)
   ;;
-  ;; TParam payload note (per Hβ-infer §2.3 + spec 02 src/types.nx:55-58
+  ;; TParam payload note (per Hβ-infer §2.3 + spec 02 src/types.mn:55-58
   ;; + ROADMAP §3 substrate-gap closure 2026-04-26):
   ;;   TFun's params field is a List of TParam records — TParam is its
   ;;   own ADT (TParam(name, ty, authored_ownership, resolved_ownership)
@@ -227,7 +227,7 @@
   ;; - Foreign fluency:                    no "type kind" / "discriminator"
   ;;                                       / "ADT runtime" generic
   ;;                                       vocabulary. Names match
-  ;;                                       src/types.nx variants exactly
+  ;;                                       src/types.mn variants exactly
   ;;                                       (lowercased for WAT
   ;;                                       convention).
 
@@ -414,8 +414,8 @@
   ;; Field 0: alias name string ptr (e.g. "Port" for type Port = Refined(Int, ...)).
   ;; Field 1: resolved Ty pointer (the type the alias unwraps to).
   ;;
-  ;; Per src/types.nx:48 — preserves authored alias name for intent-aware
-  ;; rendering. show_type at src/types.nx:815 returns the alias name
+  ;; Per src/types.mn:48 — preserves authored alias name for intent-aware
+  ;; rendering. show_type at src/types.mn:815 returns the alias name
   ;; verbatim rather than expanding the resolved Ty for diagnostics —
   ;; the user reads "Port" instead of "Refined(Int, port_predicate)".
   ;; $chase_deep does NOT unwrap TAlias (would lose the intent edge);
@@ -483,7 +483,7 @@
     (i32.eq (call $ty_tag (local.get $t)) (i32.const 113)))
 
   ;; ─── 250-252 = ResumeDiscipline (3 nullary sentinels) ────────────
-  ;; Per src/types.nx:70-73 + Hβ-infer §2.3 + Hβ-lower §3.1 (relocated
+  ;; Per src/types.mn:70-73 + Hβ-infer §2.3 + Hβ-lower §3.1 (relocated
   ;; 220→250 for tag uniqueness with reason.wat). Same nullary-sentinel
   ;; discipline as TInt/TFloat/TString/TUnit — values are i32 const
   ;; sentinels; no heap allocation. Hβ.lower's $classify_handler

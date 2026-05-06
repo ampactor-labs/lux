@@ -12,7 +12,7 @@ extends emit to USE refinement constraints to optimize layout —
 elide null checks, pack flags into bits, share representations,
 compute offsets from refinement-derived gradients.
 
-Replacement target: `src/backends/wasm.nx` emit_record_field_stores
+Replacement target: `src/backends/wasm.mn` emit_record_field_stores
 extended with refinement-aware offset computation.
 
 ## Handles (positive form)

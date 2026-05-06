@@ -18,7 +18,7 @@ The fix is **Intent Preservation** natively wired into the graph substrate.
 We augmented the `Graph` ADT with an `intent_index: [(Int, List)]` which maps AST Node Handles directly to their *authored* effect lists `List<(EffName, negated: Bool)>`.
 
 During parsing (`parse_fn_stmt`), the moment an AST Node Handle is minted, the parser emits a `GraphWrite` operation:
-```inka
+```mentl
   let stmt_node = nstmt(FnStmt(name, params, ret_node, effs, body), start)
   let N(_, _, h) = stmt_node
   perform graph_index_intent(h, effs)
@@ -29,7 +29,7 @@ This perfectly aligns with Primitive #1 ("The Graph IS the Program"). The author
 ## 3. Named Capability Bundles (FV.1.δ)
 
 To elevate Boolean effects into composable guarantees, we introduced the `capability` keyword:
-```inka
+```mentl
 capability RealTime = !Alloc + !IO + !Network
 ```
 

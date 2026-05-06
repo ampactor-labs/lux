@@ -11,12 +11,12 @@
 > algebra: **`!Alloc` × MS ⇒ `replay_safe` is the only admissible
 > policy** — forking allocates; `!Alloc` forbids allocation; the
 > compiler enforces the combination at handler-install time. AM is
-> the Inka-native answer to Tofte-Talpin × Affect POPL 2025 × region-
+> the Mentl-native answer to Tofte-Talpin × Affect POPL 2025 × region-
 > based memory management × delimited continuations: the arena
 > handler decides how captures interact with arena lifetime; the
 > continuation record is allocated through the same `emit_alloc`
 > surface every other heap record uses; escape analysis composes on
-> H4's `region_tracker` substrate already wired in `src/own.nx:199-306`.
+> H4's `region_tracker` substrate already wired in `src/own.mn:199-306`.
 >
 > *Claim in one sentence:* **Three peer handlers on the one
 > `emit_alloc` swap surface resolve the MS × arena question — pick
@@ -37,10 +37,10 @@ manifesto was written. Three policies were enumerated; none
 materialized. The error code `T_ContinuationEscapes` has existed in
 `docs/errors/` as *"Teach / Warning (hardens to Error when F.4
 semantics finalize)"* — a placeholder pending AM. H4
-(`region_tracker` in `src/own.nx:199-306`) landed the
+(`region_tracker` in `src/own.mn:199-306`) landed the
 region-escape substrate for OneShot Alloc escapes; its arms
 (`region_enter` / `tag_alloc` / `check_escape`) are already wired,
-with the note at `src/own.nx:210-214` that *"the full Alloc-tagging
+with the note at `src/own.mn:210-214` that *"the full Alloc-tagging
 path (every `perform alloc(n)` runs through tag_alloc) will land
 when EmitMemory arena semantics bind region identities to alloc
 returns."*
@@ -61,10 +61,10 @@ With H7 landed, AM closes the quartet. After AM:
   from `Teach/Warning` to `Error` with the three canonical fixes
   shipped as machine-applicable patches (per `docs/errors/T_ContinuationEscapes.md:44-46`).
 - **`fork_copy` runs** — deep-copy traversal lands in
-  `lib/runtime/arena_ms.nx`; per-batch autodiff tape in B.11 ML
+  `lib/runtime/arena_ms.mn`; per-batch autodiff tape in B.11 ML
   training uses it; `><` parallel-speculate branches via `race` +
   `fork_copy` land as one-pattern composition.
-- **Mentl's Trace tentacle** (`src/mentl.nx` — primitive #5
+- **Mentl's Trace tentacle** (`src/mentl.mn` — primitive #5
   surface) surfaces one of the three policies as a gradient hint
   when the user installs an arena handler around an MS-typed body;
   the default is `replay_safe` per Q-B.5.2.
@@ -73,9 +73,9 @@ With H7 landed, AM closes the quartet. After AM:
   into the caller's arena on every candidate learning-rate fork;
   B.11 can author substrate cleanly.
 
-**AM is the Inka-native answer** to a research question POPL 2025's
+**AM is the Mentl-native answer** to a research question POPL 2025's
 Affect paper raised at the type level but left open at the runtime
-semantics. Inka's residue: three handlers, one swap surface, one
+semantics. Mentl's residue: three handlers, one swap surface, one
 row-algebra invariant.
 
 ### 0.2 Named policies (all from DESIGN Ch 6 D.1)
@@ -83,7 +83,7 @@ row-algebra invariant.
 The three policies are not new design space. They are DESIGN's three
 options ratified with substrate residue. Each is a handler on the
 same `EmitMemory` effect; the existing `emit_memory_bump` peer
-(`src/backends/wasm.nx:76+`) is the baseline default. Per anchor 5:
+(`src/backends/wasm.mn:76+`) is the baseline default. Per anchor 5:
 *"if it needs to exist, it's a handler."*
 
 | Policy | Capture behavior | Runtime cost | Admissibility |
@@ -151,7 +151,7 @@ AM extends the same substrate to MultiShot captures.
 |------|---------------------|-------------------------|
 | Kernel primitive | #5 ownership-as-effect (Consume + region) | #5 + #2 (MS resume discipline interacts) |
 | Substrate effect | `Region` — region_enter / region_exit / tag_alloc / check_escape | Same `Region` effect; AM adds `check_capture_escape` peer op for MS captures |
-| Handler | `region_tracker` (`src/own.nx:215+`) | Three peer handlers on `EmitMemory`; `region_tracker` arms called from each during capture/replay/copy |
+| Handler | `region_tracker` (`src/own.mn:215+`) | Three peer handlers on `EmitMemory`; `region_tracker` arms called from each during capture/replay/copy |
 | Escape surface | FnStmt return position | MS perform-site capture |
 | Error code | `E_RegionEscape` / `E_OwnershipViolation` | `T_ContinuationEscapes` (hardens from Teach to Error via AM) |
 | Fix applicability | MaybeIncorrect | MachineApplicable (each of 3 policies is a specific fix) |
@@ -223,7 +223,7 @@ handler replay_safe {
 **Note on `resume_default` / `resume_forward`:** these are pseudocode
 shorthands for the `~>` chain's next-outer handler dispatch. The
 concrete shape is `resume()` with the underlying handler already
-in scope — Inka's handler chain semantics forward the op naturally.
+in scope — Mentl's handler chain semantics forward the op naturally.
 No new substrate primitive; standard `~>` composition.
 
 ### 1.2 Handler — `fork_deny` (compile-time refusal)
@@ -245,7 +245,7 @@ No new substrate primitive; standard `~>` composition.
 // outlive the arena" case.
 //
 // The check_capture_escape op is a new peer on the Region effect
-// (declared alongside tag_alloc / check_escape in src/own.nx's
+// (declared alongside tag_alloc / check_escape in src/own.mn's
 // region_tracker) — arm-for-arm mirror, MS-capture variant.
 
 handler fork_deny {
@@ -283,7 +283,7 @@ handler fork_deny {
 ```
 
 **On the `check_capture_escape` op:** AM adds one op to the
-existing Region effect (`src/own.nx:448-467` — region_tracker's
+existing Region effect (`src/own.mn:448-467` — region_tracker's
 effect declaration, see §4.2 for exact literal edits). The op
 peer-mirrors `check_escape` but for MS capture lists rather than
 return values. Its arm in `region_tracker` reuses `lookup_tag` +
@@ -400,7 +400,7 @@ handles the tag propagation.
 
 ### 1.5 Row invariant — `!Alloc × MS ⇒ replay_safe only`
 
-The Boolean effect algebra (DESIGN §3, `src/effects.nx`) already
+The Boolean effect algebra (DESIGN §3, `src/effects.mn`) already
 gives us this for free. It is NOT a new check.
 
 The reasoning:
@@ -413,7 +413,7 @@ The reasoning:
    effect requirements are satisfied by the row-absence claim.
 3. `!Alloc` (the row's claim) vs `Alloc` (the handler's body) is
    the canonical row-subtraction failure — `E_OwnershipViolation`
-   at handler-install time per `src/effects.nx` row algebra.
+   at handler-install time per `src/effects.mn` row algebra.
 4. `replay_safe` has no `emit_alloc` call at MS sites (its body
    refuses the alloc). Its row is `Alloc`-free at MS captures
    (though it may allocate for the trail buffer at install —
@@ -452,11 +452,11 @@ universally compiles; `replay_safe` requires replay-compat effects;
 
 ## 2. Per-edit-site eight interrogations
 
-### 2.1 `handler replay_safe` (lib/runtime/arena_ms.nx)
+### 2.1 `handler replay_safe` (lib/runtime/arena_ms.mn)
 
 | # | Primitive | Interrogation answer |
 |---|-----------|---------------------|
-| 1 | **Graph?** | Reads `in_ms_capture()` + `current_ms_site()` from lower.nx's H7 substrate (LowerState effect); writes trail via `perform record_replay_trace(...)`. Trail already substrate — primitive #1's trail vocabulary. |
+| 1 | **Graph?** | Reads `in_ms_capture()` + `current_ms_site()` from lower.mn's H7 substrate (LowerState effect); writes trail via `perform record_replay_trace(...)`. Trail already substrate — primitive #1's trail vocabulary. |
 | 2 | **Handler?** | This IS the handler. Peer to `emit_memory_bump`, `emit_memory_arena` on the `EmitMemory` effect surface. Resume discipline: each arm is `@resume=OneShot` (handler's own arms); the MS work is the BODY being captured, not the handler's resumes. |
 | 3 | **Verb?** | Installed via `~> replay_safe` in the user's chain. `~>` ordering: `replay_safe` sits OUTSIDE the MS op's emit handler; inside the arena's `temp_arena`. Stack order: `~> temp_arena ~> replay_safe ~> ms_op_body`. |
 | 4 | **Row?** | Declares `with ReplaySafe + !UnrepayableEffects + EmitMemory`. The `!UnrepayableEffects` is the load-bearing invariant check per §1.1. `!Alloc` can compose with `replay_safe` (no emit_alloc at MS sites). |
@@ -465,7 +465,7 @@ universally compiles; `replay_safe` requires replay-compat effects;
 | 7 | **Gradient?** | Installing `replay_safe` unlocks `CReplayBounded` capability — the body is proven to be replayable from effect trace. User-level gradient hint: *"This arm is replay-safe; resumes cost O(trail length)."* |
 | 8 | **Reason?** | Each `record_replay_trace` call records a Reason on the trail entry with the install span + MS site span. Resume replays write Reason chains tied back to the original install. |
 
-### 2.2 `handler fork_deny` (lib/runtime/arena_ms.nx)
+### 2.2 `handler fork_deny` (lib/runtime/arena_ms.mn)
 
 | # | Primitive | Interrogation answer |
 |---|-----------|---------------------|
@@ -478,7 +478,7 @@ universally compiles; `replay_safe` requires replay-compat effects;
 | 7 | **Gradient?** | Installing `fork_deny` unlocks `CCaptureArenaSafe` when the escape walk succeeds; emits `T_ContinuationEscapes` with three canonical fixes when it fails. |
 | 8 | **Reason?** | T_ContinuationEscapes carries the escape-span pair (capture site + arena-install site); Reason chain walks back to both via graph's span_index. |
 
-### 2.3 `handler fork_copy` (lib/runtime/arena_ms.nx)
+### 2.3 `handler fork_copy` (lib/runtime/arena_ms.mn)
 
 | # | Primitive | Interrogation answer |
 |---|-----------|---------------------|
@@ -491,25 +491,25 @@ universally compiles; `replay_safe` requires replay-compat effects;
 | 7 | **Gradient?** | Installing `fork_copy` unlocks `CForkCopy` capability. VoiceLine: *"Each capture is deep-copied to `<target_arena_name>`; O(M) per capture."* |
 | 8 | **Reason?** | Each copy records `Reason::ForkCopy(source_arena, target_arena, capture_span)` — traceable back through the graph. |
 
-### 2.4 `src/own.nx` — region_tracker extension
+### 2.4 `src/own.mn` — region_tracker extension
 
 | # | Primitive | Interrogation answer |
 |---|-----------|---------------------|
 | 1 | **Graph?** | Reads `tagged_values` state (existing H4 substrate). Adds one new op: `check_capture_escape(captures: List<Handle>, arena_rid: Int) -> Result<(), List<Span>>`. |
 | 2 | **Handler?** | Extends existing `region_tracker` handler with one new arm. State record unchanged — same `tagged_values` list; new arm is a reader over it. |
 | 3 | **Verb?** | N/A. |
-| 4 | **Row?** | region_tracker's row grows by one op; Region effect declaration (`src/own.nx:448-467`) adds one op to its declaration. |
+| 4 | **Row?** | region_tracker's row grows by one op; Region effect declaration (`src/own.mn:448-467`) adds one op to its declaration. |
 | 5 | **Ownership?** | `captures: List<Handle>` is ref-passed; state unchanged across the arm. |
 | 6 | **Refinement?** | N/A at the arm; the refinement logic is what the op IMPLEMENTS. |
 | 7 | **Gradient?** | N/A at substrate; exposed as part of Mentl's Trace tentacle's surfaces. |
 | 8 | **Reason?** | Each escape entry's span is returned as Err's payload; Mentl's Why tentacle walks from the span to the tag_alloc install site. |
 
-### 2.5 `src/types.nx` — TCont refinement tag
+### 2.5 `src/types.mn` — TCont refinement tag
 
 | # | Primitive | Interrogation answer |
 |---|-----------|---------------------|
 | 1 | **Graph?** | `TCont` variant grows from `TCont(Ty, ResumeDiscipline)` to `TCont(Ty, ResumeDiscipline, Option<ArenaTag>)`. Existing TCont construction sites pass `None`; MS capture sites pass `Some(ArenaTag(rid, span))`. Per Ω.5 record discipline — the variant was Already a multi-arg ADT; one more field is additive without parallel-arrays-creating. |
-| 2 | **Handler?** | The refinement tag is compiler-synthesized at lower.nx's MS capture site via `perform current_region()`. No handler change. |
+| 2 | **Handler?** | The refinement tag is compiler-synthesized at lower.mn's MS capture site via `perform current_region()`. No handler change. |
 | 3 | **Verb?** | N/A. |
 | 4 | **Row?** | Emit-time check at handler install uses the tag to decide row-subsumption of the three AM handlers. Row algebra does the subsumption; AM doesn't extend the algebra. |
 | 5 | **Ownership?** | N/A at the type level; the tag informs ownership dispatch downstream. |
@@ -537,7 +537,7 @@ universally compiles; `replay_safe` requires replay-compat effects;
 Every edit passes the nine named drift modes + generalized fluency-
 taint against arena / lifetime / continuation-library ecosystems.
 
-### 3.1 At the three handler declarations (`lib/runtime/arena_ms.nx`)
+### 3.1 At the three handler declarations (`lib/runtime/arena_ms.mn`)
 
 - **Drift 1 (Rust vtable):** The three policies are three peer
   HANDLERS on the one `EmitMemory` effect. NOT a dispatch table
@@ -575,22 +575,22 @@ taint against arena / lifetime / continuation-library ecosystems.
   allocated; no Future exists in the system.
 - **Foreign fluency — C++ `std::pmr::monotonic_buffer_resource`:**
   Related concept; wrong substrate. C++'s PMR threads a polymorphic
-  memory resource through templates; Inka threads an `EmitMemory`
+  memory resource through templates; Mentl threads an `EmitMemory`
   effect row through handlers. The C++ formulation lacks MS and
-  lacks compile-time region escape; Inka's has both.
+  lacks compile-time region escape; Mentl's has both.
 - **Foreign fluency — Cyclone region annotations `@region("r")`:**
   Same research lineage (Tofte-Talpin); Cyclone exposes regions
-  as user-written annotations on pointer types. Inka infers
+  as user-written annotations on pointer types. Mentl infers
   region identity from handler identity. `@via_arena=ArenaId` is
   compiler-synthesized, NOT user-written.
 - **Foreign fluency — Vale `'a` lifetimes:** Vale's
-  one-mutator-many-readers via `!Mutate` is an Inka concept
+  one-mutator-many-readers via `!Mutate` is an Mentl concept
   (DESIGN §6); Vale's lifetime syntax is not. AM does not
   introduce lifetime parameters. Region identity IS handler
   identity; one walks the `~>` chain to find a handler's scope,
   not parses a lifetime annotation.
 
-### 3.2 At `src/own.nx` — check_capture_escape op
+### 3.2 At `src/own.mn` — check_capture_escape op
 
 - **Drift 2 (Scheme env frame):** The escape walk is a FLAT
   iteration over `captures: List<Handle>`, using `lookup_tag`
@@ -603,7 +603,7 @@ taint against arena / lifetime / continuation-library ecosystems.
 - **Drift 9:** The op declaration, the arm implementation, and the
   region_tracker state unchanged all land together.
 
-### 3.3 At `src/types.nx` — TCont refinement tag
+### 3.3 At `src/types.mn` — TCont refinement tag
 
 - **Drift 1 / Drift 8:** `Option<ArenaTag>` is an ADT, NOT a sentinel
   integer (0 = no arena, N = arena id). The tag's PRESENCE encodes
@@ -613,7 +613,7 @@ taint against arena / lifetime / continuation-library ecosystems.
   NRowBound | NRowFree | NErrorHole`).
 - **Drift 6 (primitive-type-special-case):** ArenaTag is a regular
   record `ArenaTag(ArenaId, Span)`. NOT a tuple. NOT a bare
-  Int. Mirrors Region(`Region(rid, span)` at src/own.nx:231-232)
+  Int. Mirrors Region(`Region(rid, span)` at src/own.mn:231-232)
   existing pattern.
 
 ### 3.4 At `docs/errors/T_ContinuationEscapes.md` — harden
@@ -629,7 +629,7 @@ taint against arena / lifetime / continuation-library ecosystems.
 Before typing any line in AM's substrate commits, ask:
 
 1. **Am I importing "lifetime" as a compile-time concept?** Lifetimes
-   are a Rust artifact; Inka's region identity is handler identity.
+   are a Rust artifact; Mentl's region identity is handler identity.
    If your mental model has `'a` / `'b` / `'static` in it — STOP.
    Walk the handler chain; region falls out.
 2. **Am I about to write `ArenaConfig::new(policy=...)`?** That's
@@ -657,8 +657,8 @@ Before typing any line in AM's substrate commits, ask:
 
 ## 4. Substrate touch sites — literal tokens at file:line targets
 
-*Literal tokens pending inka-plan at execution — this section
-specifies WHAT and WHERE; the implementer's inka-plan spec
+*Literal tokens pending mentl-plan at execution — this section
+specifies WHAT and WHERE; the implementer's mentl-plan spec
 specifies EXACTLY HOW.*
 
 ### 4.0 Halt-signals to DESIGN / MSR source
@@ -702,18 +702,18 @@ defaults to fork_copy. Both defaults land via the compiler's
 install-time elaboration.
 
 **§4.0.3 — Plan file substrate-touch claim.** Plan file §B.5 lists
-`src/own.nx` as extended for "escape-analysis extension for fork-deny
+`src/own.mn` as extended for "escape-analysis extension for fork-deny
 (emits existing `T_ContinuationEscapes`)". AM adds: the extension is
 one new op on the Region effect (`check_capture_escape`), with an
 arm in region_tracker. Not a large extension — ~20 lines in
-`src/own.nx` + the effect declaration edit in the same file.
+`src/own.mn` + the effect declaration edit in the same file.
 
-### 4.1 `lib/runtime/arena_ms.nx` — NEW file, three handlers (+ helpers)
+### 4.1 `lib/runtime/arena_ms.mn` — NEW file, three handlers (+ helpers)
 
 File shape (~350-450 lines):
 
 ```
-// ═══ lib/runtime/arena_ms.nx — MS × arena handler substrate ═══════
+// ═══ lib/runtime/arena_ms.mn — MS × arena handler substrate ═══════
 // Per DESIGN Ch 6 D.1 + AM walkthrough. Three peer handlers on the
 // EmitMemory swap surface resolve multi-shot continuations captured
 // inside scoped-arena handlers.
@@ -723,7 +723,7 @@ import effects
 import own  // for region_tracker's check_capture_escape + deep_copy_to
 
 // ── AuxOps effect — MS context queries ─────────────────────────────
-// One small helper effect; lower.nx's H7 substrate installs this at
+// One small helper effect; lower.mn's H7 substrate installs this at
 // every capturing fn body's entry. The three AM handlers read from
 // it to know "am I emitting at an MS site?" and "what are the
 // current MS captures?".
@@ -760,19 +760,19 @@ fn parent_arena() = perform next_outer_arena()
 ```
 
 **Note on peer-effect decision:** `MsContext` could live in
-`src/lower.nx` (alongside the LowerState effect H7 introduced), or
+`src/lower.mn` (alongside the LowerState effect H7 introduced), or
 as a small peer module. Per Ω.5 consolidation discipline, one module
-per concerns cluster: MS lowering concerns go in `src/lower.nx`; AM
-handlers go in `lib/runtime/arena_ms.nx`. The `MsContext` effect
+per concerns cluster: MS lowering concerns go in `src/lower.mn`; AM
+handlers go in `lib/runtime/arena_ms.mn`. The `MsContext` effect
 surface is consumed by AM, so it lives with its consumer —
-`lib/runtime/arena_ms.nx` declares it; lower.nx's LMakeContinuation
+`lib/runtime/arena_ms.mn` declares it; lower.mn's LMakeContinuation
 emit site performs it.
 
-### 4.2 `src/own.nx` — check_capture_escape + deep_copy_to
+### 4.2 `src/own.mn` — check_capture_escape + deep_copy_to
 
-Four small edits to `src/own.nx`:
+Four small edits to `src/own.mn`:
 
-**Edit 1** (around `src/own.nx:448` in the Region effect declaration):
+**Edit 1** (around `src/own.mn:448` in the Region effect declaration):
 
 Add one op:
 
@@ -790,7 +790,7 @@ effect Region {
 ```
 
 **Edit 2** (inside `region_tracker` handler, around
-`src/own.nx:295`): add the new arm:
+`src/own.mn:295`): add the new arm:
 
 ```
 check_capture_escape(captures, arena_rid) => {
@@ -805,7 +805,7 @@ plus two helpers (`collect_escapes` + `is_escape`) after
 ~30 lines.
 
 **Edit 3** (extend the Alloc effect at its declaration — typically
-in `lib/runtime/memory.nx`): add one op:
+in `lib/runtime/memory.mn`): add one op:
 
 ```
 effect Alloc {
@@ -822,7 +822,7 @@ primitive leaves, `alloc + memcpy`; for heap records, recurse on
 each field pointer; return the copied root handle. Mirrors any
 standard deep-clone algorithm, routed through Alloc effect.
 
-### 4.3 `src/types.nx` — TCont refinement tag
+### 4.3 `src/types.mn` — TCont refinement tag
 
 **Edit** (line 70-73 area + TCont site if it exists; otherwise at
 first TCont reference): extend TCont to carry an optional arena
@@ -831,7 +831,7 @@ tag.
 ```
 // Existing (pre-AM):
 type TCont = TCont(Ty, ResumeDiscipline)
-// or wherever TCont currently lives in types.nx
+// or wherever TCont currently lives in types.mn
 
 // Post-AM:
 type TCont = TCont(Ty, ResumeDiscipline, Option)   // Option<ArenaTag>
@@ -840,7 +840,7 @@ type ArenaTag = ArenaTag(Int, Span)    // arena_id, install_span
 ```
 
 All existing TCont construction sites pass `None` as the third
-field (Phase I preservation). MS capture sites in lower.nx
+field (Phase I preservation). MS capture sites in lower.mn
 (post-H7) pass `Some(ArenaTag(current_region(), current_span()))`
 — one new call site.
 
@@ -861,7 +861,7 @@ authored; otherwise AM's commit lands after H7's.
 **Edit 2** (line 4): Change `**Emitted by:** Arc F.4 handler (scoped arenas × multi-shot continuations)` to:
 
 ```
-**Emitted by:** `fork_deny` handler (lib/runtime/arena_ms.nx) at MS capture site
+**Emitted by:** `fork_deny` handler (lib/runtime/arena_ms.mn) at MS capture site
 ```
 
 **Edit 3** (lines 25-33 + the Example block): Replace user-tag fix
@@ -901,11 +901,11 @@ transform(signal)
 ### 2026-04-XX — AM landed
 
 MSR Edit 4 landed. DESIGN Ch 6 D.1 (multi-shot × arena — the D.1
-question) closes in substrate. lib/runtime/arena_ms.nx adds three
+question) closes in substrate. lib/runtime/arena_ms.mn adds three
 peer handlers on EmitMemory: replay_safe, fork_deny, fork_copy.
-src/own.nx Region effect extended by check_capture_escape op +
-region_tracker arm. lib/runtime/memory.nx Alloc effect extended by
-deep_copy_to op. src/types.nx TCont grows Option<ArenaTag>.
+src/own.mn Region effect extended by check_capture_escape op +
+region_tracker arm. lib/runtime/memory.mn Alloc effect extended by
+deep_copy_to op. src/types.mn TCont grows Option<ArenaTag>.
 docs/errors/T_ContinuationEscapes.md hardened from Teach to Error.
 
 Row invariant: `!Alloc × MS ⇒ replay_safe only` lands mechanically
@@ -925,7 +925,7 @@ Consider an audio callback exploring LMS candidates inside a
 per-block arena:
 
 ```
-// lib/dsp/adaptive.nx — LMS filter with candidate exploration
+// lib/dsp/adaptive.mn — LMS filter with candidate exploration
 
 fn adaptive_filter(signal: ref Block<Sample>, target: ref Block<Sample>)
     -> Block<Sample>
@@ -1027,7 +1027,7 @@ compose.
 
 ### 6.1 AM × H7 (MS runtime emit path)
 
-H7's `LMakeContinuation` variant (`src/lower.nx` post-H7) routes its
+H7's `LMakeContinuation` variant (`src/lower.mn` post-H7) routes its
 allocation through `perform emit_alloc(size, target_local)` — the
 one `EmitMemory` swap surface. AM's three handlers intercept that
 surface when `in_ms_capture()` is true. **H7 provides the record;
@@ -1143,7 +1143,7 @@ and the H3.1 parameterized-effect argument discipline.
 
 ### 6.6 AM × H4 (region_tracker)
 
-H4's `region_tracker` (in `src/own.nx:215+`) already tracks
+H4's `region_tracker` (in `src/own.mn:215+`) already tracks
 `tagged_values` with region ids. AM's extension is one new op
 (`check_capture_escape`) + one new arm in the same handler — no
 new handler peer. This is a substrate-composition sweet spot:
@@ -1172,8 +1172,8 @@ handler*). Three policies have three distinct use-cases (`!Alloc`,
 shallow captures, universal-but-allocating); picking one forecloses
 the other two without making the substrate simpler — the user who
 needs fork_copy can't express it; the compiler would refuse
-`fork_deny` as "not a real choice." Anchor 3 (*Inka solves Inka*)
-also fails: Inka's substrate can express all three via handler
+`fork_deny` as "not a real choice." Anchor 3 (*Mentl solves Mentl*)
+also fails: Mentl's substrate can express all three via handler
 swap; forcing one is reaching-for-framework drift.
 
 ### 7.2 Candidate B — pick ONE policy PER CAPTURE
@@ -1229,26 +1229,26 @@ question.
 
 ### 8.1 Substrate acceptance (AM lands)
 
-- [ ] `lib/runtime/arena_ms.nx` exists with three handlers
+- [ ] `lib/runtime/arena_ms.mn` exists with three handlers
       (replay_safe, fork_deny, fork_copy) + MsContext effect +
       fork_deny_message helper.
-- [ ] `src/own.nx`'s Region effect declaration grows by one op:
+- [ ] `src/own.mn`'s Region effect declaration grows by one op:
       `check_capture_escape(List, Int) -> Result`.
-- [ ] `src/own.nx`'s `region_tracker` handler grows one arm
+- [ ] `src/own.mn`'s `region_tracker` handler grows one arm
       implementing `check_capture_escape` with helper functions
       `collect_escapes` + `is_escape`.
-- [ ] `lib/runtime/memory.nx`'s Alloc effect grows by one op:
+- [ ] `lib/runtime/memory.mn`'s Alloc effect grows by one op:
       `deep_copy_to(Int, Int) -> Int`.
 - [ ] `bump_allocator` + `arena_allocator` (post-AM rename if
       needed) handlers implement `deep_copy_to` arms.
-- [ ] `src/types.nx`'s TCont (or wherever TCont lives) extends to
+- [ ] `src/types.mn`'s TCont (or wherever TCont lives) extends to
       `TCont(Ty, ResumeDiscipline, Option<ArenaTag>)`.
-- [ ] `src/lower.nx`'s H7 MS capture site (post-H7) passes
+- [ ] `src/lower.mn`'s H7 MS capture site (post-H7) passes
       `Some(ArenaTag(current_region(), current_span()))` as the new
       TCont field.
 - [ ] `docs/errors/T_ContinuationEscapes.md` updated per §4.4.
-- [ ] `bash tools/drift-audit.sh lib/runtime/arena_ms.nx src/own.nx
-      src/types.nx docs/errors/T_ContinuationEscapes.md` exits 0.
+- [ ] `bash tools/drift-audit.sh lib/runtime/arena_ms.mn src/own.mn
+      src/types.mn docs/errors/T_ContinuationEscapes.md` exits 0.
 
 ### 8.2 Runtime acceptance (post-AM, post-H7)
 
@@ -1269,12 +1269,12 @@ question.
 
 ### 8.3 Composition acceptance
 
-- [ ] `lib/dsp/adaptive.nx` (post-B.10) compiles under all three
+- [ ] `lib/dsp/adaptive.mn` (post-B.10) compiles under all three
       AM policies.
-- [ ] `lib/ml/autodiff.nx` (post-B.11) uses `~> fork_copy` in
+- [ ] `lib/ml/autodiff.mn` (post-B.11) uses `~> fork_copy` in
       `compute_training` handler; per-batch autodiff tape hoists
       into parent arena at each candidate fork.
-- [ ] `crucibles/crucible_parallel.nx` (post-C.7) composes with AM
+- [ ] `crucibles/crucible_parallel.mn` (post-C.7) composes with AM
       via `~> temp_arena ~> parallel_compose ~> fork_copy` —
       thread-local arenas + per-thread fork-copy on shared captures.
 - [ ] `race(h1, h2, h3)` (HC2) installed inside an arena with any
@@ -1327,11 +1327,11 @@ as specified from §4.
 
 | Sub-commit | Target files | Dispatch |
 |-----------|--------------|----------|
-| AM.a | `lib/runtime/arena_ms.nx` (NEW) — three handlers + MsContext + helpers | Opus inline OR inka-planner → inka-implementer. Substrate design is mostly resolved; arm bodies are mechanical post-design. |
-| AM.b | `src/own.nx` — check_capture_escape op + arm + helpers | Sonnet via inka-implementer. Mirrors existing H4 helper patterns. |
-| AM.c | `lib/runtime/memory.nx` — deep_copy_to op + arm in bump/arena allocators | Sonnet via inka-implementer. Recursive traversal + alloc per value. |
-| AM.d | `src/types.nx` — TCont extended with Option<ArenaTag> + ArenaTag type | Sonnet via inka-implementer. One-line ADT extension + existing-site `None` insertion sweep. |
-| AM.e | `docs/errors/T_ContinuationEscapes.md` — harden + revise | Sonnet via inka-implementer or direct. Doc-only; mechanical. |
+| AM.a | `lib/runtime/arena_ms.mn` (NEW) — three handlers + MsContext + helpers | Opus inline OR mentl-planner → mentl-implementer. Substrate design is mostly resolved; arm bodies are mechanical post-design. |
+| AM.b | `src/own.mn` — check_capture_escape op + arm + helpers | Sonnet via mentl-implementer. Mirrors existing H4 helper patterns. |
+| AM.c | `lib/runtime/memory.mn` — deep_copy_to op + arm in bump/arena allocators | Sonnet via mentl-implementer. Recursive traversal + alloc per value. |
+| AM.d | `src/types.mn` — TCont extended with Option<ArenaTag> + ArenaTag type | Sonnet via mentl-implementer. One-line ADT extension + existing-site `None` insertion sweep. |
+| AM.e | `docs/errors/T_ContinuationEscapes.md` — harden + revise | Sonnet via mentl-implementer or direct. Doc-only; mechanical. |
 
 Drift-audit after each sub-commit (PostToolUse hook); single-concern
 scope per sub-commit; no peer sub-handle deferred — all AM work
@@ -1363,7 +1363,7 @@ After AM lands:
   computations.
 - `T_ContinuationEscapes` hardens from Teach to Error with three
   machine-applicable fixes.
-- Scoped arenas × multi-shot works cleanly — Inka's contribution
+- Scoped arenas × multi-shot works cleanly — Mentl's contribution
   beyond Affect POPL 2025 (which gave the types) and Tofte-Talpin
   1997 (which gave the regions).
 - Phase B closes its MS substrate quartet: H7 + CE + HC2 + AM all

@@ -1,7 +1,7 @@
 # T_OverDeclared
 
 **Kind:** Warning (teaching)
-**Emitted by:** `infer.nx` (spec 04, FnStmt declared-effects check — spec I19)
+**Emitted by:** `infer.mn` (spec 04, FnStmt declared-effects check — spec I19)
 **Applicability:** MachineApplicable
 
 ## Summary

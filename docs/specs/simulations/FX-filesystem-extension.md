@@ -2,7 +2,7 @@
 
 > **Status:** `[DRAFT]` 2026-04-25. Closes the substrate gap surfaced
 > during MV.2.e composition arc: the existing `Filesystem` effect
-> (`src/types.nx:743`) declares 4 ops (`fs_exists` / `fs_read_file` /
+> (`src/types.mn:743`) declares 4 ops (`fs_exists` / `fs_read_file` /
 > `fs_write_file` / `fs_mkdir`) — sufficient for IC's per-module
 > `.kai` cache reads (per FS walkthrough), but insufficient for
 > Mentl-voice's `Interact` file surface which declares 8 ops
@@ -47,7 +47,7 @@ close in one atomic op). Insufficient for editor surfaces which need:
 - Path manipulation (rename, delete).
 - Project root resolution.
 
-### 0.2 Interact's file surface (MV-mentl-voice; mentl_voice.nx:340-396)
+### 0.2 Interact's file surface (MV-mentl-voice; mentl_voice.mn:340-396)
 
 ```
 effect Interact {
@@ -64,7 +64,7 @@ effect Interact {
 }
 ```
 
-ADTs (already declared at `mentl_voice.nx:225-243`):
+ADTs (already declared at `mentl_voice.mn:225-243`):
 - `Path = Path(String)` — path wrapper (refinement-ready)
 - `FileHandle = FileHandle(Int)` — opaque table index
 - `TreeEntry = TreeFile(Path) | TreeDir(Path)` — listing entry
@@ -73,7 +73,7 @@ ADTs (already declared at `mentl_voice.nx:225-243`):
 
 Three substrate moves:
 1. **Extend `Filesystem` effect** with 4 new ops to cover the WASI primitives the Interact surface needs (path_open with explicit fd return; path_unlink; path_rename; opendir/readdir).
-2. **Extend `wasi_filesystem` handler** with arms for the 4 new ops, delegating to runtime/io.nx primitives that pack args into the iov scratch space (same pattern as fs_read_file_impl).
+2. **Extend `wasi_filesystem` handler** with arms for the 4 new ops, delegating to runtime/io.mn primitives that pack args into the iov scratch space (same pattern as fs_read_file_impl).
 3. **Add `mentl_voice_filesystem` handler** that holds the FileHandle table state and projects the 8 Interact file ops through the extended Filesystem effect. **This is composition, not a new effect** — the FileHandle table IS handler state per Insight #9.
 
 ---
@@ -137,7 +137,7 @@ substrate.
 - **fs_open returns `Int` (WASI fd), not FileHandle.** The Filesystem
   effect stays domain-free — it doesn't know about Mentl's table
   abstraction. The mentl_voice_filesystem handler does the wrap.
-- **fs_unlink / fs_rename return Bool**, not Result. Inka has no
+- **fs_unlink / fs_rename return Bool**, not Result. Mentl has no
   Result/Either today; Bool surface is the honest truthful return
   ("succeeded? / no, but you have fs_exists if you need to disambiguate").
   Per drift mode 7-prevention: don't fabricate a Result type just for
@@ -149,7 +149,7 @@ substrate.
 ### 1.2 What this DOESN'T cover (named peer sub-handles)
 
 - **`fs_filestat_is_dir(String) -> Bool`** — needed for TreeEntry
-  projection. Lands as **FX.1** peer sub-handle (one runtime/io.nx
+  projection. Lands as **FX.1** peer sub-handle (one runtime/io.mn
   primitive call to path_filestat_get + filestat field extraction;
   FS substrate already touches path_filestat_get).
 - **Streaming file reads** (large files via chunked reads). Today
@@ -166,12 +166,12 @@ substrate.
 
 ## 2. Layer 2 — `wasi_filesystem` handler extension
 
-Append 5 arms to the handler at `src/pipeline.nx:241`. Each arm
-delegates to a new runtime/io.nx primitive. Pattern matches existing
+Append 5 arms to the handler at `src/pipeline.mn:241`. Each arm
+delegates to a new runtime/io.mn primitive. Pattern matches existing
 fs_read_file_impl (path packing into scratch 256, WASI syscall via
 perform, errno extraction).
 
-### 2.1 New runtime/io.nx primitives
+### 2.1 New runtime/io.mn primitives
 
 ```
 /// fs_open_impl — path_open for read+write+create.
@@ -216,7 +216,7 @@ fn fs_list_dir_impl(path_str) with Memory + Alloc + WASI = ...
 
 ### 2.2 Handler arms
 
-Append to `wasi_filesystem` at pipeline.nx:241:
+Append to `wasi_filesystem` at pipeline.mn:241:
 
 ```
 handler wasi_filesystem {
@@ -246,7 +246,7 @@ Per drift mode 6 + H6: every Filesystem op gets a named arm; no `_`
 wildcard. Per drift mode 9: all 5 new arms land in one commit (with
 the effect declaration that introduces them).
 
-### 2.3 New runtime ops needed in lib/runtime/io.nx imports
+### 2.3 New runtime ops needed in lib/runtime/io.mn imports
 
 WASI preview1 imports already declared: `path_open`, `fd_close`,
 `path_filestat_get`, `path_create_directory`, `fd_read`, `fd_write`.
@@ -454,7 +454,7 @@ Each lands in its own commit per Anchor 7:
 | Handle | Scope | Gate |
 |---|---|---|
 | **FX.0** | This walkthrough drafted | (this commit) |
-| **FX.A** | Filesystem effect extension (5 new ops) + wasi_filesystem arms + 3 new WASI imports + 5 runtime/io.nx primitives | walkthrough closure |
+| **FX.A** | Filesystem effect extension (5 new ops) + wasi_filesystem arms + 3 new WASI imports + 5 runtime/io.mn primitives | walkthrough closure |
 | **FX.B** | mentl_voice_filesystem handler + 8 Interact arms + helpers | FX.A landed |
 | **FX.1** | fs_filestat_is_dir op + TreeEntry projection in project_tree_entries | FX.A landed; folds into FX.B if scoped together |
 | **FX.2** | Streaming file reads for arbitrary-size files | post-first-light (substrate ready; surface absent) |
@@ -480,7 +480,7 @@ composition which is a separate substrate question).
 - **File content diffing for incremental updates.** Today: didChange
   → save_file(full text); tomorrow: textDocument/didChange's
   contentChanges as Patch ops via edit. **Edit op (MV.2.e.P.edit)
-  unblocks via FX-B + Patch ADT verification (mentl.nx:55).**
+  unblocks via FX-B + Patch ADT verification (mentl.mn:55).**
 
 ---
 
@@ -489,11 +489,11 @@ composition which is a separate substrate question).
 1. **FX.0** (this walkthrough) — done in this commit.
 2. **FX.A** (Filesystem extension + wasi_filesystem + WASI imports +
    runtime primitives) — single commit; all ops + arms + impls
-   together to honor drift mode 9. Estimated ~80 lines `.nx` (effect
-   decl + handler arms + 5 runtime/io.nx primitives) + 3 WASI
+   together to honor drift mode 9. Estimated ~80 lines `.mn` (effect
+   decl + handler arms + 5 runtime/io.mn primitives) + 3 WASI
    import declarations.
 3. **FX.B** (mentl_voice_filesystem handler + 8 Interact arms +
-   helpers) — single commit. Estimated ~150 lines `.nx`. Gated on
+   helpers) — single commit. Estimated ~150 lines `.mn`. Gated on
    FX.A.
 4. **FX.1** (fs_filestat_is_dir + TreeEntry projection) — folds into
    FX.B if scoped together; otherwise its own commit. ~20 lines.

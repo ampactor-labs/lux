@@ -1,7 +1,7 @@
 # Handle FS — Filesystem Effect + WASI Handler
 
-*Role-play as Mentl, tracing what happens when `cache.nx` calls
-`perform fs_write_file("synth/core.nx.kai", bytes)`. Today the
+*Role-play as Mentl, tracing what happens when `cache.mn` calls
+`perform fs_write_file("synth/core.mn.kai", bytes)`. Today the
 substrate has no Filesystem effect — stdin / stdout / stderr are
 the only I/O surfaces. The cascade built the ability to declare
 new effects cleanly (H3.1's EffName makes parameterized effects
@@ -12,12 +12,12 @@ the first post-cascade effect to land using that discipline.*
 
 ## The scenario
 
-`cache.nx` (IC work) needs to:
+`cache.mn` (IC work) needs to:
 
-1. Check whether `.inka/cache/infer.nx.kai` exists.
+1. Check whether `.mentl/cache/infer.mn.kai` exists.
 2. Read its bytes if present.
 3. Write fresh bytes after recompilation.
-4. Create the `.inka/cache/` directory on first run.
+4. Create the `.mentl/cache/` directory on first run.
 
 Four Filesystem operations. All map to WASI preview1 syscalls
 already available to any WASI runtime (wasmtime, node-wasi,
@@ -26,14 +26,14 @@ browser-wasi). The substrate needs:
 - A `Filesystem` effect with the operations.
 - A `wasi_filesystem` handler implementing them via WASI imports.
 - Emit-side recognition of the WASI imports.
-- runtime/io.nx primitives that pack arguments into the iov
+- runtime/io.mn primitives that pack arguments into the iov
   scratch space (same pattern as print_string).
 
 ---
 
 ## Layer 1 — Effect declaration
 
-In `types.nx`:
+In `types.mn`:
 
 ```
 // Filesystem — per-file byte I/O via WASI preview1 semantics.
@@ -91,7 +91,7 @@ as its base; future work parameterizes this.
 
 ---
 
-## Layer 3 — runtime/io.nx primitives
+## Layer 3 — runtime/io.mn primitives
 
 Each effect op becomes a runtime helper that packs arguments
 into the iov scratch region (same pattern as print_string's
@@ -135,7 +135,7 @@ walkthrough doesn't need each line, just the shape.
 
 ## Layer 4 — wasi_filesystem handler
 
-In `pipeline.nx` (or a new `std/compiler/filesystem.nx` if it grows):
+In `pipeline.mn` (or a new `std/compiler/filesystem.mn` if it grows):
 
 ```
 handler wasi_filesystem {
@@ -175,8 +175,8 @@ to disk).
 ## Layer 5 — what closes when FS lands
 
 - `.kai` cache files become writable/readable (IC.1 unblocked).
-- `inka check <path>` / `inka build <path>` can read `.nx` source
-  files from disk (today main.nx reads stdin only — requires FS
+- `mentl check <path>` / `mentl build <path>` can read `.mn` source
+  files from disk (today main.mn reads stdin only — requires FS
   to take a path argument).
 - DESIGN.md Ch 9.1 (package manager dissolution) gains a concrete
   Filesystem surface for the `Package` effect's `fetch(path)` op.
@@ -218,7 +218,7 @@ Row entries use ENamed("Filesystem"); parameterized form deferred.
 path_filestat_get added to emit's import preamble. fd_write /
 fd_read work on opened fds already.
 
-**runtime primitives** — 4 impl functions in runtime/io.nx using
+**runtime primitives** — 4 impl functions in runtime/io.mn using
 the existing iov scratch pattern.
 
 **wasi_filesystem handler** — 4-arm stateless handler installed in
@@ -233,17 +233,17 @@ gains an entry (already anticipated in H5 landing).
 ## Dependencies
 
 - Substrate fully closed (cascade). Nothing pends for FS to land.
-- IC.1 (cache.nx) is the immediate consumer; FS lands just before IC.1.
+- IC.1 (cache.mn) is the immediate consumer; FS lands just before IC.1.
 
 ---
 
 ## Estimated scope
 
 - ~150 lines across 3 files:
-  - `types.nx` — Filesystem effect decl (~20 lines)
-  - `runtime/io.nx` — 4 impl fns + scratch layout (~100 lines)
-  - `pipeline.nx` — wasi_filesystem handler + install (~30 lines)
-- `backends/wasm.nx` emit header gains 4 import lines.
+  - `types.mn` — Filesystem effect decl (~20 lines)
+  - `runtime/io.mn` — 4 impl fns + scratch layout (~100 lines)
+  - `pipeline.mn` — wasi_filesystem handler + install (~30 lines)
+- `backends/wasm.mn` emit header gains 4 import lines.
 
 Single commit. Mechanical extension using established patterns
 (mirror print_string's iov structure).
@@ -271,7 +271,7 @@ authority (all access through preopen fd 3).
 
 FS lands FIRST in the IC commit cluster. Order:
   FS (enables cache I/O)
-  → IC.1 cache.nx
-  → IC.2 driver.nx
-  → IC.3 graph.nx chase extension
+  → IC.1 cache.mn
+  → IC.2 driver.mn
+  → IC.3 graph.mn chase extension
   → IC.4 pipeline/main wiring

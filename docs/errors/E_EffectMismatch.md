@@ -1,7 +1,7 @@
 # E_EffectMismatch
 
 **Kind:** Error
-**Emitted by:** `effects.nx` (spec 01, `unify_row`)
+**Emitted by:** `effects.mn` (spec 01, `unify_row`)
 **Applicability:** MachineApplicable
 
 ## Summary

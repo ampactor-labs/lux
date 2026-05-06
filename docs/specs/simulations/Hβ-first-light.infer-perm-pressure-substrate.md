@@ -46,16 +46,16 @@ Phase B.6 ("DEFERRED (arena routing for transient Reasons)").
 **Empirical authority:**
 - `Hβ-first-light-empirical.md` §4.5.4c (full-wheel compile plateau
   with 0-byte stdout at 50+ minutes; RSS ascending past 456 MB).
-- Pre-fix baseline (this session, 2026-05-05): `cat src/*.nx
-  lib/runtime/*.nx lib/*.nx | timeout 60s wasmtime run
-  bootstrap/inka.wasm > /tmp/inka2_pre.wat` exits 124 (timeout)
+- Pre-fix baseline (this session, 2026-05-05): `cat src/*.mn
+  lib/runtime/*.mn lib/*.mn | timeout 60s wasmtime run
+  bootstrap/mentl.wasm > /tmp/inka2_pre.wat` exits 124 (timeout)
   with 0 bytes produced and 3187 lines stderr (E_MissingVariable
   cascades on tentacle types — but the diagnostic stream halts long
   before the perm region exhausts; the binary continues consuming
   perm headroom past the diagnostic phase).
 - Tiny-slice control: `echo 'fn main() = 42' | wasmtime run
-  bootstrap/inka.wasm` produces 1096 bytes cleanly. `cat
-  src/types.nx | wasmtime run bootstrap/inka.wasm` produces 275 KB.
+  bootstrap/mentl.wasm` produces 1096 bytes cleanly. `cat
+  src/types.mn | wasmtime run bootstrap/mentl.wasm` produces 275 KB.
   The seed IS functional at small scale; perm region exhausts only
   on the full wheel.
 
@@ -78,8 +78,8 @@ Phase B.6 ("DEFERRED (arena routing for transient Reasons)").
 ### §2.1 Pre-fix baseline gate (E.1)
 
 ```
-$ timeout 65s bash -c 'cat src/*.nx lib/runtime/*.nx lib/*.nx \
-    | wasmtime run bootstrap/inka.wasm > /tmp/inka2_pre.wat 2> /tmp/inka2_pre.stderr'
+$ timeout 65s bash -c 'cat src/*.mn lib/runtime/*.mn lib/*.mn \
+    | wasmtime run bootstrap/mentl.wasm > /tmp/inka2_pre.wat 2> /tmp/inka2_pre.stderr'
 exit=124
 $ wc -c /tmp/inka2_pre.wat
 0 /tmp/inka2_pre.wat
@@ -433,7 +433,7 @@ verbatim across the 23 reason constructor sites + the one
 $gnode_make retrofit. The walkthrough names this refusal because
 it is the trap most likely to drift in: "let me add a thread-
 local to track which arena is active" would be the C/Rust
-fluent answer; the Inka answer is "the call site already knows
+fluent answer; the Mentl answer is "the call site already knows
 the lifetime; let the call site say so."
 
 ### §6.6 — Drift 6 (primitive type special-case)
@@ -617,15 +617,15 @@ Per §E in the prescriptive plan; recorded in commit message.
    bootstrap/src/runtime/graph.wat
    bootstrap/src/infer/reason.wat` — exit 0.
 2. **Bootstrap re-assembly:** `bash bootstrap/build.sh` — exit
-   0; `bootstrap/inka.wasm` produced; `wasm-validate` passes.
+   0; `bootstrap/mentl.wasm` produced; `wasm-validate` passes.
 3. **Trace-harness non-regression:** `bash bootstrap/test.sh`
    — 80/80 PASS.
 4. **First-light Tier 1 non-regression:** `bash bootstrap/
    first-light.sh` — exit 0.
 5. **Empirical full-wheel test (the headline gate):**
    ```
-   timeout 60 bash -c 'cat src/*.nx lib/runtime/*.nx lib/*.nx \
-     | wasmtime run bootstrap/inka.wasm > /tmp/inka2.wat'
+   timeout 60 bash -c 'cat src/*.mn lib/runtime/*.mn lib/*.mn \
+     | wasmtime run bootstrap/mentl.wasm > /tmp/inka2.wat'
    ```
    Expected: exit 0 within 60s; non-empty WAT output. Pre-fix:
    exit 124, 0 bytes, 50+ minute plateau.
@@ -738,7 +738,7 @@ require their own walkthroughs:
 - **`Hμ.memory-stage-arena-effect`** — wheel-side parity
   authoring per Anchor 4. The seed-side substrate gets the seed
   to L1; post-L1 self-compile produces the wheel-side .wat from
-  `lib/runtime/memory.nx` + `src/graph.nx` automatically. NOT
+  `lib/runtime/memory.mn` + `src/graph.mn` automatically. NOT
   in this commit's scope.
 
 The plan-residue ends here. The implementer types the residue.

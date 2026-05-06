@@ -1,7 +1,7 @@
   ;; ═══ Pattern Parsing ═══════════════════════════════════════════════
-  ;; Hand-transcribed from src/parser.nx lines 1196-1294.
+  ;; Hand-transcribed from src/parser.mn lines 1196-1294.
   ;;
-  ;; Pattern ADT (from src/types.nx):
+  ;; Pattern ADT (from src/types.mn):
   ;;   PVar(name)          → [tag=130][name_ptr]
   ;;   PWild               → sentinel 131
   ;;   PLit(lit_val)       → [tag=132][lit_val]
@@ -18,7 +18,7 @@
   ;;
   ;; Returns (pat, new_pos) as 2-tuple.
   ;;
-  ;; Dispatch per src/parser.nx parse_pat:
+  ;; Dispatch per src/parser.mn parse_pat:
   ;;   TIdent("_")         → PWild
   ;;   TIdent(v) caps      → PCon(v, sub_pats) if followed by (
   ;;                        → PCon(v, [])       if not
@@ -253,7 +253,7 @@
 
   ;; ─── parse_pat_args: comma-separated patterns until RParen ────────
   ;; Returns (pat_list, new_pos) as 2-tuple.
-  ;; Mirrors src/parser.nx parse_pat_args (lines 1266-1278).
+  ;; Mirrors src/parser.mn parse_pat_args (lines 1266-1278).
 
   (func $parse_pat_args (param $tokens i32) (param $pos i32) (result i32)
     (local $p i32) (local $buf i32) (local $count i32)
@@ -338,7 +338,7 @@
 
   ;; ─── parse_match_arms: pat => expr, ... until RBrace ──────────────
   ;; Each arm is a 2-tuple (pat, body_expr).
-  ;; Mirrors src/parser.nx parse_match_arms (lines 1106-1117).
+  ;; Mirrors src/parser.mn parse_match_arms (lines 1106-1117).
 
   (func $parse_match_arms_full (param $tokens i32) (param $pos i32) (result i32)
     (local $p i32) (local $buf i32) (local $count i32)

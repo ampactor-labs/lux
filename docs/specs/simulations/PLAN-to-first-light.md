@@ -34,7 +34,7 @@
 
 When **Phase H closes** (first-light-L1; `inka2.wat == inka3.wat`),
 the seed compiling the wheel produces every projection-layer module
-automatically — Mentl, Cursor, multi-shot, IC, inka edit, the eight
+automatically — Mentl, Cursor, multi-shot, IC, mentl edit, the eight
 tentacles, every Phase μ peer handle's seed transcription. **One
 closure; cascading unlock of every post-L1 cascade in ROADMAP lines
 308-340 + every Phase μ peer handle's `.seed` variant.**
@@ -48,7 +48,7 @@ more impactful than any single peer handle pre-L1.
 ## §1 The cursor today (commit `b95500d`, 2026-05-04)
 
 **Closed (this session arc):**
-- ✓ Hμ.cursor wheel-side (7 commits; src/cursor.nx + types.nx + mentl.nx + mentl_voice.nx + pipeline.nx + walkthrough + ULTIMATE_MEDIUM)
+- ✓ Hμ.cursor wheel-side (7 commits; src/cursor.mn + types.mn + mentl.mn + mentl_voice.mn + pipeline.mn + walkthrough + ULTIMATE_MEDIUM)
 - ✓ Authority docs aligned (CLAUDE.md + SUBSTRATE.md + DESIGN.md + 09-mentl + MV + IE + GR)
 - ✓ ROADMAP.md Phase μ section + 6 peer handles named
 - ✓ Memory protocols: `protocol_cursor_is_argmax.md` + `protocol_ultimate_medium.md`
@@ -58,10 +58,10 @@ more impactful than any single peer handle pre-L1.
   - HandlerDeclStmt extends to 5 fields (`[tag][name][effect][arms][state_fields]`); arms are populated `make_record(0, 3)` records with `{args, body, op_name}`.
   - Arena partition bumped from 32 MiB to 512 MiB to admit the Phase μ wheel (1646 top-level decls); peer follow-ups named for proper structural fix:
     `Hβ.first-light.lexer-stage-alloc-retrofit` + `Hβ.first-light.infer-perm-pressure-substrate`.
-  - Verified end-to-end on src/verify.nx (2 handlers, 11 arms → 73 KB WAT, no trap) and lib/runtime/threading.nx (2 handlers + with-state → 4 KB, no trap).
+  - Verified end-to-end on src/verify.mn (2 handlers, 11 arms → 73 KB WAT, no trap) and lib/runtime/threading.mn (2 handlers + with-state → 4 KB, no trap).
 
 **Empirical L1 stage-1 state (post-19-box):**
-- `cat src+lib | wasmtime run inka.wasm` parses cleanly through the full pipeline. Diagnostics now flow from the H.1.a/b/c (infer-completeness) handles, NOT from the parser. The 19-box was a parser-side blocker masking the actual H.1 cascade.
+- `cat src+lib | wasmtime run mentl.wasm` parses cleanly through the full pipeline. Diagnostics now flow from the H.1.a/b/c (infer-completeness) handles, NOT from the parser. The 19-box was a parser-side blocker masking the actual H.1 cascade.
 - Phase H.1 cursor opens: Hβ.first-light.infer-typedef-ctors / infer-effect-ops / infer-handler-decls. The 19-box closure unlocks visibility into these.
 
 **Working tree:** clean. Bootstrap rebuilt at b95500d.
@@ -109,8 +109,8 @@ constructs.**
 ### Phase H.4 — First-light fixpoint harness (1 handle)
 
 Extends `bootstrap/first-light.sh` to actually run the L1 fixpoint
-test: compile src+lib through inka.wasm → wat2wasm → re-compile via
-inka2.wasm → diff. Today the harness only validates "tiny Inka
+test: compile src+lib through mentl.wasm → wat2wasm → re-compile via
+inka2.wasm → diff. Today the harness only validates "tiny Mentl
 programs"; L1 needs the full src+lib double-compile.
 
 **Closing this phase IS L1 closure — the diff is the proof.**
@@ -135,7 +135,7 @@ The execution unit is one *handle* per session. Each handle lands as:
    §12 ships.
 2. **Substrate chunk(s)** under `bootstrap/src/<layer>/<chunk>.wat`
    — per-edit-site eight interrogations + forbidden-patterns +
-   literal tokens at file:line per `inka-implementer` discipline.
+   literal tokens at file:line per `mentl-implementer` discipline.
    Drift-audit clean per chunk.
 3. **Trace harness** under `bootstrap/test/<layer>/<handle>_smoke.wat`
    — exercising the new substrate's residue form. Logged in
@@ -162,7 +162,7 @@ names resolve to ground types.
     ConstructorScheme entry (name, type-arity, field types, parent
     type, reason). Walks the variant list per `infer_register_typedef_ctors`'s
     seed-stub at `bootstrap/src/infer/walk_stmt.wat:450-453`.
-  - **Wheel canonical:** `src/infer.nx` infer_walk_stmt_typedef
+  - **Wheel canonical:** `src/infer.mn` infer_walk_stmt_typedef
     (Phase B.2).
   - **Substrate today:** ~~stub returns immediately; no env entries
     written.~~ FULLY IMPLEMENTED at walk_stmt.wat:818-874.
@@ -180,12 +180,12 @@ names resolve to ground types.
   - **Unlocks:** H.2 handles dependent on constructor schemes;
     Hμ.cursor's CursorView destructure lowers.
 
-- [x] **H.1.b — Hβ.first-light.infer-effect-ops** — CLOSED. `$infer_register_effect_ops` is implemented at walk_stmt.wat:914-948. Phase B parser fixes (named-param `addr: Int` form per commit `dc0d9a6`; `@resume=OneShot` skip per commit `a0beab7`) ensure the effect decls in the wheel parse correctly through to env_extend. Empirical confirmation: `lib/runtime/memory.nx + lib/runtime/strings.nx` slice resolves `load_i32 / store_i32 / load_i8 / store_i8 / mem_copy` cleanly — zero E_MissingVariable on Memory effect ops.
+- [x] **H.1.b — Hβ.first-light.infer-effect-ops** — CLOSED. `$infer_register_effect_ops` is implemented at walk_stmt.wat:914-948. Phase B parser fixes (named-param `addr: Int` form per commit `dc0d9a6`; `@resume=OneShot` skip per commit `a0beab7`) ensure the effect decls in the wheel parse correctly through to env_extend. Empirical confirmation: `lib/runtime/memory.mn + lib/runtime/strings.mn` slice resolves `load_i32 / store_i32 / load_i8 / store_i8 / mem_copy` cleanly — zero E_MissingVariable on Memory effect ops.
   - **What:** EffectDeclStmt arm registers each effect operation as
     an EffectOpScheme entry (op_name, param types, return type,
     resume_discipline). Walks the operations list per
     `infer_register_effect_ops`'s seed-stub at walk_stmt.wat:457-460.
-  - **Wheel canonical:** `src/infer.nx` infer_walk_stmt_effect_decl
+  - **Wheel canonical:** `src/infer.mn` infer_walk_stmt_effect_decl
     (Phase B.3).
   - **Substrate today:** ~~stub.~~ FULLY IMPLEMENTED at walk_stmt.wat:914-948.
   - **Substrate residue:** ~200 lines `bootstrap/src/infer/effect_ops.wat`.
@@ -194,7 +194,7 @@ names resolve to ground types.
     Cursor { cursor_at(Span) -> CursorView @resume=OneShot }` then
     `perform cursor_at(span)` resolves to typed call.
   - **Acceptance:** all `perform <op>(...)` calls in wheel
-    src/cursor.nx + src/mentl.nx + src/parser.nx resolve.
+    src/cursor.mn + src/mentl.mn + src/parser.mn resolve.
   - **Unlocks:** the entire perform call layer of the wheel; H.1.c
     handler-decls handle.
 
@@ -203,7 +203,7 @@ names resolve to ground types.
     state + effect-row constraint. Walks arms via existing
     walk_expr machinery (each arm is a fn-shaped body with effect
     op signature).
-  - **Wheel canonical:** `src/infer.nx` infer_walk_stmt_handler_decl
+  - **Wheel canonical:** `src/infer.mn` infer_walk_stmt_handler_decl
     (Phase B.4).
   - **Substrate today:** ~~stub at walk_stmt.wat:463-466.~~ Handler-name registration LIVE at walk_stmt.wat:1008+; per-arm body typing is named follow-up.
   - **Substrate residue:** ~300 lines `bootstrap/src/infer/handler_decl.wat`.
@@ -232,7 +232,7 @@ bodies as module-level fns, BlockExpr stmts list, lambda captures.
   - **What:** LetStmt with non-PVar pattern lowers to LMatch over
     the bound expression with the pattern as the (single) arm.
     Bindings inside the pattern become LLocal slots.
-  - **Wheel canonical:** `src/lower.nx` lower_walk_stmt_let
+  - **Wheel canonical:** `src/lower.mn` lower_walk_stmt_let
     PCon/PTuple/PRecord arms.
   - **Substrate today:** ~~PVar-only at walk_stmt.wat:73-79;
     non-PVar emits LConst(h, 0) sentinel (Lock #5/#9).~~ Hβ.first-light.letstmt-destructure (PCon) landed in commit `07a2a99`. PCon let-destructure works (e.g., `let GNode(kind, reason) = ...`). PTuple let-destructure surfaces NEW bug `Hβ.first-light.tuple-tmp-fn-local-decl` (`$tuple_tmp` not in fn-local preamble; wat2wasm rejects) — same bug-class as match-arm-pat-binding-local-decl; named follow-up.
@@ -242,16 +242,16 @@ bodies as module-level fns, BlockExpr stmts list, lambda captures.
     GNode(kind, reason) = perform graph_chase(handle)` lowers to
     LMatch + sub-pattern bindings; verify both kind and reason
     are LLocal-resolvable downstream.
-  - **Acceptance:** cursor.nx lines 84/106/172 lower correctly;
-    types.nx + mentl.nx + parser.nx PCon-let usages compile.
+  - **Acceptance:** cursor.mn lines 84/106/172 lower correctly;
+    types.mn + mentl.mn + parser.mn PCon-let usages compile.
   - **Unlocks:** wheel infrastructure that destructures graph
-    nodes (most of cursor.nx, mentl.nx, infer.nx).
+    nodes (most of cursor.mn, mentl.mn, infer.mn).
 
 - [x] **H.2.b — Hβ.first-light.lower-match-arms** — CLOSED before this tracker was authored. Per `Hβ-first-light-empirical.md` §1.1: match arms compile to real WAT (sentinel/heap dispatch + tag check + field load + binding emission). The H.3.a emit-match-pattern was also closed in the same window.
   - **What:** MatchExpr with nonempty arms list lowers each arm's
     pattern + body to LMatch arms; pattern compilation is per
     LowPat ADT (lowpat.wat tags 360-369). Pairs with H.3.a.
-  - **Wheel canonical:** `src/lower.nx` lower_match arms loop.
+  - **Wheel canonical:** `src/lower.mn` lower_match arms loop.
   - **Substrate today:** ~~empty arms list emitted (walk_compound.wat
     Lock #3 — `LMatch(h, lo_scrut, [])`).~~ FULLY IMPLEMENTED — match arms emit real sentinel/heap dispatch.
   - **Substrate residue:** ~250 lines `bootstrap/src/lower/match_arms.wat`.
@@ -259,7 +259,7 @@ bodies as module-level fns, BlockExpr stmts list, lambda captures.
   - **Trace harness:** `match_arms_smoke.wat` — `match opt { None
     => 0, Some(n) => n }` lowers to LMatch with two LPArm entries
     each with a binding.
-  - **Acceptance:** mentl_voice.nx render arms (which match
+  - **Acceptance:** mentl_voice.mn render arms (which match
     extensively) lower to nonempty LMatch trees.
   - **Unlocks:** H.3.a emit-match-pattern (consumer of nonempty
     arms list).
@@ -269,7 +269,7 @@ bodies as module-level fns, BlockExpr stmts list, lambda captures.
     LDeclareFn (tag 313) entries for each handler arm; each
     becomes a module-level WAT function via emit; perform sites
     dispatch via H1.4 single-handler-per-op naming `(call $op_<name>)`.
-  - **Wheel canonical:** `src/lower.nx` + `src/backends/wasm.nx`
+  - **Wheel canonical:** `src/lower.mn` + `src/backends/wasm.mn`
     handler-arm lowering.
   - **Substrate today:** seed-stub returns `[]` (walk_handle.wat
     Lock #7 third caller; walk_stmt.wat Lock #7).
@@ -287,7 +287,7 @@ bodies as module-level fns, BlockExpr stmts list, lambda captures.
   - **What:** BlockExpr lowers ALL statements in the stmts list,
     not just the final expression. Each let-statement creates an
     LLocal binding visible to subsequent statements + final expr.
-  - **Wheel canonical:** `src/lower.nx` lower_block.
+  - **Wheel canonical:** `src/lower.mn` lower_block.
   - **Substrate today:** ~~walk_compound.wat Lock #6 — final_expr
     only; stmts dropped.~~ FULLY IMPLEMENTED.
   - **Substrate residue:** ~120 lines `bootstrap/src/lower/blockexpr_stmts.wat`.
@@ -296,15 +296,15 @@ bodies as module-level fns, BlockExpr stmts list, lambda captures.
     let y = 2; x + y }` lowers to LBlock with two binding stmts +
     final binop.
   - **Acceptance:** wheel function bodies that use intermediate
-    let-bindings compile (most of src/infer.nx, src/lower.nx,
-    src/backends/wasm.nx).
-  - **Unlocks:** the entire body-style of wheel-Inka.
+    let-bindings compile (most of src/infer.mn, src/lower.mn,
+    src/backends/wasm.mn).
+  - **Unlocks:** the entire body-style of wheel-Mentl.
 
 - [x] **H.2.e — Hβ.first-light.lower-lambda-capture** — CLOSED. `Hβ.first-light.lambda-parser` landed commit `c28c525`; `Hβ.first-light.lambda-body-fn-emit` landed commit `8d3d2f7`. Lambda parser recognizes `(params) => body` per SYNTAX.md §234-260; lambda body fn emits at module level via `$emit_functions_walk` recursive descent over LowExpr containers. Empirical confirmation: `fn main() = (x) => x` produces three module fns ($main + lambda body + $_start) per `Hβ-first-light-empirical.md` §4.5.4b.
   - **What:** LambdaExpr lowering walks the lambda body to collect
     free variables, builds the captures list, emits LMakeClosure
     with real (caps, evs) instead of empty ([], []).
-  - **Wheel canonical:** `src/lower.nx` lower_lambda capture
+  - **Wheel canonical:** `src/lower.mn` lower_lambda capture
     collection.
   - **Substrate today:** ~~walk_compound.wat Lock #1 — empty
     captures.~~ FULLY IMPLEMENTED including module-fn emit.
@@ -314,8 +314,8 @@ bodies as module-level fns, BlockExpr stmts list, lambda captures.
     (x) => x + n` lowers with [n] in captures; lambda body
     references n via LUpval.
   - **Acceptance:** wheel lambdas (`(c) => score(c, caret)` in
-    cursor.nx; closures in lib/prelude.nx; etc.) compile.
-  - **Unlocks:** functional-style substrate of wheel-Inka.
+    cursor.mn; closures in lib/prelude.mn; etc.) compile.
+  - **Unlocks:** functional-style substrate of wheel-Mentl.
 
 **Phase H.2 closure check:** Re-run L1 candidate compile; expect
 emitted-function-count to rise from 1 toward dozens; the stub form
@@ -334,7 +334,7 @@ concatenation routed to runtime calls.
     pattern matching: scrutinee tag check (sentinel/heap),
     field-load per sub-pattern, binding to local slots, arm body
     emit. Pairs with H.2.b.
-  - **Wheel canonical:** `src/backends/wasm.nx` emit_match.
+  - **Wheel canonical:** `src/backends/wasm.mn` emit_match.
   - **Substrate today:** ~~emit_control.wat — `(unreachable)` for
     nonempty arms.~~ FULLY IMPLEMENTED including pattern-binding local-decl.
   - **Substrate residue:** ~250 lines extension to
@@ -344,9 +344,9 @@ concatenation routed to runtime calls.
   - **Trace harness:** `emit_match_smoke.wat` — `match opt { None
     => 0, Some(n) => n + 1 }` produces valid WAT with sentinel-tag
     check + branch + field-load.
-  - **Acceptance:** mentl_voice.nx's render arms emit; cursor.nx's
+  - **Acceptance:** mentl_voice.mn's render arms emit; cursor.mn's
     match expressions emit.
-  - **Unlocks:** the match-driven body style of wheel-Inka.
+  - **Unlocks:** the match-driven body style of wheel-Mentl.
 
 - [ ] **H.3.b — Hβ.first-light.emit-float-substrate**
   - **What:** TFloat literals emit as `(f64.const ...)`; lexer
@@ -354,7 +354,7 @@ concatenation routed to runtime calls.
     etc.); BinOp tags 140-153 dispatch on operand-type to
     `f64.add` / `f64.mul` / `f64.div` for floats vs `i32.*` for
     ints.
-  - **Wheel canonical:** `src/lexer.nx` scan_number; `src/backends/wasm.nx`
+  - **Wheel canonical:** `src/lexer.mn` scan_number; `src/backends/wasm.mn`
     emit_lit_float, emit_binop dispatch.
   - **Substrate today:** lexer at lex_main.wat:116-133 `scan_number`
     handles integer base only; emit_call.wat BinOp arms map all
@@ -364,16 +364,16 @@ concatenation routed to runtime calls.
   - **Walkthrough:** `Hβ-first-light.emit-float-substrate.md`.
   - **Trace harness:** `emit_float_smoke.wat` — `let x: Float =
     1e308; x * 2.0` emits valid f64 ops.
-  - **Acceptance:** cursor.nx float weights (1.0, 0.85, 0.7, 0.4,
+  - **Acceptance:** cursor.mn float weights (1.0, 0.85, 0.7, 0.4,
     0.2, 1e308) compile; lib/dsp/* + lib/ml/* float ops compile.
-  - **Unlocks:** the entire float-arithmetic surface of wheel-Inka.
+  - **Unlocks:** the entire float-arithmetic surface of wheel-Mentl.
 
 - [ ] **H.3.c — Hβ.first-light.emit-list-runtime-call**
   - **What:** BinOp tag for `++` (BConcat = 153) dispatches on
     operand type — strings → `$str_concat`; lists → `$list_concat`
     (runtime fn). Float-substrate work needs the same dispatch
     pattern, so this handle composes on H.3.b's substrate.
-  - **Wheel canonical:** `src/backends/wasm.nx` emit_binop concat
+  - **Wheel canonical:** `src/backends/wasm.mn` emit_binop concat
     arm.
   - **Substrate today:** emit_call.wat $emit_lbinop maps BConcat
     to `i32.add` (silent semantic violation).
@@ -382,9 +382,9 @@ concatenation routed to runtime calls.
     integrated into H.3.b walkthrough).
   - **Trace harness:** `list_concat_smoke.wat` — `[1,2] ++ [3,4]`
     emits `(call $list_concat ...)` and produces correct list.
-  - **Acceptance:** wheel uses of `++` on lists (cursor.nx:164,
-    pipeline.nx, prelude.nx) compile correctly.
-  - **Unlocks:** list-algebra correctness in wheel-Inka.
+  - **Acceptance:** wheel uses of `++` on lists (cursor.mn:164,
+    pipeline.mn, prelude.mn) compile correctly.
+  - **Unlocks:** list-algebra correctness in wheel-Mentl.
 
 **Phase H.3 closure check:** Re-run L1 candidate compile; expect
 inka2.wat to be a real compilation (multi-thousand-line WAT module),
@@ -398,10 +398,10 @@ not the 19-line stub.
   - **What:** Extend `bootstrap/first-light.sh` to run the full L1
     test:
     ```
-    cat $(find src -name '*.nx' | sort) $(find lib -name '*.nx' | sort) \
-      | wasmtime run bootstrap/inka.wasm > /tmp/inka2.wat
+    cat $(find src -name '*.mn' | sort) $(find lib -name '*.mn' | sort) \
+      | wasmtime run bootstrap/mentl.wasm > /tmp/inka2.wat
     wat2wasm /tmp/inka2.wat -o /tmp/inka2.wasm
-    cat $(find src -name '*.nx' | sort) $(find lib -name '*.nx' | sort) \
+    cat $(find src -name '*.mn' | sort) $(find lib -name '*.mn' | sort) \
       | wasmtime run /tmp/inka2.wasm > /tmp/inka3.wat
     diff /tmp/inka2.wat /tmp/inka3.wat   # MUST be empty
     ```
@@ -410,7 +410,7 @@ not the 19-line stub.
     separate doc needed (harness only).
   - **Trace harness:** the harness IS the test.
   - **Acceptance:** L1 fixpoint test passes — diff is empty;
-    inka.wasm becomes the canonical compiler.
+    mentl.wasm becomes the canonical compiler.
   - **Unlocks:** Phase H closes; first-light declared; the entire
     post-L1 cascade roadmap opens.
 
@@ -427,8 +427,8 @@ Each handle below lands as ONE commit of compiled output, not
 hand-authored. The work is read + audit, not write.
 
 - [ ] **T3.a — Hμ.cursor.seed**
-  - **What:** the seed compiles `src/cursor.nx` (~330 lines wheel-
-    Inka) and produces `bootstrap/src/cursor/cursor.wat` + supporting
+  - **What:** the seed compiles `src/cursor.mn` (~330 lines wheel-
+    Mentl) and produces `bootstrap/src/cursor/cursor.wat` + supporting
     chunks (data segments, helper extracts) automatically.
   - **Substrate residue:** ZERO hand-authored. Per
     `protocol_cursor_is_argmax.md`: "the seed compiles the wheel;
@@ -441,7 +441,7 @@ hand-authored. The work is read + audit, not write.
     (alongside the wheel's own hosting).
 
 - [ ] **T3.b — Hμ.synth-proposer.seed (gated on H7 emit)**
-  - **What:** the seed compiles `src/mentl.nx` Synth handler arms
+  - **What:** the seed compiles `src/mentl.mn` Synth handler arms
     once H7 MultiShot emit lands. enumerate_inhabitants stops being
     a stub.
   - **Substrate residue:** zero hand-authored; H7 closure pre-condition.
@@ -450,7 +450,7 @@ hand-authored. The work is read + audit, not write.
 
 - [ ] **T3.c — Hμ.cursor.transport.seed**
   - **What:** transport handlers (terminal, LSP, web-WASM, vim)
-    compile through the seed. `inka edit` becomes runnable.
+    compile through the seed. `mentl edit` becomes runnable.
   - **Substrate residue:** zero hand-authored.
   - **Unlocks:** the IDE — the medium becomes user-facing.
 
@@ -474,7 +474,7 @@ hand-authored. The work is read + audit, not write.
   - **Unlocks:** the medium runs the discipline automatically.
 
 **Tier 3 closure check:** every Phase μ peer handle's `.seed`
-variant lands; the medium is end-user-functional through `inka edit`.
+variant lands; the medium is end-user-functional through `mentl edit`.
 
 ---
 
@@ -485,7 +485,7 @@ Each is its own multi-handle cascade; named here for completeness +
 drift-9 prevention. Not part of this plan's tracked checkboxes;
 each opens its own plan-document when its session begins.
 
-- Hβ-bootstrap-seed-in-inka.md (seed in Inka, not WAT)
+- Hβ-bootstrap-seed-in-mentl.md (seed in Mentl, not WAT)
 - Hβ-bootstrap-no-seed.md (delete the bootstrap)
 - Hβ-arena-region-inference.md (Tofte-Talpin region inference)
 - Hβ-emit-binary-direct.md (skip WAT-text)
@@ -493,9 +493,9 @@ each opens its own plan-document when its session begins.
 - Hβ-emit-js.md (browser-runnable JS)
 - Hβ-emit-refinement-typed-layout.md (refined field offsets)
 - Hβ-pipeline-streaming.md (token/AST streaming)
-- Hβ-tooling-build-in-inka.md (build.sh in Inka)
-- Hβ-tooling-assemble-in-inka.md (wat2wasm in Inka)
-- Hβ-tooling-runtime-in-inka.md (wasmtime crutch removed)
+- Hβ-tooling-build-in-mentl.md (build.sh in Mentl)
+- Hβ-tooling-assemble-in-mentl.md (wat2wasm in Mentl)
+- Hβ-tooling-runtime-in-mentl.md (wasmtime crutch removed)
 - Hβ-parser-refinement-typed-constructors.md (TOTAL constructors)
 - Hβ-lower-graph-direct-IR.md (LowExpr-as-tree retires)
 - verify_smt witness path → first-light-L2
@@ -535,7 +535,7 @@ checks its box and pushes the cursor forward.
 **Phase H.1 — Inference completeness (3/3)**
 - [x] H.1.a Hβ.first-light.infer-typedef-ctors — *VERIFIED ALREADY-CLOSED 2026-05-02; walk_stmt.wat:818-874 implemented; chunk-header named follow-up was stale*
 - [x] H.1.b Hβ.first-light.infer-effect-ops — *VERIFIED 2026-05-02 via empirical effect+perform test: `effect Counter { inc() -> Int }; fn main() = perform inc()` infers cleanly + emits `(call $op_inc)` with zero diagnostics. EffectOpScheme env-extension at walk_stmt.wat:899-948 composes correctly across decl/use within one compilation unit.*
-- [x] H.1.c Hβ.first-light.infer-handler-decls — *(commit `4496530`) register_handler mirrors wheel canonical (src/infer.nx:2227-2236): env_extend with Forall([], TName("Handler", [TName(ename, [])])) under FnScheme. Per-arm typing happens at HandleExpr install sites; per-arm substrate is named peer Hβ-infer-handler-decls-full.md gated on parser_handler.wat.*
+- [x] H.1.c Hβ.first-light.infer-handler-decls — *(commit `4496530`) register_handler mirrors wheel canonical (src/infer.mn:2227-2236): env_extend with Forall([], TName("Handler", [TName(ename, [])])) under FnScheme. Per-arm typing happens at HandleExpr install sites; per-arm substrate is named peer Hβ-infer-handler-decls-full.md gated on parser_handler.wat.*
 
 **Phase H.2 — Lower completeness (5/5)**
 - [x] H.2.a Hβ.first-light.lower-letstmt-destructure — *(commits `b625ce6` PCon + `61a7d5f` PTuple) PCon let-statements lower to LBlock with field-load LLets at offset 4+4*i; PTuple let-statements lower with offset 4*i; PVar binds, PWild skips; nested forms named follow-up. Verified empirically.*
@@ -555,7 +555,7 @@ checks its box and pushes the cursor forward.
 **Empirically-discovered NEW boxes (added to plan post-Hμ.cursor)**
 - [x] Hβ.first-light.lambda-parser — *(commit `c28c525`) `(params) => body` parsing per SYNTAX.md §234-260; mk_LambdaExpr + exprs_to_tparams + paren-form detection*
 - [x] Hβ.first-light.varref-schemekind-dispatch — *(commit `12cfcac`) ctor calls now emit LMakeVariant via env_binding_kind ConstructorScheme triage in $lower_call*
-- [x] Hβ.first-light.wheel-brace-discipline — *(commit `07a2a99`) types.nx span_join/span_valid/span_contains brace-aligned to SYNTAX.md §126-142; more wheel files remain*
+- [x] Hβ.first-light.wheel-brace-discipline — *(commit `07a2a99`) types.mn span_join/span_valid/span_contains brace-aligned to SYNTAX.md §126-142; more wheel files remain*
 - [ ] Hβ.first-light.lambda-body-fn-emit — closures lower to LMakeClosure but body fn isn't yet emitted at module level
 - [x] Hβ.first-light.lmakevariant-literal-args — VERIFIED CLOSED via varref-schemekind-dispatch
 - [x] Hβ.first-light.nullary-ctor-call-context — *VERIFIED CLOSED 2026-05-03 (downstream of E1 handle-counter sync `b54df1d`); `unwrap(Nothing, 0)` infers + lowers cleanly*
@@ -565,11 +565,11 @@ checks its box and pushes the cursor forward.
 **Tier 3 — Wheel growth post-L1 (6 handles automatic)**
 - [ ] T3.a Hμ.cursor.seed
 - [ ] T3.b Hμ.synth-proposer.seed
-- [x] **Hμ.cursor.transport** (wheel-side; commit `4c9a44f`) — `src/cursor_transport.nx` ULTIMATE-FORM authoring; Surface effect + Action/Cadence/TransportState ADTs + four transport handlers (terminal/lsp/web/vim) + cursor_loop bus-compressor. Tier 3 .seed transcription falls out at L1.
-- [x] **Hμ.gradient-delta** (wheel-side; commit `78ae3f8`) — `src/gradient_delta.nx`; inverse-direction gradient. Delta effect + delta_default handler; effect-row + ownership + refinement deltas. The gradient is bidirectional; the bus-compressor response curve covers both annotation-add AND body-tighten directions.
-- [x] **Hμ.cursor.cache** (wheel-side; commit `2999d7c`) — `src/cursor_cache.nx`; ExtendedKaiFile = KaiFile + oracle_queue per protocol_oracle_is_ic.md "one extra cached value." CursorCache effect + cursor_cache_default handler + Pack/Unpack round-trip + buffer-counter substrate. Cursor argmax becomes O(N) cached read instead of O(N·K) recompute.
-- [x] **Hμ.eight-interrogation-loop** (wheel-side; commit `9c80f4b`) — `src/eight_loop.nx`; the eight interrogations as automated runtime substrate. InterrogationKind ADT + InterrogationVerdict ADT + InterrogationReport record + Interrogate effect + interrogate_default handler + project_gradient_density aggregate. SAME EIGHT, FIVE ROLES — CLAUDE.md authoring + SUBSTRATE.md kernel + 09-mentl.md tentacles + Hμ.cursor's CursorView + this automated substrate. One method, every level.
-- [x] **Hμ.synth-proposer** (wheel-side; commit `884c571`) — `src/synth_proposer.nx`; replaces synth_enumerative's OneShot stub with real candidate enumeration. ProposerKind ADT + EnrichedCandidate record + enumerate_typed (per-target-type-shape) + verify_each_enriched (kernel proof gate) + Node synthesizers + cursor_session_with_full_phaseu wrapper composing all six Phase μ peer handlers in one chain. Closes Phase μ wheel-side.
+- [x] **Hμ.cursor.transport** (wheel-side; commit `4c9a44f`) — `src/cursor_transport.mn` ULTIMATE-FORM authoring; Surface effect + Action/Cadence/TransportState ADTs + four transport handlers (terminal/lsp/web/vim) + cursor_loop bus-compressor. Tier 3 .seed transcription falls out at L1.
+- [x] **Hμ.gradient-delta** (wheel-side; commit `78ae3f8`) — `src/gradient_delta.mn`; inverse-direction gradient. Delta effect + delta_default handler; effect-row + ownership + refinement deltas. The gradient is bidirectional; the bus-compressor response curve covers both annotation-add AND body-tighten directions.
+- [x] **Hμ.cursor.cache** (wheel-side; commit `2999d7c`) — `src/cursor_cache.mn`; ExtendedKaiFile = KaiFile + oracle_queue per protocol_oracle_is_ic.md "one extra cached value." CursorCache effect + cursor_cache_default handler + Pack/Unpack round-trip + buffer-counter substrate. Cursor argmax becomes O(N) cached read instead of O(N·K) recompute.
+- [x] **Hμ.eight-interrogation-loop** (wheel-side; commit `9c80f4b`) — `src/eight_loop.mn`; the eight interrogations as automated runtime substrate. InterrogationKind ADT + InterrogationVerdict ADT + InterrogationReport record + Interrogate effect + interrogate_default handler + project_gradient_density aggregate. SAME EIGHT, FIVE ROLES — CLAUDE.md authoring + SUBSTRATE.md kernel + 09-mentl.md tentacles + Hμ.cursor's CursorView + this automated substrate. One method, every level.
+- [x] **Hμ.synth-proposer** (wheel-side; commit `884c571`) — `src/synth_proposer.mn`; replaces synth_enumerative's OneShot stub with real candidate enumeration. ProposerKind ADT + EnrichedCandidate record + enumerate_typed (per-target-type-shape) + verify_each_enriched (kernel proof gate) + Node synthesizers + cursor_session_with_full_phaseu wrapper composing all six Phase μ peer handlers in one chain. Closes Phase μ wheel-side.
 
 ═══ PHASE μ WHEEL-SIDE CLOSED ═══ 2026-05-02
 All six named Phase μ peer handles authored as wheel-canonical
@@ -596,8 +596,8 @@ The plan closes when **all** hold:
    `diff inka2.wat inka3.wat` empty).
 3. **All 6 T3 boxes checked** — every Phase μ peer handle's
    `.seed` variant landed via Tier 3 self-compile + diff + audit.
-4. **`inka edit` runs end-to-end** — the user can type `??` in
-   `inka edit`, Mentl proposes, the gradient narrows, the medium
+4. **`mentl edit` runs end-to-end** — the user can type `??` in
+   `mentl edit`, Mentl proposes, the gradient narrows, the medium
    is interactively functional.
 5. **The post-L1 cascade roadmap is open** — each named cascade in
    §3 (post-Tier-3) has at minimum a planning document that names

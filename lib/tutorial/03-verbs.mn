@@ -1,0 +1,97 @@
+// 03-verbs.mn — Primitive #3: the five verbs draw the topology
+//
+// Every Mentl program's shape ON THE PAGE is the computation graph.
+// Five operators; five distinct topologies; no nested-call ladder
+// to climb. The verb at each junction tells you which way data
+// flows.
+//
+//    |>     sequential flow              data → transform → result
+//    <|     divergence                   one input → many branches
+//    ><     parallel compose             many inputs → tupled output
+//    ~>     handler attachment           wrap with capability
+//    <~     feedback                     close a cycle under a clock
+//
+// Canonical formatting (SUBSTRATE.md §II): sequential operators
+// (`|>`, `~>`) at the LEFT edge — flow goes down. Convergent
+// operators (`><`, `<~`) at the INDENTED CENTER — they draw shape.
+// `<|` at the left edge before its branch tuple. The shape on the
+// page IS the computation graph.
+
+import runtime/io
+import runtime/threading
+import dsp/clock
+
+// ─── |> sequential flow ─────────────────────────────────────────────
+
+/// Pipe the input through three transforms. Each |> is one step;
+/// reading top-to-bottom is reading the data flow direction.
+fn pipeline_demo(n) = {
+  n
+    |> double
+    |> add_one
+    |> int_to_str
+}
+
+fn double(x) = x + x
+fn add_one(x) = x + 1
+
+// ─── <| divergence — one input, many branches, tupled output ────────
+
+/// `branch_demo` borrows `x` to each branch (no ownership transfer).
+/// The result is a tuple of branch outputs. Drift 1 closure: no
+/// vtable; the `<|` IS the dispatch.
+fn branch_demo(x) =
+  x <|
+    ( double,
+      add_one,
+      negate )
+
+fn negate(x) = 0 - x
+
+// ─── >< parallel compose — independent tracks, both run, tupled ─────
+//
+// `><` × Thread effect: each branch becomes a thunk; the chain's
+// installed handler (parallel_compose for real OS threads;
+// sequential_compose for synchronous fallback) chooses the
+// semantics. Same source; the row constraint forces the choice.
+
+fn parallel_demo() with Thread = {
+  slow_a()
+    ><
+  slow_b()
+}
+
+fn slow_a() = 42
+fn slow_b() = 17
+
+// ─── ~> handler attachment — capability stack ───────────────────────
+//
+// Outermost (last in chain) is least trusted = sandbox boundary.
+// The inline form wraps the preceding stage; the block form wraps
+// the whole prior chain. Per SUBSTRATE.md §II both shapes lower
+// identically — emit reads scope from the expression layout.
+
+fn capability_demo() = {
+  parallel_demo()
+    ~> sequential_compose       // sequential fallback for `><`
+    ~> wasi_filesystem
+}
+
+// ─── <~ feedback — close a cycle under an iterative context ─────────
+//
+// Stateful loop: previous output feeds back as input under the
+// ambient clock. Requires `Clock` (or `Sample` / `Tick`) handler in
+// scope; absence is a type error at this site (E_FeedbackNoContext).
+
+/// Lowpass filter — classic <~ shape. Each tick, `output` becomes
+/// `0.9 * previous_output + 0.1 * input`. The verb DRAWS the cycle.
+fn lowpass(input) with Sample = {
+  input
+    <~
+  (0.9 * previous + 0.1 * input)
+}
+
+fn main() = {
+  pipeline_demo(7)
+    |> print_string
+}

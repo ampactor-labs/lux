@@ -1,6 +1,6 @@
   ;; ═══ scheme_ty_substitute.wat — trace-harness ═════════════════════
   ;; Executes: Hβ-infer-substrate.md §2.3 + scheme.wat:676-781
-  ;;           14-arm walker (canonical parity src/infer.nx:1950-1990)
+  ;;           14-arm walker (canonical parity src/infer.mn:1950-1990)
   ;; Exercises: scheme.wat — $ty_substitute $ty_substitute_list
   ;; Per ROADMAP §5 + Hβ-infer-substrate.md §11.
   ;;
@@ -14,7 +14,7 @@
   ;;               Discipline (TCont) preserved verbatim.
   ;;               Alias name (TAlias) preserved verbatim.
   ;;   Gradient?   The 14 explicit substitution arms ARE the parity
-  ;;               with src/infer.nx:1950-1990.
+  ;;               with src/infer.mn:1950-1990.
   ;;   Reason?     N/A — pure substitution.
 
   (data (i32.const 3072) "\05\00\00\00PASS:")

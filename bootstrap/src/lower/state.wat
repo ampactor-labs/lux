@@ -23,7 +23,7 @@
   ;;   $lower_expr calls: the current function's locals + captures
   ;;   ledger. Per spec 05 §No subst threading: "no (subst, lowered_ast,
   ;;   accum) tuple threaded through recursive calls." LowerCtx is the
-  ;;   wheel's effect (src/lower.nx:45-92 LowerState); the seed projects
+  ;;   wheel's effect (src/lower.mn:45-92 LowerState); the seed projects
   ;;   to module globals + direct-call helpers.
   ;;
   ;;   1. locals ledger — flat list of LOCAL_ENTRY records (3 fields:
@@ -47,10 +47,10 @@
   ;;   1. Graph?       state.wat does not chase. Each LOCAL_ENTRY's
   ;;                   ty_handle field references graph handles; lookup.wat
   ;;                   reads them via $graph_chase. State is transit.
-  ;;   2. Handler?     LowerCtx effect at the wheel (src/lower.nx:45-92
+  ;;   2. Handler?     LowerCtx effect at the wheel (src/lower.mn:45-92
   ;;                   LowerState — @resume=OneShot per §1.2). Seed projection
   ;;                   is direct $ls_* functions; the wheel compiles
-  ;;                   handler-shape from src/lower.nx.
+  ;;                   handler-shape from src/lower.mn.
   ;;   3. Verb?        N/A at substrate level.
   ;;   4. Row?         EfPure — state.wat performs no effect ops. Wheel's
   ;;                   LowerState composes with LookupTy + EnvRead +
@@ -97,7 +97,7 @@
   ;;
   ;; Named follow-ups (per Drift 9 + Hβ-lower-substrate.md §11):
   ;;   - Hβ.lower.scope-stack:  block-scope / handler-arm / lambda-frame
-  ;;                            push/pop discipline (wheel src/lower.nx
+  ;;                            push/pop discipline (wheel src/lower.mn
   ;;                            lines 375-378, 414-419, 738, 741, 755, 758).
   ;;                            Seed deliberately omits per §0.1 transcription
   ;;                            simplification — most-recent binding wins via
@@ -323,7 +323,7 @@
     (i32.gt_u (global.get $lower_function_depth_g) (i32.const 0)))
 
   ;; ─── $ls_bind_local — append a new local; return its slot index ────
-  ;; Per Hβ-lower-substrate.md §1.2 lines 204-207 + wheel src/lower.nx:771
+  ;; Per Hβ-lower-substrate.md §1.2 lines 204-207 + wheel src/lower.mn:771
   ;; (bind_names_as_locals). Appends a LOCAL_ENTRY record to the locals
   ;; ledger; bumps $lower_next_slot_g; returns the slot.
   (func $ls_bind_local (param $name i32) (param $ty_handle i32) (result i32)
@@ -376,7 +376,7 @@
   ;; scope, record a CAPTURE_ENTRY (src_slot_idx sentinel 0 — see Open
   ;; Question O.2 / Hβ.lower.upval-slot-resolution follow-up) and return
   ;; the capture's index in $lower_captures_ptr. If neither, return -1
-  ;; (caller emits LGlobal — wheel parity, src/lower.nx:336-337).
+  ;; (caller emits LGlobal — wheel parity, src/lower.mn:336-337).
   (func $ls_lookup_or_capture (param $name i32) (result i32)
     (local $local_slot i32) (local $i i32) (local $entry i32)
     (local $entry_name i32) (local $cap_entry i32) (local $cap_idx i32)
@@ -463,7 +463,7 @@
         (global.set $lower_next_slot_g (local.get $checkpoint)))))
 
   ;; ─── $ls_reset_function — clear at FnStmt entry ────────────────────
-  ;; Per Hβ-lower-substrate.md §1.2 lines 219-223 + wheel src/lower.nx:86-90
+  ;; Per Hβ-lower-substrate.md §1.2 lines 219-223 + wheel src/lower.mn:86-90
   ;; (LowerState ms_reset_function). Length-only reset; bump-allocator
   ;; buffers stay (matches infer/state.wat:218-223 $infer_reset_walk
   ;; discipline). Next $ls_bind_local reuses the existing flat storage.

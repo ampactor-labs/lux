@@ -21,12 +21,12 @@
   ;;             $len + $list_index (runtime/list.wat).
   ;;
   ;; What this chunk IS (per Hβ-emit-substrate.md §2.3 + wheel canonical
-  ;; src/backends/wasm.nx:1220-1223 + 1310-1319 + 1379-1394 + 1514+):
+  ;; src/backends/wasm.mn:1220-1223 + 1310-1319 + 1379-1394 + 1514+):
   ;;
   ;;   1. $emit_lreturn(r) — LReturn tag 310 (handle, x). Emits the inner
   ;;      LowExpr's value via $emit_lexpr, then "(return)" — the WASM
   ;;      control-flow primitive that hands the value back to the
-  ;;      suspended `perform` site. NOT an imperative-`return` arm: Inka
+  ;;      suspended `perform` site. NOT an imperative-`return` arm: Mentl
   ;;      has no `return` keyword (SYNTAX.md line 1335). LReturn is the
   ;;      lowered form of `resume(value)` inside a OneShot handler arm
   ;;      per Hβ.lower walk_call.wat Lock #6 (`ResumeExpr → LReturn`).
@@ -69,7 +69,7 @@
   ;;                   chunk #3 + retrofitted by chunks #4 + this chunk.
   ;;                   Per Anchor 1: ask the graph; never re-derive.
   ;;   2. Handler?     At wheel: each arm is one branch of emit_expr
-  ;;                   match per src/backends/wasm.nx. At seed: direct
+  ;;                   match per src/backends/wasm.mn. At seed: direct
   ;;                   fn dispatch via $emit_lexpr's tag table.
   ;;                   @resume=OneShot at the wheel (single-pass
   ;;                   emission per LowExpr tree).
@@ -130,12 +130,12 @@
   ;;                                 The empty-arms path is fully bodied
   ;;                                 here. Drift 9 closure via explicit
   ;;                                 naming.
-  ;;   - Foreign fluency:           Vocabulary stays Inka — "block",
+  ;;   - Foreign fluency:           Vocabulary stays Mentl — "block",
   ;;                                "match", "return" (in the resume-
   ;;                                substrate sense per Lock #6),
   ;;                                "region", "scrutinee". Note: per
   ;;                                SYNTAX.md line 1335 + SUBSTRATE.md §II
-  ;;                                Inka has NO imperative loop / break /
+  ;;                                Mentl has NO imperative loop / break /
   ;;                                continue / switch / for / in
   ;;                                constructs. Iteration is `<~`
   ;;                                feedback over Iterate effect;
@@ -207,7 +207,7 @@
     (call $emit_byte (i32.const 112)) (call $emit_byte (i32.const 41)))
 
   ;; ─── $ec5_emit_body — sequential emit of a stmt list ──────────────
-  ;; Per wheel src/backends/wasm.nx:1319 `LBlock(_h, stmts) => emit_body(
+  ;; Per wheel src/backends/wasm.mn:1319 `LBlock(_h, stmts) => emit_body(
   ;; stmts)` + LIf branch emission + LRegion body emission. Each stmt's
   ;; value pushed/popped on the WASM operand stack; the LAST stmt's
   ;; value is the surrounding construct's value.
@@ -230,7 +230,7 @@
         (br $iter))))
 
   ;; ─── $emit_lreturn — LReturn tag 310 emit arm per §2.3 ─────────────
-  ;; Per src/backends/wasm.nx:1220-1223. LReturn carries the resumed
+  ;; Per src/backends/wasm.mn:1220-1223. LReturn carries the resumed
   ;; value of an OneShot `resume(value)` per Hβ.lower walk_call.wat
   ;; Lock #6. WAT-level `(return)` hands the value back to the
   ;; suspended `perform` call site.
@@ -239,7 +239,7 @@
     (call $ec5_emit_return))
 
   ;; ─── $emit_lif — LIf tag 314 emit arm per §2.3 ─────────────────────
-  ;; Per src/backends/wasm.nx:1310-1317. Emits:
+  ;; Per src/backends/wasm.mn:1310-1317. Emits:
   ;;   <cond>
   ;;   (if (result i32)
   ;;     (then <then_body>)
@@ -257,14 +257,14 @@
     (call $emit_close))
 
   ;; ─── $emit_lblock — LBlock tag 315 emit arm per §2.3 ───────────────
-  ;; Per src/backends/wasm.nx:1319 `LBlock(_h, stmts) => emit_body(stmts)`.
+  ;; Per src/backends/wasm.mn:1319 `LBlock(_h, stmts) => emit_body(stmts)`.
   ;; Sequential emit of stmts list — each stmt's value pushed/popped on
   ;; the WASM operand stack; the LAST stmt's value is the block's value.
   (func $emit_lblock (param $r i32)
     (call $ec5_emit_body (call $lexpr_lblock_stmts (local.get $r))))
 
   ;; ─── $emit_lmatch — LMatch tag 321 emit arm per §2.3 ───────────────
-  ;; Per src/backends/wasm.nx:1379-1394 + emit_match_arms at line 1792+.
+  ;; Per src/backends/wasm.mn:1379-1394 + emit_match_arms at line 1792+.
   ;;
   ;; Three-shape dispatch — the H6 gradient cash-out:
   ;;   PureNullary (shape 0): every LPCon has empty sub_pats.
@@ -296,7 +296,7 @@
                   (local.get $arms) (i32.const 0) (local.get $shape)))))))
 
   ;; ─── $ec5_classify_arms_shape — classify arm set shape ──────────────
-  ;; Per src/backends/wasm.nx:1807-1829 classify_arms_shape.
+  ;; Per src/backends/wasm.mn:1807-1829 classify_arms_shape.
   ;; Walk arms list. For each LPCon, check len(sub_pats):
   ;;   0 → nullary, >0 → fielded. Track accumulated shape.
   ;; Returns: 0=PureNullary, 1=PureFielded, 2=Mixed.
@@ -334,7 +334,7 @@
       (else (i32.const 1))))   ;; No LPCon seen → PureFielded default
 
   ;; ─── $ec5_emit_match_arms_from — uniform-shape arm dispatch ─────────
-  ;; Per src/backends/wasm.nx:1842-1903 emit_match_arms_uniform.
+  ;; Per src/backends/wasm.mn:1842-1903 emit_match_arms_uniform.
   ;; Recursive: emits arms starting from index $idx.
   ;; Per-arm dispatch on LowPat tag:
   ;;   LPCon (363): load scrut (shape-dependent), compare tag_id,
@@ -424,7 +424,7 @@
       (local.get $shape)))
 
   ;; ─── $ec5_emit_match_arms_mixed — threshold gate dispatch ───────────
-  ;; Per src/backends/wasm.nx:1909-1922 emit_match_arms_mixed.
+  ;; Per src/backends/wasm.mn:1909-1922 emit_match_arms_mixed.
   ;; Emits:
   ;;   (local.get $scrut_tmp)(i32.const 4096)(i32.lt_u)
   ;;   (if (result i32)
@@ -484,7 +484,7 @@
       (local.get $arms) (local.get $idx) (local.get $want_shape)))
 
   ;; ─── $ec5_emit_pat_field_binds — per-field sub-pattern binding ──────
-  ;; Per src/backends/wasm.nx:1987-2009 emit_pat_field_binds.
+  ;; Per src/backends/wasm.mn:1987-2009 emit_pat_field_binds.
   ;; For each LPVar sub-pattern at index i, emits:
   ;;   (local.get $scrut_tmp)(i32.load offset=4+4*i)(local.set $<name>)
   ;; LPWild sub-patterns bind nothing. Nested constructors skip (TODO).
@@ -541,7 +541,7 @@
     (call $emit_byte (i32.const 117)) (call $emit_byte (i32.const 41)))
 
   ;; ─── $emit_lregion — LRegion tag 328 emit arm per §2.3 ─────────────
-  ;; Per src/backends/wasm.nx:1514+. Inert seed: emits the body's stmts
+  ;; Per src/backends/wasm.mn:1514+. Inert seed: emits the body's stmts
   ;; via $ec5_emit_body without region-enter/exit emission. The W5
   ;; arena handler-swap populates region-enter/exit emission per NAMED
   ;; follow-up Hβ.emit.memory-arena-handler — at that point this arm

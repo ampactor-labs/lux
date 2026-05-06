@@ -21,7 +21,7 @@ Unlock / Trace / Verify / Teach / Why. See also
 `docs/specs/simulations/MV-mentl-voice.md` for the voice
 substrate design session.
 
-**Scope.** This spec defines the module `std/compiler/mentl.nx` — the
+**Scope.** This spec defines the module `std/compiler/mentl.mn` — the
 full teaching surface: gradient logic, Why Engine, suggest, error
 catalog, LSP hover, verification-obligation rendering — plus the
 `Teach` effect (spec 06) it exposes. One module, five ops, eight
@@ -160,7 +160,7 @@ type Patch
   `teach_why` to `render_why`, producing a multi-line indented chase
   trail: one line per structural frame, Located frames render their
   `file:line:col-line:col` coordinates, leaves terminate via
-  `show_reason`. This is what IDE hovers and `inka explain` show to
+  `show_reason`. This is what IDE hovers and `mentl explain` show to
   the user — the substrate's coordinate-aware reasoning made
   speakable (I18).
 
@@ -264,7 +264,7 @@ that already exist.
 ## Module structure
 
 ```
-std/compiler/mentl.nx          — the consolidated teaching module
+std/compiler/mentl.mn          — the consolidated teaching module
   ├── handler mentl_default      — default Teach handler
   ├── handler why_default        — default Why tentacle
   ├── fn gradient_next(handle)   — gradient logic
@@ -273,7 +273,7 @@ std/compiler/mentl.nx          — the consolidated teaching module
   └── fn render_patch            — Patch → developer-facing diff
 ```
 
-The single module `mentl.nx` hosts the full teaching substrate —
+The single module `mentl.mn` hosts the full teaching substrate —
 gradient logic, Why Engine, suggest surface, error-catalog loading.
 One discoverable name for the subsystem. The mascot earns its keep
 linguistically.
@@ -291,7 +291,7 @@ authority, and `protocol_cursor_is_argmax.md` for the discipline.
 position.** The "eight tentacles" of this spec are eight *aspects of
 one read* at the cursor's position, not eight subsystems that
 coordinate. The graph already carries all eight at every node
-(kernel closure, SUBSTRATE.md §I); `cursor_default` (`src/cursor.nx`)
+(kernel closure, SUBSTRATE.md §I); `cursor_default` (`src/cursor.mn`)
 composes the eight reads into one `CursorView` record:
 
 | Field | Tentacle | Read from |
@@ -312,7 +312,7 @@ at a position into one record. The IDE's developer experience IS
 `cursor_default` surfaced through a transport handler
 (Hμ.cursor.transport, peer handle).
 
-**Cursor effect (`src/cursor.nx`):**
+**Cursor effect (`src/cursor.mn`):**
 
 ```
 effect Cursor {
@@ -344,9 +344,9 @@ chosen slot.
 
 ## Consumed by
 
-- `std/compiler/pipeline.nx` — installs `mentl_default` at compile
+- `std/compiler/pipeline.mn` — installs `mentl_default` at compile
   entry (always active; zero-cost when no teach request is made).
-- `src/cursor.nx` — Hμ.cursor's `cursor_default` composes Teach +
+- `src/cursor.mn` — Hμ.cursor's `cursor_default` composes Teach +
   Synth + Verify + GraphRead reads through `mentl_default`'s
   individual ops; the cursor handler is the position-scoped read
   surface.
@@ -355,7 +355,7 @@ chosen slot.
 - Arc F.2 LSP — wraps Mentl tentacles as JSON-RPC methods (and
   Hμ.cursor.transport routes `cursor_default` through LSP for the
   IDE's per-cursor projection).
-- `inka query` — every query output routes through Mentl for
+- `mentl query` — every query output routes through Mentl for
   consistent rendering.
 
 ---

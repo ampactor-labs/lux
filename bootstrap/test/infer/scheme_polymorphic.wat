@@ -24,7 +24,7 @@
   ;;               Instantiation("inst", Fresh(old)) — tag 232.
   ;;
   ;; Setup: h_q = fresh (NFree); h_fn = fresh, bound to TList(TVar(h_q)).
-  ;; With transitive chase per src/graph.nx:269-272, chase(h_fn) returns
+  ;; With transitive chase per src/graph.mn:269-272, chase(h_fn) returns
   ;; NBound(TList(TVar(h_q))) — stops at TList since TList ≠ TVar.
   ;; generalize extracts TList(TVar(h_q)), free_in_ty finds [h_q].
   ;; Result: Forall([h_q], TList(TVar(h_q))).

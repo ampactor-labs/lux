@@ -1,7 +1,7 @@
 # E_RecordFieldMissing
 
 **Kind:** Error
-**Emitted by:** `infer.nx` — `check_nominal_record_fields` (spec 04, record literal check)
+**Emitted by:** `infer.mn` — `check_nominal_record_fields` (spec 04, record literal check)
 **Applicability:** MaybeIncorrect
 
 ## Summary

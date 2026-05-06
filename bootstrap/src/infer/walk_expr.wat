@@ -4,7 +4,7 @@
   ;;             §9 worked example + §11 acceptance + §13.3 dep order #8 +
   ;;             docs/specs/04-inference.md §What the walk produces +
   ;;             docs/specs/03-typed-ast.md (canonical AST shape) +
-  ;;             canonical wheel src/infer.nx:490-765 (infer_expr arms) +
+  ;;             canonical wheel src/infer.mn:490-765 (infer_expr arms) +
   ;;             :782-810 (infer_var_ref / check_consume_at_use) +
   ;;             :820-846 (infer_call + row chase) +
   ;;             :898-974 (infer_pipe / per-PipeKind arms) +
@@ -19,7 +19,7 @@
   ;; (parser_infra.wat:14-19) gets one arm; each arm ends with exactly
   ;; ONE $graph_bind on the AST handle (modulo branch arms that bind
   ;; sub-handles too; the per-handle invariant is "one bind per AST
-  ;; handle" per src/infer.nx:493-498 line shape). Per Hazel productive-
+  ;; handle" per src/infer.mn:493-498 line shape). Per Hazel productive-
   ;; under-error: env_lookup miss, handler-uninstallable, pattern-
   ;; inexhaustive, feedback-no-context all emit-and-bind-NErrorHole-and-
   ;; continue rather than aborting. The chunk drives one walk; it never
@@ -94,13 +94,13 @@
   ;;                            walk_expr.wat per-arm walk) ═══════════════
   ;;
   ;; 1. Graph?      Every arm ends in exactly ONE $graph_bind on the AST
-  ;;                handle (one bind per AST handle, per src/infer.nx
+  ;;                handle (one bind per AST handle, per src/infer.mn
   ;;                invariant). Branch arms (BinOp BKBool, IfExpr) ALSO
   ;;                bind sub-handles for taught-typing — but each handle
   ;;                gets bound at most once per the per-handle invariant.
   ;; 2. Handler?    Direct seed call. Wheel's $inf_enter_fn / $inf_exit_fn /
   ;;                $inf_add_row / $inf_push_handler / $inf_pop_handler
-  ;;                (src/infer.nx:36-153) are seed-stubbed as no-ops with
+  ;;                (src/infer.mn:36-153) are seed-stubbed as no-ops with
   ;;                named peer follow-up Hβ.infer.row-normalize +
   ;;                Hβ.infer.handler-stack. The walk arms are SHAPED so the
   ;;                wheel's @resume=OneShot resume-discipline maps 1-1 onto
@@ -108,7 +108,7 @@
   ;; 3. Verb?       PipeExpr arm dispatches on PipeKind tag (160-165 per
   ;;                parser_infra.wat:27): PForward / PDiverge / PCompose /
   ;;                PTeeBlock / PTeeInline / PFeedback. Each verb arm's
-  ;;                topology builds the typed AST per src/infer.nx
+  ;;                topology builds the typed AST per src/infer.mn
   ;;                infer_pipe / infer_compose / infer_diverge.
   ;; 4. Row?        TFun construction at CallExpr / LambdaExpr uses
   ;;                $ty_make_tfun(params, return_ty, row_h) where row_h
@@ -169,7 +169,7 @@
   ;;                                    wrapped N record), single i32 out
   ;;                                    (the AST handle the caller already
   ;;                                    knows but returning IT mirrors
-  ;;                                    src/infer.nx's `let N(_, _, h) =
+  ;;                                    src/infer.mn's `let N(_, _, h) =
   ;;                                    node` pattern). NO bundled context-
   ;;                                    struct + state ptr.
   ;; - Drift 6 (primitive special-case): TInt / TFloat / TString / TUnit
@@ -227,18 +227,18 @@
   ;;
   ;; - Hβ.infer.row-normalize: $walk_expr_inf_add_row /
   ;;   $walk_expr_inf_enter_fn / $walk_expr_inf_exit_fn are inert seed-
-  ;;   stubs. Wheel's inf_* arms (src/infer.nx:36-153) compose row
+  ;;   stubs. Wheel's inf_* arms (src/infer.mn:36-153) compose row
   ;;   composition on row.wat substrate that lands in the row.wat sibling
   ;;   chunk. Until then PForward / CallExpr / PerformExpr's "row flows
-  ;;   into caller" line in src/infer.nx:843+869+919 is a no-op at the
+  ;;   into caller" line in src/infer.mn:843+869+919 is a no-op at the
   ;;   seed.
   ;; - Hβ.infer.handler-stack: $walk_expr_inf_push_handler /
-  ;;   $walk_expr_inf_pop_handler (src/infer.nx:127-138) similarly inert.
+  ;;   $walk_expr_inf_pop_handler (src/infer.mn:127-138) similarly inert.
   ;;   HandleExpr / PTeeBlock / PTeeInline arms still bind correctly (the
   ;;   body's type IS the result type) without handler-stack tracking; W4
   ;;   monomorphic-dispatch read happens later.
   ;; - Hβ.infer.region-tracker: H4 tag_alloc_join calls
-  ;;   (src/infer.nx:524-587) inert. Region tracking lands when Hβ.lower's
+  ;;   (src/infer.mn:524-587) inert. Region tracking lands when Hβ.lower's
   ;;   Alloc surface matures.
   ;; - Hβ.infer.docstring-reason: Documented Stmt arm omitted (parser
   ;;   doesn't emit Documented today; landing pre-DS.3).
@@ -247,16 +247,16 @@
   ;;   called from MatchExpr arm + LetStmt arm. PCon threads
   ;;   constructor field types to sub-patterns via TFun param extraction.
   ;; - Hβ.infer.match-exhaustive: exhaustiveness check
-  ;;   (src/infer.nx:1709-1718) omitted at the seed; MatchExpr arm
+  ;;   (src/infer.mn:1709-1718) omitted at the seed; MatchExpr arm
   ;;   delegates to $infer_emit_pattern_inexhaustive on demand only.
   ;; - Hβ.infer.named-record-validate: check_nominal_record_fields
-  ;;   (src/infer.nx:1397-1450) omitted; uses already-landed
+  ;;   (src/infer.mn:1397-1450) omitted; uses already-landed
   ;;   $infer_emit_record_field_extra / _missing helpers.
   ;; - Hβ.infer.iterative-context: <~ arm pessimistically emits
   ;;   feedback-no-context always; lands when Clock/Tick/Sample handler-
   ;;   stack-walk substrate matures.
   ;; - Hβ.infer.qualified-name: FieldExpr's dotted-name fallback
-  ;;   (src/infer.nx:710-722) deferred; seed treats every FieldExpr as
+  ;;   (src/infer.mn:710-722) deferred; seed treats every FieldExpr as
   ;;   record field access.
   ;; - walk_stmt.wat (peer Tier 7 chunk per §13.3 #9): LANDED. Provides
   ;;   $infer_stmt_list; BlockExpr arm now calls it directly (Hβ.infer
@@ -359,7 +359,7 @@
 
   ;; $walk_expr_build_inferred_params(arg_handles) — for each handle h,
   ;; build TParam(name=anon, ty=TVar(h), authored=Inferred,
-  ;; resolved=Inferred). Mirrors src/infer.nx:828 build_inferred_params.
+  ;; resolved=Inferred). Mirrors src/infer.mn:828 build_inferred_params.
   ;; The anon name is the empty string; renders correctly through
   ;; emit_diag.wat's $render_ty walker (which already handles empty
   ;; TParam names).
@@ -387,14 +387,14 @@
 
   ;; $walk_expr_inf_add_row — Hβ.infer.row-normalize stub. Wheel's
   ;; inf_add_row composes the callee's row into the caller's accumulating
-  ;; row (src/infer.nx:843); seed pass-through no-op until row.wat sibling
+  ;; row (src/infer.mn:843); seed pass-through no-op until row.wat sibling
   ;; lands.
   (func $walk_expr_inf_add_row (param $row i32)
     (drop (local.get $row)))
 
   ;; $walk_expr_inf_enter_fn — Hβ.infer.row-normalize stub. Wheel's
   ;; inf_enter_fn pushes a row scope onto the FnStmt stack
-  ;; (src/infer.nx:36-50); seed no-op.
+  ;; (src/infer.mn:36-50); seed no-op.
   (func $walk_expr_inf_enter_fn (param $row_h i32) (param $span i32)
     (drop (local.get $row_h))
     (drop (local.get $span)))
@@ -406,7 +406,7 @@
 
   ;; $walk_expr_inf_push_handler — Hβ.infer.handler-stack stub. Wheel's
   ;; inf_push_handler tags the handler-stack frame with handled-effect
-  ;; identity (src/infer.nx:127-132); seed no-op.
+  ;; identity (src/infer.mn:127-132); seed no-op.
   (func $walk_expr_inf_push_handler (param $tag i32)
     (drop (local.get $tag)))
 
@@ -417,7 +417,7 @@
   ;; $walk_expr_callee_name(func_node) — extracts callee name for Reason
   ;; chains: if func is VarRef, return its name string ptr; if FieldExpr,
   ;; return field name; else return data-segment "<expr>". Mirrors
-  ;; src/infer.nx:812-818.
+  ;; src/infer.mn:812-818.
   (func $walk_expr_callee_name (param $func_node i32) (result i32)
     (local $body i32) (local $expr i32) (local $tag i32)
     (local.set $body (call $walk_expr_node_body (local.get $func_node)))
@@ -442,7 +442,7 @@
 
   ;; $walk_expr_handle_arm_iter(arms, body_h, span) — iterate handler
   ;; arms; for each: scope_enter, walk arm.body, unify arm_body_h ↔
-  ;; body_h, scope_exit. Mirrors src/infer.nx:1795-1805. The seed treats
+  ;; body_h, scope_exit. Mirrors src/infer.mn:1795-1805. The seed treats
   ;; each arm as an opaque record whose .body field lives at offset 4
   ;; (parser-emitted shape; lands as a peer record in walk_stmt.wat with
   ;; HANDLER_ARM tag — for now opaque-deref by offset).
@@ -471,7 +471,7 @@
 
   ;; ─── Per-Expr-variant arms ───────────────────────────────────────────
 
-  ;; LitInt arm — src/infer.nx:493
+  ;; LitInt arm — src/infer.mn:493
   (func $infer_walk_expr_lit_int
         (export "infer_walk_expr_lit_int")
         (param $expr i32) (param $handle i32) (param $span i32)
@@ -484,7 +484,7 @@
         (call $reason_make_inferred (i32.const 3392))))   ;; "int literal"
     (local.get $handle))
 
-  ;; LitFloat arm — src/infer.nx:494
+  ;; LitFloat arm — src/infer.mn:494
   (func $infer_walk_expr_lit_float
         (export "infer_walk_expr_lit_float")
         (param $expr i32) (param $handle i32) (param $span i32)
@@ -497,7 +497,7 @@
         (call $reason_make_inferred (i32.const 3416))))   ;; "float literal"
     (local.get $handle))
 
-  ;; LitString arm — src/infer.nx:495
+  ;; LitString arm — src/infer.mn:495
   (func $infer_walk_expr_lit_string
         (export "infer_walk_expr_lit_string")
         (param $expr i32) (param $handle i32) (param $span i32)
@@ -510,7 +510,7 @@
         (call $reason_make_inferred (i32.const 3440))))   ;; "string literal"
     (local.get $handle))
 
-  ;; LitBool arm — src/infer.nx:496. Bool is TName("Bool", []).
+  ;; LitBool arm — src/infer.mn:496. Bool is TName("Bool", []).
   (func $infer_walk_expr_lit_bool
         (export "infer_walk_expr_lit_bool")
         (param $expr i32) (param $handle i32) (param $span i32)
@@ -523,7 +523,7 @@
         (call $reason_make_inferred (i32.const 3464))))   ;; "bool literal"
     (local.get $handle))
 
-  ;; LitUnit arm — src/infer.nx:497. expr is the sentinel 84; do not deref.
+  ;; LitUnit arm — src/infer.mn:497. expr is the sentinel 84; do not deref.
   (func $infer_walk_expr_lit_unit
         (export "infer_walk_expr_lit_unit")
         (param $expr i32) (param $handle i32) (param $span i32)
@@ -536,7 +536,7 @@
         (call $reason_make_inferred (i32.const 3480))))   ;; "unit"
     (local.get $handle))
 
-  ;; VarRef arm — src/infer.nx:499 + 787-810. Productive-under-error on
+  ;; VarRef arm — src/infer.mn:499 + 787-810. Productive-under-error on
   ;; env miss: emit_missing_var binds NErrorHole + caller continues.
   (func $infer_walk_expr_var_ref
         (export "infer_walk_expr_var_ref")
@@ -570,9 +570,9 @@
     ;; (Hβ.infer.ownership-row-gate). Until then: no false positives.
     (local.get $handle))
 
-  ;; BinOpExpr arm — src/infer.nx:501-507 + 1543-1572. Dispatches on
+  ;; BinOpExpr arm — src/infer.mn:501-507 + 1543-1572. Dispatches on
   ;; BinOp tag via numeric range (140-153 grouped into BKArith / BKCmp /
-  ;; BKBool / BKConcat per src/types.nx binop_kind table).
+  ;; BKBool / BKConcat per src/types.mn binop_kind table).
   (func $infer_walk_expr_binop
         (export "infer_walk_expr_binop")
         (param $expr i32) (param $handle i32) (param $span i32)
@@ -659,7 +659,7 @@
           (call $reason_make_inferred (i32.const 3600)))))  ;; "operand"
     (local.get $handle))
 
-  ;; UnaryOpExpr arm — src/infer.nx:509-513 + 1574-1583. Op is stored as
+  ;; UnaryOpExpr arm — src/infer.mn:509-513 + 1574-1583. Op is stored as
   ;; an opaque ptr (string today; may move to ADT later — peer follow-up
   ;; if so). Default arm: bind handle ↔ TVar(inner_h). The wheel's "Neg"/
   ;; "Not" string comparisons require a $str_eq surface that the seed
@@ -682,7 +682,7 @@
         (call $reason_make_inferred (i32.const 3600))))   ;; "operand"
     (local.get $handle))
 
-  ;; CallExpr arm — src/infer.nx:515-527 + 820-846.
+  ;; CallExpr arm — src/infer.mn:515-527 + 820-846.
   (func $infer_walk_expr_call
         (export "infer_walk_expr_call")
         (param $expr i32) (param $handle i32) (param $span i32)
@@ -730,12 +730,12 @@
       (call $reason_make_located (local.get $span)
         (call $reason_make_inferredcallreturn (local.get $cname)
           (call $reason_make_inferred (i32.const 3584)))))  ;; "result"
-    ;; Row composition: src/infer.nx:842-845 chases row_h + adds to caller.
+    ;; Row composition: src/infer.mn:842-845 chases row_h + adds to caller.
     ;; SEED-STUB per Hβ.infer.row-normalize.
     (call $walk_expr_inf_add_row (local.get $row_h))
     (local.get $handle))
 
-  ;; LambdaExpr arm — src/infer.nx:724-740. Builds TFun([], TVar(body_h),
+  ;; LambdaExpr arm — src/infer.mn:724-740. Builds TFun([], TVar(body_h),
   ;; row=fresh) at the seed; param-list typing/env-extend lives in the
   ;; wheel's mint_params path which depends on parser-emitted Param record
   ;; structure (Hβ.infer.lambda-params named follow-up). Per Drift 9
@@ -798,7 +798,7 @@
     (call $env_scope_exit)
     (local.get $handle))
 
-  ;; IfExpr arm — src/infer.nx:529-539. cond ↔ Bool; then/else unified;
+  ;; IfExpr arm — src/infer.mn:529-539. cond ↔ Bool; then/else unified;
   ;; result = TVar(then_h).
   (func $infer_walk_expr_if
         (export "infer_walk_expr_if")
@@ -830,7 +830,7 @@
           (call $reason_make_inferred (i32.const 3816))))) ;; "if result"
     (local.get $handle))
 
-  ;; BlockExpr arm — src/infer.nx:541-548. stmts walked via forward-
+  ;; BlockExpr arm — src/infer.mn:541-548. stmts walked via forward-
   ;; declared $infer_stmt_list; final_expr walked normally; block type =
   ;; TVar(final_expr_h).
   ;;
@@ -1095,7 +1095,7 @@
     ;; Record pattern field-name matching deferred to peer cascade.
     )
 
-  ;; MatchExpr arm — src/infer.nx:550-553 + 1701-1733. Walks scrutinee +
+  ;; MatchExpr arm — src/infer.mn:550-553 + 1701-1733. Walks scrutinee +
   ;; each arm-body; pattern walk via $infer_walk_pat (B.5 landed);
   ;; exhaustiveness check (Hβ.infer.match-exhaustive) is a named follow-up.
   (func $infer_walk_expr_match
@@ -1114,7 +1114,7 @@
 
   ;; MatchExpr arms iterator — for each arm: scope_enter, walk pattern
   ;; via $infer_walk_pat (B.5), walk arm-body, unify body_h ↔ result_h,
-  ;; scope_exit. Mirrors src/infer.nx:1721-1731.
+  ;; scope_exit. Mirrors src/infer.mn:1721-1731.
   ;; Arms are 2-tuple lists (pat, body) per parser_pat.wat:357-360.
   (func $infer_walk_expr_match_arms
         (export "infer_walk_expr_match_arms")
@@ -1160,7 +1160,7 @@
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $each))))
 
-  ;; HandleExpr arm — src/infer.nx:623-695. Body walked + arms walked +
+  ;; HandleExpr arm — src/infer.mn:623-695. Body walked + arms walked +
   ;; arm-bodies unified to body_h. Row absorption, region tracking, and
   ;; handler-uninstallable check are seed-stubs per Hβ.infer.row-normalize
   ;; / .handler-stack / .region-tracker named follow-ups.
@@ -1198,7 +1198,7 @@
         (call $reason_make_inferred (i32.const 3584))))   ;; "result"
     (local.get $handle))
 
-  ;; PerformExpr arm — src/infer.nx:618-621 + 852-876. env_lookup the op;
+  ;; PerformExpr arm — src/infer.mn:618-621 + 852-876. env_lookup the op;
   ;; on miss emit_missing_var; on hit instantiate scheme + walk args +
   ;; bind handle to scheme's return type.
   (func $infer_walk_expr_perform
@@ -1242,7 +1242,7 @@
             (call $reason_make_varlookup (local.get $op_name) (local.get $reason))))))
     (local.get $handle))
 
-  ;; ResumeExpr arm — src/infer.nx:697-701. Walk val; bind handle to TUnit.
+  ;; ResumeExpr arm — src/infer.mn:697-701. Walk val; bind handle to TUnit.
   (func $infer_walk_expr_resume
         (export "infer_walk_expr_resume")
         (param $expr i32) (param $handle i32) (param $span i32)
@@ -1258,7 +1258,7 @@
         (call $reason_make_inferred (i32.const 3480))))   ;; "unit"
     (local.get $handle))
 
-  ;; MakeListExpr arm — src/infer.nx:556-569. Empty: TList(TVar(fresh)).
+  ;; MakeListExpr arm — src/infer.mn:556-569. Empty: TList(TVar(fresh)).
   ;; Non-empty: unify all elements to first; bind to TList(TVar(first_h)).
   (func $infer_walk_expr_make_list
         (export "infer_walk_expr_make_list")
@@ -1300,7 +1300,7 @@
         (call $reason_make_inferred (i32.const 3936))))   ;; "list result"
     (local.get $handle))
 
-  ;; MakeTupleExpr arm — src/infer.nx:571-575.
+  ;; MakeTupleExpr arm — src/infer.mn:571-575.
   (func $infer_walk_expr_make_tuple
         (export "infer_walk_expr_make_tuple")
         (param $expr i32) (param $handle i32) (param $span i32)
@@ -1328,9 +1328,9 @@
         (call $reason_make_inferred (i32.const 3912))))   ;; "tuple result"
     (local.get $handle))
 
-  ;; MakeRecordExpr arm — src/infer.nx:577-587. Builds a list of
+  ;; MakeRecordExpr arm — src/infer.mn:577-587. Builds a list of
   ;; (name, TVar(value_h)) field-pair records and binds to TRecord.
-  ;; Parser pre-sorts fields per src/parser.nx.
+  ;; Parser pre-sorts fields per src/parser.mn.
   (func $infer_walk_expr_make_record
         (export "infer_walk_expr_make_record")
         (param $expr i32) (param $handle i32) (param $span i32)
@@ -1341,7 +1341,7 @@
     (local $fp i32)
     ;; Layout: [tag=98][fields]; each fields entry is a (name, val_node)
     ;; pair record in tparam.wat's field-pair shape (FIELD_PAIR=203) —
-    ;; parser emits ([name_str, value_node]) per src/parser.nx.
+    ;; parser emits ([name_str, value_node]) per src/parser.mn.
     (local.set $fields (i32.load offset=4 (local.get $expr)))
     (local.set $n (call $len (local.get $fields)))
     (local.set $field_pair_list (call $make_list (i32.const 0)))
@@ -1368,7 +1368,7 @@
         (call $reason_make_inferred (i32.const 3888))))   ;; "record result"
     (local.get $handle))
 
-  ;; NamedRecordExpr arm — src/infer.nx:589-616. env_lookup the type name;
+  ;; NamedRecordExpr arm — src/infer.mn:589-616. env_lookup the type name;
   ;; on miss emit_missing_var; on hit non-RecordSchemeKind emit_not_a_
   ;; record_type; on hit record-shape, walk fields + bind handle to
   ;; TName(type_name, []). Field validation against declared (extra/
@@ -1411,8 +1411,8 @@
         (call $reason_make_inferred (i32.const 3888))))   ;; "record result"
     (local.get $handle))
 
-  ;; FieldExpr arm — src/infer.nx:703-722 + 771-781. Treats every
-  ;; FieldExpr as record-field access. Dotted-name fallback (src/infer.nx
+  ;; FieldExpr arm — src/infer.mn:703-722 + 771-781. Treats every
+  ;; FieldExpr as record-field access. Dotted-name fallback (src/infer.mn
   ;; :710-722) is named follow-up Hβ.infer.qualified-name.
   (func $infer_walk_expr_field
         (export "infer_walk_expr_field")
@@ -1454,7 +1454,7 @@
     (local.get $handle))
 
   ;; ─── PipeExpr — five-verb dispatch ────────────────────────────────────
-  ;; src/infer.nx:742-755 + 898-974. Dispatches on PipeKind tag (160-165).
+  ;; src/infer.mn:742-755 + 898-974. Dispatches on PipeKind tag (160-165).
   ;; Per spec 10 + Hβ-infer §4.3 production pattern 4.
 
   (func $infer_walk_expr_pipe
@@ -1481,7 +1481,7 @@
       (then (return (call $infer_walk_expr_pipe_compose
                           (local.get $left) (local.get $right)
                           (local.get $handle) (local.get $span)))))
-    ;; PTeeBlock (163) / PTeeInline (164) — same shape per src/infer.nx:944-955
+    ;; PTeeBlock (163) / PTeeInline (164) — same shape per src/infer.mn:944-955
     (if (i32.eq (local.get $kind) (i32.const 163))
       (then (return (call $infer_walk_expr_pipe_tee
                           (local.get $left) (local.get $right)
@@ -1498,7 +1498,7 @@
     ;; Unknown PipeKind — H6 wildcard discipline: trap.
     (unreachable))
 
-  ;; PForward (|>) — src/infer.nx:907-925.
+  ;; PForward (|>) — src/infer.mn:907-925.
   (func $infer_walk_expr_pipe_forward
         (export "infer_walk_expr_pipe_forward")
         (param $left i32) (param $right i32)
@@ -1550,7 +1550,7 @@
     (call $walk_expr_inf_add_row (local.get $row_h))
     (local.get $handle))
 
-  ;; PCompose (><) — src/infer.nx:985-995. branch_enter; walk left;
+  ;; PCompose (><) — src/infer.mn:985-995. branch_enter; walk left;
   ;; branch_divider; walk right; branch_exit. Bind handle to
   ;; TTuple([TVar(lh), TVar(rh)]).
   (func $infer_walk_expr_pipe_compose
@@ -1579,7 +1579,7 @@
         (call $reason_make_inferred (i32.const 3912))))   ;; "tuple result"
     (local.get $handle))
 
-  ;; PDiverge (<|) — src/infer.nx:997-1022. Walk left; if right is
+  ;; PDiverge (<|) — src/infer.mn:997-1022. Walk left; if right is
   ;; MakeTupleExpr, branch_enter + walk each branch + branch_divider +
   ;; branch_exit + bind right to TTuple of branch_h. Bind handle to
   ;; TVar(rh).
@@ -1651,7 +1651,7 @@
         (call $reason_make_inferred (i32.const 3912))))   ;; "tuple result"
     (local.get $handle))
 
-  ;; PTeeBlock / PTeeInline (~>) — src/infer.nx:944-955. Result type =
+  ;; PTeeBlock / PTeeInline (~>) — src/infer.mn:944-955. Result type =
   ;; TVar(lh). handler-stack push/pop seed-stubs.
   (func $infer_walk_expr_pipe_tee
         (export "infer_walk_expr_pipe_tee")
@@ -1673,7 +1673,7 @@
     (call $walk_expr_inf_pop_handler)
     (local.get $handle))
 
-  ;; PFeedback (<~) — src/infer.nx:959-973. Pessimistic seed: emit
+  ;; PFeedback (<~) — src/infer.mn:959-973. Pessimistic seed: emit
   ;; feedback-no-context unconditionally + bind handle ↔ TVar(lh) per
   ;; Hazel productive-under-error. Hβ.infer.iterative-context lands the
   ;; handler-stack-walk that detects Clock/Tick/Sample.
@@ -1699,7 +1699,7 @@
 
   ;; ─── Entry-point dispatch ────────────────────────────────────────────
   ;;
-  ;; $infer_walk_expr(node) -> handle. Per src/infer.nx:490-765. Reads N's
+  ;; $infer_walk_expr(node) -> handle. Per src/infer.mn:490-765. Reads N's
   ;; body to get the NExpr tag (110), reads NExpr's inner Expr tag (80-101),
   ;; dispatches to the per-variant arm.
 

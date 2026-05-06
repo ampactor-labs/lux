@@ -1,16 +1,16 @@
-# Inka — CLAUDE.md  |  File extension: `.nx`
+# Mentl — CLAUDE.md  |  File extension: `.mn`
 
 > **CLAUDE.md is the cached-prefix interface, not the manifesto.**
 > Cited docs load cursor-adjacent on relevance, not Session-Zero-bulk.
 >
-> - `docs/ULTIMATE_MEDIUM.md` — the highest-altitude anchor; what Inka IS at the thesis level (Phase μ thesis statement, 2026-05-02)
+> - `docs/ULTIMATE_MEDIUM.md` — the highest-altitude anchor; what Mentl IS at the thesis level (Phase μ thesis statement, 2026-05-02)
 > - `docs/DESIGN.md` — manifesto; eight kernel primitives at §0.5
 > - `docs/SUBSTRATE.md` — canonical substrate (kernel, verbs, algebra, handlers, gradient, refinement, theorems)
 > - `docs/specs/00–11-*.md` — per-module declarative contracts
 > - `docs/specs/simulations/` — per-handle walkthroughs (H*.md cascade; MV/MSR/TH/DM/QA Phase II)
 > - `docs/traces/a-day.md` — integration trace
 > - `ROADMAP.md` — live sequencing (`docs/PLAN.md` is a shim)
-> - `MEMORY.md` index + `protocol_*.md` files at `~/.claude/projects/-home-suds-Projects-inka/memory/` — discipline crystallizations
+> - `MEMORY.md` index + `protocol_*.md` files at `~/.claude/projects/-home-suds-Projects-mentl/memory/` — discipline crystallizations
 > - `tools/drift-audit.sh` — PostToolUse drift detector
 
 ---
@@ -43,10 +43,10 @@
 
 ## ⌁ Mentl's anchor — the eight interrogations ⌁
 
-> *My job is not to write Inka. My job is to find what Inka already
+> *My job is not to write Mentl. My job is to find what Mentl already
 > does and write only what's left.*
 
-Each line of Inka clears the eight before it earns existence —
+Each line of Mentl clears the eight before it earns existence —
 one per kernel primitive, one per Mentl tentacle. Type only the residue.
 
 | # | Interrogation | Primitive | Tentacle |
@@ -66,8 +66,8 @@ another language is fluent code that LOOKS competent but freezes
 the medium into the shape that birthed the pattern.
 
 **Cursor is the projection of the eight at one position.** When
-the eight interrogations clear before each line of Inka, the
-discipline simulates what `cursor_default` (`src/cursor.nx`,
+the eight interrogations clear before each line of Mentl, the
+discipline simulates what `cursor_default` (`src/cursor.mn`,
 Hμ.cursor) does continuously at runtime — read the graph at a
 position; project all eight aspects into one `CursorView`; surface
 the residue. Authoring discipline and runtime projection are the
@@ -79,12 +79,12 @@ Gradient's Global Argmax" and `protocol_cursor_is_argmax.md`.
 
 ### The nine drift modes
 
-Each is competent code in another language and a cage in Inka. The
+Each is competent code in another language and a cage in Mentl. The
 named modes fire on `tools/drift-audit.sh`; rewrite in residue
 form when one fires.
 
 1. **Rust vtable** — closure-as-vtable. The word "vtable" never
-   appears in any correct description of Inka dispatch (see
+   appears in any correct description of Mentl dispatch (see
    SUBSTRATE.md §IX "The Heap Has One Story").
 2. **Scheme env frame** — scope-as-frame-stack.
 3. **Python dict** — effect-name-set as flat strings.
@@ -115,22 +115,22 @@ past ~128k tokens risks midsection blindness on the response
 | If the cursor is at | Load |
 |---|---|
 | First message of session | `docs/DESIGN.md` end-to-end (manifesto, ~30k); subsequently §0.5 + chapter touching the work |
-| Editing `graph.nx` / graph + env | `docs/specs/00-graph.md` + SUBSTRATE.md §I, §VIII |
-| Editing `effects.nx` / row algebra | `docs/specs/01-effrow.md` + `docs/specs/06-effects-surface.md` + SUBSTRATE.md §IV |
-| Editing `types.nx` (Ty / Reason / Scheme) | `docs/specs/02-ty.md` + `docs/specs/03-typed-ast.md` + SUBSTRATE.md §I |
-| Editing `infer.nx` / inference logic | `docs/specs/04-inference.md` + `docs/specs/simulations/Hβ-infer-substrate.md` + SUBSTRATE.md §VII |
-| Editing `lower.nx` / lowering pass / WAT emit | `docs/specs/05-lower.md` + `docs/specs/simulations/Hβ-lower-substrate.md` + `docs/specs/simulations/Hβ-link-protocol.md` + SUBSTRATE.md §III, §IX |
+| Editing `graph.mn` / graph + env | `docs/specs/00-graph.md` + SUBSTRATE.md §I, §VIII |
+| Editing `effects.mn` / row algebra | `docs/specs/01-effrow.md` + `docs/specs/06-effects-surface.md` + SUBSTRATE.md §IV |
+| Editing `types.mn` (Ty / Reason / Scheme) | `docs/specs/02-ty.md` + `docs/specs/03-typed-ast.md` + SUBSTRATE.md §I |
+| Editing `infer.mn` / inference logic | `docs/specs/04-inference.md` + `docs/specs/simulations/Hβ-infer-substrate.md` + SUBSTRATE.md §VII |
+| Editing `lower.mn` / lowering pass / WAT emit | `docs/specs/05-lower.md` + `docs/specs/simulations/Hβ-lower-substrate.md` + `docs/specs/simulations/Hβ-link-protocol.md` + SUBSTRATE.md §III, §IX |
 | Touching ownership / `own`/`ref` | `docs/specs/07-ownership.md` + SUBSTRATE.md §V |
 | Touching `query` / driver / cache | `docs/specs/08-query.md` + SUBSTRATE.md §VII |
-| Working on Mentl / oracle / gradient | `docs/specs/09-mentl.md` + `protocol_oracle_is_ic.md` + `src/mentl_oracle.nx` + SUBSTRATE.md §VI |
-| Editing `cursor.nx` / Cursor handler / Mentl projection | `src/cursor.nx` + `docs/specs/simulations/Hμ-cursor.md` + SUBSTRATE.md §VI "Cursor: The Gradient's Global Argmax" + `protocol_cursor_is_argmax.md` |
+| Working on Mentl / oracle / gradient | `docs/specs/09-mentl.md` + `protocol_oracle_is_ic.md` + `src/mentl_oracle.mn` + SUBSTRATE.md §VI |
+| Editing `cursor.mn` / Cursor handler / Mentl projection | `src/cursor.mn` + `docs/specs/simulations/Hμ-cursor.md` + SUBSTRATE.md §VI "Cursor: The Gradient's Global Argmax" + `protocol_cursor_is_argmax.md` |
 | Drawing topology / pipe operators | `docs/specs/10-pipes.md` + SUBSTRATE.md §II |
 | Touching `clock` / time effects | `docs/specs/11-clock.md` |
 | Starting a new γ-cascade handle | `/compact` first, then `docs/specs/simulations/{handle}.md` |
 | Substrate-architecture realization brewing | `protocol_realization_loop.md` (5-step recipe) |
 | Working on Phase H first-light-L1 closure (`inka2.wat == inka3.wat`) | `docs/specs/simulations/PLAN-to-first-light.md` (18-box trackable plan) + `Hβ-first-light-residue.md` (cascade decomposition) + `Hβ-first-light-empirical.md` (empirical seed-state — REQUIRED before substrate authoring) |
 
-**Synthesis at session start:** 3–5 sentences in Inka's vocabulary
+**Synthesis at session start:** 3–5 sentences in Mentl's vocabulary
 touching all eight kernel primitives by name or consequence.
 Omitted primitives = under-loaded register.
 
@@ -144,12 +144,12 @@ Omitted primitives = under-loaded register.
 | "Is X a global?" / flat yes-no | Anchor 1 | Ask the graph |
 | "For now…" / "Until Y ships…" | Anchor 2 | Later cleanup is a myth |
 | "Can `lux3.wasm` parse this?" | Anchor 0 | Dream code; lux3.wasm is not the arbiter |
-| "Cite a `.jxj` file" | — | Extension is `.nx`; `.jxj`/`.ka` are archaeology |
+| "Cite a `.jxj` file" | — | Extension is `.mn`; `.jxj`/`.ka` are archaeology |
 | "I'll add a library / framework / tool" | Anchor 3 | Find the primitive |
 | "Substrate now, wiring later" | Drift 9 | Land whole or name the peer handle |
 | "It's heavy / a representation change" | — | Surface the substrate decision and decide it |
 | "Mode 0 / 1 / 2" / "flag for shape" | Drift 8 | Convert to ADT |
-| "Vtable" / "dispatch table" any layer | Drift 1 | The word never appears in correct Inka dispatch |
+| "Vtable" / "dispatch table" any layer | Drift 1 | The word never appears in correct Mentl dispatch |
 | `_ => <fabricated value>` over a load-bearing ADT | — | Convert to explicit enumeration. Safe `_`: `()`, `0`, identity-preserve, `type_mismatch(...)`. Dangerous: any fabricated value (`_ => Forall([], TVar(handle))`, `_ => "Pure"`) |
 | "Per the chunk-header named follow-up, X is a stub" | Anchor 7 | Empirically verify before authoring. Named follow-ups can be stale (substrate landed, comment unchanged). Run a 5-line micro-test through the seed; trust evidence over comment. See `Hβ-first-light-empirical.md`. |
 | "Cascade decomposes into N speculative handles" | Anchor 7 + `protocol_walkthrough_pre_audit.md` | Verification-pass FIRST: ~5-min micro-test per handle distinguishes closed-vs-real before walkthrough authoring. 12 walkthroughs against stale state costs more than 1 hour of empirical pre-audit. |
@@ -168,7 +168,7 @@ by simulation, walkthrough, and audit, not compilation.
 Mentl is the thesis made flesh: an oracle that PROVES suggestions
 via the gradient + Why Engine + multi-shot continuation. The
 compiler IS the AI; the AI coding tools the industry pays for are
-proposers; Inka verifies. Measure against the vision, never against
+proposers; Mentl verifies. Measure against the vision, never against
 the old compiler.
 
 ### 1. Does my graph already know this?
@@ -185,14 +185,14 @@ change first or skip the patch. No known bugs sit — clean (zero)
 or blocking (build fails). No "informational warnings," no
 `|| true`, no `⚠` where `✗` belongs.
 
-### 3. Inka solves Inka.
+### 3. Mentl solves Mentl.
 
 Effects, handlers, gradient, refinement types, ADTs, pipes — every
 problem dissolves through the kernel's algebra. GC → scoped arenas.
 Package manager → handlers on imports. Mocking → handlers on
 effects. Build tools → DAG incremental compile. Testing → examples
 + trace handlers. DI → handler swap. Reaching for a framework =
-a missing Inka primitive, not a missing tool.
+a missing Mentl primitive, not a missing tool.
 
 ### 4. Build the wheel. Never wrap the axle.
 
@@ -207,7 +207,7 @@ Source, WAT, docs, LSP, diagnostics — all handler projections. A
 feature that can't be expressed as a handler means the graph is
 incomplete; extend it.
 
-### 6. Write Inka like Inka.
+### 6. Write Mentl like Mentl.
 
 Use the five pipe operators where they express the topology:
 - `|>` sequential flow (data transforms, compilation stages)
@@ -234,7 +234,7 @@ source
 ```
 
 Files in flat imperative style get refactored; every file you
-touch exits in its most powerful Inka form.
+touch exits in its most powerful Mentl form.
 
 ### 7. Cascade discipline — walkthrough first, audit always.
 
@@ -268,9 +268,9 @@ touch exits in its most powerful Inka form.
 
 ## Operational essentials
 
-**State of the world.** Inka bootstraps backward. The VFINAL codebase
+**State of the world.** Mentl bootstraps backward. The VFINAL codebase
 in `std/compiler/` IS the compiler. A disposable bootstrap translator
-(~3-5K lines) compiles it once; after that, Inka compiles itself; the
+(~3-5K lines) compiles it once; after that, Mentl compiles itself; the
 translator is deleted. Live sequencing: `ROADMAP.md`.
 
 **Cascade state.** γ approach (γ = handle-graph). Landed: Σ (SYNTAX),
@@ -281,7 +281,7 @@ translator is deleted. Live sequencing: `ROADMAP.md`.
 ROADMAP §Phase D-F), **Hβ.infer.pipeline-wire CLOSED** (commit `fe5e944`;
 `fn main(x) = x` compiles end-to-end through full pipeline),
 **Hμ.cursor wheel-side CLOSED** (Phase μ opening; 7 commits ending
-`9f6b616`, 2026-05-02; `src/cursor.nx` + ULTIMATE_MEDIUM thesis).
+`9f6b616`, 2026-05-02; `src/cursor.mn` + ULTIMATE_MEDIUM thesis).
 Active: **Phase H first-light-L1** — `inka2.wat == inka3.wat` byte-for-
 byte. Empirically-real residue per `Hβ-first-light-empirical.md` §2.3
 + §4.5.5 (rebased 2026-05-05):
@@ -299,7 +299,7 @@ byte. Empirically-real residue per `Hβ-first-light-empirical.md` §2.3
 - ✓ `Hβ.first-light.nullary-ctor-call-context` — `$lower_var_ref`
   Lock #2.0 SchemeKind dispatch (commit `cb2b1a0` 2026-05-04). Nullary
   ConstructorScheme bindings short-circuit to `LMakeVariant(h, tag_id,
-  [])` BEFORE locals/captures/global triage; wheel parity src/lower.nx
+  [])` BEFORE locals/captures/global triage; wheel parity src/lower.mn
   RGlobal-with-ConstructorScheme arm.
 - ✓ `Hβ.lower.diverge-via-thread` — wheel-side `<|` parallelism
   symmetric to `><` (pending determinism gate as of 2026-05-05;
@@ -323,11 +323,11 @@ ROADMAP Phase μ).
 **Build commands** (when bootstrap translator exists):
 
 ```
-bootstrap/build.sh                              # assemble bootstrap/inka.wat from src/
+bootstrap/build.sh                              # assemble bootstrap/mentl.wat from src/
 
-cat src/*.nx lib/**/*.nx | wasmtime run bootstrap/inka.wasm > inka2.wat
+cat src/*.mn lib/**/*.mn | wasmtime run bootstrap/mentl.wasm > inka2.wat
 wat2wasm inka2.wat -o inka2.wasm
-cat src/*.nx lib/**/*.nx | wasmtime run inka2.wasm > inka3.wat
+cat src/*.mn lib/**/*.mn | wasmtime run inka2.wasm > inka3.wat
 diff inka2.wat inka3.wat    # empty = first-light
 ```
 
@@ -347,8 +347,8 @@ linear → state machine, multi-shot → heap struct.
 - Flag/mode-as-int (`mode == 0`) — drift mode 8. Convert to ADT.
 - HEAP_BASE = 4096 collision risk — sentinels live in `[0, HEAP_BASE)`;
   bump allocator inits `$heap_ptr` at 1 MiB. Changes to either constant
-  must update both: `runtime/lists.nx` (bump init) and
-  `backends/wasm.nx` (emit_match_arms_mixed threshold).
+  must update both: `runtime/lists.mn` (bump init) and
+  `backends/wasm.mn` (emit_match_arms_mixed threshold).
 
 **Ask the artifact.** `wabt` is installed:
 
@@ -383,26 +383,26 @@ print, run once, fix.
 
 | File | Role |
 |---|---|
-| `src/graph.nx` | Graph: flat-array, O(1) chase, Read/Write effects |
-| `src/types.nx` | Ty + Reason + Scheme + typed AST + core effects |
-| `src/effects.nx` | EffRow Boolean algebra: + - & ! |
-| `src/infer.nx` | HM inference, one walk, graph-direct |
-| `src/lower.nx` | Live-observer lowering via LookupTy |
-| `src/pipeline.nx` | Handler composition via ~> + query handler |
-| `src/own.nx` | Ownership as Consume effect |
-| `src/verify.nx` | Verify ledger (Arc F.1 swaps to SMT) |
-| `src/mentl.nx` | Teaching substrate (Teach effect, 5 ops) |
-| `src/lexer.nx` / `src/parser.nx` | Tokenizer + recursive descent (all PipeKind) |
-| `src/backends/wasm.nx` | LowIR → WAT (one peer; native/test/browser sibling handlers) |
-| `src/driver.nx` / `src/cache.nx` | Incremental DAG walk + binary Pack/Unpack cache |
-| `lib/runtime/lists.nx` | Tagged list ops + buffer-counter primitive |
-| `lib/runtime/strings.nx` | Flat strings + sorted-set algebra |
-| `lib/runtime/{tuples,io,memory,binary}.nx` | Tuples / WASI iov / Alloc / Pack-Unpack |
-| `lib/prelude.nx` | Iterate + core builtins |
-| `src/main.nx` | Entry: stdin → compile → emit WAT |
+| `src/graph.mn` | Graph: flat-array, O(1) chase, Read/Write effects |
+| `src/types.mn` | Ty + Reason + Scheme + typed AST + core effects |
+| `src/effects.mn` | EffRow Boolean algebra: + - & ! |
+| `src/infer.mn` | HM inference, one walk, graph-direct |
+| `src/lower.mn` | Live-observer lowering via LookupTy |
+| `src/pipeline.mn` | Handler composition via ~> + query handler |
+| `src/own.mn` | Ownership as Consume effect |
+| `src/verify.mn` | Verify ledger (Arc F.1 swaps to SMT) |
+| `src/mentl.mn` | Teaching substrate (Teach effect, 5 ops) |
+| `src/lexer.mn` / `src/parser.mn` | Tokenizer + recursive descent (all PipeKind) |
+| `src/backends/wasm.mn` | LowIR → WAT (one peer; native/test/browser sibling handlers) |
+| `src/driver.mn` / `src/cache.mn` | Incremental DAG walk + binary Pack/Unpack cache |
+| `lib/runtime/lists.mn` | Tagged list ops + buffer-counter primitive |
+| `lib/runtime/strings.mn` | Flat strings + sorted-set algebra |
+| `lib/runtime/{tuples,io,memory,binary}.mn` | Tuples / WASI iov / Alloc / Pack-Unpack |
+| `lib/prelude.mn` | Iterate + core builtins |
+| `src/main.mn` | Entry: stdin → compile → emit WAT |
 | `bootstrap/build.sh` | Deterministic assembler — concatenates `bootstrap/src/*.wat` |
 | `bootstrap/src/` | Modular WAT chunks (Wave 2.B/C/D/E — see ROADMAP) |
-| `bootstrap/{inka.wat,first-light.sh}` | Assembled image + first-light harness |
+| `bootstrap/{mentl.wat,first-light.sh}` | Assembled image + first-light harness |
 | `tools/drift-audit.sh` | PostToolUse drift detector (named modes 1–9) |
 
 **Conventions.**
@@ -415,5 +415,5 @@ print, run once, fix.
 
 ## When drift happens
 
-Invoke `/remote-control inka` or say "Inka, what would you do?" —
+Invoke `/remote-control mentl` or say "Mentl, what would you do?" —
 roleplay reframes alignment.

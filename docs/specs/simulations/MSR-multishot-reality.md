@@ -7,7 +7,7 @@
 > designs the gap-closing implementation path.
 >
 > **Surprising finding:** the oracle loop substrate is ALREADY
-> implemented in `src/mentl.nx` (gradient_next + try_each_annotation_loop
+> implemented in `src/mentl.mn` (gradient_next + try_each_annotation_loop
 > + apply_annotation_tentatively + verify_after_apply + trail-based
 > rollback via graph_push_checkpoint / graph_rollback). The
 > speculative gradient is real substrate, not aspiration. What's
@@ -19,10 +19,10 @@
 ## 0. Framing
 
 MS2's territory map makes ~60 claims about multi-shot composition
-with Inka's kernel. This audit classifies each claim:
+with Mentl's kernel. This audit classifies each claim:
 
 - **Category A — Substrate exists, bootstrap-gated.** The VFINAL
-  code in `src/*.nx` implements the claim. Needs first-light to
+  code in `src/*.mn` implements the claim. Needs first-light to
   actually run. Closing BT (cross-module linker) unblocks.
 - **Category B — Substrate missing, new code needed.** Specific,
   bounded pieces. Each named with a design below.
@@ -57,9 +57,9 @@ of bounded kernel-surface extensions.**
 
 | Claim | Status | Evidence / gap |
 |-------|--------|----------------|
-| Trail is flat buffer + counter (`trail_len`) | **A: REAL** | `src/graph.nx:38` (layout), `:57` (handler init), `:431-434` (trail_append) |
-| `graph_push_checkpoint` / `graph_rollback` effects | **A: REAL** | `src/types.nx:609,618` (decls), `src/graph.nx:90-91,218-224` (impl) |
-| Rollback is O(M) exact | **A: REAL** | `src/graph.nx:410-428` (revert_trail — recursive backward walk) |
+| Trail is flat buffer + counter (`trail_len`) | **A: REAL** | `src/graph.mn:38` (layout), `:57` (handler init), `:431-434` (trail_append) |
+| `graph_push_checkpoint` / `graph_rollback` effects | **A: REAL** | `src/types.mn:609,618` (decls), `src/graph.mn:90-91,218-224` (impl) |
+| Rollback is O(M) exact | **A: REAL** | `src/graph.mn:410-428` (revert_trail — recursive backward walk) |
 | Per-fork state preservation by identity | **A: REAL** | Graph handler's state IS the rolled-back state; semantics correct by construction |
 | Env extension/scope rolled back | **A: REAL** (for graph) / **B partial** (for env overlay) | Graph trail includes graph bindings; env_scope rollback is a separate trail-adjacent mechanism — verify coherence |
 
@@ -69,11 +69,11 @@ of bounded kernel-surface extensions.**
 
 | Claim | Status | Evidence / gap |
 |-------|--------|----------------|
-| `ResumeDiscipline = OneShot | MultiShot` ADT | **A: REAL** | `src/types.nx:70-72` |
-| `@resume=OneShot` pervasively declared | **A: REAL** | 30+ sites in `src/types.nx` |
-| `@resume=MultiShot` used on actual ops | **A: PARTIAL** | ONE site: `enumerate_inhabitants` in `src/mentl.nx:94`. Need more MS-typed ops for the substrate's claim to be live. |
-| `TCont(Ty, ResumeDiscipline)` continuation type | **A: REAL** | `src/types.nx:48` |
-| MS runtime — heap-captured closure with captures + evidence + return slot | **B: MISSING** | No `LMakeContinuation` or equivalent in `src/lower.nx`. Bootstrap emit path undefined for MS arms. |
+| `ResumeDiscipline = OneShot | MultiShot` ADT | **A: REAL** | `src/types.mn:70-72` |
+| `@resume=OneShot` pervasively declared | **A: REAL** | 30+ sites in `src/types.mn` |
+| `@resume=MultiShot` used on actual ops | **A: PARTIAL** | ONE site: `enumerate_inhabitants` in `src/mentl.mn:94`. Need more MS-typed ops for the substrate's claim to be live. |
+| `TCont(Ty, ResumeDiscipline)` continuation type | **A: REAL** | `src/types.mn:48` |
+| MS runtime — heap-captured closure with captures + evidence + return slot | **B: MISSING** | No `LMakeContinuation` or equivalent in `src/lower.mn`. Bootstrap emit path undefined for MS arms. |
 | Compile-time detection of >95% ground (OneShot direct call) | **A: REAL** in substrate, **A: UNPROVEN** in emitted code — pending first-light |
 | Nesting composition (MS-in-OneShot, OneShot-in-MS) | **C: UNEXERCISED** | Substrate supports it; no crucible tests nested composition yet |
 | Capability stack × resume discipline at install | **A: PARTIAL** | Row subsumption checks at handler install; resume discipline enforcement in row-subsumes NOT explicit (TBD) |
@@ -118,8 +118,8 @@ of bounded kernel-surface extensions.**
 
 | Claim | Status | Evidence / gap |
 |-------|--------|----------------|
-| Speculative verification: candidate + Verify discharge + rollback | **A: REAL** | `src/mentl.nx:163-175` (the full pattern: checkpoint → apply_tentative → verify_after_apply → rollback) |
-| `verify_ledger` accumulates | **A: REAL** | `src/verify.nx:20-30` |
+| Speculative verification: candidate + Verify discharge + rollback | **A: REAL** | `src/mentl.mn:163-175` (the full pattern: checkpoint → apply_tentative → verify_after_apply → rollback) |
+| `verify_ledger` accumulates | **A: REAL** | `src/verify.mn:20-30` |
 | `verify_smt` handler swap | **B: MISSING** | Arc F.1 pending. Design Edit 3 below. |
 | Refinement SMT as handler race | **B: DEPENDS ON race + verify_smt** | Compound gap |
 
@@ -129,12 +129,12 @@ of bounded kernel-surface extensions.**
 
 | Claim | Status | Evidence / gap |
 |-------|--------|----------------|
-| **The oracle loop** per MO §1 | **A: REAL** | `src/mentl.nx:155-175` — this IS the loop, line-for-line per MO |
+| **The oracle loop** per MO §1 | **A: REAL** | `src/mentl.mn:155-175` — this IS the loop, line-for-line per MO |
 | 8-candidate cap per hole | **A: REAL by intent** | `gradient_next` enumerates 4 base + N ownership candidates; policy enforceable |
 | Tiebreak chain (row-minimality → chain depth → intent → span → lex) | **B: PARTIAL** | `pick_highest_leverage` uses a priority list; full tiebreak chain not yet encoded. Minor design. |
 | 50ms interactive latency budget | **C: UNMEASURED** | Once bootstrap runs, measure |
 | race combinator for parallel speculation | **B: MISSING** | No `race` handler. Design Edit 5 below. |
-| SMT cache | **C: POST-first-light** | Cache substrate exists (PLAN Phase B); SMT layer needs it plus `.inka/handlers/` |
+| SMT cache | **C: POST-first-light** | Cache substrate exists (PLAN Phase B); SMT layer needs it plus `.mentl/handlers/` |
 
 **Verdict:** the loop itself is real; tiebreak + race are the bounded gaps.
 
@@ -144,7 +144,7 @@ of bounded kernel-surface extensions.**
 |-------|--------|----------------|
 | MS fork records Reasons on graph_bind | **A: REAL** | Graph handler records `Reason` with every `graph_bind` |
 | Rollback unwinds Reasons | **A: REAL** | Trail includes the full binding record; rollback is complete |
-| "Why did Mentl propose X?" traceable | **A: SUBSTRATE REAL** | `why_from_handle` + Reason chain walk in mentl.nx; **C: UNSURFACED** via voice |
+| "Why did Mentl propose X?" traceable | **A: SUBSTRATE REAL** | `why_from_handle` + Reason chain walk in mentl.mn; **C: UNSURFACED** via voice |
 
 **Verdict:** §1.8 fully real at substrate; voice surfacing is Category D.
 
@@ -176,7 +176,7 @@ responsibility of implementers. Enforced via drift-audit.sh
 
 ### §7 Pedagogical ladder
 
-**Category D.** `lib/tutorial/02b-multishot.nx` does not exist.
+**Category D.** `lib/tutorial/02b-multishot.mn` does not exist.
 Design Edit 6 below.
 
 ---
@@ -187,17 +187,17 @@ The design closes these six concrete substrate pieces. Each is a
 single file or adjacent files; each has a walkthrough citation
 OR is itself named as a new walkthrough item.
 
-**Edit 1:** MS runtime emit path (heap-captured continuation) — `src/lower.nx` + `src/backends/wasm.nx` + `bootstrap/src/emit_*.wat`.
+**Edit 1:** MS runtime emit path (heap-captured continuation) — `src/lower.mn` + `src/backends/wasm.mn` + `bootstrap/src/emit_*.wat`.
 
-**Edit 2:** `Choice` effect + `choose` MS op — `src/types.nx` (declaration) + `lib/prelude.nx` (possibly).
+**Edit 2:** `Choice` effect + `choose` MS op — `src/types.mn` (declaration) + `lib/prelude.mn` (possibly).
 
-**Edit 3:** `verify_smt` handler — `src/verify.nx` extend (Arc F.1).
+**Edit 3:** `verify_smt` handler — `src/verify.mn` extend (Arc F.1).
 
-**Edit 4:** Arena-aware MS handlers — `replay_safe` / `fork_deny` / `fork_copy` — new file or extend `src/own.nx`.
+**Edit 4:** Arena-aware MS handlers — `replay_safe` / `fork_deny` / `fork_copy` — new file or extend `src/own.mn`.
 
-**Edit 5:** `race` handler combinator — `lib/prelude.nx` or new `lib/runtime/combinators.nx`.
+**Edit 5:** `race` handler combinator — `lib/prelude.mn` or new `lib/runtime/combinators.mn`.
 
-**Edit 6:** `lib/tutorial/02b-multishot.nx` — the learner's first MS.
+**Edit 6:** `lib/tutorial/02b-multishot.mn` — the learner's first MS.
 
 Plus **Blockers (Category A resolution):** BT linker work (separate from this walkthrough; see BT).
 
@@ -209,7 +209,7 @@ Plus **Blockers (Category A resolution):** BT linker work (separate from this wa
 
 ### Edit 1 — MS runtime emit path
 
-**Problem:** `@resume=MultiShot` ops have no emit path. `lower.nx` can produce `LMakeClosure` for evidence-passing (per H1 walkthrough); a MS continuation is a variant of that shape — captures + evidence + return slot + trail-rollback awareness — but no corresponding `LMakeContinuation` (or `LMakeMultiShot`) constructor exists.
+**Problem:** `@resume=MultiShot` ops have no emit path. `lower.mn` can produce `LMakeClosure` for evidence-passing (per H1 walkthrough); a MS continuation is a variant of that shape — captures + evidence + return slot + trail-rollback awareness — but no corresponding `LMakeContinuation` (or `LMakeMultiShot`) constructor exists.
 
 **Graph?** The graph encodes `@resume=MultiShot` on each op; `TCont(ret, MultiShot)` at perform sites; inference proves which sites are polymorphic (requiring `call_indirect`).
 
@@ -227,7 +227,7 @@ Plus **Blockers (Category A resolution):** BT linker work (separate from this wa
 
 **Reason?** Each MS fork's `graph_bind` records `Reason` per current substrate; no change needed.
 
-**Landing:** land alongside Hβ Tier 3 (incremental self-hosting). Specifically, when `src/lower.nx` self-compiles, the MS emit path is one of the earliest modules to exercise because `mentl.nx` depends on it.
+**Landing:** land alongside Hβ Tier 3 (incremental self-hosting). Specifically, when `src/lower.mn` self-compiles, the MS emit path is one of the earliest modules to exercise because `mentl.mn` depends on it.
 
 **Forbidden patterns at this edit:**
 
@@ -236,13 +236,13 @@ Plus **Blockers (Category A resolution):** BT linker work (separate from this wa
 - **Drift 6 (primitive-type-special-case):** MS closure allocates via SAME `emit_alloc` as ADT variants + records. No special "MS allocator."
 - **Drift 9 (deferred-by-omission):** Either emit MS for ALL `@resume=MultiShot` ops, or reject such ops at emit time with `E_UnimplementedMultiShot`. No "some MS works, some doesn't."
 
-**Substrate touch sites (design; literal tokens pending inka-plan at execution):**
+**Substrate touch sites (design; literal tokens pending mentl-plan at execution):**
 
 | File | Section | Purpose |
 |------|---------|---------|
-| `src/types.nx` | Add `LMakeContinuation(captures, ev_list, ret_slot)` variant to `LowExpr` | IR shape for MS capture |
-| `src/lower.nx` | `lower_perform` arm on `@resume=MultiShot` op | Emit `LMakeContinuation` + continuation-resume call site |
-| `src/backends/wasm.nx` | Match `LMakeContinuation` | Emit `emit_alloc(size) + store_captures + store_ev + return_slot_placeholder` |
+| `src/types.mn` | Add `LMakeContinuation(captures, ev_list, ret_slot)` variant to `LowExpr` | IR shape for MS capture |
+| `src/lower.mn` | `lower_perform` arm on `@resume=MultiShot` op | Emit `LMakeContinuation` + continuation-resume call site |
+| `src/backends/wasm.mn` | Match `LMakeContinuation` | Emit `emit_alloc(size) + store_captures + store_ev + return_slot_placeholder` |
 | `bootstrap/src/emit_expr.wat` | Hand-WAT the MS continuation allocation | Mirror for bootstrap |
 
 **Walkthrough:** NEW — `H7-multishot-runtime.md` (name for the peer to H1 evidence reification; H1 did OneShot, H7 does MultiShot). Scope: design the emit shape with full walkthrough discipline (layer trace, three design candidates, Mentl's choice). PLAN adds this as **Priority-1 substrate item 1.5** (after current item 1 LFeedback).
@@ -281,13 +281,13 @@ Plus **Blockers (Category A resolution):** BT linker work (separate from this wa
 
 | File | Change |
 |------|--------|
-| `src/types.nx` | Add `Choice` to `EffName` ADT (enumerate alongside Alloc, IO, Network, etc.) — tracked alongside the existing ENamed drift-mode-8 item in PLAN 11.B |
-| `lib/prelude.nx` or new `lib/runtime/search.nx` | Declare `effect Choice { choose(options: List<A>) -> A @resume=MultiShot }` |
-| `lib/runtime/search.nx` | Example handler — `handler pick_first` (OneShot terminates at first) + `handler backtrack` (MS, tries each option, accepts first that doesn't Abort) |
+| `src/types.mn` | Add `Choice` to `EffName` ADT (enumerate alongside Alloc, IO, Network, etc.) — tracked alongside the existing ENamed drift-mode-8 item in PLAN 11.B |
+| `lib/prelude.mn` or new `lib/runtime/search.mn` | Declare `effect Choice { choose(options: List<A>) -> A @resume=MultiShot }` |
+| `lib/runtime/search.mn` | Example handler — `handler pick_first` (OneShot terminates at first) + `handler backtrack` (MS, tries each option, accepts first that doesn't Abort) |
 
 **Walkthrough:** NEW — `CE-choice-effect.md`. Scope: one op, two canonical handlers, interaction with trail rollback. Small.
 
-**Dispatch:** Opus or inka-implementer with the walkthrough + existing effect-declaration patterns from prelude.
+**Dispatch:** Opus or mentl-implementer with the walkthrough + existing effect-declaration patterns from prelude.
 
 ---
 
@@ -322,8 +322,8 @@ Plus **Blockers (Category A resolution):** BT linker work (separate from this wa
 
 | File | Change |
 |------|--------|
-| `src/verify.nx` | Add `handler verify_smt` state + theory-classify + dispatch + cache |
-| `src/verify.nx` | Add `classify_theory(predicate) -> TheoryClass` (complements existing `classify_predicate`) |
+| `src/verify.mn` | Add `handler verify_smt` state + theory-classify + dispatch + cache |
+| `src/verify.mn` | Add `classify_theory(predicate) -> TheoryClass` (complements existing `classify_predicate`) |
 | `lib/runtime/smt/` (NEW dir) | Stub solver-bridge handlers: `smt_linear_arith`, `smt_bitvector`, `smt_nonlinear`. Each stub returns `V_Pending` with solver-specific reason until real bindings land |
 
 **Walkthrough:** Existing placeholder in DESIGN 9.7 + specs 02, 11. Formalize into new `VK-verify-kernel.md` or extend existing `RT-refinement-boundaries.md`. Design decision: one walkthrough covers verify_smt + three theory bridges.
@@ -362,8 +362,8 @@ Plus **Blockers (Category A resolution):** BT linker work (separate from this wa
 
 | File | Change |
 |------|--------|
-| NEW `lib/runtime/arena_ms.nx` | Three handlers + their state records + arms |
-| `src/own.nx` | Add escape-analysis extension for fork-deny detection (TContinuationEscapes diagnostic) |
+| NEW `lib/runtime/arena_ms.mn` | Three handlers + their state records + arms |
+| `src/own.mn` | Add escape-analysis extension for fork-deny detection (TContinuationEscapes diagnostic) |
 
 **Walkthrough:** NEW — `AM-arena-multishot.md`. Scope: the D.1 question with concrete handler shapes.
 
@@ -397,14 +397,14 @@ survivor-ordering discipline.
 
 - **Drift 1 (vtable):** `race` is a function returning a handler; NOT a handler-dispatch-table with three entries.
 - **Drift 4 (nested handle):** `race(h1, h2, h3)` is one installation, not `handle (handle (handle body with h1) with h2) with h3`.
-- **Drift 24 (async/await):** "race" is a common JS idiom. Inka's `race` is NOT thread racing — it's MS candidate racing. Vocabulary matters.
+- **Drift 24 (async/await):** "race" is a common JS idiom. Mentl's `race` is NOT thread racing — it's MS candidate racing. Vocabulary matters.
 
 **Substrate touch sites:**
 
 | File | Change |
 |------|--------|
-| `lib/runtime/combinators.nx` (NEW) | `fn race(handlers: List<Handler>) -> Handler` |
-| `lib/runtime/combinators.nx` | Supporting: `first_verified_wins` tiebreak helper |
+| `lib/runtime/combinators.mn` (NEW) | `fn race(handlers: List<Handler>) -> Handler` |
+| `lib/runtime/combinators.mn` | Supporting: `first_verified_wins` tiebreak helper |
 
 **Walkthrough:** Short — extend CE-choice-effect.md or new `HC2-handler-combinators.md`. Scope is small.
 
@@ -412,7 +412,7 @@ survivor-ordering discipline.
 
 ---
 
-### Edit 6 — `lib/tutorial/02b-multishot.nx`
+### Edit 6 — `lib/tutorial/02b-multishot.mn`
 
 **Problem:** Pedagogical gap per MS2 §7. Tutorial has 00–08 files keyed to the kernel primitives; MS (primitive #2's resume discipline) doesn't have a dedicated file.
 
@@ -430,7 +430,7 @@ survivor-ordering discipline.
 
 **Gradient?** This file IS a gradient step — teaching MS in residue form.
 
-**Reason?** Each `choose` call's Reason is visible to the reader via `inka query`.
+**Reason?** Each `choose` call's Reason is visible to the reader via `mentl query`.
 
 **Forbidden patterns:**
 
@@ -442,11 +442,11 @@ survivor-ordering discipline.
 
 | File | Change |
 |------|--------|
-| NEW `lib/tutorial/02b-multishot.nx` | ~40 lines: N-queens or equivalent canonical backtracking problem |
+| NEW `lib/tutorial/02b-multishot.mn` | ~40 lines: N-queens or equivalent canonical backtracking problem |
 
 **Walkthrough:** None needed; tutorial files are exemplars, not substrate.
 
-**Dispatch:** inka-implementer with CE walkthrough + the existing 00-08 tutorial patterns.
+**Dispatch:** mentl-implementer with CE walkthrough + the existing 00-08 tutorial patterns.
 
 ---
 
@@ -467,8 +467,8 @@ simultaneously.
 **Critical refinement (2026-04-23):** self-compilation EXERCISES
 `@resume=OneShot` ops ONLY. The code path lex → parse → infer →
 lower → emit has zero MultiShot perform sites in its trace, even
-though `src/mentl.nx` DECLARES MS ops that aren't invoked during
-self-compile (they fire under `inka teach`, not `inka compile`).
+though `src/mentl.mn` DECLARES MS ops that aren't invoked during
+self-compile (they fire under `mentl teach`, not `mentl compile`).
 
 **Consequence:** `first-light-L1` can close on the CURRENT hand-WAT
 substrate, without H7 (Edit 1 / MS runtime emit). The ~18 of ~25
@@ -487,7 +487,7 @@ MOST IMPORTANT single β piece. Unblocks every MS-op runtime.
 Walkthrough-first per Anchor 7; lands when its walkthrough
 paragraphs resolve every design question. Hand-WAT grows via
 Tier 3 (Hβ §2 + §12.2) — VFINAL-on-partial-WAT compiles
-H7-extended `src/lower.nx` + `src/backends/wasm.nx`; diff into
+H7-extended `src/lower.mn` + `src/backends/wasm.mn`; diff into
 hand-WAT; audit per walkthrough paragraph. No foreign-language
 shortcut; no session budget.
 
@@ -510,9 +510,9 @@ on β.1 since they exercise MS at runtime.
 ### Phase γ — Crucibles run (Category C — MS2 §2 + §4)
 
 **γ.1:** CRU seeds land (Convergence thread 6) — five crucible
-`.nx` files per the plan.
+`.mn` files per the plan.
 
-**γ.2:** `crucible_oracle.nx` passes first — proves the oracle
+**γ.2:** `crucible_oracle.mn` passes first — proves the oracle
 loop at interactive latency.
 
 **γ.3:** Remaining four crucibles (`dsp`, `ml`, `realtime`, `web`)
@@ -530,7 +530,7 @@ open-ended by design.
 **δ.1:** MV.2 — voice implementation per MV walkthrough §2.7-§2.8.
 Renders the 20 VoiceLines (§2.9) over real MS data.
 
-**δ.2:** Edit 6 — `lib/tutorial/02b-multishot.nx`.
+**δ.2:** Edit 6 — `lib/tutorial/02b-multishot.mn`.
 
 **δ.3:** Hβ §12 Leg 2 — `verify_smt` on refinement witness. Tag
 `first-light-L2`.
@@ -586,7 +586,7 @@ scope emerges from substrate necessity.
 |------|-------------|------------|
 | H7 MS runtime emit is harder than scoped (unexpected nesting cases) | Medium | Walkthrough first, per Anchor 7; if walkthrough reveals additional substrate questions (e.g., continuation lifetime across module boundaries), split into named peer walkthroughs H7.1 + H7.2 rather than one over-scoped walkthrough |
 | Cross-module MS composition (MS2 §9.3 open question) surfaces during β.1 | Medium | Addressed alongside BT linker (α.1) — linker preserves resume discipline metadata |
-| `verify_smt` bindings heavier than expected (z3 FFI via WASI preview 1) | Medium | Stub theory solvers with pure-Inka linear arith first; real solver FFI is Arc F.1 follow-on |
+| `verify_smt` bindings heavier than expected (z3 FFI via WASI preview 1) | Medium | Stub theory solvers with pure-Mentl linear arith first; real solver FFI is Arc F.1 follow-on |
 | Oracle loop latency exceeds 50ms budget on real codebases | Medium | Per MO §3 mitigations: hoist checkpoint, race, incremental re-infer, SMT cache; measure continuously |
 | MS behavior diverges across wasmtime/wasm-interp | Low | DET walkthrough already names this; cross-check in first-light harness |
 | Domain crucible fails in unexpected ways (thesis regression) | Medium | Each crucible names its own gap; if thesis-scale fail, earns its own substrate walkthrough |
@@ -597,7 +597,7 @@ scope emerges from substrate necessity.
 
 - NOT a complete H7 walkthrough (H7 is its own deliverable).
 - NOT a complete CE / VK / AM walkthrough (each is its own deliverable).
-- NOT a schedule. Inka doesn't measure in sessions; it measures in substrate clarity per walkthrough paragraph. The territory in MS2 §2-§4 is open-ended per CRU's "crucibles lead the language" protocol — each domain crucible lands when its substrate is ready.
+- NOT a schedule. Mentl doesn't measure in sessions; it measures in substrate clarity per walkthrough paragraph. The territory in MS2 §2-§4 is open-ended per CRU's "crucibles lead the language" protocol — each domain crucible lands when its substrate is ready.
 - NOT a commitment to land ALL six edits sequentially — some (Edit 2, 5, 6) can parallelize with Edit 1 if cheap subagent dispatch is exercised.
 
 ---
@@ -625,7 +625,7 @@ dependency graph in §5.
 ## 9. Closing
 
 **Reality audit finding: the oracle loop substrate is more real
-than MS2 suggests.** `src/mentl.nx:155-175` IS the loop. The
+than MS2 suggests.** `src/mentl.mn:155-175` IS the loop. The
 graph's trail-based rollback IS the substrate MS rolls against.
 `Synth` + `Teach` + `Verify` effects are all declared. The
 `apply → verify → rollback` checkpoint pattern is in VFINAL code

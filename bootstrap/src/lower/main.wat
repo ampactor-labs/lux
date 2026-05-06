@@ -10,12 +10,12 @@
   ;;             §10.3 the CLEAN handoff (infer→lower→emit; graph populated by
   ;;             $inka_infer is read-only here; LowExpr list IS the new artifact) +
   ;;             §11 acceptance + §12.3 #11 dep order (closes the cascade) +
-  ;;             §13 closing (the seed becomes a full Inka compiler) +
+  ;;             §13 closing (the seed becomes a full Mentl compiler) +
   ;;             Hβ-bootstrap.md §1.15 (entry-handler convention —
   ;;             $inka_<verb> naming) + §2.1 Layer 5 (Lowering) +
   ;;             docs/specs/05-lower.md §The LookupTy effect / §LowIR /
   ;;             §No subst threading +
-  ;;             canonical wheel src/lower.nx:1106-1110 lower_program.
+  ;;             canonical wheel src/lower.mn:1106-1110 lower_program.
   ;;
   ;; Realizes the pipeline-stage projection of primitive #3 (the five verbs
   ;; — DESIGN.md §0.5) at the seed's lowering layer, symmetric to
@@ -35,7 +35,7 @@
   ;; ═══ LOCKS (wheel-canonical override walkthrough §4.3 prose) ═════════
   ;;
   ;; Lock #1: $lower_program body is ONE call to $lower_stmt_list.
-  ;;          Wheel src/lower.nx:1106-1110 does collect_top_level_names +
+  ;;          Wheel src/lower.mn:1106-1110 does collect_top_level_names +
   ;;          ls_register_globals + lower_stmt_list. Seed elides the first
   ;;          two — state.wat (chunk #1) does not yet expose
   ;;          $ls_register_globals; adding inline drift-9s. Named follow-up
@@ -80,7 +80,7 @@
   ;;                Per §10.3: post-call the LowExpr list IS the new
   ;;                artifact; graph remains live for emit's $lookup_ty calls.
   ;; 2. Handler?    @resume=OneShot. Wheel's `handle … with lowering_ctx`
-  ;;                (src/lower.nx + spec 05 §LowerCtx) is a OneShot row-
+  ;;                (src/lower.mn + spec 05 §LowerCtx) is a OneShot row-
   ;;                accumulation handler; at the seed it maps onto direct
   ;;                WAT call flow (no resume machinery). When the wheel
   ;;                lands the post-L1 lower-side Synth chain, it composes
@@ -93,7 +93,7 @@
   ;;                each `|>` stage; the verb is implicit in the call sequence.
   ;; 4. Row?        EfPure at this chunk. main.wat performs no effect ops;
   ;;                the wheel's lower_program toplevel is also pure-modulo-
-  ;;                graph-read per src/lower.nx:1106-1110 (graph IS the
+  ;;                graph-read per src/lower.mn:1106-1110 (graph IS the
   ;;                constraint store per §0.5; $lookup_ty is a read).
   ;; 5. Ownership?  $inka_lower takes stmts by shared pointer (`ref`); no
   ;;                consumption — the stmts list remains available; graph
@@ -118,7 +118,7 @@
   ;;                Engine (when the wheel composes on this layer per Mentl
   ;;                tentacle #8) walks back: "LowExpr produced by $inka_lower
   ;;                stage → $lower_program → $lower_stmt_list →
-  ;;                src/lower.nx:1106-1110 + spec 05 §LowIR".
+  ;;                src/lower.mn:1106-1110 + spec 05 §LowIR".
   ;;
   ;; ═══ FORBIDDEN PATTERNS (drift modes 1-9) ════════════════════════════
   ;;
@@ -150,7 +150,7 @@
   ;;
   ;; Foreign-fluency forbidden:  "compiler driver" / "frontend pipeline" /
   ;;                              "backend driver" / "main entry" / "main
-  ;;                              function" / "orchestration" → Inka-native
+  ;;                              function" / "orchestration" → Mentl-native
   ;;                              phrases are "pipeline-stage boundary" +
   ;;                              "kernel primitive #3 verb projection" +
   ;;                              "§10.3 clean handoff" + "lower_program
@@ -174,7 +174,7 @@
   ;;   Lands as the IMMEDIATE next commit per Lock #4.
   ;;
   ;; - Hβ.lower.toplevel-pre-register: $lower_program two-pass
-  ;;   collect_top_level_names + ls_register_globals per src/lower.nx:
+  ;;   collect_top_level_names + ls_register_globals per src/lower.mn:
   ;;   1106-1110 + walk_stmt.wat:236-239 chunk header peer-cascade with
   ;;   Hβ.infer.toplevel-pre-register. Lands when forward-reference
   ;;   resolution at the seed actually needs it (currently chunks #6/#7/#10
@@ -194,7 +194,7 @@
   ;; ─── $lower_program — algorithmic-core orchestrator ──────────────────
   ;;
   ;; Per Hβ-lower-substrate.md §4.3 lines 532-554 + canonical wheel
-  ;; src/lower.nx:1106-1110:
+  ;; src/lower.mn:1106-1110:
   ;;
   ;;   fn lower_program(stmts) = {
   ;;     let globals = collect_top_level_names(stmts)
@@ -212,7 +212,7 @@
     (call $lower_stmt_list (local.get $stmts)))
 
   ;; ─── Top-level name collection ────────────────────────────────────
-  ;; Mirrors src/lower.nx collect_top_level_names. FnStmt and PVar
+  ;; Mirrors src/lower.mn collect_top_level_names. FnStmt and PVar
   ;; LetStmt names become module globals before the statement walk, so
   ;; function bodies lower cross-function references as LGlobal.
   (func $lower_collect_top_level_names (param $stmts i32) (result i32)

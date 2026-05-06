@@ -1,7 +1,7 @@
 # E_CannotNegateCapability
 
 **Kind:** Error
-**Emitted by:** `infer.nx` — `expand_capabilities` (spec 04 + spec 06, with-clause expansion)
+**Emitted by:** `infer.mn` — `expand_capabilities` (spec 04 + spec 06, with-clause expansion)
 **Applicability:** MachineApplicable
 
 ## Summary
@@ -19,7 +19,7 @@ effects. The Boolean effect-row algebra (spec 01) defines `!E` as
 the per-effect negation that proves the row contains no `E` —
 which is well-defined for atomic effects (`!Alloc`, `!IO`) and
 ill-defined for a bundle (`!Network` could mean !IO ∧ !Alloc, or
-!IO ∨ !Alloc, or some other reading). Inka picks neither — the
+!IO ∨ !Alloc, or some other reading). Mentl picks neither — the
 author writes the per-effect negation they mean.
 
 ## Canonical fix

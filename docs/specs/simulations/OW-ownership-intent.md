@@ -11,15 +11,15 @@ Trace tentacle speak in authored ownership vocabulary.*
 
 ## §1 Frame
 
-Inka's primitive #5 dissolves ownership into the existing effect
+Mentl's primitive #5 dissolves ownership into the existing effect
 algebra. The developer writes `fn charge(own card: Card)` — meaning
 "this function consumes card; it cannot be used again after this
 call." Inference sees the `Own` marker on `TParam(name, ty, Own)`,
 and at every `VarRef("card")` site, `check_consume_at_use` performs
-`consume(name, span)`. The `affine_ledger` handler (own.nx:30-93)
+`consume(name, span)`. The `affine_ledger` handler (own.mn:30-93)
 tracks consumed names; a double-consume emits `E_OwnershipViolation`.
 
-**Gap.** The diagnostic at own.nx:35-41 reads:
+**Gap.** The diagnostic at own.mn:35-41 reads:
 
 ```
 "'card' consumed twice (first at 3:12)"
@@ -31,7 +31,7 @@ the diagnostic never surfaces the authored stance: "card was declared
 the developer typed doesn't appear. The Consume effect is mechanism;
 `own` is intent.
 
-Similarly, `ref` escape diagnostics at own.nx:351-355 read:
+Similarly, `ref` escape diagnostics at own.mn:351-355 read:
 
 ```
 "ref binding 'card' escapes its scope (returned)"
@@ -47,7 +47,7 @@ The intent gap has two aspects:
 1. **No ownership provenance on Consume ops.** When `affine_ledger`
    catches a violation, it knows the name and span of the double-use,
    but not WHETHER the parameter was declared `own` by the developer
-   or INFERRED as `Own` by `infer_ownership` (own.nx:417-434). The
+   or INFERRED as `Own` by `infer_ownership` (own.mn:417-434). The
    authoring distinction matters: a declared `own` violation means
    the developer intended consumption; an inferred `Own` violation
    means the developer didn't annotate and the system classified.
@@ -66,22 +66,22 @@ The intent gap has two aspects:
 
 ## §2 Trace — where intent drops today
 
-### Parsing (parser.nx)
+### Parsing (parser.mn)
 
 The parser reads `own` / `ref` keywords and builds
 `TParam(name, ty, Own)` or `TParam(name, ty, Ref)`. Unmarked
 parameters get `Inferred`. The AST preserves the authored form.
 
-### Inference (infer.nx:200-304)
+### Inference (infer.mn:200-304)
 
 `infer_fn` mints param handles and extends env with the fn's
-scheme. `check_consume_at_use` (infer.nx:705-711) performs
+scheme. `check_consume_at_use` (infer.mn:705-711) performs
 `consume(name, span)` at every VarRef. The `own` marker on the
 TParam is not threaded into the Consume op — `consume(name, span)`
 carries only the variable name and use-site span, not the ownership
 origin.
 
-### Affine ledger (own.nx:30-93)
+### Affine ledger (own.mn:30-93)
 
 The handler's state is `used` (consumed names set) and `used_sites`
 (name-span pairs). When `consume` fires for an already-consumed
@@ -89,7 +89,7 @@ name, it emits `E_OwnershipViolation` with the name and first-use
 span. The handler does NOT know whether the original parameter was
 declared `own` or inferred `Own`.
 
-### Ownership inference (own.nx:417-434)
+### Ownership inference (own.mn:417-434)
 
 `infer_ownership` classifies unmarked (`Inferred`) parameters by
 counting uses: 0 → `Inferred`, 1 → `Own`, ≥2 → `Ref`. After this
@@ -165,7 +165,7 @@ across every consumer. B is explicit: `authored` is what they typed;
 developer was explicit. When they differ, the gradient has
 something to teach.
 
-**Load.** Moderate. TParam gains a field (types.nx). Every TParam
+**Load.** Moderate. TParam gains a field (types.mn). Every TParam
 construction site adds the fourth field. `infer_ownership` writes
 to `resolved` only. Display/hover reads `authored` for intent,
 `resolved` for semantics.
@@ -174,21 +174,21 @@ to `resolved` only. Display/hover reads `authored` for intent,
 
 ## §4 Layer touch-points
 
-### types.nx
+### types.mn
 Extend TParam to carry both authored and resolved ownership.
 Add `OwnershipDeclared(String, Ownership)` Reason variant (or
 use the existing Reason + Located pattern with an Ownership-aware
 sub-Reason).
 
-### parser.nx
+### parser.mn
 No change to parsing. TParam construction sets
 `resolved = authored` initially (identity default).
 
-### infer.nx
+### infer.mn
 `check_consume_at_use` — no change to Consume op; provenance
 flows through the Reason on the env entry's binding.
 
-### own.nx
+### own.mn
 `affine_ledger`'s violation diagnostic reads the env entry's
 Reason to determine authored vs inferred ownership. Messages
 upgrade to:
@@ -201,7 +201,7 @@ upgrade to:
 authored field.
 
 ### Mentl / hover
-`show_tparam` (types.nx:793-798) gains authored/resolved display.
+`show_tparam` (types.mn:793-798) gains authored/resolved display.
 Hover on a parameter shows `"card: Card (own — declared)"` or
 `"card: Card (own — inferred)"`. Mentl's Trace tentacle reads this
 distinction when surfacing ownership explanations.
@@ -221,7 +221,7 @@ developer didn't write it).
 on an un-annotated parameter that was inferred `Own` displays
 "(own — inferred)".
 
-**AT-OW4.** `ref` escape diagnostic at own.nx:351 distinguishes
+**AT-OW4.** `ref` escape diagnostic at own.mn:351 distinguishes
 authored `ref` ("declared ref — cannot escape") from inferred `Ref`
 ("inferred as borrowed — cannot escape").
 
@@ -234,10 +234,10 @@ writing resolved; the two fields are independently readable.
 
 | Peer | Surface | Load |
 |---|---|---|
-| OW.1 | Reason-edge provenance for ownership on env entries | Light (~10L types.nx + ~5L infer.nx) |
-| OW.2 | Dual-field TParam (authored + resolved) | Moderate (~20L types.nx + ~30L own.nx) |
-| OW.3 | Diagnostic message upgrade (authored vs inferred) | Moderate (~25L own.nx) |
-| OW.4 | Hover/Mentl authored ownership surfacing | Light (~15L types.nx) |
+| OW.1 | Reason-edge provenance for ownership on env entries | Light (~10L types.mn + ~5L infer.mn) |
+| OW.2 | Dual-field TParam (authored + resolved) | Moderate (~20L types.mn + ~30L own.mn) |
+| OW.3 | Diagnostic message upgrade (authored vs inferred) | Moderate (~25L own.mn) |
+| OW.4 | Hover/Mentl authored ownership surfacing | Light (~15L types.mn) |
 
 Total: ~105 lines. Four commits, OW.1 → OW.2 → OW.3/OW.4.
 

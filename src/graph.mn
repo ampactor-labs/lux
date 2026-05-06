@@ -1,0 +1,525 @@
+// graph.mn — Graph machinery (spec 00)
+//
+// The substrate. One live graph, all variables. Flat-array storage,
+// O(1) chase amortized, epoch-monotonic, trail-backed for rollback.
+// Every TVar(id) is a handle into this graph; every observer chases
+// via graph_chase; only inference writes.
+//
+// types.mn owns the vocabulary (NodeKind, GNode, Graph, Mutation,
+// GraphRead, GraphWrite). This file owns the mechanism:
+// graph_handler (the live state), chase_node (the read primitive),
+// occurs_in (cycle detection), revert_trail (speculative rollback).
+//
+// Salsa 3.0 pattern: flat array + epoch + per-module overlay. The
+// trail mirrors that substrate — flat buffer + length counter, not
+// a linked list. Append is O(1) amortized via doubling; rollback is
+// O(M) exact. Checkpoint captures trail_len; rollback resets it and
+// walks backward restoring each old node. Mentl's oracle (spec 09)
+// depends on this O(M) guarantee to explore hundreds of candidate
+// patches per second; any other shape breaks the thesis.
+//
+// Overlays share the same substrate. Per-module handle tracking
+// lives in three parallel flat arrays — overlay_names, overlay_bufs,
+// overlay_lens — with an overlay_count and current_overlay_idx. A
+// fresh allocation's cost is O(1) amortized: one list_index into
+// each array + one list_extend_to on the current handles buffer +
+// one list_set. No string-scan on register, no O(N) list copy on
+// the hot path. graph_fork scans names only when entering a module
+// (rare); cross-module snapshot builds slice-views (O(1) per overlay).
+
+import types
+import effects
+import runtime/strings
+
+// graph_handler — the substrate handler
+// State:
+//   nodes               — flat array indexed by handle
+//   trail               — flat mutation buffer (append forward, walk back on rollback)
+//   trail_len           — logical length of trail (entries above are stale)
+//   epoch               — bumps on every bind; query observers key (handle, epoch)
+//   next                — next fresh handle to allocate
+//   overlay_names       — flat String buffer, one entry per module
+//   overlay_bufs        — flat buffer of handles-buffer pointers
+//   overlay_lens        — flat buffer of logical lengths for each handles-buffer
+//   overlay_count       — logical length of the three overlay arrays
+//   current_overlay_idx — index into overlay_* for the active module
+//   current_overlay     — display name of the active module (redundant with names[idx])
+//
+// Threaded through the pipeline via ~>. Installed once at compile
+// entry. Every downstream pass (infer, lower, query, teach, emit,
+// mentl) sees the same live graph through the same effect discipline.
+//
+// This is the canonical demonstration of Mentl's handler-state pattern:
+// state is internal to the handler; callers never see Graph as
+// a value; access is only through perform.
+
+handler graph_handler
+  with nodes = [], trail = [], trail_len = 0,
+       epoch = 0, next = 0,
+       overlay_names = ["global"],
+       overlay_bufs = [[]],
+       overlay_lens = [0],
+       overlay_count = 1,
+       current_overlay_idx = 0,
+       current_overlay = "global",
+       span_index = [],
+       intent_index = [],
+       checkpoint_stack = [] {
+
+  // checkpoint_stack tracks active speculation depth. Each
+  // graph_push_checkpoint pushes the current trail_len; each
+  // graph_rollback pops. When the stack is empty, writes are at the
+  // OUTERMOST commit boundary — perform graph_mutated so subscribers
+  // (cached_check_with_oracle per src/mentl_oracle.mn) catch only
+  // real graph state changes. Speculative writes (Mentl's oracle
+  // exploration between push+rollback) leave stack non-empty and
+  // never emit graph_mutated — otherwise infinite recursion (Mentl
+  // would subscribe to her own speculations).
+
+  // ─── Read ops ────────────────────────────────────────────────────
+
+  graph_chase(handle) => {
+    resume(chase_node(nodes, handle, 0))
+  },
+
+  graph_epoch() => {
+    resume(epoch)
+  },
+
+  graph_reason_edge(h1, h2) => {
+    let GNode(_, r1) = chase_node(nodes, h1, 0)
+    let GNode(_, r2) = chase_node(nodes, h2, 0)
+    resume(Unified(r1, r2))
+  },
+
+  graph_snapshot() => {
+    let overlays_view =
+      overlays_to_pairs(overlay_names, overlay_bufs, overlay_lens, overlay_count)
+    resume(Graph(nodes, epoch, next, overlays_view, span_index, intent_index))
+  },
+
+  graph_push_checkpoint() => {
+    resume(trail_len)
+      with checkpoint_stack = push(checkpoint_stack, trail_len)
+  },
+
+  // ─── Write ops ───────────────────────────────────────────────────
+  // Each write appends a Mutation to the trail. The trail is the
+  // inverse log — on rollback we walk it backwards. Every fresh
+  // allocation also registers in the CURRENT overlay so Arc F.7
+  // (incremental compilation) can key per-module recomputation.
+
+  graph_fresh_ty(reason) => {
+    let handle = next
+    let new_nodes = nodes
+      |> graph_extend_to(handle + 1)
+      |> list_set(handle, GNode(NFree(epoch), reason))
+    let (new_bufs, new_lens) =
+      overlay_register_at(overlay_bufs, overlay_lens, current_overlay_idx, handle)
+    let new_trail = trail_append(trail, trail_len, MFreshNode(handle))
+    if checkpoint_stack.len == 0 {
+      perform graph_mutated(epoch, MFreshNode(handle))
+    }
+    resume(handle)
+      with nodes = new_nodes,
+           next = next + 1,
+           trail = new_trail,
+           trail_len = trail_len + 1,
+           overlay_bufs = new_bufs,
+           overlay_lens = new_lens
+  },
+
+  graph_fresh_row(reason) => {
+    let handle = next
+    let new_nodes = nodes
+      |> graph_extend_to(handle + 1)
+      |> list_set(handle, GNode(NRowFree(epoch), reason))
+    let (new_bufs, new_lens) =
+      overlay_register_at(overlay_bufs, overlay_lens, current_overlay_idx, handle)
+    let new_trail = trail_append(trail, trail_len, MFreshNode(handle))
+    if checkpoint_stack.len == 0 {
+      perform graph_mutated(epoch, MFreshNode(handle))
+    }
+    resume(handle)
+      with nodes = new_nodes,
+           next = next + 1,
+           trail = new_trail,
+           trail_len = trail_len + 1,
+           overlay_bufs = new_bufs,
+           overlay_lens = new_lens
+  },
+
+  graph_bind(handle, ty, reason) => {
+    if occurs_in(handle, ty) {
+      perform report(
+        "graph", "E_OccursCheck", "error",
+        "infinite type: "
+          |> str_concat(int_to_str(handle))
+          |> str_concat(" occurs in ")
+          |> str_concat(show_type(ty)),
+        span_zero(), "MachineApplicable"
+      )
+      resume()
+    } else {
+      let old_node = graph_node_at(nodes, handle)
+      let new_nodes = graph_set_node(nodes, handle, GNode(NBound(ty), reason))
+      let new_trail = trail_append(trail, trail_len, MSetNode(handle, old_node))
+      let new_epoch = epoch + 1
+      if checkpoint_stack.len == 0 {
+        perform graph_mutated(new_epoch, MSetNode(handle, old_node))
+      }
+      resume()
+        with nodes = new_nodes,
+             epoch = new_epoch,
+             trail = new_trail,
+             trail_len = trail_len + 1
+    }
+  },
+
+  graph_bind_row(handle, row, reason) => {
+    let old_node = graph_node_at(nodes, handle)
+    let new_nodes = graph_set_node(nodes, handle, GNode(NRowBound(row), reason))
+    let new_trail = trail_append(trail, trail_len, MSetRow(handle, old_node))
+    let new_epoch = epoch + 1
+    if checkpoint_stack.len == 0 {
+      perform graph_mutated(new_epoch, MSetRow(handle, old_node))
+    }
+    resume()
+      with nodes = new_nodes,
+           epoch = new_epoch,
+           trail = new_trail,
+           trail_len = trail_len + 1
+  },
+
+  graph_fork(module_name) => {
+    // Enter the named module's overlay. If it already exists (re-entry
+    // during incremental recompile), point current_overlay_idx at it;
+    // otherwise append a new (name, empty-handles, 0) triple to the
+    // three parallel arrays via list_extend_to. Subsequent fresh
+    // allocations register into the current overlay in O(1).
+    let existing_idx = overlay_find(overlay_names, overlay_count, module_name)
+    if existing_idx < overlay_count {
+      resume()
+        with current_overlay_idx = existing_idx,
+             current_overlay = module_name
+    } else {
+      let new_names = overlay_names
+        |> list_extend_to(overlay_count + 1)
+        |> list_set(overlay_count, module_name)
+      let new_bufs = overlay_bufs
+        |> list_extend_to(overlay_count + 1)
+        |> list_set(overlay_count, make_list(0))
+      let new_lens = overlay_lens
+        |> list_extend_to(overlay_count + 1)
+        |> list_set(overlay_count, 0)
+      resume()
+        with overlay_names = new_names,
+             overlay_bufs = new_bufs,
+             overlay_lens = new_lens,
+             overlay_count = overlay_count + 1,
+             current_overlay_idx = overlay_count,
+             current_overlay = module_name
+    }
+  },
+
+  // ─── Rollback — the oracle's undo ────────────────────────────────
+  // Walk the trail backwards from trail_len down to target. Each
+  // mutation has a precise inverse:
+  //   MSetNode(h, old) → restore nodes[h] to old
+  //   MSetRow(h, old)  → restore nodes[h] to old
+  //   MFreshNode(h)    → decrement next (un-allocate)
+  // Reset trail_len = target; entries above are stale and get
+  // overwritten on next append — no slicing, no allocation. Epoch is
+  // NOT rolled back — it stays monotonic so query observers keyed on
+  // (handle, epoch) correctly see invalidation without reordering.
+
+  graph_index_span(span, handle) => {
+    resume() with span_index = push(span_index, (span, handle))
+  },
+
+  graph_index_intent(handle, effs) => {
+    resume() with intent_index = push(intent_index, (handle, effs))
+  },
+
+  graph_rollback(target_idx) => {
+    let (new_nodes, new_next) =
+      revert_trail(nodes, trail, trail_len, target_idx, next)
+    let n = checkpoint_stack.len
+    let new_stack = if n == 0 { checkpoint_stack } else { slice(checkpoint_stack, 0, n - 1) }
+    resume()
+      with nodes = new_nodes,
+           next = new_next,
+           trail_len = target_idx,
+           checkpoint_stack = new_stack
+  }
+}
+
+// Pure graph operations — the mechanism
+// Internal machinery the handler delegates to. All pure; all
+// deterministic; no effects.
+
+/// Follow NBound / NRowBound links until terminal. Amortized O(1) —
+/// chains shallow in practice, depth-limited for cycle safety.
+fn chase_node(ref nodes, handle, depth) with !Mutate = {
+  if depth > 100 {
+    GNode(NErrorHole(Inferred("chase depth exceeded")), Fresh(handle))
+  } else {
+    let GNode(kind, reason) = graph_node_at(nodes, handle)
+    match kind {
+      NBound(ty) =>
+        match ty {
+          TVar(next) => chase_node(nodes, next, depth + 1),
+          _          => GNode(kind, reason)
+        },
+      NRowBound(row) =>
+        match row {
+          EfOpen(names, next) =>
+            chase_node(nodes, next, depth + 1)
+              |> merge_chased_row(names, next),
+          _ => GNode(kind, reason)
+        },
+      _ => GNode(kind, reason)
+    }
+  }
+}
+
+/// When chasing an EfOpen row that points to another row handle,
+/// fold the known names forward through the chain. free_handle is the
+/// handle we chased INTO — needed to reconstruct EfOpen when the
+/// chain terminates at NRowFree (the free variable).
+fn merge_chased_row(ref chased, ref names, free_handle) with !Mutate = {
+  let GNode(ck, cr) = chased
+  match ck {
+    NRowFree(_) =>
+      // Preserve the accumulated names with the free variable.
+      // Without this, EfOpen([Memory, IO], v) where v → NRowFree
+      // would lose [Memory, IO].
+      if names.len == 0 { chased }
+      else { GNode(NRowBound(mk_ef_open(names, free_handle)), cr) },
+    NRowBound(inner) => GNode(NRowBound(merge_row(names, inner)), cr),
+    _ => chased
+  }
+}
+
+fn merge_row(ref names, ref row) with !Mutate = {
+  match row {
+    EfPure =>
+      if names.len == 0 { EfPure }
+      else { mk_ef_closed(names) },
+    EfClosed(inner)  => mk_ef_closed(name_set_union(names, inner)),
+    EfOpen(inner, v) => mk_ef_open(name_set_union(names, inner), v),
+    _ => row
+  }
+}
+
+/// Returns node at handle, or synthesizes NFree for out-of-range
+/// handles (defensive — should not happen in well-formed compilation).
+fn graph_node_at(ref nodes, idx) with !Mutate = {
+  if idx >= nodes.len { GNode(NFree(0), Fresh(idx)) }
+  else { nodes[idx] }
+}
+
+/// O(1) in-place write. list_set stores at list + 8 + idx*4 directly.
+/// Caller must ensure idx < nodes.len; graph_extend_to enforces the bound.
+fn graph_set_node(own nodes, idx, own node) = {
+  list_set(graph_extend_to(nodes, idx + 1), idx, node)
+}
+
+/// Ensure nodes has at least min_size slots. Uses capacity doubling so
+/// amortized cost per fresh allocation is O(1). When growth is needed,
+/// allocates a new flat list of size max(min_size, nodes.len*2), copies
+/// old entries, and fills the remainder with NFree sentinel nodes.
+///
+/// Specializes list_extend_to (std/runtime/lists.mn) with an NFree
+/// sentinel fill so that defensive reads via graph_node_at return a
+/// well-formed NFree for extended-but-unwritten slots. Generic flat-buffer
+/// callers (trail, overlays, evidence vectors) use list_extend_to directly
+/// — they never read above their logical length counter.
+fn graph_extend_to(own nodes, min_size) = {
+  if nodes.len >= min_size { nodes }
+  else {
+    let old_len = nodes.len
+    let new_cap = if min_size > old_len * 2 { min_size } else { old_len * 2 }
+    let fresh   = make_list(new_cap)
+    let filled  = list_copy_into(nodes, fresh, 0, old_len)
+    graph_fill_free(filled, old_len, new_cap)
+  }
+}
+
+/// Fill dst[start..cap) with NFree sentinel nodes.
+fn graph_fill_free(own dst, start, cap) = {
+  if start >= cap { dst }
+  else {
+    graph_fill_free(
+      list_set(dst, start, GNode(NFree(0), Fresh(start))),
+      start + 1, cap
+    )
+  }
+}
+
+// Occurs check
+// Before graph_bind(h, ty, r): walk ty for free handles containing h.
+// If found, inference emits E_OccursCheck and refuses. No silent
+// binding. No cycle except through explicit <~ feedback.
+//
+// Iteration uses flat-indexed loops on list_to_flat'd inputs — snoc
+// inputs materialize once at entry, flat inputs pass through. Walks
+// short-circuit on first hit.
+
+/// H6: exhaustive Ty enumeration. A wildcard arm here silently
+/// misses a new Ty variant's containment check — the most
+/// dangerous site in the compiler because a missed occurs-check
+/// admits infinite types. Every current Ty variant is named; any
+/// future variant fails to compile until its containment semantics
+/// are decided explicitly.
+fn occurs_in(handle, ref ty) with !Mutate = {
+  match ty {
+    TInt             => false,
+    TFloat           => false,
+    TString          => false,
+    TUnit            => false,
+    TVar(id)         => id == handle,
+    TList(elem)      => occurs_in(handle, elem),
+    TTuple(elems)    => occurs_in_list(handle, elems),
+    TFun(params, ret, _) =>
+      occurs_in_params(handle, params) || occurs_in(handle, ret),
+    TName(_, args)   => occurs_in_list(handle, args),
+    TRecord(fields)  => occurs_in_fields(handle, fields),
+    TRecordOpen(fields, v) =>
+      v == handle || occurs_in_fields(handle, fields),
+    TRefined(base, _) => occurs_in(handle, base),
+    TCont(ret, _)    => occurs_in(handle, ret)
+  }
+}
+
+fn occurs_in_params(handle, ref params) with !Mutate = {
+  let flat = list_to_flat(params)
+  occurs_in_params_loop(handle, flat, 0, flat.len)
+}
+
+fn occurs_in_params_loop(handle, ref params, i, n) with !Mutate = {
+  if i >= n { false }
+  else {
+    let TParam(_, ty, _, _) = list_index(params, i)
+    if occurs_in(handle, ty) { true }
+    else { occurs_in_params_loop(handle, params, i + 1, n) }
+  }
+}
+
+fn occurs_in_list(handle, ref tys) with !Mutate = {
+  let flat = list_to_flat(tys)
+  occurs_in_list_loop(handle, flat, 0, flat.len)
+}
+
+fn occurs_in_list_loop(handle, ref tys, i, n) with !Mutate = {
+  if i >= n { false }
+  else {
+    if occurs_in(handle, list_index(tys, i)) { true }
+    else { occurs_in_list_loop(handle, tys, i + 1, n) }
+  }
+}
+
+fn occurs_in_fields(handle, ref fields) with !Mutate = {
+  let flat = list_to_flat(fields)
+  occurs_in_fields_loop(handle, flat, 0, flat.len)
+}
+
+fn occurs_in_fields_loop(handle, ref fields, i, n) with !Mutate = {
+  if i >= n { false }
+  else {
+    let (_, ty) = list_index(fields, i)
+    if occurs_in(handle, ty) { true }
+    else { occurs_in_fields_loop(handle, fields, i + 1, n) }
+  }
+}
+
+// Trail buffer — flat array + length counter
+// Mirrors the nodes buffer substrate (DESIGN Ch 4 Salsa 3.0 shape).
+// Append via list_extend_to + list_set — O(1) amortized. Revert is
+// a backward flat-array loop, one list_set per step — O(M) exact.
+// Rollback resets trail_len; entries above the counter are stale
+// and get overwritten on next append. No snoc, no concat, no linked
+// walk. This is the substrate on which Mentl's oracle runs.
+
+fn revert_trail(own nodes, ref trail, current, target, next_handle) = {
+  if current <= target { (nodes, next_handle) }
+  else {
+    let idx = current - 1
+    let mutation = trail[idx]
+    match mutation {
+      MSetNode(h, old) =>
+        revert_trail(
+          graph_set_node(nodes, h, old),
+          trail, idx, target, next_handle
+        ),
+      MSetRow(h, old) =>
+        revert_trail(
+          graph_set_node(nodes, h, old),
+          trail, idx, target, next_handle
+        ),
+      MFreshNode(_) =>
+        revert_trail(nodes, trail, idx, target, next_handle - 1)
+    }
+  }
+}
+
+fn trail_append(own trail, trail_len, own mutation) = {
+  trail
+    |> list_extend_to(trail_len + 1)
+    |> list_set(trail_len, mutation)
+}
+
+// Overlay registration — flat-substrate per-module handle set
+// Three parallel arrays — names, bufs, lens — keyed by overlay index.
+// overlay_register_at writes into the current overlay's handles_buf
+// in O(1) amortized; overlay_find scans names only on graph_fork.
+// overlays_to_pairs reconstructs List[(name, handles_view)] for
+// graph_snapshot / F11 cross-module consumers using slice views (no
+// copying of the handle buffers).
+
+fn overlay_register_at(own overlay_bufs, own overlay_lens, idx, handle) = {
+  let handles_buf = list_index(overlay_bufs, idx)
+  let handles_len = list_index(overlay_lens, idx)
+  let new_handles = handles_buf
+    |> list_extend_to(handles_len + 1)
+    |> list_set(handles_len, handle)
+  let new_bufs = list_set(overlay_bufs, idx, new_handles)
+  let new_lens = list_set(overlay_lens, idx, handles_len + 1)
+  (new_bufs, new_lens)
+}
+
+fn overlay_find(ref names, count, ref target) with !Mutate = {
+  overlay_find_loop(names, count, target, 0)
+}
+
+/// Not-found sentinel is `count` (one past the last valid index).
+/// Callers test `existing_idx < count` to branch on found/missing.
+fn overlay_find_loop(ref names, count, ref target, i) with !Mutate = {
+  if i >= count { count }
+  else if str_eq(list_index(names, i), target) { i }
+  else { overlay_find_loop(names, count, target, i + 1) }
+}
+
+fn overlays_to_pairs(ref names, ref bufs, ref lens, count) with !Mutate = {
+  overlays_to_pairs_loop(names, bufs, lens, count, 0, make_list(count))
+}
+
+fn overlays_to_pairs_loop(ref names, ref bufs, ref lens, count, i, own acc) = {
+  if i >= count { acc }
+  else {
+    let handles_view = slice(list_index(bufs, i), 0, list_index(lens, i))
+    let pair = (list_index(names, i), handles_view)
+    overlays_to_pairs_loop(
+      names, bufs, lens, count, i + 1,
+      list_set(acc, i, pair)
+    )
+  }
+}
+
+// Effect-name set ops (H3.1)
+// merge_row routes through `name_set_union` from effects.mn — the
+// row entries are EffName values, not strings. Smart constructors
+// (mk_ef_closed, mk_ef_open) enforce sort invariant at construction,
+// so no boundary canonicalize is needed. The local string-set
+// adapters are gone — string-set primitives still serve own.mn and
+// other linear-binding consumers.

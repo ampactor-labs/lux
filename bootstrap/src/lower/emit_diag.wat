@@ -7,7 +7,7 @@
   ;; 2026-04-27 + §12.3 dep order chunk #4):
   ;;   The seed projection of spec 05 L43-50's lookup_ty_graph default
   ;;   handler NFree arm — the ONE lower-private diagnostic class:
-  ;;   E_UnresolvedType. Inventory of src/lower.nx (full 1284 lines):
+  ;;   E_UnresolvedType. Inventory of src/lower.mn (full 1284 lines):
   ;;   zero `report(` / `eprint(` / `panic(` calls; lower itself never
   ;;   emits except through LookupTy's NFree handler arm. Therefore
   ;;   this chunk owns exactly ONE emit helper.

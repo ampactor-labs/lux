@@ -19,7 +19,7 @@
 > `docs/specs/02-ty.md` + `03-typed-ast.md` + `06-effects-surface.md`
 > + `07-ownership.md` (the surface the walk infers over);
 > `docs/specs/simulations/Hβ-bootstrap.md` §1.2 + §13 (parent
-> walkthrough; Layer 4 sub-handle); `src/infer.nx` (2193 lines, the
+> walkthrough; Layer 4 sub-handle); `src/infer.mn` (2193 lines, the
 > wheel — this WAT IS its seed transcription).
 >
 > *Claim in one sentence:* **The seed's HM inference is one walk
@@ -39,10 +39,10 @@
 
 Per `Hβ-bootstrap.md` §11 + BT.A.0 sweep (commit `d6117f5`): the
 current seed does **lex → parse → direct-emit** (no inference, no
-lowering). That's why 35/50 .nx files produce degenerate WAT
-(graph.nx → 34 lines, undefined locals from import-as-identifier-
+lowering). That's why 35/50 .mn files produce degenerate WAT
+(graph.mn → 34 lines, undefined locals from import-as-identifier-
 expression handling). The path to first-light-L1 requires the seed
-to be a **full** Inka compiler — lex → parse → INFER → LOWER → emit.
+to be a **full** Mentl compiler — lex → parse → INFER → LOWER → emit.
 
 This walkthrough names the inference layer. Sibling
 `Hβ-lower-substrate.md` (pending) names the lowering layer.
@@ -92,7 +92,7 @@ The Wave 2.A–D Layer-1 runtime substrate that just landed (commits
 
 ### 0.4 What Hβ.infer does NOT design
 
-- **AST representation.** Spec 03 + the wheel's `src/parser.nx`
+- **AST representation.** Spec 03 + the wheel's `src/parser.mn`
   output. Hβ.infer assumes the AST is a heap-record graph keyed by
   the parser's TypeHandle allocations.
 - **Lowering to LowIR.** Sibling walkthrough Hβ-lower-substrate.md
@@ -113,21 +113,21 @@ The Wave 2.A–D Layer-1 runtime substrate that just landed (commits
   wheel runs Mentl's oracle on top. Hβ.infer is the substrate the
   oracle uses, not the oracle itself.
 
-### 0.5 Relationship to spec 04 + src/infer.nx
+### 0.5 Relationship to spec 04 + src/infer.mn
 
 Spec 04 names the algorithm in three operations + Env + unification +
 the four production patterns (structural constraints, unifications,
-generalizations, instantiations). `src/infer.nx` (2193 lines) is the
-wheel's HM implementation in Inka; it's the canonical algorithmic
+generalizations, instantiations). `src/infer.mn` (2193 lines) is the
+wheel's HM implementation in Mentl; it's the canonical algorithmic
 contract.
 
-This walkthrough projects spec 04 + src/infer.nx onto the Wave 2.A–D
-WAT substrate. The PROJECTION is the work: where src/infer.nx's
-`graph_bind(h, ty, reason)` call is one Inka line, the WAT
+This walkthrough projects spec 04 + src/infer.mn onto the Wave 2.A–D
+WAT substrate. The PROJECTION is the work: where src/infer.mn's
+`graph_bind(h, ty, reason)` call is one Mentl line, the WAT
 projection is `(call $graph_bind (local.get $h) (local.get $ty)
 (local.get $reason))` and the surrounding control-flow logic.
 
-Per Anchor 4: src/infer.nx IS the wheel; this WAT IS the seed
+Per Anchor 4: src/infer.mn IS the wheel; this WAT IS the seed
 transcription. Per Anchor 0: the WAT assumes graph.wat / env.wat /
 row.wat / verify.wat are perfect (they are — Wave 2.C/D landed).
 
@@ -163,13 +163,13 @@ chunk per the §8 sub-decomposition.
 (global $infer_fn_stack_ptr       (mut i32) (i32.const 0))
 (global $infer_fn_stack_len_g     (mut i32) (i32.const 0))
 
-;; Span index (per src/graph.nx graph_index_span). Each AST node's
+;; Span index (per src/graph.mn graph_index_span). Each AST node's
 ;; (span, handle) pair; used by query layer post-inference for
 ;; cursor-position lookups. Inference appends; downstream reads.
 (global $infer_span_index_ptr     (mut i32) (i32.const 0))
 (global $infer_span_index_len_g   (mut i32) (i32.const 0))
 
-;; Intent index (per src/graph.nx graph_index_intent). Each FnStmt's
+;; Intent index (per src/graph.mn graph_index_intent). Each FnStmt's
 ;; (handle, declared_effects) pair; used by query for "what handlers
 ;; would this fn need?" surfaces.
 (global $infer_intent_index_ptr   (mut i32) (i32.const 0))
@@ -200,7 +200,7 @@ Scheme record:
 
 Tag regions reserved for Hβ.infer private records (extended
 2026-04-26 per Wave 2.E.infer.reason substrate-gap finding —
-agent found 23 canonical Reason variants in src/types.nx vs
+agent found 23 canonical Reason variants in src/types.mn vs
 9-named subset in this walkthrough's earlier draft + only 17
 free slots in the original 200-219 region; per Anchor 7 cascade
 discipline + drift mode 9 / drift mode 8: the canonical ADT must
@@ -219,7 +219,7 @@ be honored, not under-named):
     235=BinOpPlaceholder, 236=MissingVar, 237=Refinement,
     238=Located, 239=InferredCallReturn, 240=InferredPipeResult,
     241=FreshInContext, 242=DocstringReason. (242-249 reserved for
-    future Reason variants per src/types.nx evolution.)
+    future Reason variants per src/types.mn evolution.)
 
 ### 2.2 Constructors + accessors
 
@@ -274,14 +274,14 @@ TRECORDOPEN_TAG= 110   ;; arity 2 — fields list, rowvar handle
 TREFINED_TAG   = 111   ;; arity 2 — base Ty, predicate (opaque ptr — verify.wat precedent)
 TCONT_TAG      = 112   ;; arity 2 — return Ty, ResumeDiscipline sentinel (250-252)
 TALIAS_TAG     = 113   ;; arity 2 — alias name str, resolved Ty (RN.1 substrate;
-                       ;;          per src/types.nx:48; preserves authored name
+                       ;;          per src/types.mn:48; preserves authored name
                        ;;          for intent-aware rendering — show_type at
-                       ;;          src/types.nx:815 returns the alias name verbatim)
+                       ;;          src/types.mn:815 returns the alias name verbatim)
 
-;; Reserved 114-119 for future Ty variants per src/types.nx evolution.
+;; Reserved 114-119 for future Ty variants per src/types.mn evolution.
 ```
 
-ResumeDiscipline is its own ADT (`src/types.nx:70-73`) referenced
+ResumeDiscipline is its own ADT (`src/types.mn:70-73`) referenced
 from TCont's discipline field. Per the same nullary-sentinel
 discipline (Hβ §1.5), ResumeDiscipline values are sentinel ints.
 **Tag region 250-259 reserved (added 2026-04-26 per Wave 2.E.infer.ty
@@ -403,7 +403,7 @@ the NodeKind via `$node_kind_make_nerrorhole` from graph.wat.
 `$unify_sub(h_or_ty_a, h_or_ty_b, reason)` is the dispatcher that
 handles both pure-Ty inputs (recursive sub-unification) and
 handle inputs (route through $unify). Provides the polymorphism
-src/infer.nx's `unify_sub` provides at the Inka level.
+src/infer.mn's `unify_sub` provides at the Mentl level.
 
 ---
 
@@ -487,7 +487,7 @@ env.wat's `$env_extend` takes the four-tuple (name, scheme, reason,
 kind) directly per ROADMAP item 1's canonicalization. Callers compose
 the kind via `$schemekind_make_*` constructors; the binding record
 stores all four fields per `ENV_BINDING_TAG=130, arity=4`. Mirrors
-canonical src/infer.nx's `perform env_extend(name, scheme, reason,
+canonical src/infer.mn's `perform env_extend(name, scheme, reason,
 kind)` at lines 219, 233, 279, 368, 1589-1591, 2009, 2051, 2057,
 2061, 2094, 2105.
 
@@ -654,14 +654,14 @@ in), so the discipline is strict.
 
 **Foreign fluency — type inference libraries:**
 
-| Foreign vocabulary | Inka substrate |
+| Foreign vocabulary | Mentl substrate |
 |--------------------|----------------|
 | Algorithm W's `(subst, type)` return | $unify mutates graph; returns `()` |
 | Algorithm M's bidirectional check vs infer | One walk; spec 04 §Three operations |
 | Constraint sets (Pottier's CHKL) | Graph IS the constraint store |
 | `instantiate(scheme, mode=...)` | One $instantiate; one mechanism |
-| Type families / GADTs | Out of Inka scope (spec 02); refinements substitute |
-| Higher-rank polymorphism | Out of Inka scope (Damas-Milner only) |
+| Type families / GADTs | Out of Mentl scope (spec 02); refinements substitute |
+| Higher-rank polymorphism | Out of Mentl scope (Damas-Milner only) |
 | Effect inference as a separate pass | Effects in TFun; one walk per spec 04 closing |
 
 If any of those vocabulary items appears in the seed's chunk
@@ -700,7 +700,7 @@ bootstrap/src/infer/
   ty.wat                 ;; Tier 5 — Ty constructors + tag conventions + chase_deep
                          ;;          (shared with Hβ.lower; lands here as the
                          ;;          earlier consumer)
-  reason.wat             ;; Tier 5 — Reason record constructors per src/types.nx
+  reason.wat             ;; Tier 5 — Reason record constructors per src/types.mn
                          ;;          canonical ADT (23 variants, tags 220-242):
                          ;;          Declared, Inferred, Fresh, OpConstraint,
                          ;;          VarLookup, FnReturn, FnParam, MatchBranch,
@@ -725,7 +725,7 @@ bootstrap/src/infer/
   emit_diag.wat          ;; Tier 6 — diagnostic emission helpers
                          ;;          ($render_ty + 11 $infer_emit_*
                          ;;          helpers covering every E_/T_ code
-                         ;;          canonical src/infer.nx emits per
+                         ;;          canonical src/infer.mn emits per
                          ;;          ROADMAP §4 closure: type_mismatch,
                          ;;          missing_var, occurs_check,
                          ;;          feedback_no_context,
@@ -739,9 +739,9 @@ bootstrap/src/infer/
                          ;;          + lower)
 ```
 
-10 chunks. Total ~3000-5000 WAT lines (estimate per spec 04 + src/infer.nx
+10 chunks. Total ~3000-5000 WAT lines (estimate per spec 04 + src/infer.mn
 2193 lines projected to WAT — typical 1.5-2.5× line ratio for WAT
-vs Inka source).
+vs Mentl source).
 
 ### 8.2 Layer extension
 
@@ -779,16 +779,16 @@ Per Morgan: WABT tools welcome along the way.
 After each chunk lands:
 ```bash
 bash bootstrap/build.sh                     # assemble + wat2wasm
-wasm-validate bootstrap/inka.wasm           # structural validation
+wasm-validate bootstrap/mentl.wasm           # structural validation
 bash bootstrap/first-light.sh                # lexer proof-of-life unchanged
-wasm-objdump -x bootstrap/inka.wasm | grep '<infer_'   # confirm new fns present
-wasm-decompile bootstrap/inka.wasm | sed -n '/function infer_<...>/,/^}/p'
+wasm-objdump -x bootstrap/mentl.wasm | grep '<infer_'   # confirm new fns present
+wasm-decompile bootstrap/mentl.wasm | sed -n '/function infer_<...>/,/^}/p'
                                               # spot-check decompiled body matches design
 ```
 
 After unify.wat:
 ```bash
-;; Build a tiny test harness in Inka (or hand-WAT temp_test.wat)
+;; Build a tiny test harness in Mentl (or hand-WAT temp_test.wat)
 ;; that calls $unify with known inputs and inspects $graph_chase
 ;; afterward. Run via wasmtime --invoke.
 ```
@@ -798,10 +798,10 @@ After unify.wat:
 | Chunk | Lines (target) | Spec source |
 |-------|---------------|-------------|
 | state.wat | ~80 | this walkthrough §1 |
-| reason.wat | ~280-320 | spec 02 + spec 08 + src/types.nx canonical 23-variant Reason ADT (constructor + accessors per variant ≈ 12-14 WAT lines × 23 variants; revised 2026-04-26 per Wave 2.E.infer.reason substrate-gap finding — earlier 9-named undercount yielded ~150 estimate; canonical reality is 23 variants) |
+| reason.wat | ~280-320 | spec 02 + spec 08 + src/types.mn canonical 23-variant Reason ADT (constructor + accessors per variant ≈ 12-14 WAT lines × 23 variants; revised 2026-04-26 per Wave 2.E.infer.reason substrate-gap finding — earlier 9-named undercount yielded ~150 estimate; canonical reality is 23 variants) |
 | ty.wat | ~430 | spec 02 + this walkthrough §2.3 (revised 2026-04-26 from ~400 per 14th variant TAlias + 3 ResumeDiscipline sentinel constructors) |
 | scheme.wat | ~250 | spec 04 §Env+Scheme + this §2 |
-| emit_diag.wat | ~960 | spec 04 §Error handling + docs/errors (revised 2026-04-26 ROADMAP §4 — extended from earlier ~200 estimate per Wave 2.E.infer.emit_diag canonicalization: 11 helpers covering every E_/T_ code canonical src/infer.nx emits, including newly-cataloged E_NotARecordType / E_RecordFieldExtra / E_RecordFieldMissing / E_CannotNegateCapability) |
+| emit_diag.wat | ~960 | spec 04 §Error handling + docs/errors (revised 2026-04-26 ROADMAP §4 — extended from earlier ~200 estimate per Wave 2.E.infer.emit_diag canonicalization: 11 helpers covering every E_/T_ code canonical src/infer.mn emits, including newly-cataloged E_NotARecordType / E_RecordFieldExtra / E_RecordFieldMissing / E_CannotNegateCapability) |
 | unify.wat | ~700 | spec 04 §Unification + spec 01 §Unification rules |
 | own.wat | ~280-340 | spec 04 §Ownership + spec 07 + emit_diag.wat:189-195 contract (OwnershipViolation diagnostic helper lands here per ROADMAP §4 closure pattern; revised 2026-04-26 from ~150 per affine ledger + branch protocol + 3 emit helpers + ledger substrate landing in one commit) |
 | walk_expr.wat | ~1500 | spec 03 + spec 04 §What the walk produces (revised 2026-04-26 per Wave 2.E.infer.walk_expr landing — header+forbidden-patterns block + 22 per-Expr-variant arms + 5 PipeKind sub-arms + 12 private helpers + 29 data-segment Reason-inner strings; landed 1523 lines vs. earlier ~900 estimate; the ~600-line overshoot is per-arm verbosity around Reason composition and TFun construction at CallExpr / LambdaExpr / FieldExpr / PForward, plus the explicit dispatch-by-tag chain in $infer_walk_expr) |
@@ -971,9 +971,9 @@ the oracle uses; infer doesn't fork itself.
       Hβ.infer-substrate.md cite + exports + uses.
 - [ ] `bootstrap/build.sh` CHUNKS[] includes the infer chunks in
       Layer 4 position (between Layer 3 parser + Layer 5 lower).
-- [ ] `wat2wasm bootstrap/inka.wat` succeeds.
-- [ ] `wasm-validate bootstrap/inka.wasm` passes.
-- [ ] `wasm-objdump -x bootstrap/inka.wasm | grep '<infer_'` lists
+- [ ] `wat2wasm bootstrap/mentl.wat` succeeds.
+- [ ] `wasm-validate bootstrap/mentl.wasm` passes.
+- [ ] `wasm-objdump -x bootstrap/mentl.wasm | grep '<infer_'` lists
       $infer_init, $unify, $infer_expr, $infer_stmt, $generalize,
       $instantiate (at minimum).
 
@@ -990,18 +990,18 @@ the oracle uses; infer doesn't fork itself.
 
 ### 11.3 Self-compile acceptance (Hβ.infer in service of L1)
 
-- [ ] `cat src/verify.nx | wasmtime run bootstrap/inka.wasm` produces
-      WAT that wasm-validates after linking (currently src/verify.nx
+- [ ] `cat src/verify.mn | wasmtime run bootstrap/mentl.wasm` produces
+      WAT that wasm-validates after linking (currently src/verify.mn
       is the single VALIDATES file per BT.A.0 — this is the regression
       test that infer doesn't break it).
-- [ ] `cat src/graph.nx | wasmtime run bootstrap/inka.wasm` produces
+- [ ] `cat src/graph.mn | wasmtime run bootstrap/mentl.wasm` produces
       non-degenerate WAT (tracking improvement against BT.A.0 baseline
       of 34 lines / undefined locals).
 
 ### 11.4 Drift-clean
 
 - [ ] `bash tools/drift-audit.sh bootstrap/src/infer/*.wat` exits 0.
-      (Note: drift-audit currently scans `.nx`; an extension to scan
+      (Note: drift-audit currently scans `.mn`; an extension to scan
       `.wat` for foreign-language drift markers is a named follow-up
       of this walkthrough.)
 
@@ -1087,7 +1087,7 @@ just symbol-presence checks (the ROADMAP §5 acceptance language —
   with $unify_shapes' TRefined arm calling PAnd(p, q) per spec 04.
 
 - **Hβ.infer.region-tracker** — H4.1 Tofte-Talpin region_tracker
-  handler substrate (src/own.nx:199-295). Lands when Hβ.lower's
+  handler substrate (src/own.mn:199-295). Lands when Hβ.lower's
   Alloc surface matures (the helpers tag allocations; allocation-
   handle stamping is the gating substrate). NOT a drift-mode-9
   deferral: walk arms calling the affine_ledger projects HAVE full
@@ -1105,23 +1105,23 @@ just symbol-presence checks (the ROADMAP §5 acceptance language —
 
 - **Hβ.infer.handler-stack** — walk_expr.wat's $walk_expr_inf_push_handler
   / _pop_handler are inert seed-stubs. Wheel's inf_push_handler /
-  inf_pop_handler (src/infer.nx:127-138) tag the handler-stack frame
+  inf_pop_handler (src/infer.mn:127-138) tag the handler-stack frame
   with handled-effect identity for W4 monomorphic-dispatch. Lands when
   W4 evidence-reification surface matures.
 
 - **Hβ.infer.walk_pat** — Pat dispatch (PVar / PCon / PTuple / PList /
-  PRecord / PWild / PLit per spec 03 + src/infer.nx:1587-1655) called
+  PRecord / PWild / PLit per spec 03 + src/infer.mn:1587-1655) called
   from walk_expr.wat's MatchExpr arm. Lands as peer Tier 7 chunk before
   walk_stmt.wat (let-stmts also use patterns).
 
 - **Hβ.infer.match-exhaustive** — exhaustiveness check
-  (src/infer.nx:1709-1718) omitted at the seed; uses the already-
+  (src/infer.mn:1709-1718) omitted at the seed; uses the already-
   landed $infer_emit_pattern_inexhaustive helper from emit_diag.wat.
   Requires ConstructorScheme(_, total_variants) reads from env, which
   in turn requires the walk_pat chunk.
 
 - **Hβ.infer.named-record-validate** — check_nominal_record_fields
-  (src/infer.nx:1397-1450) omitted at the seed's NamedRecordExpr arm;
+  (src/infer.mn:1397-1450) omitted at the seed's NamedRecordExpr arm;
   uses already-landed $infer_emit_record_field_extra / _missing
   helpers. Requires RecordSchemeKind reads from env-binding.kind.
 
@@ -1131,19 +1131,19 @@ just symbol-presence checks (the ROADMAP §5 acceptance language —
   (depends on Hβ.infer.handler-stack).
 
 - **Hβ.infer.qualified-name** — FieldExpr's dotted-name fallback
-  (src/infer.nx:710-722). Seed's walk_expr.wat treats every FieldExpr
+  (src/infer.mn:710-722). Seed's walk_expr.wat treats every FieldExpr
   as record field access; the qualified-name path lands when driver
   composition surfaces dotted module-export names in env.
 
 - **Hβ.infer.lambda-params** — walk_expr.wat's LambdaExpr arm builds
   TFun([], TVar(body_h), row_h) at the seed. Wheel's mint_params
-  (src/infer.nx:724-740) walks each parser-emitted Param record and
+  (src/infer.mn:724-740) walks each parser-emitted Param record and
   extends env via env_extend. Lands once parser surfaces the Param
   record's offset convention.
 
 - **Hβ.infer.unaryop-class** — walk_expr.wat's UnaryOpExpr arm treats
   every op as default (TVar transparent). Wheel's infer_unaryop
-  (src/infer.nx:1574-1583) special-cases "Neg" / "Not" via str_eq.
+  (src/infer.mn:1574-1583) special-cases "Neg" / "Not" via str_eq.
   Lands when the seed has data-segment-resident "Neg" / "Not"
   constants (or, preferably, when parser surfaces UnaryOp as ADT
   sentinels per drift-mode-8 closure).
@@ -1170,7 +1170,7 @@ fluency + per-handle walkthrough reading.
 
 | Chunk | Dispatch | Rationale |
 |-------|----------|-----------|
-| state.wat | Opus inline OR Sonnet via inka-implementer w/ this §1 as plan | small; mechanical |
+| state.wat | Opus inline OR Sonnet via mentl-implementer w/ this §1 as plan | small; mechanical |
 | reason.wat | Opus inline OR Sonnet | constructors per spec 08; mechanical |
 | ty.wat | Opus inline | tag conventions need design judgment + Hβ.lower coordination |
 | scheme.wat | Opus inline | instantiate / generalize semantics non-trivial |
@@ -1212,24 +1212,24 @@ Each chunk lands per Anchor 7:
 ## §14 Closing
 
 Hβ.infer is the layer that doesn't exist in the current seed. Per
-BT.A.0 sweep: 35/50 src/*.nx files PARSE-INCOMPLETE because the
+BT.A.0 sweep: 35/50 src/*.mn files PARSE-INCOMPLETE because the
 seed handles imports as identifier-expressions; per Hβ §11
-finding: graph.nx → 34 lines degenerate WAT. The path past this
+finding: graph.mn → 34 lines degenerate WAT. The path past this
 state is implementing HM inference at the WAT layer.
 
-This walkthrough projects spec 04 + src/infer.nx onto the Wave
+This walkthrough projects spec 04 + src/infer.mn onto the Wave
 2.A–D Layer-1 substrate. **The substrate exists; the contract is
 written; what remains is transcription per the §8 chunk
 decomposition.**
 
 Per insight #11 (oracle = IC + cached value): once Hβ.infer
-substrate lands, the seed becomes capable of HM-inferring src/*.nx;
+substrate lands, the seed becomes capable of HM-inferring src/*.mn;
 the wheel compiled from that substrate hosts Mentl's oracle on top.
 **Hβ.infer is the substrate that makes the wheel possible; the
 wheel is the substrate that makes Mentl's continuous oracle real.**
 
-Per Anchor 4 + Anchor 7 + Hβ §0: the wheel is `src/*.nx` (10,629
-lines of substantively-real Inka per plan §16); this walkthrough's
+Per Anchor 4 + Anchor 7 + Hβ §0: the wheel is `src/*.mn` (10,629
+lines of substantively-real Mentl per plan §16); this walkthrough's
 substrate is its seed transcription; both kept forever (the seed
 as reference soundness artifact per Hβ §0; the wheel as the
 canonical implementation).

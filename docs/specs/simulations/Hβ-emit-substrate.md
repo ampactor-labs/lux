@@ -14,7 +14,7 @@
 > WAT-shape emission); `docs/specs/05-lower.md` §Emitter handoff;
 > `docs/specs/simulations/Hβ-lower-substrate.md` §2 (LowExpr ADT —
 > tag region 300-334) + §9.2 (Hβ.lower × Hβ.emit composition);
-> `src/backends/wasm.nx` (the wheel — 87 functions; this is the
+> `src/backends/wasm.mn` (the wheel — 87 functions; this is the
 > seed transcription target).
 >
 > *Claim in one sentence:* **The seed's Hβ.emit cascade extends the
@@ -52,8 +52,8 @@ H7; LFeedback per LF; LSuspend per H1.6).
 |---|---|---|
 | Existing `bootstrap/src/emit_*.wat` (6 chunks, 1728 lines) | WAT-text generation primitives + module orchestration ($emit_program / $emit_fn / $emit_expr / $is_decl_stmt) | the WAT-text generation layer; extended (NOT replaced) per Anchor 4 wheel-parity |
 | Hβ.lower closure | LowExpr trees (35 variants, tag 300-334); $lookup_ty for live type reads; classify_handler for strategy codes; $lower_handler_arms_as_decls for module-level handler arms | dispatching emission per LowExpr tag; reading types via $lookup_ty($lexpr_handle(r)); routing handler arms to module-level fns per H1.4 |
-| **H7 substrate (already landed in src/*.nx)** | LMakeContinuation variant + emit arm + capture/ev-store helpers + LowerState effect at src/lower.nx:45-92 | the seed transcribes the SAME variant emit shape into bootstrap/src/emit_*.wat extensions so the seed's emit and the wheel's emit share LMakeContinuation runtime layout |
-| **LF substrate (commit `7f8ff5f`)** | LFeedback emit shape at src/backends/wasm.nx | seed's emit uses the same LFeedback shape per spec 10 + LF walkthrough §1.12 |
+| **H7 substrate (already landed in src/*.mn)** | LMakeContinuation variant + emit arm + capture/ev-store helpers + LowerState effect at src/lower.mn:45-92 | the seed transcribes the SAME variant emit shape into bootstrap/src/emit_*.wat extensions so the seed's emit and the wheel's emit share LMakeContinuation runtime layout |
+| **LF substrate (commit `7f8ff5f`)** | LFeedback emit shape at src/backends/wasm.mn | seed's emit uses the same LFeedback shape per spec 10 + LF walkthrough §1.12 |
 
 ### 0.3 What Hβ.emit designs (this walkthrough)
 
@@ -97,14 +97,14 @@ H7; LFeedback per LF; LSuspend per H1.6).
 - **Cross-module function symbol resolution.** Hβ.link's concern
   (Hβ-link-protocol.md follow-up TBD per Hβ §13).
 
-### 0.5 Relationship to spec 05 + src/backends/wasm.nx
+### 0.5 Relationship to spec 05 + src/backends/wasm.mn
 
-Spec 05 §Emitter handoff names the algorithm. `src/backends/wasm.nx`
+Spec 05 §Emitter handoff names the algorithm. `src/backends/wasm.mn`
 (87 functions) is the wheel's emit implementation. This walkthrough
-projects spec 05 + src/backends/wasm.nx onto the WAT substrate
+projects spec 05 + src/backends/wasm.mn onto the WAT substrate
 (bootstrap/src/emit_*.wat extensions).
 
-Per Anchor 4: src/backends/wasm.nx IS the wheel; this WAT IS its
+Per Anchor 4: src/backends/wasm.mn IS the wheel; this WAT IS its
 seed transcription. The existing 1728 lines of emit code stay
 canonical — extended, not replaced.
 
@@ -254,7 +254,7 @@ record variants: the threshold check `(scrut < HEAP_BASE)` cleanly
 discriminates without ambiguity per HB substrate.
 
 **`$emit_lreturn(r)`** — emits `(return)` for the inner LowExpr's
-value. NOT an imperative-`return` arm: Inka has no `return` keyword
+value. NOT an imperative-`return` arm: Mentl has no `return` keyword
 (SYNTAX.md line 1335). LReturn is the lowered form of `resume(value)`
 inside an OneShot handler arm (Hβ.lower walk_call.wat Lock #6 —
 `ResumeExpr → LReturn`); the WAT-level `(return)` is the WASM
@@ -331,7 +331,7 @@ case).
 
 **Critical wheel substrate the original walkthrough missed**, found
 during the 2026-04-28 SYNTAX/SUBSTRATE riffle-back audit. Per
-src/backends/wasm.nx:55-110 wheel canonical:
+src/backends/wasm.mn:55-110 wheel canonical:
 
 ```
 effect EmitMemory {
@@ -394,7 +394,7 @@ lands as a wheel handler, the seed installs `emit_memory_arena`
 alongside `emit_memory_bump` with zero source changes to the emit
 arms. When the GC substrate lands post-first-light, same. **The
 emit-layer becomes a swap surface from day one** — exactly what
-Inka means by "if it needs to exist, it's a handler."
+Mentl means by "if it needs to exist, it's a handler."
 
 This composes with §0.6's handler-family framing: `$inka_emit` is
 ONE handler-on-graph (graph→WAT); the WAT-emit handler INTERNALLY
@@ -489,9 +489,9 @@ eight.
   never STRUCTURALLY COMPARED.
 - **Drift 9 (deferred-by-omission).** Every variant arm bodied OR
   named follow-up. No silent stubs.
-- **Foreign fluency — LLVM/GHC IR.** Vocabulary stays Inka. NEVER
+- **Foreign fluency — LLVM/GHC IR.** Vocabulary stays Mentl. NEVER
   "calling convention enum" / "core IR" / "SSA value". The substrate
-  is LowExpr / WAT / Inka-native.
+  is LowExpr / WAT / Mentl-native.
 
 ---
 
@@ -550,8 +550,8 @@ Decide in plan §10.
 - [ ] `bootstrap/src/emit/` directory exists with 9 chunks per §7.1.
 - [ ] `bootstrap/src/emit/INDEX.tsv` declares each chunk.
 - [ ] `bootstrap/build.sh` CHUNKS[] includes emit chunks.
-- [ ] `wat2wasm bootstrap/inka.wat` succeeds.
-- [ ] `wasm-validate bootstrap/inka.wasm` passes.
+- [ ] `wat2wasm bootstrap/mentl.wat` succeeds.
+- [ ] `wasm-validate bootstrap/mentl.wasm` passes.
 - [ ] `wasm-objdump -x` lists `$emit_lexpr`, `$inka_emit`, all 35
       `$emit_l<variant>` arms (at minimum).
 
@@ -569,9 +569,9 @@ Decide in plan §10.
 
 - [ ] Pipeline-wire commit retrofits `$sys_main` to chain
       `$inka_infer + $inka_lower + $inka_emit`.
-- [ ] `cat src/runtime/alloc.nx | wasmtime run bootstrap/inka.wasm`
+- [ ] `cat src/runtime/alloc.mn | wasmtime run bootstrap/mentl.wasm`
       produces VALID WAT (not a trap, not garbage).
-- [ ] `cat src/types.nx | wasmtime run bootstrap/inka.wasm` produces
+- [ ] `cat src/types.mn | wasmtime run bootstrap/mentl.wasm` produces
       validating WAT.
 
 ### 8.4 Drift-clean
@@ -704,7 +704,7 @@ Each chunk lands per Anchor 7 + Hβ.lower cascade precedent:
 ## §12 Closing
 
 Hβ.emit is the cascade that converts LowExpr trees to WAT text.
-Per spec 05 + src/backends/wasm.nx: extend the existing 1728 lines
+Per spec 05 + src/backends/wasm.mn: extend the existing 1728 lines
 of emit substrate to consume LowExpr (35 variants tag region 300-334)
 instead of templating WAT directly from raw AST.
 
@@ -732,7 +732,7 @@ Sibling walkthroughs to write next (per Hβ §13 named follow-ups):
 *Per Mentl's anchor: write only the residue. The walkthroughs already
 say what the medium IS. This walkthrough is the residue between
 Hβ-lower-substrate.md's LowExpr output + spec 05's emit-algorithm +
-src/backends/wasm.nx's wheel canonical + the existing emit_*.wat
+src/backends/wasm.mn's wheel canonical + the existing emit_*.wat
 substrate. The next residue is per-chunk WAT transcription;
 transcribers cite this walkthrough's §s.*
 
@@ -744,7 +744,7 @@ After this cascade closes, the seed compiles itself (first-light-L1).
 After first-light-L2 (verify_smt), the refinement layer becomes
 physical. After Mentl substrate composition, the speculative-inference
 oracle reads the gradient surface this cascade just made physical.
-After `inka edit` web playground lands, Mentl's V1 surface is the
+After `mentl edit` web playground lands, Mentl's V1 surface is the
 medium becoming itself.
 
 The form is right. The path is named. The next residue awaits

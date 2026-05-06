@@ -1,7 +1,7 @@
 # Handle 3 — ADT Instantiation
 
 *Role-play as Mentl, tracing what happens when a user writes
-`FbDelay(1)` in an Inka source file — from token stream through
+`FbDelay(1)` in an Mentl source file — from token stream through
 inference, lowering, emission, and pattern match. Names the handles
 that don't yet bind cleanly. Resolves the design decisions ADT
 instantiation has been deferring.*
@@ -125,7 +125,7 @@ Constructor registration sets true; fn registration sets false.
 Lower reads the tag at CallExpr to decide LCall vs LMakeVariant.
 
 *Trace:* a 4th field in every env entry. Every env_extend site
-(scattered across infer.nx) updates. Every env_lookup consumer
+(scattered across infer.mn) updates. Every env_lookup consumer
 that cares reads the new field. Mostly clean; minor cross-file
 churn; no new ADT.
 
@@ -189,7 +189,7 @@ match missing `FbFilter` case would compile and fail at runtime.
 H3 extends: SchemeKind's total_variants field enables
 exhaustiveness check at inference time. If a match on FeedbackSpec
 covers 2 of 3 variants without a wildcard → `E_PatternInexhaustive`
-(the code already exists in mentl.nx's catalog_summary).
+(the code already exists in mentl.mn's catalog_summary).
 
 ---
 
@@ -297,7 +297,7 @@ offsets 4, 8, 12, …; if unequal, fall through to the next arm.
 
 ### LMakeVariant emission
 
-Current emit at backends/wasm.nx:874:
+Current emit at backends/wasm.mn:874:
 
 ```
 LMakeVariant(_h, tag, fields) => {
@@ -329,7 +329,7 @@ Mirrors LMakeClosure's emit shape. Uses EmitMemory's swap surface.
 
 ### Pattern match emission
 
-Today LMatch emit at backends/wasm.nx is a stub. H3 fills:
+Today LMatch emit at backends/wasm.mn is a stub. H3 fills:
 
 ```
 LMatch(_h, scrutinee, arms) => {
@@ -372,7 +372,7 @@ After H3:
    on the variant's tag_id to desugar into the right handler
    shape.
 5. Option, Result, List, any other user-declared ADT works the
-   same way. Inka gains true discriminated unions.
+   same way. Mentl gains true discriminated unions.
 
 ---
 
@@ -440,7 +440,7 @@ After H3:
 
 ## Design synthesis (for approval)
 
-**SchemeKind ADT.** New ADT in types.nx:
+**SchemeKind ADT.** New ADT in types.mn:
 
 ```
 type SchemeKind
@@ -494,7 +494,7 @@ dependencies:
   - H5 (Mentl's arms) uses ADT instantiation to construct
     Annotation values at candidate synthesis time.
 
-**H3 is the keystone.** After H3, Inka has real discriminated
+**H3 is the keystone.** After H3, Mentl has real discriminated
 unions — the single most thesis-critical substrate piece, because
 "the graph IS the program" requires that the graph knows variant
 shapes end-to-end.
@@ -503,10 +503,10 @@ shapes end-to-end.
 
 ## Estimated scope
 
-- ~6 files touched: types.nx (SchemeKind), infer.nx (env_extend
+- ~6 files touched: types.mn (SchemeKind), infer.mn (env_extend
   sweep, register_type_constructors, infer_match_arms
-  exhaustiveness, infer_pat PCon), lower.nx (CallExpr dispatch,
-  LMakeVariant signature, lower_pat for PCon), backends/wasm.nx
+  exhaustiveness, infer_pat PCon), lower.mn (CallExpr dispatch,
+  LMakeVariant signature, lower_pat for PCon), backends/wasm.mn
   (LMakeVariant emission, LMatch emission, tag-id resolution).
 - **One integrated commit** during cascade — H3's pieces are
   tightly coupled (SchemeKind flows through every layer).

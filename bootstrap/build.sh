@@ -1,7 +1,7 @@
 #!/bin/bash
-# ═══ Inka Bootstrap Build Script ═══════════════════════════════════
-# Assembles the modular WAT source chunks into the monolith inka.wat
-# and compiles to inka.wasm.
+# ═══ Mentl Bootstrap Build Script ═══════════════════════════════════
+# Assembles the modular WAT source chunks into the monolith mentl.wat
+# and compiles to mentl.wasm.
 #
 # Source of truth:
 #   bootstrap/build.sh           — Layer 0 module shell (inline, this file)
@@ -14,12 +14,12 @@
 #   bootstrap/src/emit_*.wat     — Layer 4 emitter
 #
 # Build artifact:
-#   bootstrap/inka.wat           — assembled monolith (auditable as one file)
-#   bootstrap/inka.wasm          — compiled binary
+#   bootstrap/mentl.wat           — assembled monolith (auditable as one file)
+#   bootstrap/mentl.wasm          — compiled binary
 #
 # Wave 2.A factoring notes (2026-04-25):
 #   The earlier build.sh extracted "shell" + "entry" from a prior
-#   inka.wat using marker-based python; Layer 1 lived inline in the
+#   mentl.wat using marker-based python; Layer 1 lived inline in the
 #   shell. Wave 2.A throws that pattern out: Layer 0 + Layer 5 are
 #   defined inline here as heredocs; Layer 1 lives in modular runtime
 #   chunks per Hβ §2.1; the build is pure concatenation in dependency
@@ -27,21 +27,21 @@
 #   discipline.
 #
 # Usage:
-#   ./bootstrap/build.sh         # build inka.wasm
+#   ./bootstrap/build.sh         # build mentl.wasm
 #   ./bootstrap/build.sh test    # build + run first-light tests
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-OUT="bootstrap/inka.wat"
-WASM="bootstrap/inka.wasm"
+OUT="bootstrap/mentl.wat"
+WASM="bootstrap/mentl.wasm"
 
 # Chunk list lives in bootstrap/CHUNKS.sh so bootstrap/test.sh can source
 # the same manifest. Per ROADMAP §5 + drift-mode-7 audit: ONE source of
 # truth for chunk assembly order.
 source "$(dirname "$0")/CHUNKS.sh"
 
-echo "═══ Inka Bootstrap Build ═══"
+echo "═══ Mentl Bootstrap Build ═══"
 echo "Assembling ${#CHUNKS[@]} source chunks..."
 
 # ─── Layer 0: Module shell (inline) ─────────────────────────────────
@@ -50,7 +50,7 @@ echo "Assembling ${#CHUNKS[@]} source chunks..."
 # substrate composes on these globals.
 
 cat > "$OUT" <<'EOF'
-;; inka.wat — The Reference Seed Compiler (Tier 1 Runtime)
+;; mentl.wat — The Reference Seed Compiler (Tier 1 Runtime)
 ;;
 ;; ASSEMBLED FROM bootstrap/src/* by bootstrap/build.sh. Do not edit
 ;; this file directly; edit the chunk files in bootstrap/src/ and

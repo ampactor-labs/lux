@@ -1,11 +1,11 @@
-# DM — DSP + ML libraries · Ultimate-Inka rewrite
+# DM — DSP + ML libraries · Ultimate-Mentl rewrite
 
 > **Status:** `[DRAFT 2026-04-23]`. The current `lib/dsp/` (445
 > lines) + `lib/ml/` (115 lines) were written BEFORE the γ cascade
 > closed. They predate H3.1 parameterized effects, `!Alloc` exercise,
 > ownership-as-effect, real refinement types, the MO oracle loop,
 > and the MS2 full-territory understanding. **Morgan's call
-> 2026-04-23:** erase and re-write at Ultimate Inka level — don't
+> 2026-04-23:** erase and re-write at Ultimate Mentl level — don't
 > let short-sighted initial code hold back the thesis.
 >
 > *This walkthrough specifies the re-imagined DSP + ML libs that
@@ -17,7 +17,7 @@
 
 ## 0. The drift the current code carries
 
-**`lib/dsp/signal.nx:17-20`:**
+**`lib/dsp/signal.mn:17-20`:**
 ```
 // Capability effects — exist primarily to be NEGATED
 effect Alloc { alloc_buffer(size: Int) -> List<Float> }
@@ -27,15 +27,15 @@ effect Feedback { delay_tap(samples: Int, x: Float) -> Float }
 
 Three shadow effects. `Alloc` shadows runtime's substrate Alloc (Q-B.1 revised to option γ: DELETE). `Network` is a placeholder with one op and no handler. `Feedback` is a placeholder that would be redundant once `<~` lands (LF walkthrough).
 
-**`lib/dsp/clock.nx` declares six effects** — Clock, Tick, Sample, Deadline, IterativeContext, HostClock — mostly unexercised. `IterativeContext` per NS-naming should be a row constraint, not an effect (already noted in NS-naming walkthrough but not yet swept).
+**`lib/dsp/clock.mn` declares six effects** — Clock, Tick, Sample, Deadline, IterativeContext, HostClock — mostly unexercised. `IterativeContext` per NS-naming should be a row constraint, not an effect (already noted in NS-naming walkthrough but not yet swept).
 
-**`lib/dsp/processors.nx`:** four handlers (passthrough / peak_tracker / warm_filter / bright_filter) without `!Alloc` annotations. `warm_filter` and `bright_filter` carry `state = 0.0` — OneShot state; no MS; no refinement on sample range.
+**`lib/dsp/processors.mn`:** four handlers (passthrough / peak_tracker / warm_filter / bright_filter) without `!Alloc` annotations. `warm_filter` and `bright_filter` carry `state = 0.0` — OneShot state; no MS; no refinement on sample range.
 
-**`lib/dsp/spectral.nx`:** `effect Distort` with one op. Mostly placeholder.
+**`lib/dsp/spectral.mn`:** `effect Distort` with one op. Mostly placeholder.
 
-**`lib/ml/autodiff.nx`:** `effect Compute` declaration with matmul / relu / softmax ops. No tape handler. No inference handler. No autodiff actually implemented.
+**`lib/ml/autodiff.mn`:** `effect Compute` declaration with matmul / relu / softmax ops. No tape handler. No inference handler. No autodiff actually implemented.
 
-**`lib/ml/tensor.nx`:** `Tensor` type as alias. No shape refinement. No operations.
+**`lib/ml/tensor.mn`:** `Tensor` type as alias. No shape refinement. No operations.
 
 **The libs are skeletons.** They declare some effect signatures; few real handlers; no refinement; no ownership discipline; no MS exercise; no integration with the oracle loop.
 
@@ -43,12 +43,12 @@ Three shadow effects. `Alloc` shadows runtime's substrate Alloc (Q-B.1 revised t
 
 ---
 
-## 1. Ultimate-Inka DSP — what the library becomes
+## 1. Ultimate-Mentl DSP — what the library becomes
 
 ### 1.1 Refinement-typed sample + frequency + gain
 
 ```
-// lib/dsp/signal.nx (Ultimate)
+// lib/dsp/signal.mn (Ultimate)
 
 /// A single audio sample. Normalized to [-1.0, 1.0]; clipping is
 /// refinement-checked at each primitive boundary.
@@ -199,7 +199,7 @@ fn audio_callback(own frame: StereoFrame) -> own StereoFrame
 - Gradient: annotation stack is the user's explicit declaration; Mentl's Teach tentacle could have suggested each annotation per the gradient step.
 - Reason: every `graph_bind` records why — walkable for "why is this safe for audio callback?".
 
-**~20 lines of real-time audio with a complete type-level safety proof.** This is Ultimate Inka.
+**~20 lines of real-time audio with a complete type-level safety proof.** This is Ultimate Mentl.
 
 ### 1.8 Spectral primitives — domain operations not DSP shadows
 
@@ -221,7 +221,7 @@ declare it honestly.
 
 ---
 
-## 2. Ultimate-Inka ML — what the library becomes
+## 2. Ultimate-Mentl ML — what the library becomes
 
 ### 2.1 Tensor with shape refinement
 
@@ -445,21 +445,21 @@ via handler stacks) proven in one line.
 
 ### 3.2 Crucible alignment
 
-- **crucible_dsp.nx** (CRU §1a) becomes non-trivial — exercises
+- **crucible_dsp.mn** (CRU §1a) becomes non-trivial — exercises
   Ultimate DSP's refinement + ownership + `!Alloc` propagation.
   No shadow effects. Real substrate claims.
-- **crucible_ml.nx** (CRU §1b) exercises three peer compute
+- **crucible_ml.mn** (CRU §1b) exercises three peer compute
   handlers; autodiff tape via MS; hyperparameter search via
   `Choice`; federated via `><`. ML framework dissolves into the
   handler stack.
-- **crucible_parallel.nx** (CRU §1f via TH) can extend beyond
+- **crucible_parallel.mn** (CRU §1f via TH) can extend beyond
   Mandelbrot — use actual ML parallel training to prove multi-core
   × Compute handler composition.
 
 ### 3.3 Pulse composition
 
 Per DP-F.5 Pulse enhancement: Pulse's DSP + ML modules are
-Ultimate-Inka DSP + ML as specified here. Morgan's "enhance now
+Ultimate-Mentl DSP + ML as specified here. Morgan's "enhance now
 that we know so much more" means Pulse is DP-F.5's
 demonstration that both libs WORK at scale.
 
@@ -469,47 +469,47 @@ demonstration that both libs WORK at scale.
 
 ### Files DELETED
 
-- `lib/dsp/signal.nx` (40 lines) — shadow Alloc/Network/Feedback;
+- `lib/dsp/signal.mn` (40 lines) — shadow Alloc/Network/Feedback;
   stub pure processors.
-- `lib/dsp/processors.nx` (83 lines) — peak_tracker/warm_filter/
+- `lib/dsp/processors.mn` (83 lines) — peak_tracker/warm_filter/
   bright_filter without !Alloc.
-- `lib/dsp/clock.nx` (231 lines) — six effects, mostly unexercised.
-- `lib/dsp/spectral.nx` (91 lines) — Distort placeholder.
-- `lib/ml/autodiff.nx` (59 lines) — Compute declaration, no
+- `lib/dsp/clock.mn` (231 lines) — six effects, mostly unexercised.
+- `lib/dsp/spectral.mn` (91 lines) — Distort placeholder.
+- `lib/ml/autodiff.mn` (59 lines) — Compute declaration, no
   handlers.
-- `lib/ml/tensor.nx` (56 lines) — Tensor alias, no operations.
+- `lib/ml/tensor.mn` (56 lines) — Tensor alias, no operations.
 
 **Total: 560 lines erased.**
 
-### Files RE-WRITTEN (new versions at Ultimate Inka level)
+### Files RE-WRITTEN (new versions at Ultimate Mentl level)
 
-- `lib/dsp/signal.nx` — refinement types + pure primitives with
+- `lib/dsp/signal.mn` — refinement types + pure primitives with
   proper rows. Target: ~200 lines.
-- `lib/dsp/processors.nx` — filters + compressors with feedback
+- `lib/dsp/processors.mn` — filters + compressors with feedback
   via `<~`. Target: ~300 lines.
-- `lib/dsp/clock.nx` — parameterized Sample(rate) effect + Tick +
+- `lib/dsp/clock.mn` — parameterized Sample(rate) effect + Tick +
   Clock(wall_ms). Target: ~100 lines.
-- `lib/dsp/spectral.nx` — fft / stft / istft with allocating row.
+- `lib/dsp/spectral.mn` — fft / stft / istft with allocating row.
   Target: ~200 lines.
-- `lib/ml/autodiff.nx` — Compute effect + three peer handlers
+- `lib/ml/autodiff.mn` — Compute effect + three peer handlers
   (direct / training / graph_build) + backward. Target: ~300
   lines.
-- `lib/ml/tensor.nx` — shape-refined Tensor + element-wise +
+- `lib/ml/tensor.mn` — shape-refined Tensor + element-wise +
   matmul + reshape + transpose. Target: ~400 lines.
 
-**Total: ~1500 lines of Ultimate-Inka substrate** replacing 560
+**Total: ~1500 lines of Ultimate-Mentl substrate** replacing 560
 lines of pre-γ-cascade code. **2.7× more substrate expressing 8
 primitives properly** instead of stub signatures.
 
 ### NEW files (that old lib didn't have)
 
-- `lib/dsp/feedback.nx` — IIR / LMS / state-space filters using
+- `lib/dsp/feedback.mn` — IIR / LMS / state-space filters using
   `<~`. Target: ~200 lines.
-- `lib/dsp/adaptive.nx` — MS-based adaptive filtering (particle,
+- `lib/dsp/adaptive.mn` — MS-based adaptive filtering (particle,
   Kalman). Target: ~250 lines.
-- `lib/ml/optim.nx` — SGD / Adam / LBFGS as peer handlers on a
+- `lib/ml/optim.mn` — SGD / Adam / LBFGS as peer handlers on a
   common `Optimizer` effect. Target: ~200 lines.
-- `lib/ml/federated.nx` — federated training via `><` +
+- `lib/ml/federated.mn` — federated training via `><` +
   Pack/Unpack. Target: ~150 lines.
 
 ---
@@ -617,7 +617,7 @@ In `alright-let-s-put-together-silly-nova.md`:
 - All ownership markers trace to actual consume/borrow sites.
 - All rows propagate transitively.
 
-No "signal.nx today, processors.nx next commit with partial
+No "signal.mn today, processors.mn next commit with partial
 integration." Each file is a handle; the handle lands whole.
 
 ---
@@ -670,7 +670,7 @@ makes about DSP + ML unification is mechanically provable.
 - **(DM-Q2) Tensor shape as List<Int> vs type-level numbers.** List<Int> works for refinement; type-level Nat would be cleaner but requires dependent types. Recommend: List<Int> for v1.
 - **(DM-Q3) Compute effect op list.** matmul / relu / softmax / add is minimum viable. conv / pool / batchnorm etc. ride on the same substrate; land when crucibles demand.
 - **(DM-Q4) Autodiff second-order.** Not v1. MS + tape-over-tape substrate; lands post-first-light as MS2 §2.3 meta-learning domain crucible.
-- **(DM-Q5) SIMD / BLAS integration.** `native_matmul` is pure Inka naive for v1; SIMD / BLAS via FFI is Hα-adjacent (operator-semantics-as-handlers) post-first-light.
+- **(DM-Q5) SIMD / BLAS integration.** `native_matmul` is pure Mentl naive for v1; SIMD / BLAS via FFI is Hα-adjacent (operator-semantics-as-handlers) post-first-light.
 
 Small number; all deferred to when exercised.
 
@@ -698,7 +698,7 @@ Every handler composable. Every chain `|>` + `~>` + `<~` draws
 the computation graph the thesis claims. No frameworks; no
 mode-switches; no placeholder effects.
 
-**Ultimate Inka DSP.** **Ultimate Inka ML.** **Pulse composes
+**Ultimate Mentl DSP.** **Ultimate Mentl ML.** **Pulse composes
 them.** The octopus's Trace tentacle walks ownership through the
 DSP chain; the Verify tentacle discharges Sample bounds; the
 Teach tentacle suggests `!Alloc` to unlock real-time; the Propose

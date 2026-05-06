@@ -11,8 +11,8 @@ low-intent Reasons to carry authored vocabulary.*
 
 ## §1 Frame
 
-Inka's primitive #8 is HM inference with Reasons. Every graph node
-and every unification step records a Reason (types.nx:231-251). The
+Mentl's primitive #8 is HM inference with Reasons. Every graph node
+and every unification step records a Reason (types.mn:231-251). The
 Why Engine walks this DAG: hover asks "why is this Int?" and gets
 back the full chain — `Inferred("int literal") → VarLookup("x", ...)
 → LetBinding("result", ...) → FnReturn("process", ...)`.
@@ -22,7 +22,7 @@ Reasons are high-intent, the chain reads like a narrative the
 developer can follow. When Reasons are low-intent (mechanism-speak),
 the chain reads like compiler internals.
 
-**Gap.** The current Reason vocabulary (types.nx:231-251) has 18
+**Gap.** The current Reason vocabulary (types.mn:231-251) has 18
 variants. Some are high-intent:
 
 - `Declared("process")` — "the developer declared this as 'process'"
@@ -59,36 +59,36 @@ These Reasons already speak the developer's vocabulary:
 
 | Site | Reason | Why it's high-intent |
 |---|---|---|
-| infer.nx env_extend for FnStmt | `Declared(name)` | Names the function |
-| infer.nx env_extend for RefineStmt | `Declared(name)` | Names the refinement alias |
-| infer.nx VarRef | `VarLookup(name, reason)` | Names the variable |
-| infer.nx FnReturn | `FnReturn(name, reason)` | Names the function |
-| infer.nx FnParam | `FnParam(name, idx, reason)` | Names the param |
-| infer.nx LetBinding | `LetBinding(name, reason)` | Names the binding |
-| infer.nx MatchBranch | `MatchBranch(scrutinee, arm)` | Links both sides |
-| infer.nx UnifyFailed | `UnifyFailed(a, b)` | Carries the types |
-| effects.nx Located | `Located(span, reason)` | Site-annotated |
-| infer.nx Refinement | `Refinement(pred, pred)` | Carries predicates |
+| infer.mn env_extend for FnStmt | `Declared(name)` | Names the function |
+| infer.mn env_extend for RefineStmt | `Declared(name)` | Names the refinement alias |
+| infer.mn VarRef | `VarLookup(name, reason)` | Names the variable |
+| infer.mn FnReturn | `FnReturn(name, reason)` | Names the function |
+| infer.mn FnParam | `FnParam(name, idx, reason)` | Names the param |
+| infer.mn LetBinding | `LetBinding(name, reason)` | Names the binding |
+| infer.mn MatchBranch | `MatchBranch(scrutinee, arm)` | Links both sides |
+| infer.mn UnifyFailed | `UnifyFailed(a, b)` | Carries the types |
+| effects.mn Located | `Located(span, reason)` | Site-annotated |
+| infer.mn Refinement | `Refinement(pred, pred)` | Carries predicates |
 
 ### Grade B (partial-intent — could be improved)
 
 | Site | Current Reason | Missing intent |
 |---|---|---|
-| infer.nx:204 | `FnReturn(name, Fresh(0))` | The `Fresh(0)` says nothing; should be `Inferred("return of " ++ name)` |
-| infer.nx:205 | `Inferred("fn effects")` | Should be `Inferred("effects of '" ++ name ++ "'")` |
-| infer.nx:394-398 | `Inferred("int literal")` etc. | Could carry the literal value: `Inferred("int literal 42")` |
-| infer.nx:437 | `Inferred("if condition")` | Could name the enclosing fn |
-| infer.nx:447 | `Inferred("block result")` | Could name the enclosing fn |
+| infer.mn:204 | `FnReturn(name, Fresh(0))` | The `Fresh(0)` says nothing; should be `Inferred("return of " ++ name)` |
+| infer.mn:205 | `Inferred("fn effects")` | Should be `Inferred("effects of '" ++ name ++ "'")` |
+| infer.mn:394-398 | `Inferred("int literal")` etc. | Could carry the literal value: `Inferred("int literal 42")` |
+| infer.mn:437 | `Inferred("if condition")` | Could name the enclosing fn |
+| infer.mn:447 | `Inferred("block result")` | Could name the enclosing fn |
 
 ### Grade C (low-intent — mechanism-speak)
 
 | Site | Current Reason | What should it say |
 |---|---|---|
-| infer.nx:790-799 | `Inferred("|> return")` etc. | Should name the pipe verb: `Inferred("forward pipe (|>) at line N")` |
-| infer.nx:718-719 | `Inferred("call return")`, `Inferred("call effects")` | Should name the callee: `Inferred("return of call to '" ++ callee_name ++ "'")` |
-| infer.nx:726-727 | `Inferred("expected fn")`, `Inferred("expected fn type")` | Should name the call site: `Inferred("expected type of '" ++ callee_name ++ "'")` |
-| infer.nx:460-461 | `Inferred("empty list element")`, `Inferred("empty list")` | Acceptable, but could carry span |
-| graph.nx (fresh alloc) | `Fresh(handle)` | Should carry the allocation context: `FreshInContext(handle, fn_name)` |
+| infer.mn:790-799 | `Inferred("|> return")` etc. | Should name the pipe verb: `Inferred("forward pipe (|>) at line N")` |
+| infer.mn:718-719 | `Inferred("call return")`, `Inferred("call effects")` | Should name the callee: `Inferred("return of call to '" ++ callee_name ++ "'")` |
+| infer.mn:726-727 | `Inferred("expected fn")`, `Inferred("expected fn type")` | Should name the call site: `Inferred("expected type of '" ++ callee_name ++ "'")` |
+| infer.mn:460-461 | `Inferred("empty list element")`, `Inferred("empty list")` | Acceptable, but could carry span |
+| graph.mn (fresh alloc) | `Fresh(handle)` | Should carry the allocation context: `FreshInContext(handle, fn_name)` |
 
 ---
 
@@ -131,22 +131,22 @@ edit. The audit sweep is the work; each fix is mechanical.
 
 ## §4 Layer touch-points
 
-### types.nx
+### types.mn
 Add new Reason variants: `InferredCallReturn(String, Reason)`,
 `InferredPipeResult(PipeKind, Reason)`, `FreshInContext(Int, String)`.
 Update `show_reason` for each.
 
-### infer.nx (~15 sites)
+### infer.mn (~15 sites)
 Thread the enclosing function name into Grade B Reason strings.
 Replace Grade C `Inferred(...)` with structured variants at call
 sites and pipe sites.
 
-### graph.nx
+### graph.mn
 Thread context name into `Fresh` allocations where the fn context
 is available.
 
-### effects.nx
-No change — effects.nx Reasons are already `Located`.
+### effects.mn
+No change — effects.mn Reasons are already `Located`.
 
 ### Mentl / Why Engine
 `show_reason` gains arms for the new variants. The Why Engine's
@@ -183,9 +183,9 @@ in the chain.
 | Peer | Surface | Load |
 |---|---|---|
 | RX.1 | Audit sweep — grade every Reason site | Light (analysis, no code change) |
-| RX.2 | New Reason variants in types.nx + show_reason | Moderate (~20L types.nx) |
-| RX.3 | Grade B string enrichment (~15 sites in infer.nx) | Moderate (~30L infer.nx, 1-2L each) |
-| RX.4 | Grade C structured variant replacement (~8 sites) | Moderate (~25L infer.nx + graph.nx) |
+| RX.2 | New Reason variants in types.mn + show_reason | Moderate (~20L types.mn) |
+| RX.3 | Grade B string enrichment (~15 sites in infer.mn) | Moderate (~30L infer.mn, 1-2L each) |
+| RX.4 | Grade C structured variant replacement (~8 sites) | Moderate (~25L infer.mn + graph.mn) |
 
 Total: ~75 lines of changes across ~23 sites. RX.1 is analysis
 (this walkthrough IS RX.1); RX.2-RX.4 are mechanical.
@@ -207,7 +207,7 @@ Total: ~75 lines of changes across ~23 sites. RX.1 is analysis
 ## §8 What RX refuses
 
 - **Inventing new Reason architecture.** The current Reason DAG
-  (types.nx:231-251) is sound. The structure works. The problem is
+  (types.mn:231-251) is sound. The structure works. The problem is
   content, not shape. RX upgrades content within the existing
   architecture.
 - **Adding Reasons where none belong.** Not every intermediate

@@ -2,7 +2,7 @@
   ;; Implements: Hβ-infer-substrate.md §2.3 (TParam payload note —
   ;;             substrate gap closure 2026-04-26) + ROADMAP §3
   ;;             scheme.wat recursion parity prerequisite + spec 02
-  ;;             src/types.nx:54-63 canonical TParam + Ownership ADTs.
+  ;;             src/types.mn:54-63 canonical TParam + Ownership ADTs.
   ;;
   ;;             Per the ty.wat:147-165 documented gap: ty.wat treats
   ;;             TFun's params + TRecord/TRecordOpen's fields as opaque

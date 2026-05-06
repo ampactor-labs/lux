@@ -1,5 +1,5 @@
   ;; ═══ walk_compound_binop.wat — Hβ.lower trace-harness ═════════════
-  ;; Executes: src/lower.nx:341-342 — BinOpExpr(op, l, r) → LBinOp tag 306.
+  ;; Executes: src/lower.mn:341-342 — BinOpExpr(op, l, r) → LBinOp tag 306.
   ;; Closes Hβ.lower.binop-arm named follow-up surfaced at chunk #9 landing.
 
   (data (i32.const 3072) "\05\00\00\00PASS:")

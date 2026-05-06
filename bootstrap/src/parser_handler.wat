@@ -7,7 +7,7 @@
   ;; deferral was logged as a positive-form named follow-up per drift
   ;; mode 9). This chunk is the substrate-honest closure.
   ;;
-  ;; Surface (SYNTAX.md handler-decl + src/parser.nx wheel-canonical):
+  ;; Surface (SYNTAX.md handler-decl + src/parser.mn wheel-canonical):
   ;;
   ;;   handler NAME [with FIELD = INIT [, FIELD = INIT]*] {
   ;;     OP_NAME(arg, ...) => BODY,
@@ -307,7 +307,7 @@
   ;;   `with !EFFECT` / `with EFFECT` — effect-row spec (returns empty
   ;;                                    state, consumes through to TLBrace)
   ;; Per `Hβ.first-light.parser-handler-with-disambiguation` —
-  ;; canonical wheel `src/parser.nx:632-638` discards effect_name at parse
+  ;; canonical wheel `src/parser.mn:632-638` discards effect_name at parse
   ;; time (hardcoded ""), so the parser's job here is to NOT choke on
   ;; the effect-row form and to position $p at the TLBrace that
   ;; $parse_handler_decl_full's $expect will consume.

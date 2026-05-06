@@ -40,8 +40,8 @@ by §A.1 reproduction below.
 
 ### 0.2 Empirical reproduction (verbatim §A.4 evidence)
 
-Per the inka-implementer §A pre-audit gate, the bug reproduces
-against HEAD seed (`bootstrap/inka.wasm`, 123038 bytes, built clean
+Per the mentl-implementer §A pre-audit gate, the bug reproduces
+against HEAD seed (`bootstrap/mentl.wasm`, 123038 bytes, built clean
 with empty stderr):
 
 Input program:
@@ -247,7 +247,7 @@ included in C.1; NOT named as follow-ups (they land this commit).
 | Gate | Action |
 |---|---|
 | **E.1** (primary) | The §A.1 reproduction program emits a `$unwrap` body whose preamble contains `(local $x i32)` exactly once; `wat2wasm /tmp/match_local.wat -o /tmp/match_local.wasm` succeeds with NO `undefined local variable` errors for `$x`. |
-| **E.2** (L1 regression) | HEAD self-bootstrap (`cat src/main.nx \| wasmtime run bootstrap/inka.wasm \| wat2wasm -`) candidate-diagnostic count BEFORE fix recorded; post-fix count must NOT increase. Expected: undefined-local-variable count strictly decreases. |
+| **E.2** (L1 regression) | HEAD self-bootstrap (`cat src/main.mn \| wasmtime run bootstrap/mentl.wasm \| wat2wasm -`) candidate-diagnostic count BEFORE fix recorded; post-fix count must NOT increase. Expected: undefined-local-variable count strictly decreases. |
 | **E.3** (drift) | `bash tools/drift-audit.sh bootstrap/src/emit/main.wat` clean (zero matches). |
 | **E.4** (existing) | `bash bootstrap/test.sh` — all currently-passing harnesses pass post-fix; specifically `bootstrap/test/emit/main_inka_emit_smoke.wat` + `bootstrap/test/emit/emit_lmatch.wat` still PASS. |
 | **E.5** (self-bootstrap delta) | `wat2wasm` undefined-local-variable count on `/tmp/inka2.wat` strictly decreases relative to HEAD baseline. |
@@ -274,7 +274,7 @@ included in C.1; NOT named as follow-ups (they land this commit).
   the canonical form; no V1 to bridge.
 - **Anchor 7** (cascade discipline; walkthrough first; land whole)
   — this walkthrough lands FIRST, in its own commit, then
-  substrate + harness in a second commit per `inka-implementer`
+  substrate + harness in a second commit per `mentl-implementer`
   dispatch §D order.
 
 ---
@@ -291,7 +291,7 @@ Three-commit citation: this walkthrough + substrate + the
 `Hβ-first-light-empirical.md` closure addendum (third commit
 not authored under THIS dispatch — separate planner-issued
 follow-up after substrate lands and the wheel is verified
-under the new seed). Per the `inka-implementer` contract, this
+under the new seed). Per the `mentl-implementer` contract, this
 dispatch lands two commits (walkthrough, substrate); the
 empirical closure addendum is named as the named follow-up
 for the next planner cycle.

@@ -13,7 +13,7 @@
 > chain IS capability stack): lsp_adapter sits OUTERMOST in the
 > chain — least trusted, sandbox boundary.
 
-*Role-play as Mentl. The user has just opened VS Code, the Inka
+*Role-play as Mentl. The user has just opened VS Code, the Mentl
 extension activated, and the LSP server (this handler chain) is
 spinning up. The first stdin bytes arrive: an `initialize` JSON-RPC
 request. Mentl needs to: (a) negotiate capabilities, (b) record the
@@ -40,18 +40,18 @@ A single handler that:
 5. **Writes stdout** the JSON-RPC framed response.
 
 The handler IS one entry point: `inka_lsp_session(stdin, stdout)`.
-The CLI wrapper invokes it: `inka --with lsp_run` (entry-handler per
+The CLI wrapper invokes it: `mentl --with lsp_run` (entry-handler per
 EH walkthrough convention).
 
 ### 0.2 What it ISN'T
 
 - **Not a JSON parser/serializer per se.** Pack/Unpack effects already
-  exist (`lib/runtime/binary.nx`); JSON is structured byte layer
+  exist (`lib/runtime/binary.mn`); JSON is structured byte layer
   composed on those. JSON encode/decode lands as a separate substrate
   (MV-LSP.json sub-handle) — small, focused, reusable for any JSON
   surface (web playground, etc.).
 - **Not the VS Code extension.** That's TypeScript glue (~300 lines)
-  that spawns the Inka LSP server binary and registers Inka language
+  that spawns the Mentl LSP server binary and registers Mentl language
   features with VS Code. Lands in a separate `extensions/vscode/`
   directory, not in `src/` or `lib/`.
 - **Not a capability negotiator beyond the bare minimum.** v1
@@ -244,7 +244,7 @@ methods). Per drift mode 9: each named explicitly; no silent absorb.
 
 - **`textDocument/formatting`** — gates on `format_handler` substrate
   (post-first-light per Arc J). MV-LSP.format peer.
-- **`textDocument/rename`** — gates on `inka rename` CLI handler
+- **`textDocument/rename`** — gates on `mentl rename` CLI handler
   (PLAN item 44). MV-LSP.rename peer.
 - **`workspace/symbol`** — gates on cross-module symbol index. MV-LSP.symbol peer.
 - **`workspace/executeCommand`** — gates on entry-handler reflection
@@ -452,7 +452,7 @@ fn handle_completion(params) with ... =
 | **MV-LSP.dispatch** | classify_method + dispatch_request + dispatch_notification | MV-LSP.scaffold |
 | **MV-LSP.handlers** | 14 handle_* fns (one per LSP method) | MV-LSP.dispatch |
 | **MV-LSP.responses** | LspResponseBody projection from VoiceLine / Answer / Outcomes | MV-LSP.handlers |
-| **MV-LSP.cli** | `inka --with lsp_run` entry-handler integration | MV-LSP.handlers |
+| **MV-LSP.cli** | `mentl --with lsp_run` entry-handler integration | MV-LSP.handlers |
 | **MV-LSP.inlayhint** | textDocument/inlayHint support (Teach tentacle surface) | MV-LSP.handlers |
 | **MV-LSP.push** | window/showMessage + diagnostic push from graph_mutated | MV-LSP.handlers |
 | **MV-LSP.caps** | refined capability negotiation | post-v1 |
@@ -477,30 +477,30 @@ Recommended landing order (each commit per Anchor 7):
 
 1. **MV-LSP.0** — this walkthrough (this commit).
 2. **MV-LSP.json** — JsonValue ADT + json_parse + json_serialize.
-   ~250 lines `.nx`. Pure substrate; reusable beyond LSP.
+   ~250 lines `.mn`. Pure substrate; reusable beyond LSP.
 3. **MV-LSP.frame** — read_lsp_frame + write_lsp_frame on Memory + WASI.
    ~50 lines.
 4. **MV-LSP.scaffold** — lsp_adapter handler decl (state + graph_mutated arm) + inka_lsp_session loop fn. ~80 lines.
 5. **MV-LSP.dispatch** — LspMethodKind ADT + classify_method + dispatch_request + dispatch_notification. ~80 lines.
 6. **MV-LSP.responses** — LspResponseBody ADT + response projection helpers (HoverContent / CompletionItem / etc.) + their JSON serialization. ~100 lines.
 7. **MV-LSP.handlers** — 12-14 handle_* fns + ensure_doc_open + URI plumbing. ~250 lines.
-8. **MV-LSP.cli** — `lsp_run` entry-handler in src/main.nx. ~20 lines.
+8. **MV-LSP.cli** — `lsp_run` entry-handler in src/main.mn. ~20 lines.
 9. **MV-LSP.inlayhint** — added to handle_completion's tentacle path. ~30 lines.
 
-**Total scope:** ~860 lines `.nx`. Multi-commit arc; each piece is
+**Total scope:** ~860 lines `.mn`. Multi-commit arc; each piece is
 honest. After this arc closes, Mentl SPEAKS — first developer-facing
 deployment of the kernel.
 
 VS Code TypeScript extension is separate work in `extensions/vscode/`
-— ~300 lines TS that spawns the Inka LSP binary and registers
-language features. Lands when the .nx side is stable.
+— ~300 lines TS that spawns the Mentl LSP binary and registers
+language features. Lands when the .mn side is stable.
 
 ---
 
 ## 8. What this walkthrough does NOT cover
 
 - **The VS Code TypeScript extension** itself — separate concern;
-  the extension is a thin spawner + protocol registrant, not Inka
+  the extension is a thin spawner + protocol registrant, not Mentl
   substrate.
 - **Multi-root workspace handling** — v1 assumes single project root.
 - **Workspace edit transactions** (multi-file edits) — ties to MV.2.e.P.edit substrate.

@@ -11,7 +11,7 @@ name WHICH handler provides a given effect op.*
 
 ## §1 Frame
 
-Inka's primitive #2 is handlers with typed resume discipline. The
+Mentl's primitive #2 is handlers with typed resume discipline. The
 developer installs a handler chain:
 
 ```
@@ -30,14 +30,14 @@ handler provided the `report` op? The answer is `diagnostics_handler`
 `handle` expression names the handler or its arms). But at PERFORM
 time, the connection is lost. When an `E_EffectMismatch` diagnostic
 fires, the error message says "effect mismatch" — not "emitted by
-diagnostics_handler installed at pipeline.nx:42."
+diagnostics_handler installed at pipeline.mn:42."
 
 When hover inspects a `perform env_lookup(name)` call, it shows the
 return type `Option` — but not "provided by env_handler installed
-at pipeline.nx:38." The handler identity — which IS the capability
+at pipeline.mn:38." The handler identity — which IS the capability
 stack's layer naming — doesn't reach the downstream surface.
 
-The `handler_stack` in `infer_ctx` (infer.nx:45-47, 56-60) already
+The `handler_stack` in `infer_ctx` (infer.mn:45-47, 56-60) already
 tracks handler names during inference: `inf_push_handler(name)` at
 HandleExpr entry, `inf_pop_handler()` at exit. The stack is
 populated but no downstream consumer reads it for handler-identity
@@ -47,7 +47,7 @@ attribution.
 
 ## §2 Trace — where identity is and isn't
 
-### Handler installation (infer.nx:524-596)
+### Handler installation (infer.mn:524-596)
 
 At `HandleExpr` inference, the handler's arms are collected and
 the handled effect names extracted. The handler_stack is pushed
@@ -55,7 +55,7 @@ with `inf_push_handler(handler_stack_tag(handled_names))`. The
 tag is currently the handled names concatenated — not the handler's
 authored name.
 
-For `~>` tee sites (infer.nx:821-837):
+For `~>` tee sites (infer.mn:821-837):
 ```
 perform inf_push_handler("pipe_tee")
 ```
@@ -63,7 +63,7 @@ The string `"pipe_tee"` is a generic tag, not the handler's name.
 If the developer wrote `source ~> env_handler`, the tag should be
 `"env_handler"`, not `"pipe_tee"`.
 
-### Handler declaration (infer.nx:179-180)
+### Handler declaration (infer.mn:179-180)
 
 `HandlerDeclStmt(hname, ename, arms)` registers the handler name
 `hname` in the env. The env entry carries `hname`. But when the
@@ -71,7 +71,7 @@ handler is installed via `handle { ... } with handler_name`, the
 HandleExpr's arms carry the arm bodies, not the handler's authored
 name.
 
-### PerformExpr (infer.nx:519-522, 744-768)
+### PerformExpr (infer.mn:519-522, 744-768)
 
 `infer_perform` looks up the op name in env, finds the
 `EffectOpScheme(effect_name)`, infers the args, and adds the effect
@@ -79,7 +79,7 @@ row. At no point does it record WHICH handler in the current stack
 provides this op. The `handler_stack` is readable via
 `inf_handler_stack()` but never queried at perform sites.
 
-### Diagnostics (effects.nx:373-389, own.nx:35-41)
+### Diagnostics (effects.mn:373-389, own.mn:35-41)
 
 Diagnostic `perform report(...)` calls carry source, code, kind,
 msg, span, applicability. No handler-identity field. The diagnostic
@@ -118,7 +118,7 @@ the stack IS the information.
 
 ### §3.2 Fixing handler_stack tags
 
-At `HandleExpr` (infer.nx:539):
+At `HandleExpr` (infer.mn:539):
 ```
 perform inf_push_handler(handler_stack_tag(handled_names))
 ```
@@ -126,7 +126,7 @@ Replace `handler_stack_tag(handled_names)` with the handler's
 authored name. For inline `handle { ... } { arms }` expressions
 (no name), use a descriptive tag from the handled effects.
 
-At `~>` tee sites (infer.nx:827, 833):
+At `~>` tee sites (infer.mn:827, 833):
 ```
 perform inf_push_handler("pipe_tee")
 ```
@@ -140,22 +140,22 @@ expression, use the handled effect names as the tag.
 
 ## §4 Layer touch-points
 
-### parser.nx
+### parser.mn
 No structural change. The RHS of `~>` is already an expression
 node. When it's a VarRef, the name is available. The handler name
 resolution happens at inference, not parse time.
 
-### infer.nx
-- **HandleExpr** (infer.nx:524-596): Extract handler name from the
+### infer.mn
+- **HandleExpr** (infer.mn:524-596): Extract handler name from the
   handler declaration (if the arms come from a named handler) or
   from the handled effect names (for inline handlers).
-- **PipeExpr ~> sites** (infer.nx:821-837): Thread the RHS
+- **PipeExpr ~> sites** (infer.mn:821-837): Thread the RHS
   expression's name into the `inf_push_handler` call.
 - **New query op**: `handler_provider(op_name) -> Option<String>`
   — reads handler_stack, finds the first entry whose handled
   effects include the named op, returns the handler name.
 
-### types.nx
+### types.mn
 No change. Handler_stack is already `List<String>` in InferCtx
 state.
 
@@ -191,8 +191,8 @@ provider.
 
 | Peer | Surface | Load |
 |---|---|---|
-| HI.1 | Fix handler_stack tags (authored names) | Moderate (~20L infer.nx) |
-| HI.2 | `handler_provider` query op | Light (~15L query.nx or infer.nx) |
+| HI.1 | Fix handler_stack tags (authored names) | Moderate (~20L infer.mn) |
+| HI.2 | `handler_provider` query op | Light (~15L query.mn or infer.mn) |
 | HI.3 | Hover handler-identity display | Light (~15L hover handler) |
 
 Total: ~50 lines. Three commits; HI.1 first (fixes the data),

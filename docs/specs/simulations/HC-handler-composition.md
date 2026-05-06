@@ -1,7 +1,7 @@
 # HC — Handler composition · transform emits, materialize captures
 
 *The rosetta stone for every handler-composition question in the
-current queue. Seed instance: prelude.nx's Iterate family (map /
+current queue. Seed instance: prelude.mn's Iterate family (map /
 filter / take / skip currently accumulate internally — drift mode
 11). Generalizes to frame-record (11.C.2), Diagnostic module
 parameterization (11.B.M), operator-as-handler (Hα), and Mentl's
@@ -42,7 +42,7 @@ Running the eight on each instance surfaces the same residue:
 
 ---
 
-## 1. The seed instance — prelude.nx's Iterate family
+## 1. The seed instance — prelude.mn's Iterate family
 
 ### 1.1 Current state (drift-11)
 
@@ -167,7 +167,7 @@ transform chain. The five verbs (primitive #3) draw the topology.
 
 ### Q1 — Does `perform yield` inside a yield-arm re-enter the same handler?
 
-**No.** Per Inka's handler-stack semantics (DESIGN Ch 1), a `perform`
+**No.** Per Mentl's handler-stack semantics (DESIGN Ch 1), a `perform`
 inside an arm dispatches to the NEAREST handler of that op
 EXCLUDING the one whose arm is currently running. So `perform
 yield(f(elem))` inside map_h's `yield` arm routes to the NEXT outer
@@ -244,7 +244,7 @@ O(N) total across chain.
 
 ### 3.1 Code changes
 
-**std/prelude.nx:**
+**std/prelude.mn:**
 - Remove `result()` op from Iterate effect
 - Rewrite map_h, filter_h, take_h, skip_h to re-yield (no acc)
 - Add `handler collector` with buf+count state
@@ -257,7 +257,7 @@ O(N) total across chain.
 **No new runtime primitive.** `list_extend_to` + `list_set` +
 `slice` + `make_list` are already the Ω.3 substrate.
 
-**No types.nx change.** Effect signatures stay; just handler body
+**No types.mn change.** Effect signatures stay; just handler body
 rewrites.
 
 ### 3.2 Diff estimate
@@ -266,7 +266,7 @@ rewrites.
 wrapper-function internals).
 ~60 lines added (new collector + sum_h + count_h handlers,
 re-yielding arms, rewrapped compositions).
-Net: -40 lines in prelude.nx. Cleaner.
+Net: -40 lines in prelude.mn. Cleaner.
 
 ---
 
@@ -377,7 +377,7 @@ Chain: `iterate([1,2,3]) ~> map_h(double) ~> sum_h`. sum_h captures
 
 After landing this walkthrough's code changes:
 ```
-bash tools/drift-audit.sh std/prelude.nx
+bash tools/drift-audit.sh std/prelude.mn
 ```
 Expected: `CLEAN — 1 file(s) scanned, 0 drift modes fired`.
 
@@ -393,7 +393,7 @@ collector's buf grows once). This is the performance claim
 SUBSTRATE.md §III "The Three Tiers of Effect Compilation" makes for
 tail-resumptive handler chains.
 
-Verification via `inka audit` once MV.2 lands: the chain's
+Verification via `mentl audit` once MV.2 lands: the chain's
 computed row IS `EfClosed([Iterate, Alloc])` (collector's buf
 allocates; transforms are Pure). If `sum_h` replaces collector,
 the row drops Alloc — chain becomes `EfPure`-minus-Iterate.
@@ -404,7 +404,7 @@ the row drops Alloc — chain becomes `EfPure`-minus-Iterate.
 
 1. **HC-walkthrough closes** (this file). Contract locked.
 2. **Code refactor** lands as commit 11.C.3:
-   - std/prelude.nx rewrites (map_h, filter_h, take_h, skip_h,
+   - std/prelude.mn rewrites (map_h, filter_h, take_h, skip_h,
      collector, sum_h, count_h).
    - Pre-commit drift-audit: CLEAN expected.
 3. **11.C.2 writes** using HC pattern (frame-record OrderedMap).
@@ -421,7 +421,7 @@ HC is load-bearing for 4 downstream commits. Land it first.
 - **HC.1 — additional materializers** (min_h, max_h, find_h, fold_h).
   Lands when a caller needs them; no pre-landing.
 - **HC.2 — handler re-entrancy semantics verification.** Q1
-  asserted Frank-style delimited dispatch. If the current Inka VM
+  asserted Frank-style delimited dispatch. If the current Mentl VM
   or self-hosted checker violates this, walkthrough-side issue:
   file as peer cascade handle.
 - **HC.3 — parameterized collector** (`collector(initial_cap)`).

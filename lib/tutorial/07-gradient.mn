@@ -1,0 +1,67 @@
+// 07-gradient.mn — Primitive #7: the continuous annotation gradient
+//
+// Every annotation in Mentl is OPTIONAL but EXPRESSIVE. The gradient
+// is the partial order: less-annotated functions are valid; more-
+// annotated functions UNLOCK CAPABILITIES. The compiler can
+// suggest the next-most-impactful annotation at any cursor — the
+// gradient's argmax (Cursor handler at src/cursor.mn).
+//
+// Annotations and the capabilities they unlock:
+//
+//    with Pure       memoize / parallelize / compile-time evaluate
+//    with !Alloc     real-time eligible (proven zero allocation)
+//    with !IO        compile-time evaluation
+//    with !Network   sandbox eligible
+//    own / ref       deterministic drop / zero-copy
+//    refined types   bounds-check elimination at use sites
+//
+// Mentl's `teach_gradient(handle)` returns the next-most-impactful
+// annotation as a PROVEN candidate (speculative oracle: try; verify;
+// rollback). When a candidate's predicate holds, the user sees
+// "add `with !Alloc` to unlock CRealTime" at the cursor.
+//
+// `??` is the developer's override — pin the cursor to a chosen
+// position, ask Mentl what the gradient says HERE.
+
+import runtime/io
+
+/// `add` declared without any annotations. Inference resolves the
+/// row to `Pure` automatically. Mentl's gradient at this handle
+/// would suggest `with Pure` to UNLOCK memoize + parallelize +
+/// compile-time evaluation — same body, more capabilities.
+///
+/// Open this file in `mentl edit`; place the cursor on `add`'s
+/// signature; type `??`. The Cursor handler projects the eight-
+/// aspect view; the Teach tentacle surfaces the gradient
+/// suggestion.
+fn add(a, b) = a + b
+
+/// `safe_add` — same body, annotated. The compiler proves Pure;
+/// memoization and parallelization handlers can now compose.
+fn safe_add(a, b) with Pure = a + b
+
+/// `dsp_step` — the gradient's higher-leverage suggestion at this
+/// position would be `with !Alloc`. The body allocates nothing
+/// (literal-only arithmetic); adding `!Alloc` unlocks real-time
+/// dispatch — the function becomes safe inside an audio interrupt.
+fn dsp_step(input) with !Alloc = {
+  let scaled = input * 2
+  scaled - 1
+}
+
+/// `gradient_visible` — when a function's body is more constrained
+/// than its declared row, the gradient's INVERSE direction
+/// (gradient_delta.mn) surfaces a TIGHTENING. Here the declared row
+/// is open (Inferred); the body is Pure; Mentl proposes
+/// `with Pure`. The arrow points TOWARD the unlock.
+fn gradient_visible(x) = {
+  x + 1
+}
+
+fn main() = {
+  let a = safe_add(2, 3)        // proves Pure; memoizable
+  let b = dsp_step(7)            // proves !Alloc; real-time eligible
+  a + b
+    |> int_to_str
+    |> print_string
+}

@@ -1,6 +1,6 @@
   ;; ═══ walk_expr_lit_int.wat — trace harness ════════════════════════
   ;; Executes: Hβ-infer-substrate.md §4.3 production pattern 1 — LitInt arm.
-  ;; Per src/infer.nx:493 — graph_bind(handle, TInt, Located(span,
+  ;; Per src/infer.mn:493 — graph_bind(handle, TInt, Located(span,
   ;;                                                Inferred("int literal"))).
   ;; Verifies: synthetic LitInt N node walked → graph_chase(handle).kind = NBOUND
   ;;           NBound payload Ty tag = 100 (TInt).

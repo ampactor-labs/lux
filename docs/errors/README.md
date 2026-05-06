@@ -55,24 +55,24 @@ Minimal code triggering it + the fix.
 
 | Code | Emitted by |
 |---|---|
-| [E_MissingVariable](E_MissingVariable.md) | `infer.nx` — VarRef handling |
-| [E_TypeMismatch](E_TypeMismatch.md) | `infer.nx` — unify_types |
-| [E_PatternInexhaustive](E_PatternInexhaustive.md) | `infer.nx` — match exhaustiveness |
-| [E_OwnershipViolation](E_OwnershipViolation.md) | `own.nx` — affine_ledger |
-| [E_OccursCheck](E_OccursCheck.md) | `graph.nx`, `infer.nx` — bind guard |
-| [E_UnresolvedType](E_UnresolvedType.md) | `pipeline.nx` — lookup_ty_graph |
-| [E_RefinementRejected](E_RefinementRejected.md) | `verify.nx` — Arc F.1 SMT |
-| [E_FeedbackNoContext](E_FeedbackNoContext.md) | `infer.nx` — `<~` checking |
-| [E_PurityViolated](E_PurityViolated.md) | `effects.nx` — unify_row |
-| [E_EffectMismatch](E_EffectMismatch.md) | `effects.nx` — unify_row |
-| [E_NotARecordType](E_NotARecordType.md) | `infer.nx` — NamedRecordExpr |
-| [E_RecordFieldExtra](E_RecordFieldExtra.md) | `infer.nx` — check_nominal_record_fields |
-| [E_RecordFieldMissing](E_RecordFieldMissing.md) | `infer.nx` — check_nominal_record_fields |
-| [E_CannotNegateCapability](E_CannotNegateCapability.md) | `infer.nx` — expand_capabilities |
-| [E_ReplayExhausted](E_ReplayExhausted.md) | `clock.nx` — replay handlers |
-| [P_ExpectedToken](P_ExpectedToken.md) | `parser.nx` — `expect` helper |
-| [P_UnexpectedToken](P_UnexpectedToken.md) | `parser.nx` — primary fallthrough |
-| [V_Pending](V_Pending.md) | `verify.nx` — verify_ledger |
+| [E_MissingVariable](E_MissingVariable.md) | `infer.mn` — VarRef handling |
+| [E_TypeMismatch](E_TypeMismatch.md) | `infer.mn` — unify_types |
+| [E_PatternInexhaustive](E_PatternInexhaustive.md) | `infer.mn` — match exhaustiveness |
+| [E_OwnershipViolation](E_OwnershipViolation.md) | `own.mn` — affine_ledger |
+| [E_OccursCheck](E_OccursCheck.md) | `graph.mn`, `infer.mn` — bind guard |
+| [E_UnresolvedType](E_UnresolvedType.md) | `pipeline.mn` — lookup_ty_graph |
+| [E_RefinementRejected](E_RefinementRejected.md) | `verify.mn` — Arc F.1 SMT |
+| [E_FeedbackNoContext](E_FeedbackNoContext.md) | `infer.mn` — `<~` checking |
+| [E_PurityViolated](E_PurityViolated.md) | `effects.mn` — unify_row |
+| [E_EffectMismatch](E_EffectMismatch.md) | `effects.mn` — unify_row |
+| [E_NotARecordType](E_NotARecordType.md) | `infer.mn` — NamedRecordExpr |
+| [E_RecordFieldExtra](E_RecordFieldExtra.md) | `infer.mn` — check_nominal_record_fields |
+| [E_RecordFieldMissing](E_RecordFieldMissing.md) | `infer.mn` — check_nominal_record_fields |
+| [E_CannotNegateCapability](E_CannotNegateCapability.md) | `infer.mn` — expand_capabilities |
+| [E_ReplayExhausted](E_ReplayExhausted.md) | `clock.mn` — replay handlers |
+| [P_ExpectedToken](P_ExpectedToken.md) | `parser.mn` — `expect` helper |
+| [P_UnexpectedToken](P_UnexpectedToken.md) | `parser.mn` — primary fallthrough |
+| [V_Pending](V_Pending.md) | `verify.mn` — verify_ledger |
 | [W_Suggestion](W_Suggestion.md) | Mentl suggest tentacle |
 | [T_Gradient](T_Gradient.md) | Mentl teach tentacle |
 | [T_ContinuationEscapes](T_ContinuationEscapes.md) | Arc F.4 scoped-arena × multi-shot |

@@ -23,7 +23,7 @@ code naturally evolves from loose prototype to verified production
 None required. `T_Gradient` is informational. If the capability
 matters to you, add the annotation. If not, ignore — no accumulating
 warnings, no escalation. Mentl emits at most one `T_Gradient` per
-binding per compile, and only when `inka teach` is active (silent in
+binding per compile, and only when `mentl teach` is active (silent in
 normal compile).
 
 ## Example

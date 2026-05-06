@@ -53,8 +53,8 @@ ULTIMATE_MEDIUM §6 names as "composition not invention" residue.
 
 ### 0.2 Empirical reproduction (verbatim §A.4 evidence)
 
-Per the inka-implementer §A pre-audit gate, the bug reproduces
-against HEAD seed (`bootstrap/inka.wasm`, 125671 bytes, built clean
+Per the mentl-implementer §A pre-audit gate, the bug reproduces
+against HEAD seed (`bootstrap/mentl.wasm`, 125671 bytes, built clean
 2026-05-06 03:41).
 
 Input program (effect-only minimal repro — handler decl deferred
@@ -70,7 +70,7 @@ effect Counter {
 fn main() = perform next()
 ```
 
-Stage-1 `wasmtime run bootstrap/inka.wasm` exits 0, empty stderr.
+Stage-1 `wasmtime run bootstrap/mentl.wasm` exits 0, empty stderr.
 Output `$main` body emitted by the seed:
 
 ```
@@ -141,7 +141,7 @@ streaming through the same four walks at emit time.
 
 `$lower_handler_arms_as_decls` (walk_handle.wat:263-297) projects
 each handler arm to `LDeclareFn(LowFn("op_" + op_name, len(args),
-args, [lo_body], Pure))` per src/lower.nx:745-755 wheel canonical;
+args, [lo_body], Pure))` per src/lower.mn:745-755 wheel canonical;
 `$lower_handle` (walk_handle.wat:340-385) returns
 `LBlock(h, arm_decls ++ [LHandle(h, body, arm_records)])` so the
 LDeclareFn list flows through `$inka_emit`'s top-level LowExpr
@@ -279,10 +279,10 @@ discovery), then the comment-only documentation edit.
    subsequent `$emit_handler.wat` arms, NOT here.
 
 5. **Lock #5 — Wheel parity preserved.**
-   `src/lower.nx:789-797` (wheel-side `lower_handler_arms_as_decls`)
+   `src/lower.mn:789-797` (wheel-side `lower_handler_arms_as_decls`)
    produces the same LDeclareFn list shape as
    `bootstrap/src/lower/walk_handle.wat:263-297`; `src/backends/
-   wasm.nx`'s `emit_fns_expr` projection walks LDeclareFn
+   wasm.mn`'s `emit_fns_expr` projection walks LDeclareFn
    structurally symmetric to LMakeClosure (the wheel canonical
    shape). The seed-side fix in this commit brings the four
    bootstrap walks to wheel parity.
@@ -401,12 +401,12 @@ NOT named as follow-ups (they land this commit).
 
 | Gate | Action |
 |---|---|
-| **E.1** (primary single-handler smoke) | `echo 'effect Counter { next() -> Int @resume=OneShot } fn main() = perform next()' \| wasmtime run bootstrap/inka.wasm > /tmp/h2.wat`; verify `/tmp/h2.wat` contains `(func $op_next` AND `(global $op_next_idx i32` AND `$op_next` appears in `(elem $fns ...)`; `wat2wasm /tmp/h2.wat -o /tmp/h2.wasm` exits 0 with NO undefined-function-variable errors. |
-| **E.2** (partial-wheel undefined-fn baseline) | `cat src/*.nx lib/**/*.nx \| wasmtime run bootstrap/inka.wasm 2>&1 \| wat2wasm - 2>&1 \| grep "undefined function variable" \| grep -c '\\$op_'` drops from baseline (~126 per planner §E.2) to 0 post-fix. |
+| **E.1** (primary single-handler smoke) | `echo 'effect Counter { next() -> Int @resume=OneShot } fn main() = perform next()' \| wasmtime run bootstrap/mentl.wasm > /tmp/h2.wat`; verify `/tmp/h2.wat` contains `(func $op_next` AND `(global $op_next_idx i32` AND `$op_next` appears in `(elem $fns ...)`; `wat2wasm /tmp/h2.wat -o /tmp/h2.wasm` exits 0 with NO undefined-function-variable errors. |
+| **E.2** (partial-wheel undefined-fn baseline) | `cat src/*.mn lib/**/*.mn \| wasmtime run bootstrap/mentl.wasm 2>&1 \| wat2wasm - 2>&1 \| grep "undefined function variable" \| grep -c '\\$op_'` drops from baseline (~126 per planner §E.2) to 0 post-fix. |
 | **E.3** (existing trace harnesses) | `bash bootstrap/test.sh` — 82/82 currently-passing harnesses STILL PASS post-fix; the new `handler_arm_decls_smoke.wat` brings count to 83/83 PASS. |
-| **E.4** (determinism gate) | `bootstrap/build.sh` then a second `bootstrap/build.sh`; `diff bootstrap/inka.wat bootstrap/inka.wat.{run1,run2}` empty. |
+| **E.4** (determinism gate) | `bootstrap/build.sh` then a second `bootstrap/build.sh`; `diff bootstrap/mentl.wat bootstrap/mentl.wat.{run1,run2}` empty. |
 | **E.5** (drift) | `bash tools/drift-audit.sh bootstrap/src/emit/main.wat` clean (zero matches). |
-| **E.6** (wasm-validate) | `wasm-validate bootstrap/inka.wasm` exits 0 on the rebuilt seed binary. |
+| **E.6** (wasm-validate) | `wasm-validate bootstrap/mentl.wasm` exits 0 on the rebuilt seed binary. |
 | **E.7** (Lock #6 substrate-side untouched) | `git diff --stat bootstrap/src/lower/` empty between HEAD and the substrate commit (only `bootstrap/src/emit/main.wat` + `bootstrap/test/lower/handler_arm_decls_smoke.wat` + `bootstrap/test/INDEX.tsv` are changed). |
 
 ---
@@ -427,11 +427,11 @@ NOT named as follow-ups (they land this commit).
   LDeclareFn fits the same shape verbatim. NOT a patch; structural
   symmetry preserved.
 - **Anchor 4** (build the wheel; never wrap) — substrate writes
-  the canonical form per `src/lower.nx:789-797` + `src/backends/
-  wasm.nx` `emit_fns_expr`; no V1 to bridge.
+  the canonical form per `src/lower.mn:789-797` + `src/backends/
+  wasm.mn` `emit_fns_expr`; no V1 to bridge.
 - **Anchor 7** (cascade discipline; walkthrough first; land whole)
   — this walkthrough lands FIRST, in its own commit, then the six
-  edits + harness + INDEX in a second commit per `inka-implementer`
+  edits + harness + INDEX in a second commit per `mentl-implementer`
   dispatch §D order.
 
 ULTIMATE_MEDIUM §6 "composition not invention" — third caller
@@ -457,5 +457,5 @@ This handle closes when:
 
 Two-commit citation: this walkthrough + substrate. The empirical
 closure addendum is named as a follow-up for the next planner
-cycle. Per the `inka-implementer` contract, this dispatch lands
+cycle. Per the `mentl-implementer` contract, this dispatch lands
 two commits (walkthrough alone, substrate + harness + INDEX).

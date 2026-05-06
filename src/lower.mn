@@ -1,0 +1,1550 @@
+// lower.mn — LowIR from live graph observation (spec 05)
+//
+// The projection. Lowers typed AST into LowIR by reading types LIVE
+// from Graph through LookupTy. No cached types in LowExpr. No
+// subst threading. An unresolved handle at lower time is a build
+// failure, not a fallback.
+//
+// Declares: with GraphRead + EnvRead + LookupTy + Diagnostic.
+// NO GraphWrite — structural isolation via effect row. A stray
+// perform graph_bind would fail at handler install.
+//
+// Handler elimination (spec 05 §Handler elimination):
+//   TailResumptive (85%) → direct call $h_op
+//   Linear                → state machine
+//   MultiShot             → heap continuation struct
+// Classification reads TCont.discipline. Monomorphic detection is a
+// graph read (row_is_ground), not a sidecar table.
+//
+// Pipe desugarings (spec 10):
+//   left |> right   →  LCall(h, right, [left])
+//   left <| (fs)    →  LMakeTuple(h, [f(left) for f in fs])
+//   left >< right   →  LMakeTuple(h, [left, right])
+//   left ~> right   →  LHandleWith(h, left, right)
+//   left <~ spec    →  LFeedback(h, left, spec) — requires iterative ctx
+
+import graph
+import types
+import effects
+
+/// LowerState — per-function MS state-machine bookkeeping (H7 §4.1
+/// Change 4). At emit of a capturing function, allocate the state
+/// table; per MS perform site, allocate the next state ordinal +
+/// reserved ret-slot; at function-emit close, query the complete
+/// state table to synthesize the resume_fn.
+///
+/// State 0 is the entry; allocations return 1, 2, 3, ... per perform
+/// site within the same function. Each state has its own ret-slot
+/// (via lower.mn's existing local-allocation substrate).
+///
+/// Per MV §2.7.5 + Ω.5 record-shape discipline: handler state record
+/// holds the per-fn table mapping perform_site → state_idx, plus the
+/// next-free-ret-slot counter. The implementation lives in
+/// `lower_state_default` below.
+
+effect LowerState {
+  ms_alloc_state(Int, Int) -> Int                  @resume=OneShot
+  ms_alloc_ret_slot(Int, Int) -> Int               @resume=OneShot
+  ms_function_states(Int) -> List                  @resume=OneShot
+  ms_reset_function() -> ()                        @resume=OneShot
+}
+
+/// lower_state_default — the LowerState handler. State record:
+/// per-function CacheMap (per lib/runtime/cache_map.mn) keyed by
+/// (fn_handle * 65537 + perform_site_handle) → state_idx; plus a
+/// next-free-state counter and next-free-ret-slot counter. Reset on
+/// ms_reset_function — installed at function-emit entry.
+///
+/// Per H7 §4.1 Change 4 + Ω.5 record discipline. Stub bodies for V1;
+/// full implementation lands when lower_perform actually invokes
+/// these ops at MS perform sites (Tier 3 +1 sub-handle).
+
+handler lower_state_default
+  with state_table = empty_cache(),
+       next_state  = 1,
+       next_ret    = 0 {
+
+  ms_alloc_state(fn_handle, perform_site) => {
+    let key = fn_handle * 65537 + perform_site
+    let new_state = next_state
+    let new_table = cache_store(state_table, key, new_state)
+    resume(new_state)
+      with state_table = new_table,
+           next_state  = next_state + 1
+  },
+
+  ms_alloc_ret_slot(_fn_handle, _state_idx) => {
+    let slot = next_ret
+    resume(slot)
+      with next_ret = next_ret + 1
+  },
+
+  ms_function_states(_fn_handle) => {
+    resume(cache_keys(state_table))
+  },
+
+  ms_reset_function() => {
+    resume()
+      with state_table = empty_cache(),
+           next_state  = 1,
+           next_ret    = 0
+  }
+}
+
+/// Every variant carries a source TypeHandle (Int), never a cached Ty.
+/// Type reads go through `perform lookup_ty(h)`. Emit consumes this IR;
+/// the handle is the live bridge back to the graph.
+type LowExpr
+  = LConst(Int, LowValue)
+  | LLocal(Int, String)                        // handle, local name (matches LLet storage)
+  | LGlobal(Int, String)                       // handle, name
+  | LStore(Int, Int, LowExpr)                  // handle, slot, value
+  | LLet(Int, String, LowExpr)
+  | LUpval(Int, Int)
+  | LBinOp(Int, BinOp, LowExpr, LowExpr)
+  | LUnaryOp(Int, UnaryOp, LowExpr)
+  | LCall(Int, LowExpr, List)                  // monomorphic direct call
+  | LTailCall(Int, LowExpr, List)
+  | LReturn(Int, LowExpr)
+  | LMakeClosure(Int, LowFn, List, List)         // handle, fn, captures, ev_slots
+  | LMakeContinuation(Int, LowFn, List, List, Int, Int)
+  // H7 — multi-shot continuation record per the H7 walkthrough §1.2.
+  // handle, resume_fn, captures_exprs, ev_slots, state_index, ret_slot.
+  // Heap-allocated through emit_alloc (one allocator per kernel
+  // crystallization #8 — the heap has one story); fn_index field
+  // points to the synthesized __resume function registered in the
+  // WASM funcref table; state_index discriminates which perform site
+  // resumed; ret_slot reserves the local slot for the resumed value.
+  // Composes with LMakeClosure's capture/ev-store loops; emit shares
+  // the per-field store helpers (per H7 §4.2).
+  | LDeclareFn(LowFn)                            // module-level fn declaration (handler arm) — no runtime slot
+  | LIf(Int, LowExpr, List, List)
+  | LBlock(Int, List)
+  | LMakeList(Int, List)
+  | LMakeTuple(Int, List)
+  | LMakeRecord(Int, List)                     // handle, [field_value] sorted by field name
+  | LMakeVariant(Int, TagId, List)             // handle, tag_id, field exprs
+  | LIndex(Int, LowExpr, LowExpr, Bool)
+  | LMatch(Int, LowExpr, List)
+  | LSuspend(Int, Int, LowExpr, List, List)    // handle, op_h, fn_expr, args, ev_slots
+  | LStateGet(Int, Int)
+  | LStateSet(Int, Int, LowExpr)
+  | LRegion(Int, List)                         // arena scope
+  | LHandleWith(Int, LowExpr, LowExpr)         // ~> desugaring
+  | LFeedback(Int, LowExpr, LowExpr)           // <~ desugaring (iterative ctx required)
+  | LPerform(Int, String, List)                // effect op invocation — monomorphic direct-call form
+  | LHandle(Int, LowExpr, List)                // body + arms (handle-expression)
+  // H1: evidence is now a slot-set on LMakeClosure (the closure
+  // record IS the evidence record — DESIGN Ch 4 "handler IS state"
+  // in its ultimate form). LBuildEvidence has been deleted; closure
+  // records grow ev_slots after captures. LEvPerform loads the
+  // fn_idx from __state at the compile-time-resolved offset and
+  // dispatches via call_indirect. When inference determines a
+  // perform site is in monomorphic context, it stays as LPerform
+  // (direct call to `$op_<name>`); only polymorphic sites become
+  // LEvPerform.
+  | LEvPerform(Int, String, Int, List)         // handle, op_name, slot_idx, args
+  | LFieldLoad(Int, LowExpr, Int)              // W6: handle, record, offset_bytes
+
+type LowValue
+  = LInt(Int)
+  | LFloat(Float)
+  | LString(String)
+  | LBool(Bool)
+
+type LowFn
+  = LFn(String, Int, List, List, EffRow)
+                  // name, arity, param names, body stmts, effect row
+
+type LowPat
+  = LPVar(String)
+  | LPWild
+  | LPCon(String, TagId, List)       // name, tag_id (from ConstructorScheme), sub-pats
+  | LPTuple(List)
+  | LPLit(LowValue)
+  | LPList(List)                     // list pattern — runtime-tag dispatch (runtime/lists.mn)
+  | LPRecord(List)                   // [(field_name: String, offset_bytes: Int, sub_pat: LowPat)]
+
+/// Extract the source TypeHandle from any `LowExpr` variant.
+/// One arm per variant, no fallback — new variants surface at compile time.
+fn lexpr_handle(e) with Pure = match e {
+  LConst(h, _)            => h,
+  LLocal(h, _)            => h,
+  LGlobal(h, _)           => h,
+  LStore(h, _, _)         => h,
+  LLet(h, _, _)           => h,
+  LUpval(h, _)            => h,
+  LBinOp(h, _, _, _)      => h,
+  LUnaryOp(h, _, _)       => h,
+  LCall(h, _, _)          => h,
+  LTailCall(h, _, _)      => h,
+  LReturn(h, _)           => h,
+  LMakeClosure(h, _, _, _) => h,
+  LMakeContinuation(h, _, _, _, _, _) => h,
+  LDeclareFn(_)            => 0,
+  LIf(h, _, _, _)         => h,
+  LBlock(h, _)            => h,
+  LMakeList(h, _)         => h,
+  LMakeTuple(h, _)        => h,
+  LMakeRecord(h, _)       => h,
+  LMakeVariant(h, _, _)   => h,
+  LIndex(h, _, _, _)      => h,
+  LMatch(h, _, _)         => h,
+  LSuspend(h, _, _, _, _) => h,
+  LStateGet(h, _)         => h,
+  LStateSet(h, _, _)      => h,
+  LRegion(h, _)           => h,
+  LHandleWith(h, _, _)    => h,
+  LFeedback(h, _, _)      => h,
+  LPerform(h, _, _)       => h,
+  LHandle(h, _, _)        => h,
+  LEvPerform(h, _, _, _)  => h,
+  LFieldLoad(h, _, _)     => h
+}
+
+fn lexpr_ty(e) with LookupTy = {
+  perform lookup_ty(lexpr_handle(e))
+}
+
+/// When the callee's effect row is ground (no unresolved row var),
+/// emit `LCall` (direct). When open, emit `LSuspend` (evidence-passing
+/// through a runtime call-indirect on the closure's fn-pointer field).
+fn monomorphic_at(h) with LookupTy = {
+  match perform lookup_ty(h) {
+    TFun(_, _, row) => row_is_ground(row),
+    _               => true
+  }
+}
+
+/// Read the construction-origin metadata an env entry carries.
+/// `None` when the name isn't bound (a missing-var diagnostic has
+/// already fired at infer time; lower's path falls through to the
+/// default `LGlobal`/`LCall` shape).
+fn env_kind_of(name) = {
+  match perform env_lookup(name) {
+    None        => None,
+    Some(entry) => {
+      let (_, _, kind) = entry
+      Some(kind)
+    }
+  }
+}
+
+/// The `CallExpr` dispatch falls back to this when the callee isn't a
+/// `SchemeKind`-recognized constructor or effect op. Monomorphic case:
+/// direct `LCall` (callee's row is ground; no evidence needed).
+/// Polymorphic case: `LSuspend` with `ev_slots` derived from the callee's
+/// row — each unground op resolves to the global handler arm's `fn_idx`
+/// via the `op_<name>` naming convention H1.4 established.
+fn lower_call_default(handle, f, fh, lo_args) = {
+  let lo_f = lower_expr(f)
+  if monomorphic_at(handle) {
+    LCall(handle, lo_f, lo_args)
+  } else {
+    let ev_slots = derive_ev_slots(fh)
+    LSuspend(handle, fh, lo_f, lo_args, ev_slots)
+  }
+}
+
+/// H1.6 — derive `ev_slots` from the callee's row at lower time. Each
+/// `op_name` in the callee's row that needs evidence resolves to a
+/// `LowExpr` loading `(global.get $op_<name>_idx)` — the static `fn_idx`
+/// of the global handler arm. With single-handler-per-op naming (H1.4),
+/// this resolution is unambiguous; multi-handler dispatch would need
+/// `handler_stack` tracking, but the compiler-on-itself's monomorphic
+/// handlers don't exercise it.
+fn derive_ev_slots(callee_handle) = {
+  match perform lookup_ty(callee_handle) {
+    TFun(_, _, row) => derive_ev_slots_from_row(row),
+    _               => []
+  }
+}
+
+fn derive_ev_slots_from_row(row) = match row {
+  EfPure          => [],
+  EfClosed(names) => derive_ev_slots_from_names(names),
+  EfOpen(names, _) => derive_ev_slots_from_names(names),
+  _               => []
+}
+
+fn derive_ev_slots_from_names(names) = {
+  let n = names.len
+  let (buf, count) = derive_ev_slots_loop(names, 0, n, make_list(n), 0)
+  slice(buf, 0, count)
+}
+
+fn derive_ev_slots_loop(names, i, n, buf, count) = {
+  if i >= n { (buf, count) }
+  else {
+    let name = list_index(names, i)
+    let op_name = match name {
+      ENamed(s)            => s,
+      EParameterized(s, _) => s
+    }
+    // The slot's value is the handler arm's fn_idx — loaded from
+    // the per-arm global emitted by emit_fn_index_globals when
+    // emit_fns_expr lifted the LDeclareFn.
+    let slot_load = LGlobal(0, "op_" |> str_concat(op_name) |> str_concat("_idx"))
+    let extended = list_extend_to(buf, count + 1)
+    let written  = list_set(extended, count, slot_load)
+    derive_ev_slots_loop(names, i + 1, n, written, count + 1)
+  }
+}
+
+// Lower walk — exhaustive, live
+
+fn lower_expr(node) = {
+  let N(body, span, handle) = node
+  match body {
+    NExpr(e)     => lower_expr_body(e, handle, span),
+    NStmt(s)     => lower_stmt_as_expr(s, handle, span),
+    NPat(_)      => LConst(handle, LInt(0)),   // patterns don't lower as expr
+    NHole(_)     => LConst(handle, LInt(0))    // Hazel hole → unreachable trap at emit
+  }
+}
+
+fn lower_expr_body(e, handle, span) = match e {
+  LitInt(v)    => LConst(handle, LInt(v)),
+  LitFloat(v)  => LConst(handle, LFloat(v)),
+  LitString(s) => LConst(handle, LString(s)),
+  LitBool(b)   => {
+    // HB: True/False are nullary ConstructorScheme entries. Lower
+    // routes through LMakeVariant so emit picks the sentinel path
+    // (i32.const tag) — no allocation, full ADT semantics.
+    let tag = if b { 1 } else { 0 }
+    LMakeVariant(handle, tag, [])
+  },
+  LitUnit      => LConst(handle, LInt(0)),
+
+  VarRef(name) => {
+    let (res, local_h) = perform ls_resolve(name)
+    // For LLocal/LUpval the LowExpr's handle should describe the
+    // captured value's type (the local's handle from binding time),
+    // not the VarRef's own handle. Fall back to VarRef's handle for
+    // RGlobal where there's no separate local-binding handle.
+    //
+    // SchemeKind dispatch (H3): a VarRef whose env entry is a
+    // nullary ConstructorScheme is a value-position constructor
+    // reference (`None`, `True`, `False`). Lower it as
+    // LMakeVariant(handle, tag, []) — emit emits the sentinel
+    // i32.const form for nullary tags.
+    match res {
+      RLocal       => LLocal(local_h, name),
+      RUpval(slot) => LUpval(local_h, slot),
+      RGlobal      => match env_kind_of(name) {
+        Some(ConstructorScheme(tag_id, _)) =>
+          LMakeVariant(handle, tag_id, []),
+        _ => LGlobal(handle, name)
+      }
+    }
+  },
+
+  BinOpExpr(op, left, right) =>
+    LBinOp(handle, op, lower_expr(left), lower_expr(right)),
+
+  UnaryOpExpr(op, inner) =>
+    LUnaryOp(handle, op, lower_expr(inner)),
+
+  CallExpr(f, args) => {
+    // SchemeKind dispatch (H3): when the callee is a VarRef whose
+    // env entry is a ConstructorScheme, the call is value-side
+    // ADT instantiation — emit LMakeVariant with the registered
+    // tag_id, not LCall through a non-existent fn-table entry.
+    // EffectOpScheme dispatch promotes a bare `op_name(args)` call
+    // to LPerform; explicit `perform op_name(args)` already takes
+    // the PerformExpr path. Plain function calls fall through.
+    let lo_args = lower_expr_list(args)
+    let N(fbody, _, fh) = f
+    match fbody {
+      NExpr(VarRef(name)) => match env_kind_of(name) {
+        Some(ConstructorScheme(tag_id, _)) =>
+          LMakeVariant(handle, tag_id, lo_args),
+        Some(EffectOpScheme(_)) =>
+          // Tier 1 monomorphic perform per SUBSTRATE.md §"Three Tiers
+          // of Effect Compilation" — the ~85% direct-call path.
+          // inf_handler_provider walks handler_stack innermost-first;
+          // the resolved handler_name combines with op_name into the
+          // discriminated symbol $op_<handler>_<op> minted by lower_
+          // handler_arms_as_decls (commit 22a4bbc).
+          //
+          // Per H1 §"Pure monomorphic chains" — when handler_stack
+          // covers every perform, this IS the canonical kernel-native
+          // dispatch (handler IS state, but state is statically known
+          // so call_indirect collapses to direct call).
+          //
+          // Polymorphic pass-through case is named peer
+          // Hβ.first-light.evidence-poly-call-transient: caller's
+          // own __state carries the evidence; PerformExpr lowers to
+          // LEvPerform with slot_idx from row inference. Tier 2/3
+          // (linear / multi-shot) substrate per SUBSTRATE.md.
+          match perform inf_handler_provider(name) {
+            Some(handler_name) =>
+              LPerform(handle,
+                       handler_name |> str_concat("_") |> str_concat(name),
+                       lo_args),
+            None =>
+              // No handler in scope — keep undiscriminated for
+              // productive-under-error diagnostic. Surfaces as
+              // wat2wasm rejection at the perform site if the
+              // surrounding row required a handler.
+              LPerform(handle, name, lo_args)
+          },
+        _ => lower_call_default(handle, f, fh, lo_args)
+      },
+      _ => lower_call_default(handle, f, fh, lo_args)
+    }
+  },
+
+  IfExpr(cond, then_e, else_e) =>
+    LIf(handle, lower_expr(cond),
+        [lower_expr(then_e)],
+        [lower_expr(else_e)]),
+
+  BlockExpr(stmts, final_e) => {
+    let cp = perform ls_push_scope()
+    let lo_stmts = lower_stmt_list(stmts)
+    let lo_final = lower_expr(final_e)
+    perform ls_pop_scope(cp)
+    LBlock(handle, lo_stmts ++ [lo_final])   // drift-audit: ignore — one-time single-element append at block-construction boundary; NOT a tail-recursive accumulator. lo_stmts is built once via lower_stmt_list, then extended by exactly one element (the block's final expression). No O(N²) loop pattern; asymptotics are O(|lo_stmts|) per block, O(total_stmts) across the program.
+  },
+
+  MatchExpr(scrutinee, arms) =>
+    LMatch(handle, lower_expr(scrutinee), lower_match_arms(arms)),
+
+  MakeListExpr(elems) =>
+    LMakeList(handle, lower_expr_list(elems)),
+
+  MakeTupleExpr(elems) =>
+    LMakeTuple(handle, lower_expr_list(elems)),
+
+  MakeRecordExpr(fields) =>
+    LMakeRecord(handle, lower_record_field_values(fields)),
+
+  NamedRecordExpr(_type_name, fields) =>
+    // H2.3: nominal records lower identically to bare record
+    // literals — type identity is type-system-only, runtime sees
+    // raw fields. The type name is preserved in the AST for
+    // diagnostics and IDE projection but doesn't reach LIR.
+    LMakeRecord(handle, lower_record_field_values(fields)),
+
+  LambdaExpr(params, body_node) => {
+    // DESIGN Ch 1: lambdas close over their free variables. Each
+    // lambda gets a unique name derived from its AST handle, so
+    // emit's deep walk lifts every LMakeClosure — top-level or
+    // inline — into a WASM function entry in the `$fns` table.
+    // Param + capture HANDLES are threaded into the frame so VarRef
+    // resolution returns the local's actual type handle (Phase-A1).
+    let lambda_name = "lambda_" |> str_concat(int_to_str(handle))
+    let param_names_list = lower_param_names(params)
+    let param_handles_list = lower_param_handles(params)
+    let free_names = collect_free_vars(body_node, param_names_list)
+    let (captures_names, captures_exprs, captures_handles) =
+      resolve_captures_outer(free_names, handle)
+    perform ls_enter_frame(
+      param_names_list, param_handles_list,
+      captures_names, captures_handles
+    )
+    let lo_body = lower_expr(body_node)
+    perform ls_exit_frame()
+    let fn_ir = LFn(
+      lambda_name,
+      params.len,
+      param_names_list,
+      [lo_body],
+      EfPure
+    )
+    LMakeClosure(handle, fn_ir, captures_exprs, [])
+  },
+
+  HandleExpr(body_node, arms) => {
+    // H1.4: inline handle expression. Lower body normally, lower
+    // arms BOTH as records (for LHandle's arm metadata, currently
+    // unused at emit but reserved for H1.6 evidence wiring) AND
+    // as LDeclareFn entries (so emit_fns_expr's deep walk picks
+    // up each arm body as a wasm function).
+    //
+    // Inline handlers are anonymous; discriminator is the handle-id
+    // stringified — graph-mint-unique per construction (every
+    // HandleExpr has a fresh handle).
+    let arm_decls = lower_handler_arms_as_decls(arms, int_to_str(handle))
+    let arm_records = lower_handler_arms(arms)
+    let lo_body = lower_expr(body_node)
+    LBlock(handle, arm_decls ++ [LHandle(handle, lo_body, arm_records)])   // drift-audit: ignore — one-time single-element append at HandleExpr-lowering boundary; NOT a tail-recursive accumulator. arm_decls is built once via lower_handler_arms_as_decls, then extended by exactly one LHandle element.
+  },
+
+  PerformExpr(op_name, args) => {
+    // Tier 1 monomorphic perform — symmetric to the EffectOpScheme
+    // CallExpr arm above. inf_handler_provider walks handler_stack
+    // for the innermost handler that handles op_name; the resolved
+    // handler_name combines with op_name into the discriminated
+    // target $op_<handler>_<op>.
+    let lo_args = lower_expr_list(args)
+    match perform inf_handler_provider(op_name) {
+      Some(handler_name) =>
+        LPerform(handle,
+                 handler_name |> str_concat("_") |> str_concat(op_name),
+                 lo_args),
+      None =>
+        LPerform(handle, op_name, lo_args)
+    }
+  },
+
+  ResumeExpr(val, _state_updates) =>
+    // State updates on resume threaded through the emitted state machine
+    // at handler-elimination time; structurally a return from the arm.
+    LReturn(handle, lower_expr(val)),
+
+  FieldExpr(rec, field) => {
+    // W6: record field access lowers to a compile-time-resolved
+    // offset load. Inference bound the record's type via
+    // lookup_ty; the field's position within the record's sorted
+    // field list gives the offset (4 bytes per slot, i32 fields;
+    // ty_to_wasm erases to i32 for all field kinds including
+    // nested records and lists stored as pointers).
+    let lo_rec = lower_expr(rec)
+    let N(_, _, rh) = rec
+    let offset = resolve_field_offset(rh, field)
+    LFieldLoad(handle, lo_rec, offset)
+  },
+
+  PipeExpr(kind, left, right) =>
+    lower_pipe(kind, left, right, handle),
+
+  ExprPlaceholder =>
+    LConst(handle, LInt(0))   // ? — emit lowers to unreachable via NHole check
+}
+
+fn lower_pipe(kind, left, right, handle) = match kind {
+  // `>< parallel compose — independent tracks dispatched as Thread-effect
+  // spawns. Each branch becomes a 0-arg thunk closure (capture-resolved
+  // exactly as LambdaExpr above); spawn returns a Handle; join retrieves
+  // each branch's result; the joined values tuple back at the `><` site.
+  // Per primitive #2 (handlers): the row constraint at infer_compose
+  // (infer.mn) requires Thread effect — parallel_compose dispatches each
+  // thunk to a real OS thread via wasi-threads; sequential_compose runs
+  // synchronously inline. Same LIR shape, two semantics, one chain
+  // choice. Drift 1 closure: handler chain IS the dispatch table; no
+  // vtable. Drift 5 closure: state lives in the chosen handler's `with`
+  // clause, never in an ad-hoc parallel struct.
+  PCompose =>
+    lower_compose_via_thread(handle, left, right),
+
+  PForward => {
+    // |> converge — right(left). Transparent wire; unification at
+    // inference time already paired tuple slots with parameters.
+    let lo_l = lower_expr(left)
+    let lo_r = lower_expr(right)
+    LCall(handle, lo_r, [lo_l])
+  },
+
+  PDiverge => {
+    // <| diverge — input ref-borrowed to each branch; outputs tupled.
+    // SUBSTRATE.md §431: structural difference from >< is ownership,
+    // NOT serial-vs-parallel; both verbs route through Thread effect.
+    // Each branch lowers as a 0-arg thunk closure capturing the
+    // shared input by let-local handle; spawn/join per thunk; join
+    // results tuple at the <| site. Drift 5 closure: shared input
+    // is closure-state, not a hidden `__shared_input` parameter.
+    // Ownership affinity (own values cannot flow through <|) is
+    // checked at infer time (E_OwnershipViolation); lower trusts
+    // the infer-side proof. Hβ.lower.diverge-via-thread walkthrough.
+    lower_diverge_via_thread(handle, left, right)
+  },
+
+  PTeeBlock => {
+    // ~> tee — handler attachment. The parser has already built the
+    // correct tree shape: PTeeBlock for newline-before-~> (wraps the
+    // whole prior chain), PTeeInline for no-newline (wraps the
+    // preceding stage). At the LIR level both lower identically —
+    // LHandleWith(handle, body, handler) — because the body's shape
+    // is already baked into the tree; emit reads the scope from the
+    // expression layout, not from a LIR variant.
+    let lo_l = lower_expr(left)
+    let lo_r = lower_expr(right)
+    LHandleWith(handle, lo_l, lo_r)
+  },
+
+  PTeeInline => {
+    let lo_l = lower_expr(left)
+    let lo_r = lower_expr(right)
+    LHandleWith(handle, lo_l, lo_r)
+  },
+
+  PFeedback => {
+    // <~ feedback — requires iterative context. Emit desugars to a
+    // stateful handler capturing previous output as state.
+    let lo_l = lower_expr(left)
+    let lo_r = lower_expr(right)
+    LFeedback(handle, lo_l, lo_r)
+  }
+}
+
+/// `><` × Thread effect dispatch. Each branch is synthesized as a
+/// 0-arg thunk closure (mirroring LambdaExpr's capture resolution at
+/// lower.mn:402-428). The spawn op returns a Handle; join retrieves
+/// the branch result; the two joins tuple at the `><` site.
+///
+/// Composition with the multi-shot quartet (per threading.mn §1):
+/// - parallel_compose × race: forks GENUINELY execute across cores
+///   when both installed; race's tiebreak preserves determinism per
+///   Q-B.7.3 (output order preserved regardless of completion order).
+/// - parallel_compose × Choice: backtrack's per-option exploration
+///   parallelizes across threads.
+/// - parallel_compose × arena_ms: per-thread bump_allocator;
+///   replay_safe / fork_deny / fork_copy compose with thread-local
+///   arenas.
+///
+/// Each thunk's free variables resolve via the outer-frame capture
+/// substrate (resolve_captures_outer). Captures flow through closure
+/// records; thread-local data lives in the spawned thread's frame.
+/// Cross-thread shared values require SharedMemory effect explicitly —
+/// `!SharedMemory` proves single-threaded-memory by row at compile
+/// time. Drift 7 closure: captures are one ordered list per thunk,
+/// never parallel arrays.
+fn lower_compose_via_thread(handle, left, right) = {
+  let thunk_l = synthesize_branch_thunk(handle, "l", left)
+  let thunk_r = synthesize_branch_thunk(handle, "r", right)
+  let h_l = LPerform(handle, "spawn", [thunk_l])
+  let h_r = LPerform(handle, "spawn", [thunk_r])
+  LMakeTuple(handle,
+    [ LPerform(handle, "join", [h_l]),
+      LPerform(handle, "join", [h_r]) ])
+}
+
+/// `<|` × Thread effect dispatch. Symmetric peer to
+/// `lower_compose_via_thread`. The structural difference: `<|`
+/// branches share ONE input (ref-borrowed per SUBSTRATE.md §431);
+/// each thunk closure captures the same `__diverge_input` let-local.
+///
+/// Lowering:
+///   1. Lower the input expression once; bind it as let-local
+///      `__diverge_input_<handle>`.
+///   2. Per branch_node in `right` (a parser-level MakeTupleExpr):
+///      synthesize a 0-arg thunk closure whose body is
+///      `Call(branch_node, [__diverge_input])` — applying the
+///      branch fn to the shared input. Each thunk captures the
+///      let-local by handle (one capture; uniform across branches).
+///   3. Spawn each thunk; join each handle; tuple the joined
+///      results in source-branch order (Q-B.7.3 determinism).
+///
+/// Composition (per threading.mn §1):
+/// - parallel_compose × <|: each branch dispatched to a distinct
+///   OS thread; per-thread bump_allocator; tuple order preserved.
+/// - sequential_compose × <|: each thunk evaluated synchronously
+///   inline (Q-B.7.1 graceful fallback).
+/// - <| × race: orthogonal topologies (race per branch is fine;
+///   race over <| outputs is |> composition, not handler stacking).
+///
+/// Drift 5 closure: shared input is closure-state via __diverge_input
+/// capture, NOT a hidden parameter to spawn. Drift 7 closure:
+/// per-branch thunks are List<LowExpr>, not parallel arrays.
+/// Drift 9 closure: this commit lands the let-local + per-branch
+/// thunks + spawn/join tuple atomically; row enforcement
+/// (`Hβ.infer.diverge-shared-memory-row`) and Reason variant
+/// (`Reason.branch-spawned-verb-tagged`) are named PEER handles.
+fn lower_diverge_via_thread(handle, left, right) = {
+  let lo_input = lower_expr(left)
+  let input_local_name = "__diverge_input_" |> str_concat(int_to_str(handle))
+  let N(_, _, input_h) = left
+  let N(rbody, _, _) = right
+  let branch_nodes = match rbody {
+    NExpr(MakeTupleExpr(elems)) => elems,
+    _                            => [right]
+  }
+  let thunks = synthesize_diverge_thunks(handle, input_h, input_local_name, branch_nodes, 0)
+  let spawn_joins = spawn_join_each(handle, thunks)
+  LBlock(handle, [
+    LLet(input_h, input_local_name, lo_input),
+    LMakeTuple(handle, spawn_joins)
+  ])
+}
+
+/// Walk branch_nodes producing one LMakeClosure per branch. Each
+/// thunk's body is `LCall(branch_h, lower_expr(branch_node),
+/// [LLocal(input_h, input_local_name)])` — the branch fn applied
+/// to the shared input. Captures = [LLocal(input_h, input_local_name)]
+/// (one capture; uniform across branches).
+///
+/// Per H.2.e (lower-lambda-capture-substrate): the closure
+/// machinery used here is the same machinery that lowers user-
+/// written lambdas; compiler-synthesized thunks reuse it.
+fn synthesize_diverge_thunks(parent_handle, input_h, input_local_name, branch_nodes, idx) = {
+  if branch_nodes.len == 0 { [] }
+  else {
+    let branch_node = list_head(branch_nodes)
+    let N(_, _, branch_h) = branch_node
+    let thunk_name = "diverge_" |> str_concat(int_to_str(idx))
+                                |> str_concat("_")
+                                |> str_concat(int_to_str(parent_handle))
+    let lo_branch = lower_expr(branch_node)
+    let input_ref = LLocal(input_h, input_local_name)
+    let thunk_body = LCall(branch_h, lo_branch, [input_ref])
+    let fn_ir = LFn(thunk_name, 0, [], [thunk_body], EfPure)
+    let captures_exprs = [LLocal(input_h, input_local_name)]
+    let thunk = LMakeClosure(parent_handle, fn_ir, captures_exprs, [])
+    [thunk] ++ synthesize_diverge_thunks(parent_handle, input_h, input_local_name, list_tail(branch_nodes), idx + 1)
+  }
+}
+
+/// Per-thunk: spawn the thunk, join the resulting handle. Returns
+/// the list of LPerform("join", [LPerform("spawn", [thunk_i])]).
+/// Source-branch order preserved per Q-B.7.3 determinism.
+fn spawn_join_each(handle, thunks) = {
+  if thunks.len == 0 { [] }
+  else {
+    let thunk = list_head(thunks)
+    let h_spawn = LPerform(handle, "spawn", [thunk])
+    let r_join = LPerform(handle, "join", [h_spawn])
+    [r_join] ++ spawn_join_each(handle, list_tail(thunks))
+  }
+}
+
+/// Branch-as-thunk synthesis. Mirrors LambdaExpr's lowering above —
+/// collect_free_vars over an EMPTY bound-set (a thunk has no params,
+/// so every name referenced in the body is a capture), resolve via
+/// outer frame, lower body under a fresh frame, wrap as LMakeClosure.
+/// The synthesized fn_name encodes parent_handle + side so emit's
+/// fn_idx-globals walk lifts each thunk into a distinct WASM function.
+/// Per H.2.e (lower-lambda-capture-substrate): the same machinery that
+/// lowers user-written lambdas covers compiler-synthesized thunks.
+/// Drift 6 closure: same closure substrate — no special-case for
+/// "compiler-synthesized" thunks vs. user-written ones.
+fn synthesize_branch_thunk(parent_handle, side_label, branch_node) = {
+  let thunk_name = "compose_"
+    |> str_concat(side_label)
+    |> str_concat("_")
+    |> str_concat(int_to_str(parent_handle))
+  let free_names = collect_free_vars(branch_node, [])
+  let (captures_names, captures_exprs, captures_handles) =
+    resolve_captures_outer(free_names, parent_handle)
+  perform ls_enter_frame([], [], captures_names, captures_handles)
+  let lo_body = lower_expr(branch_node)
+  perform ls_exit_frame()
+  let fn_ir = LFn(
+    thunk_name,
+    0,
+    [],
+    [lo_body],
+    EfPure
+  )
+  LMakeClosure(parent_handle, fn_ir, captures_exprs, [])
+}
+
+/// W6 — resolve a field's byte offset from the record's live type.
+/// Fields are sorted (field-canonicalize invariants in `effects.mn`),
+/// so the field's index in `TRecord(fields)` / `TRecordOpen(fields, _)`
+/// maps directly to `4 * idx`. If `lookup_ty` returns a non-record
+/// type (inference unresolved or error-hole), fall back to 0 —
+/// the loader hits whatever offset 0 holds (best-effort graceful degrade).
+fn resolve_field_offset(rec_handle, field_name) = {
+  match perform lookup_ty(rec_handle) {
+    TRecord(fields)        => field_byte_offset(fields, field_name, 0, fields.len),
+    TRecordOpen(fields, _) => field_byte_offset(fields, field_name, 0, fields.len),
+    // H2.3: nominal records — chase TName through env to its
+    // RecordSchemeKind for the field schema. Same offset arithmetic
+    // applies (sorted-by-name, 4 bytes per i32-erased slot).
+    TName(name, _)         => match perform env_lookup(name) {
+      Some(entry) => {
+        let (_, _, kind) = entry
+        match kind {
+          RecordSchemeKind(fields) =>
+            field_byte_offset(fields, field_name, 0, fields.len),
+          _ => 0
+        }
+      },
+      None => 0
+    },
+    _                      => 0
+  }
+}
+
+fn field_byte_offset(fields, target, i, n) = {
+  if i >= n { 0 }
+  else {
+    let (name, _) = list_index(fields, i)
+    if str_eq(name, target) { 4 * i }
+    else { field_byte_offset(fields, target, i + 1, n) }
+  }
+}
+
+// Statement lowering
+
+fn lower_stmt_list(stmts) = {
+  if stmts.len == 0 { [] }
+  else { [lower_stmt(list_head(stmts))] ++ lower_stmt_list(list_tail(stmts)) }
+}
+
+// H6: exhaustive NodeBody enumeration. NPat and NHole at
+// statement position are degenerate; lowering to LConst(0)
+// is the "unreachable-in-well-formed-source" fallback. Named
+// explicitly so a new NodeBody variant surfaces at compile time.
+fn lower_stmt(node) = {
+  let N(body, span, handle) = node
+  match body {
+    NStmt(s) => lower_stmt_body(s, handle, span),
+    NExpr(e) => lower_expr_body(e, handle, span),
+    NPat(_)  => LConst(handle, LInt(0)),   // pattern at stmt position — degenerate
+    NHole(_) => LConst(handle, LInt(0))    // Hazel hole at stmt position — unreachable trap at emit
+  }
+}
+
+fn lower_stmt_body(s, handle, span) = match s {
+  LetStmt(pat, expr) => {
+    let lo = lower_expr(expr)
+    match pat {
+      PVar(name) => {
+        // Register the name in the current scope. At top level this
+        // is a global (already pre-registered by lower_program); inside
+        // a frame it binds as a local for subsequent VarRef lookups.
+        // The bound expr's handle IS the local's type handle.
+        let N(_, _, expr_h) = expr
+        perform ls_bind_local(name, expr_h)
+        LLet(handle, name, lo)
+      },
+      _ => lo     // non-binding let (destructure handled by emit)
+    }
+  },
+
+  FnStmt(name, params, _ret_ann, _effs, body_node) => {
+    // Bind the fn's name in the enclosing frame; the fn's handle is
+    // the type handle (TFun bound to handle by infer).
+    perform ls_bind_local(name, handle)
+    let param_names_list = lower_param_names(params)
+    let param_handles_list = lower_param_handles(params)
+    let free_names = collect_free_vars(body_node, param_names_list)
+    let (captures_names, captures_exprs, captures_handles) =
+      resolve_captures_outer(free_names, handle)
+    perform ls_enter_frame(
+      param_names_list, param_handles_list,
+      captures_names, captures_handles
+    )
+    let lo_body = lower_expr(body_node)
+    perform ls_exit_frame()
+    let fn_ir = LFn(
+      name,
+      params.len,
+      param_names_list,
+      [lo_body],
+      EfPure          // row resolved live via lookup_ty(handle)
+    )
+    LLet(handle, name, LMakeClosure(handle, fn_ir, captures_exprs, []))
+  },
+
+  TypeDefStmt(_name, _args, _variants)      => LConst(handle, LInt(0)),
+  EffectDeclStmt(_name, _ops)               => LConst(handle, LInt(0)),
+  HandlerDeclStmt(name, _ename, arms)       => {
+    // H1.4: each handler arm becomes a callable wasm function. With
+    // the Hβ.first-light.handler-arm-fn-name-discriminator landing,
+    // arm fns are named `op_<handler_name>_<op_name>` — unique even
+    // when multiple handlers handle the same op (lib/prelude.mn has
+    // many handlers all defining `yield`-arms for the Iterate effect).
+    // Pre-substrate the unprefixed `op_<op_name>` collided across them.
+    // emit_fns_expr's deep walk picks up LDeclareFn entries and emits
+    // each as a wasm function with a registered fn_idx global.
+    //
+    // Named peer Hβ.first-light.lperform-handler-discriminator:
+    // LPerform's `(call $op_<n>)` currently resolves to undiscriminated
+    // names; the matching update threads handler_name through perform
+    // sites (monomorphic) or routes to LEvPerform via evidence-slot
+    // dispatch (multi-handler / polymorphic — H1.6).
+    let arm_decls = lower_handler_arms_as_decls(arms, name)
+    LBlock(handle, arm_decls ++ [LConst(handle, LInt(0))])   // drift-audit: ignore — one-time single-element append at HandlerDeclStmt-lowering boundary; NOT a tail-recursive accumulator. arm_decls is built once, then extended by exactly one LConst sentinel.
+  },
+  ImportStmt(_module)                       => LConst(handle, LInt(0)),
+  RefineStmt(_name, _ty, _pred)             => LConst(handle, LInt(0)),
+  // DS — docstring wrapper: lower the inner declaration, discard doc
+  Documented(_, inner_node)                 => lower_stmt(inner_node),
+
+  ExprStmt(expr) => lower_expr(expr)
+}
+
+fn lower_stmt_as_expr(s, handle, span) = {
+  lower_stmt_body(s, handle, span)
+}
+
+// Pattern lowering
+
+fn lower_match_arms(arms) = {
+  if arms.len == 0 { [] }
+  else {
+    let (pat, body) = list_head(arms)
+    let cp = perform ls_push_scope()
+    bind_pat_locals(pat)
+    let lo_body = lower_expr(body)
+    perform ls_pop_scope(cp)
+    [(lower_pat(pat), lo_body)]
+      ++ lower_match_arms(list_tail(arms))
+  }
+}
+
+/// Bind every `PVar` in the pattern as a local in the current frame so
+/// arm-body `VarRef` resolution sees pattern-introduced names. Pattern
+/// vars don't carry their own type handle at lower time (value type is
+/// the scrutinee's; sub-pattern types are scrutinee-derived via inference);
+/// `0` stands as a sentinel — consumers chase the scrutinee's type if needed.
+// H6: exhaustive Pat enumeration. PVar binds the local; compound
+// patterns recurse. PWild and PLit bind nothing. New Pat variants
+// must decide their binding.
+fn bind_pat_locals(pat) = match pat {
+  PVar(name) => {
+    perform ls_bind_local(name, 0)
+    ()
+  },
+  PCon(_, sub_pats) => bind_pat_locals_list(sub_pats),
+  PTuple(sub_pats)  => bind_pat_locals_list(sub_pats),
+  PList(sub_pats)   => bind_pat_locals_list(sub_pats),
+  PRecord(flds)     => bind_pat_locals_fields(flds),
+  PWild             => (),
+  PLit(_)           => ()
+}
+
+fn bind_pat_locals_fields(flds) = {
+  if flds.len == 0 { () }
+  else {
+    let (_, sub_pat) = list_head(flds)
+    bind_pat_locals(sub_pat)
+    bind_pat_locals_fields(list_tail(flds))
+  }
+}
+
+fn bind_pat_locals_list(pats) = {
+  if pats.len == 0 { () }
+  else {
+    bind_pat_locals(list_head(pats))
+    bind_pat_locals_list(list_tail(pats))
+  }
+}
+
+fn lower_pat(pat) = match pat {
+  PVar(name)       => LPVar(name),
+  PWild            => LPWild,
+  PLit(v)          => LPLit(lower_lit_value(v)),
+  PCon(name, sub)  => {
+    // Resolve the constructor's tag_id at lower time. Emit dispatches
+    // on the int tag without re-walking the env. A name without an
+    // env entry (already a missing-var diagnostic from infer) gets
+    // tag = -1; emit treats that arm as never-match.
+    let tag = match env_kind_of(name) {
+      Some(ConstructorScheme(t, _)) => t,
+      _                             => -1
+    }
+    LPCon(name, tag, lower_pats(sub))
+  },
+  PTuple(sub)      => LPTuple(lower_pats(sub)),
+  PList(sub)       => LPList(lower_pats(sub)),
+  PRecord(flds)    => LPRecord(lower_pat_record_fields(flds, 0))
+}
+
+/// Pattern fields are sorted-by-name (parser invariant); position
+/// IS the byte offset (`4 * index`) per `LMakeRecord`'s untagged layout.
+/// No tag prefix to skip — offset 0 is the first field.
+fn lower_pat_record_fields(flds, i) = {
+  if flds.len == 0 { [] }
+  else {
+    let (name, sub_pat) = list_head(flds)
+    [(name, i * 4, lower_pat(sub_pat))]
+      ++ lower_pat_record_fields(list_tail(flds), i + 1)
+  }
+}
+
+fn lower_lit_value(v) with Pure = match v {
+  LVInt(n)    => LInt(n),
+  LVFloat(f)  => LFloat(f),
+  LVString(s) => LString(s),
+  LVBool(b)   => LBool(b)
+}
+
+fn lower_pats(pats) = {
+  if pats.len == 0 { [] }
+  else { [lower_pat(list_head(pats))] ++ lower_pats(list_tail(pats)) }
+}
+
+/// Each arm = `(op_name, arg_names, body)`. Lowered as a pair for emit
+/// to dispatch through the handler's state machine.
+fn lower_handler_arms(arms) = {
+  if arms.len == 0 { [] }
+  else {
+    let arm = list_head(arms)
+    // Handler arm args bind into the arm body's scope — push a fresh
+    // locals checkpoint, register each arg, lower body, restore.
+    let cp = perform ls_push_scope()
+    bind_names_as_locals(arm.args)
+    let lo_body = lower_expr(arm.body)
+    perform ls_pop_scope(cp)
+    let lo_arm = {args: arm.args, body: lo_body, op_name: arm.op_name}
+    [lo_arm] ++ lower_handler_arms(list_tail(arms))
+  }
+}
+
+/// H1.4 — lower handler arms to `LDeclareFn` entries: pure module-level
+/// fn declarations, no runtime allocation. Each arm body becomes a wasm
+/// function `op_<op_name>` taking the arm's args (plus the implicit
+/// `__state` per the calling convention). Stateful handlers (with state
+/// slots) land with H1.6's evidence wiring.
+fn lower_handler_arms_as_decls(arms, discriminator) = {
+  if arms.len == 0 { [] }
+  else {
+    let arm = list_head(arms)
+    let cp = perform ls_push_scope()
+    bind_names_as_locals(arm.args)
+    let lo_body = lower_expr(arm.body)
+    perform ls_pop_scope(cp)
+    // Per Hβ.first-light.handler-arm-fn-name-discriminator —
+    // fn_name = "op_" ++ discriminator ++ "_" ++ arm.op_name
+    // discriminator is handler_name for top-level decls (passed by
+    // HandlerDeclStmt arm), int_to_str(handle) for inline anonymous
+    // handle-expressions. Each arm gets a unique WASM symbol;
+    // multi-handler-per-op is structurally supported.
+    let fn_name = "op_"
+      |> str_concat(discriminator)
+      |> str_concat("_")
+      |> str_concat(arm.op_name)
+    let fn_ir = LFn(fn_name, arm.args.len, arm.args, [lo_body], EfPure)
+    [LDeclareFn(fn_ir)] ++ lower_handler_arms_as_decls(list_tail(arms), discriminator)
+  }
+}
+
+fn bind_names_as_locals(names) = {
+  if names.len == 0 { () }
+  else {
+    // Handler-arm args don't carry separate type handles at lower
+    // time; the op's signature gives them inferentially. 0 is the
+    // sentinel — capture-handle correctness here is bounded by
+    // future reach into op-arg type plumbing (Phase D evidence).
+    perform ls_bind_local(list_head(names), 0)
+    bind_names_as_locals(list_tail(names))
+  }
+}
+
+// Parameter name lowering (for LFn metadata)
+
+fn lower_param_names(params) = {
+  if params.len == 0 { [] }
+  else {
+    let TParam(name, _, _, _) = list_head(params)
+    [name] ++ lower_param_names(list_tail(params))
+  }
+}
+
+// Phase-A1: extract each param's type handle for the LowerScope
+// frame. A param's type is `TVar(handle)` for inferred params (the
+// common case after infer mints fresh handles); for ground types
+// without a handle, 0 stands as a sentinel.
+fn lower_param_handles(params) = {
+  if params.len == 0 { [] }
+  else {
+    let TParam(_, ty, _, _) = list_head(params)
+    let h = match ty {
+      TVar(handle)        => handle,
+      TInt                => 0,
+      TFloat              => 0,
+      TString             => 0,
+      TUnit               => 0,
+      TList(_)            => 0,
+      TTuple(_)           => 0,
+      TFun(_, _, _)       => 0,
+      TName(_, _)         => 0,
+      TRecord(_)          => 0,
+      TRecordOpen(_, _)   => 0,
+      TRefined(_, _)      => 0,
+      TCont(_, _)         => 0
+    }
+    [h] ++ lower_param_handles(list_tail(params))
+  }
+}
+
+/// W7 phase 1 — walks a lambda body collecting every `VarRef` whose
+/// name is not in the lambda's local scope. Nested lambdas augment
+/// `bound` with their own params during the walk, so references
+/// resolved inside the nested frame are excluded from the OUTER
+/// lambda's free set.
+///
+/// Returns `List[String]` — names only, deduplicated. At emit time,
+/// closure record slot N stores the value of `captures[N]` from the
+/// enclosing scope; the lambda body reads them as `LUpval(h, N)`.
+// H6: exhaustive NodeBody enumeration. Patterns and holes
+// contribute no free variable references (they're terminal AST
+// forms). Named explicitly so new NodeBody variants decide
+// whether they can contain VarRefs.
+fn collect_free_vars(node, bound) = {
+  let N(body, _, _) = node
+  match body {
+    NExpr(e) => cfv_expr(e, bound),
+    NStmt(s) => cfv_stmt(s, bound),
+    NPat(_)  => [],
+    NHole(_) => []
+  }
+}
+
+fn cfv_expr(e, bound) = match e {
+  LitInt(_)    => [],
+  LitFloat(_)  => [],
+  LitString(_) => [],
+  LitBool(_)   => [],
+  LitUnit      => [],
+
+  VarRef(name) =>
+    if cfv_contains(bound, name) { [] }
+    else { [name] },
+
+  BinOpExpr(_, l, r) =>
+    cfv_merge(collect_free_vars(l, bound), collect_free_vars(r, bound)),
+
+  UnaryOpExpr(_, inner) =>
+    collect_free_vars(inner, bound),
+
+  CallExpr(f, args) =>
+    cfv_merge(collect_free_vars(f, bound), cfv_list(args, bound)),
+
+  IfExpr(c, t, e) =>
+    cfv_merge(
+      collect_free_vars(c, bound),
+      cfv_merge(collect_free_vars(t, bound), collect_free_vars(e, bound))
+    ),
+
+  BlockExpr(stmts, final_e) => {
+    let (frees, bound_after) = cfv_stmts(stmts, bound, [])
+    cfv_merge(frees, collect_free_vars(final_e, bound_after))
+  },
+
+  MatchExpr(scrut, arms) =>
+    cfv_merge(collect_free_vars(scrut, bound), cfv_match_arms(arms, bound)),
+
+  MakeListExpr(elems)  => cfv_list(elems, bound),
+  MakeTupleExpr(elems) => cfv_list(elems, bound),
+  MakeRecordExpr(flds)        => cfv_record_fields(flds, bound),
+  NamedRecordExpr(_, flds)    => cfv_record_fields(flds, bound),
+
+  LambdaExpr(params, body) => {
+    let inner_bound = cfv_merge(bound, cfv_param_names(params))
+    collect_free_vars(body, inner_bound)
+  },
+
+  HandleExpr(body, arms) =>
+    cfv_merge(
+      collect_free_vars(body, bound),
+      cfv_handler_arms(arms, bound)
+    ),
+
+  PerformExpr(_, args) => cfv_list(args, bound),
+  ResumeExpr(val, _)   => collect_free_vars(val, bound),
+  FieldExpr(rec, _)    => collect_free_vars(rec, bound),
+
+  PipeExpr(_, l, r) =>
+    cfv_merge(collect_free_vars(l, bound), collect_free_vars(r, bound)),
+
+  ExprPlaceholder      => [],
+
+  // H6: exhaustive Expr enumeration. Literals contribute no
+  // free vars. Named explicitly so new Expr variants must decide
+  // their free-var contribution (critical for closure capture).
+  LitInt(_)    => [],
+  LitFloat(_)  => [],
+  LitString(_) => [],
+  LitBool(_)   => [],
+  LitUnit      => []
+}
+
+// H6: exhaustive Stmt enumeration. Type/effect/handler
+// declarations and imports contribute no value-level free vars
+// to closure capture. Refinement stmts similarly. Named
+// explicitly so new Stmt variants decide their cfv behavior.
+fn cfv_stmt(s, bound) = match s {
+  LetStmt(_, expr)              => collect_free_vars(expr, bound),
+  FnStmt(_, _, _, _, body_node) => collect_free_vars(body_node, bound),
+  ExprStmt(expr)                => collect_free_vars(expr, bound),
+  TypeDefStmt(_, _, _)          => [],
+  EffectDeclStmt(_, _)          => [],
+  HandlerDeclStmt(_, _, _)      => [],
+  ImportStmt(_)                 => [],
+  RefineStmt(_, _, _)           => [],
+  // DS — docstring wrapper: free vars come from the inner
+  Documented(_, inner_node)     => collect_free_vars(inner_node, bound)
+}
+
+fn cfv_list(nodes, bound) = {
+  if nodes.len == 0 { [] }
+  else {
+    cfv_merge(
+      collect_free_vars(list_head(nodes), bound),
+      cfv_list(list_tail(nodes), bound)
+    )
+  }
+}
+
+/// Free variables in a record-literal expression: union of frees in
+/// each field's value. Field names are not value-position references
+/// (the parser already desugared pun-syntax to `VarRef` nodes).
+fn cfv_record_fields(flds, bound) = {
+  if flds.len == 0 { [] }
+  else {
+    let (_, value) = list_head(flds)
+    cfv_merge(
+      collect_free_vars(value, bound),
+      cfv_record_fields(list_tail(flds), bound)
+    )
+  }
+}
+
+/// Walk a statement list, threading `bound` through `LetStmt`s so
+/// subsequent statements see the new bindings. Returns
+/// `(accumulated_frees, final_bound)`.
+fn cfv_stmts(stmts, bound, acc_frees) = {
+  if stmts.len == 0 { (acc_frees, bound) }
+  else {
+    let stmt = list_head(stmts)
+    let N(stmt_body, _, _) = stmt
+    match stmt_body {
+      NStmt(LetStmt(pat, expr)) => {
+        let frees = collect_free_vars(expr, bound)
+        let new_bound = cfv_merge(bound, cfv_pat_binds(pat))
+        cfv_stmts(
+          list_tail(stmts),
+          new_bound,
+          cfv_merge(acc_frees, frees)
+        )
+      },
+      NStmt(FnStmt(name, _, _, _, body_node)) => {
+        // Nested named fn — its name is in scope for siblings and the
+        // final expression (recursive / mutual references resolve via env).
+        let frees = collect_free_vars(body_node, bound)
+        let new_bound = cfv_merge(bound, [name])
+        cfv_stmts(
+          list_tail(stmts),
+          new_bound,
+          cfv_merge(acc_frees, frees)
+        )
+      },
+      _ => {
+        let frees = collect_free_vars(stmt, bound)
+        cfv_stmts(list_tail(stmts), bound, cfv_merge(acc_frees, frees))
+      }
+    }
+  }
+}
+
+fn cfv_match_arms(arms, bound) = {
+  if arms.len == 0 { [] }
+  else {
+    let (pat, body) = list_head(arms)
+    let arm_bound = cfv_merge(bound, cfv_pat_binds(pat))
+    cfv_merge(
+      collect_free_vars(body, arm_bound),
+      cfv_match_arms(list_tail(arms), bound)
+    )
+  }
+}
+
+/// Handler arm shape: `(op_name, arg_names, body)`. The `arg_names` bind
+/// inside `body`; `op_name` is the effect op being handled (global scope).
+fn cfv_handler_arms(arms, bound) = {
+  if arms.len == 0 { [] }
+  else {
+    let (op_name, arg_names, body) = list_head(arms)
+    let arm_bound = cfv_merge(bound, arg_names)
+    cfv_merge(
+      collect_free_vars(body, arm_bound),
+      cfv_handler_arms(list_tail(arms), bound)
+    )
+  }
+}
+
+fn cfv_param_names(params) = {
+  if params.len == 0 { [] }
+  else {
+    let TParam(name, _, _, _) = list_head(params)
+    [name] ++ cfv_param_names(list_tail(params))
+  }
+}
+
+// H6: exhaustive Pat enumeration. PVar is the only leaf that
+// binds a name; compound patterns recurse into sub-patterns.
+// PWild / PLit bind nothing. New Pat variants must decide their
+// binder-name contribution explicitly.
+fn cfv_pat_binds(pat) = match pat {
+  PVar(name)         => [name],
+  PCon(_, sub_pats)  => cfv_pat_binds_list(sub_pats),
+  PTuple(sub_pats)   => cfv_pat_binds_list(sub_pats),
+  PList(sub_pats)    => cfv_pat_binds_list(sub_pats),
+  PRecord(flds)      => cfv_pat_binds_fields(flds),
+  PWild              => [],
+  PLit(_)            => []
+}
+
+/// Extract binder names from record-pattern fields `[(name, Pat)]`.
+/// Each field contributes its sub-pat's binders.
+fn cfv_pat_binds_fields(flds) = {
+  if flds.len == 0 { [] }
+  else {
+    let (_, sub_pat) = list_head(flds)
+    cfv_merge(cfv_pat_binds(sub_pat), cfv_pat_binds_fields(list_tail(flds)))
+  }
+}
+
+fn cfv_pat_binds_list(pats) = {
+  if pats.len == 0 { [] }
+  else {
+    cfv_merge(cfv_pat_binds(list_head(pats)), cfv_pat_binds_list(list_tail(pats)))
+  }
+}
+
+fn cfv_merge(a, b) = {
+  if b.len == 0 { a }
+  else {
+    let x = list_head(b)
+    let rest = list_tail(b)
+    if cfv_contains(a, x) { cfv_merge(a, rest) }
+    else { cfv_merge(a ++ [x], rest) }   // drift-audit: ignore — real drift 11 in cfv_* set-union family; buffer-counter rewrite adds Memory+Alloc to row rippling through callers; tracked for item 11.B buffer-counter sweep
+  }
+}
+
+fn cfv_contains(lst, s) = {
+  cfv_contains_loop(lst, s, 0, lst.len)
+}
+
+fn cfv_contains_loop(lst, s, i, n) = {
+  if i >= n { false }
+  else if str_eq(list_index(lst, i), s) { true }
+  else { cfv_contains_loop(lst, s, i + 1, n) }
+}
+
+// Expression list
+
+fn lower_expr_list(nodes) = {
+  if nodes.len == 0 { [] }
+  else { [lower_expr(list_head(nodes))] ++ lower_expr_list(list_tail(nodes)) }
+}
+
+/// Lower each value in a record-literal field list. Fields arrive
+/// sorted-by-name (parser invariant); position IS layout. The lowered
+/// list is in field-name sort order — emit reads it as the byte
+/// layout directly, no per-field lookup.
+fn lower_record_field_values(flds) = {
+  if flds.len == 0 { [] }
+  else {
+    let (_, value) = list_head(flds)
+    [lower_expr(value)] ++ lower_record_field_values(list_tail(flds))
+  }
+}
+
+/// W7.1 — called at `LambdaExpr` / `FnStmt` lower-time, BEFORE entering
+/// the new frame. Each free name is resolved against the CURRENT (enclosing)
+/// scope via `ls_resolve`:
+///   `RLocal`      — name is a local of the enclosing frame; capture loads its slot value.
+///   `RUpval(slot)` — name was itself captured; capture loads through `__state` offset.
+///   `RGlobal`     — name is a top-level symbol; NOT captured. Dropped from the list.
+///
+/// Returns `(captures_names, captures_exprs, captures_handles)` — parallel
+/// triples. `captures_names` feeds `ls_enter_frame`; `captures_exprs` feeds
+/// `LMakeClosure`'s heap-record materialization at emit time.
+fn resolve_captures_outer(names, owner_h) = {
+  if names.len == 0 { ([], [], []) }
+  else {
+    let name = list_head(names)
+    let (res, local_h) = perform ls_resolve(name)
+    let (rest_names, rest_exprs, rest_handles) =
+      resolve_captures_outer(list_tail(names), owner_h)
+    match res {
+      RGlobal => (rest_names, rest_exprs, rest_handles),
+      RLocal => (
+        [name] ++ rest_names,
+        [LLocal(local_h, name)] ++ rest_exprs,
+        [local_h] ++ rest_handles
+      ),
+      RUpval(slot) => (
+        [name] ++ rest_names,
+        [LUpval(local_h, slot)] ++ rest_exprs,
+        [local_h] ++ rest_handles
+      )
+    }
+  }
+}
+
+/// Pre-pass: collect every top-level name (`FnStmt`, `LetStmt`) and
+/// register as globals via `ls_register_globals`. Then walk stmts; each
+/// `FnStmt` / `LambdaExpr` pushes its own frame. `VarRef` resolution in
+/// lambda bodies correctly distinguishes local/upval/global.
+fn lower_program(stmts) = {
+  let globals = collect_top_level_names(stmts)
+  perform ls_register_globals(globals)
+  lower_stmt_list(stmts)
+}
+
+/// Ω.3 — top-level name collection uses the buffer substrate. The number
+/// of top-level statements is bounded by N (file size), so O(N) total
+/// allocation via `list_extend_to` + `list_set` + counter + `slice` —
+/// avoiding the O(N²) recursive accumulator pattern. The buffer threads
+/// through tail-recursion as `(buf, count)` because `list_extend_to`
+/// may return a fresh allocation if the current capacity is exceeded.
+fn collect_top_level_names(stmts) = {
+  let n = stmts.len
+  let initial_capacity = if n < 4 { 4 } else { n }
+  let buf = make_list(initial_capacity)
+  let (final_buf, final_count) = collect_top_level_names_loop(stmts, 0, n, buf, 0)
+  slice(final_buf, 0, final_count)
+}
+
+fn collect_top_level_names_loop(stmts, i, n, buf, count) = {
+  if i >= n { (buf, count) }
+  else {
+    let N(body, _, _) = list_index(stmts, i)
+    let (new_buf, new_count) = match body {
+      NStmt(FnStmt(name, _, _, _, _))    => push_name(buf, count, name),
+      NStmt(LetStmt(PVar(name), _))      => push_name(buf, count, name),
+      // DS — unwrap docstring to find the name inside
+      NStmt(Documented(_, N(NStmt(FnStmt(name, _, _, _, _)), _, _)))  => push_name(buf, count, name),
+      NStmt(Documented(_, N(NStmt(LetStmt(PVar(name), _)), _, _)))   => push_name(buf, count, name),
+      _                                  => (buf, count)
+    }
+    collect_top_level_names_loop(stmts, i + 1, n, new_buf, new_count)
+  }
+}
+
+fn push_name(buf, count, name) = {
+  let extended = list_extend_to(buf, count + 1)
+  let written  = list_set(extended, count, name)
+  (written, count + 1)
+}
+
+/// W7.1 lexical frame stack. State:
+///   `frames`  — list of frame records (head = current). Each frame is one
+///               lambda / fn body with locals + captures.
+///   `globals` — top-level name strings registered by `lower_program` at entry.
+///
+/// `ls_resolve(name)`: search current frame's locals (innermost-first via
+/// push/pop checkpoint truncation). If not found, current frame's captures.
+/// Otherwise `RGlobal`. Frames below the head are NEVER searched — they
+/// belong to the enclosing lambda, which is opaque at this lexical level.
+/// Names referenced across frame boundaries MUST be captured.
+// Frame shape (Ω.5): one record per frame, six fields. Sorted-set
+// for O(log N) membership; parallel insertion-ordered list for slot
+// positioning (LLocal / LUpval need positional indices). Same data
+// as the prior parallel-arrays form, structurally consolidated:
+//
+//   locals       — sorted set of local names (membership)
+//   local_order  — insertion-ordered list (slot index = position)
+//   local_handles — parallel to local_order, type handles per slot
+//   captures, capture_order, capture_handles — same shape, capture side
+//
+// Field-sort discipline (parser + mk_record): records are stored
+// alphabetically, so the WAT layout is captures(0), capture_handles(4),
+// capture_order(8), locals(12), local_handles(16), local_order(20).
+// Mentl source reads via .field — physical layout irrelevant.
+handler lower_scope with frames = [], globals = [] {
+  ls_enter_frame(locals_in, locals_h, captures_in, captures_h) => {
+    let frame = {
+      capture_handles: captures_h,
+      capture_order: captures_in,
+      captures: set_canonicalize(captures_in),
+      local_handles: locals_h,
+      local_order: locals_in,
+      locals: set_canonicalize(locals_in)
+    }
+    resume() with frames = [frame] ++ frames
+  },
+
+  ls_exit_frame() => {
+    if frames.len == 0 { resume() }
+    else {
+      resume()
+        with frames = list_tail(frames)
+    }
+  },
+
+  ls_push_scope() => {
+    if frames.len == 0 { resume(0) }
+    else {
+      let frame = list_head(frames)
+      resume(frame.local_order.len)
+    }
+  },
+
+  ls_pop_scope(checkpoint) => {
+    if frames.len == 0 { resume() }
+    else {
+      let frame = list_head(frames)
+      let truncated_order = list_take_n(frame.local_order, checkpoint)
+      let truncated_handles = list_take_n(frame.local_handles, checkpoint)
+      let updated = {
+        capture_handles: frame.capture_handles,
+        capture_order: frame.capture_order,
+        captures: frame.captures,
+        local_handles: truncated_handles,
+        local_order: truncated_order,
+        locals: set_canonicalize(truncated_order)
+      }
+      resume()
+        with frames = [updated] ++ list_tail(frames)
+    }
+  },
+
+  ls_bind_local(name, h) => {
+    if frames.len == 0 { resume(0) }
+    else {
+      let frame = list_head(frames)
+      let slot = frame.local_order.len
+      let updated = {
+        capture_handles: frame.capture_handles,
+        capture_order: frame.capture_order,
+        captures: frame.captures,
+        local_handles: frame.local_handles ++ [h],   // drift-audit: ignore — real drift 11 in frame record; buffer-counter conversion requires frame-record field restructure (local_handles + local_order both paired lists indexed by same slot); tracked for 11.C.2 frame-record substrate walkthrough
+        local_order: frame.local_order ++ [name],    // drift-audit: ignore — paired with line 1177 local_handles; same frame-record restructure; tracked for 11.C.2
+        locals: set_insert(frame.locals, name)
+      }
+      resume(slot)
+        with frames = [updated] ++ list_tail(frames)
+    }
+  },
+
+  ls_resolve(name) => {
+    if frames.len == 0 {
+      resume((RGlobal, 0))
+    } else {
+      let frame = list_head(frames)
+      // O(log N) membership; slot lookup falls back to the order list
+      // only when the name is actually present (the common case for
+      // an enclosed reference is local-or-capture, not global).
+      if set_contains(frame.locals, name) {
+        let local_idx = ls_find_in_order(frame.local_order, name, 0)
+        resume((RLocal, list_index(frame.local_handles, local_idx)))
+      } else if set_contains(frame.captures, name) {
+        let cap_idx = ls_find_in_order(frame.capture_order, name, 0)
+        resume((RUpval(cap_idx), list_index(frame.capture_handles, cap_idx)))
+      } else {
+        resume((RGlobal, 0))
+      }
+    }
+  },
+
+  ls_register_globals(names) => {
+    resume() with globals = names
+  }
+}
+
+/// Slot-index lookup once `set_contains` has confirmed membership.
+/// The set vouches the name is present; this loop locates its insertion
+/// position (slot index for `LLocal` / `LUpval`). Linear because order
+/// is insertion-keyed, not sort-keyed; bounded by frame size in practice.
+/// Only fires after a positive `set_contains`, so worst case is O(N)
+/// but expected case hits early since recently-bound names dominate.
+fn ls_find_in_order(lst, target, i) = {
+  ls_find_in_order_loop(lst, target, i, lst.len)
+}
+
+fn ls_find_in_order_loop(lst, target, i, n) = {
+  if i >= n { -1 }
+  else if str_eq(list_index(lst, i), target) { i }
+  else { ls_find_in_order_loop(lst, target, i + 1, n) }
+}
+
+fn list_take_n(lst, n) = {
+  if n == 0 { [] }
+  else { list_take_loop(lst, 0, n, make_list(n)) }
+}
+
+fn list_take_loop(lst, i, n, acc) = {
+  if i >= n { acc }
+  else {
+    list_take_loop(lst, i + 1, n, list_set(acc, i, list_index(lst, i)))
+  }
+}

@@ -30,18 +30,18 @@ Every ADT whose shape the substrate REASONS ABOUT structurally:
 
 | ADT              | Where declared       | Why load-bearing                                |
 |------------------|----------------------|------------------------------------------------|
-| `Ty`             | types.nx             | Every type-directed decision reads its shape   |
-| `NodeBody`       | types.nx             | AST walk discriminator; every pass matches     |
-| `Stmt`           | types.nx             | Statement-level variants (FnStmt, LetStmt, …)  |
-| `Expr`           | types.nx             | Expression-level variants (PipeExpr, VarRef, …)|
-| `Pat`            | types.nx             | Pattern-level variants                          |
-| `LowExpr`        | lower.nx             | LIR walk; every emit and analysis matches      |
-| `EffRow`         | types.nx             | Effect algebra's shape discriminator           |
-| `Reason`         | types.nx             | Why Engine rendering, graph reason-edge walk   |
-| `PipeKind`       | types.nx             | Verb dispatch in infer/lower                   |
-| `Annotation`     | mentl.nx             | Oracle candidate discriminator                 |
-| `Resolution`     | types.nx             | Scope resolution discriminator                 |
-| `NodeKind`       | types.nx             | Graph node kind (NFree, NBound, …)             |
+| `Ty`             | types.mn             | Every type-directed decision reads its shape   |
+| `NodeBody`       | types.mn             | AST walk discriminator; every pass matches     |
+| `Stmt`           | types.mn             | Statement-level variants (FnStmt, LetStmt, …)  |
+| `Expr`           | types.mn             | Expression-level variants (PipeExpr, VarRef, …)|
+| `Pat`            | types.mn             | Pattern-level variants                          |
+| `LowExpr`        | lower.mn             | LIR walk; every emit and analysis matches      |
+| `EffRow`         | types.mn             | Effect algebra's shape discriminator           |
+| `Reason`         | types.mn             | Why Engine rendering, graph reason-edge walk   |
+| `PipeKind`       | types.mn             | Verb dispatch in infer/lower                   |
+| `Annotation`     | mentl.mn             | Oracle candidate discriminator                 |
+| `Resolution`     | types.mn             | Scope resolution discriminator                 |
+| `NodeKind`       | types.mn             | Graph node kind (NFree, NBound, …)             |
 
 Any `match x { … _ => Y }` where `x` is one of these and `Y` is a
 fabricated non-identity value is a LATENT BUG at the point a new
@@ -51,7 +51,7 @@ variant ships.
 
 ## Simulation 1 — the fabricated-value trap
 
-**Today, mentl.nx:424:**
+**Today, mentl.mn:424:**
 
 ```
 fn extract_row(ty) = match ty {
@@ -63,7 +63,7 @@ fn extract_row(ty) = match ty {
 *Trace (role-play as Mentl):*
 
 > A new `Ty` variant ships — say `TLazy(Ty)` for thunked values,
-> added to types.nx. It carries its own effect row because thunks
+> added to types.mn. It carries its own effect row because thunks
 > can force effects at observation time. But `extract_row` matches
 > `_ => EfPure` — so every `TLazy(...)` handle whose row was meant
 > to be non-trivial now reads as `EfPure` in `teach_synthesize`'s
@@ -100,7 +100,7 @@ needs a distinct extraction.
 
 ## Simulation 2 — the silent-identity trap
 
-**Today, infer.nx:1145 (chase_deep):**
+**Today, infer.mn:1145 (chase_deep):**
 
 ```
 fn chase_deep(ty) = match ty {
@@ -135,16 +135,16 @@ always a HIDDEN DECISION — forcing the enumeration surfaces the
 decision at variant-add time.
 
 Same pattern applies to:
-- `infer.nx:1157` (another chase variant)
-- `infer.nx:1188` (free_in_ty)
-- `infer.nx:1248` (subst_ty)
-- `graph.nx:338` (occurs_in — most dangerous; missed occurs → infinite types)
+- `infer.mn:1157` (another chase variant)
+- `infer.mn:1188` (free_in_ty)
+- `infer.mn:1248` (subst_ty)
+- `graph.mn:338` (occurs_in — most dangerous; missed occurs → infinite types)
 
 ---
 
 ## Simulation 3 — the stub-is-silence trap
 
-**Today, infer.nx:518:**
+**Today, infer.mn:518:**
 
 ```
 fn infer_expr(node) =
@@ -175,17 +175,17 @@ For unanticipated cases, emit `E_NotHandled` with the variant
 name — a failure mode with coordinates, not silence.
 
 Same pattern applies to:
-- `infer.nx:1078` (infer_pat — new Pat variants silently ignored)
-- `own.nx:355` (count_uses — new NExpr silently has zero uses of any name)
-- `own.nx:281` (walk_return_positions — new NExpr silently doesn't return refs)
-- `lower.nx:628` (cfv_expr — new NExpr silently captures nothing)
-- `lower.nx:676` (lower_expr_body fallback — new Expr silently lowers to LConst(0))
+- `infer.mn:1078` (infer_pat — new Pat variants silently ignored)
+- `own.mn:355` (count_uses — new NExpr silently has zero uses of any name)
+- `own.mn:281` (walk_return_positions — new NExpr silently doesn't return refs)
+- `lower.mn:628` (cfv_expr — new NExpr silently captures nothing)
+- `lower.mn:676` (lower_expr_body fallback — new Expr silently lowers to LConst(0))
 
 ---
 
 ## Simulation 4 — the LIR-backend trap
 
-**Today, backends/wasm.nx:342 (and 619, 692):**
+**Today, backends/wasm.mn:342 (and 619, 692):**
 
 ```
 fn collect_fn_names_expr(expr, acc) = match expr {
@@ -219,7 +219,7 @@ COMPILE TIME rather than at runtime-trap time.
 
 ## Simulation 5 — the identity-preserve case (SAFE — keep)
 
-**Today, graph.nx:265:**
+**Today, graph.mn:265:**
 
 ```
 fn merge_row(names, row) = match row {
@@ -255,65 +255,65 @@ carry a comment naming what "leave unchanged" means.
 
 | File:line                    | Match subject | Current arm | Simulation of new variant | Priority |
 |------------------------------|---------------|-------------|---------------------------|----------|
-| mentl.nx:424                 | `Ty`          | `_ => EfPure` | New `Ty` → row silently Pure | HIGH |
-| pipeline.nx:295              | `Ty`          | `_ => "Pure"` | New `Ty` → diagnostic says Pure | HIGH |
-| infer.nx:1135                | `NodeKind`    | `_ => Forall([], TVar(handle))` | Fabricated scheme | HIGH (CLAUDE.md-named) |
-| infer.nx:1145                | `Ty`          | `_ => ty` | New `Ty` with sub-types → stale handles | HIGH |
-| infer.nx:1157                | `Ty`          | `_ => ty` | Same as above | HIGH |
-| infer.nx:1188                | `Ty`          | `_ => []` | New `Ty` with TVars → missing free-var inference | HIGH |
-| infer.nx:1248                | `Ty`          | `_ => ty` | New `Ty` subst-blind | HIGH |
-| graph.nx:338                 | `Ty`          | `_ => false` | occurs_in misses new shape → infinite types | CRITICAL |
-| infer.nx:518                 | `NodeBody`    | `_ => ()` | New `Expr` never inferred | HIGH |
-| infer.nx:1078                | `Pat`         | `_ => ()` | New `Pat` silently unbinds | HIGH |
-| own.nx:281                   | `NodeBody`    | `_ => ()` | New `Expr` can't escape-check | HIGH |
-| own.nx:355                   | `NodeBody`    | `_ => 0`  | New `Expr` has zero own-uses | HIGH |
-| lower.nx:362                 | `NodeBody`    | `_ => LConst(handle, LInt(0))` | New body-kind → integer zero emitted | HIGH |
-| lower.nx:378                 | `Pat`         | `_ => lo` | New `Pat` doesn't bind name | MEDIUM |
-| lower.nx:446                 | `Pat`         | `_ => ()` | New `Pat` unbound in cfv | MEDIUM |
-| lower.nx:628                 | `Expr`        | `_ => []` | New `Expr` captures nothing | HIGH |
-| lower.nx:635                 | `Stmt`        | `_ => []` | New `Stmt` captures nothing | HIGH |
-| lower.nx:676                 | `Expr`        | `_ => { LConst(h, LInt(0)) }` | New `Expr` lowers to 0 | HIGH |
-| lower.nx:718                 | `Pat`         | `_ => []` | New `Pat` binds nothing | MEDIUM |
-| lower.nx:806                 | `NodeBody`    | `_ => acc` | New top-level stmt kind not indexed | MEDIUM |
-| backends/wasm.nx:342         | `LowExpr`     | `_ => acc` | New `LowExpr` invisible to fn table | HIGH |
-| backends/wasm.nx:359         | `LowExpr`     | `_ => ""`  | New top-level kind has no name | MEDIUM |
-| backends/wasm.nx:512         | `LowExpr`     | `_ => 0` | New `LowExpr` doesn't count arity | HIGH |
-| backends/wasm.nx:619         | `LowExpr`     | `_ => ()` | New `LowExpr` not emitted to fn table | HIGH |
-| backends/wasm.nx:692         | `LowExpr`     | `_ => ()` | New `LowExpr` doesn't declare locals | HIGH |
-| infer.nx:883                 | `Ty`          | `_ => false` | expect_same misses new primitive | MEDIUM |
-| infer.nx:944                 | `Ty`          | `_ => arity_mismatch(...)` | Non-tuple type → arity error | BOUNDARY |
+| mentl.mn:424                 | `Ty`          | `_ => EfPure` | New `Ty` → row silently Pure | HIGH |
+| pipeline.mn:295              | `Ty`          | `_ => "Pure"` | New `Ty` → diagnostic says Pure | HIGH |
+| infer.mn:1135                | `NodeKind`    | `_ => Forall([], TVar(handle))` | Fabricated scheme | HIGH (CLAUDE.md-named) |
+| infer.mn:1145                | `Ty`          | `_ => ty` | New `Ty` with sub-types → stale handles | HIGH |
+| infer.mn:1157                | `Ty`          | `_ => ty` | Same as above | HIGH |
+| infer.mn:1188                | `Ty`          | `_ => []` | New `Ty` with TVars → missing free-var inference | HIGH |
+| infer.mn:1248                | `Ty`          | `_ => ty` | New `Ty` subst-blind | HIGH |
+| graph.mn:338                 | `Ty`          | `_ => false` | occurs_in misses new shape → infinite types | CRITICAL |
+| infer.mn:518                 | `NodeBody`    | `_ => ()` | New `Expr` never inferred | HIGH |
+| infer.mn:1078                | `Pat`         | `_ => ()` | New `Pat` silently unbinds | HIGH |
+| own.mn:281                   | `NodeBody`    | `_ => ()` | New `Expr` can't escape-check | HIGH |
+| own.mn:355                   | `NodeBody`    | `_ => 0`  | New `Expr` has zero own-uses | HIGH |
+| lower.mn:362                 | `NodeBody`    | `_ => LConst(handle, LInt(0))` | New body-kind → integer zero emitted | HIGH |
+| lower.mn:378                 | `Pat`         | `_ => lo` | New `Pat` doesn't bind name | MEDIUM |
+| lower.mn:446                 | `Pat`         | `_ => ()` | New `Pat` unbound in cfv | MEDIUM |
+| lower.mn:628                 | `Expr`        | `_ => []` | New `Expr` captures nothing | HIGH |
+| lower.mn:635                 | `Stmt`        | `_ => []` | New `Stmt` captures nothing | HIGH |
+| lower.mn:676                 | `Expr`        | `_ => { LConst(h, LInt(0)) }` | New `Expr` lowers to 0 | HIGH |
+| lower.mn:718                 | `Pat`         | `_ => []` | New `Pat` binds nothing | MEDIUM |
+| lower.mn:806                 | `NodeBody`    | `_ => acc` | New top-level stmt kind not indexed | MEDIUM |
+| backends/wasm.mn:342         | `LowExpr`     | `_ => acc` | New `LowExpr` invisible to fn table | HIGH |
+| backends/wasm.mn:359         | `LowExpr`     | `_ => ""`  | New top-level kind has no name | MEDIUM |
+| backends/wasm.mn:512         | `LowExpr`     | `_ => 0` | New `LowExpr` doesn't count arity | HIGH |
+| backends/wasm.mn:619         | `LowExpr`     | `_ => ()` | New `LowExpr` not emitted to fn table | HIGH |
+| backends/wasm.mn:692         | `LowExpr`     | `_ => ()` | New `LowExpr` doesn't declare locals | HIGH |
+| infer.mn:883                 | `Ty`          | `_ => false` | expect_same misses new primitive | MEDIUM |
+| infer.mn:944                 | `Ty`          | `_ => arity_mismatch(...)` | Non-tuple type → arity error | BOUNDARY |
 
 ### SAFE (keep; add one-line comment naming contract)
 
 | File:line                    | Match subject | Arm           | Contract                                           |
 |------------------------------|---------------|---------------|----------------------------------------------------|
-| graph.nx:235, 242, 244, 255  | `NodeKind`/`Ty`| `_ => chased` / `_ => GNode(kind, reason)` | Identity preserve — chase terminates on non-indirection |
-| graph.nx:265                 | `EffRow`      | `_ => row`    | Merge has no slot for this row shape — structure preserved |
-| effects.nx:131               | `EffRow`      | `_ => EfNeg(row)` | Default negation for non-algebraic rows |
-| effects.nx:155,157,174,176,178 | `EffRow`    | `_ => EfInter(a, b)` | Deferred intersection — algebra can't simplify |
-| effects.nx:269,275,282,292,294| `EffRow`     | `_ => false`  | Subsumption refuses to prove what isn't provable |
-| effects.nx:332,346,368,370   | `EffRow`      | `_ => unify_row_canonical(normalize_row(...), ...)` | Re-enter via canonicalization |
-| infer.nx:1425                | `Ty`          | `_ => []`     | Non-function types have no effect row names |
-| infer.nx:1434                | `EffRow`      | `_ => []`     | Non-named rows have no names |
-| infer.nx:1440                | `NodeKind`    | `_ => EfPure` | Unresolved row handle defaults to Pure for read |
-| infer.nx:572, 639            | `GNode`       | `_ => ()`     | Non-NRowBound chase results: row isn't resolved yet |
-| infer.nx:597                 | `NodeKind`    | `_ => { … }`  | Fallback branch for non-TFun op types — reports diagnostic |
-| infer.nx:865, 883            | `Ty`          | `_ => type_mismatch(...)` | Explicit mismatch — the DOCUMENTED fallback |
-| mentl.nx:142, 144            | `NodeKind`    | `_ => None`   | gradient_next returns None when handle isn't a fn |
-| mentl.nx:209                 | `Ty`          | `_ => ()`     | narrow_row: only narrow TFun rows; no-op for others |
-| mentl.nx:347                 | `Reason`      | `_ => reason` | why_expand identity-preserves leaves |
-| mentl.nx:376                 | `NodeKind`    | `_ => resume(false)` | verify_after_apply: only NBound proves; else false |
-| mentl.nx:418                 | (proven list) | `_ => None`   | No proven annotations → None |
-| mentl.nx:465                 | String        | `_ => "Unknown error code: …"` | Explicit unknown — the DOCUMENTED fallback |
-| own.nx:251                   | `Own`         | `_ => collect_ref_params_loop(...)` | Non-Ref ownership: skip in ref-param collection |
-| own.nx:312                   | `Own`         | `_ => own`    | Preserve Own/Ref markers; only Inferred is reclassified |
-| pipeline.nx:250, 284         | `NodeBody`    | `_ => []`     | Query iterator: only top-level FnStmts contribute |
-| pipeline.nx:344, 348, 354, 356 | String      | `_ => QUnknown(q)` | Explicit unknown query variant |
-| lower.nx:144                 | `Ty`          | `_ => true`   | monomorphic_at: non-function types are trivially monomorphic |
-| lower.nx:319                 | `LowExpr`     | `_ => [LCall(...)]` | Single-branch `<\|` — treat as one LCall |
-| lower.nx:340                 | `Ty`          | `_ => 0`      | Field offset lookup: non-record types → 0 |
-| lower.nx:569                 | `NodeBody`    | `_ => []`     | cfv_node: NPat/NHole contribute no free vars |
-| backends/wasm.nx:1071, 1083  | String        | `_ => { … }`  | Unknown binop/unaryop — diagnostic comment |
+| graph.mn:235, 242, 244, 255  | `NodeKind`/`Ty`| `_ => chased` / `_ => GNode(kind, reason)` | Identity preserve — chase terminates on non-indirection |
+| graph.mn:265                 | `EffRow`      | `_ => row`    | Merge has no slot for this row shape — structure preserved |
+| effects.mn:131               | `EffRow`      | `_ => EfNeg(row)` | Default negation for non-algebraic rows |
+| effects.mn:155,157,174,176,178 | `EffRow`    | `_ => EfInter(a, b)` | Deferred intersection — algebra can't simplify |
+| effects.mn:269,275,282,292,294| `EffRow`     | `_ => false`  | Subsumption refuses to prove what isn't provable |
+| effects.mn:332,346,368,370   | `EffRow`      | `_ => unify_row_canonical(normalize_row(...), ...)` | Re-enter via canonicalization |
+| infer.mn:1425                | `Ty`          | `_ => []`     | Non-function types have no effect row names |
+| infer.mn:1434                | `EffRow`      | `_ => []`     | Non-named rows have no names |
+| infer.mn:1440                | `NodeKind`    | `_ => EfPure` | Unresolved row handle defaults to Pure for read |
+| infer.mn:572, 639            | `GNode`       | `_ => ()`     | Non-NRowBound chase results: row isn't resolved yet |
+| infer.mn:597                 | `NodeKind`    | `_ => { … }`  | Fallback branch for non-TFun op types — reports diagnostic |
+| infer.mn:865, 883            | `Ty`          | `_ => type_mismatch(...)` | Explicit mismatch — the DOCUMENTED fallback |
+| mentl.mn:142, 144            | `NodeKind`    | `_ => None`   | gradient_next returns None when handle isn't a fn |
+| mentl.mn:209                 | `Ty`          | `_ => ()`     | narrow_row: only narrow TFun rows; no-op for others |
+| mentl.mn:347                 | `Reason`      | `_ => reason` | why_expand identity-preserves leaves |
+| mentl.mn:376                 | `NodeKind`    | `_ => resume(false)` | verify_after_apply: only NBound proves; else false |
+| mentl.mn:418                 | (proven list) | `_ => None`   | No proven annotations → None |
+| mentl.mn:465                 | String        | `_ => "Unknown error code: …"` | Explicit unknown — the DOCUMENTED fallback |
+| own.mn:251                   | `Own`         | `_ => collect_ref_params_loop(...)` | Non-Ref ownership: skip in ref-param collection |
+| own.mn:312                   | `Own`         | `_ => own`    | Preserve Own/Ref markers; only Inferred is reclassified |
+| pipeline.mn:250, 284         | `NodeBody`    | `_ => []`     | Query iterator: only top-level FnStmts contribute |
+| pipeline.mn:344, 348, 354, 356 | String      | `_ => QUnknown(q)` | Explicit unknown query variant |
+| lower.mn:144                 | `Ty`          | `_ => true`   | monomorphic_at: non-function types are trivially monomorphic |
+| lower.mn:319                 | `LowExpr`     | `_ => [LCall(...)]` | Single-branch `<\|` — treat as one LCall |
+| lower.mn:340                 | `Ty`          | `_ => 0`      | Field offset lookup: non-record types → 0 |
+| lower.mn:569                 | `NodeBody`    | `_ => []`     | cfv_node: NPat/NHole contribute no free vars |
+| backends/wasm.mn:1071, 1083  | String        | `_ => { … }`  | Unknown binop/unaryop — diagnostic comment |
 
 ---
 
@@ -327,7 +327,7 @@ carry a comment naming what "leave unchanged" means.
 
 4. **Add a verification invariant.** At the end of H6, every wildcard in std/compiler/ either (a) has been enumerated or (b) carries a comment naming its contract. `grep -rn "_ =>"` across std/compiler/ returns only arms with contract comments — a greppable audit rule.
 
-5. **Runtime files (std/runtime/)** are out of scope for H6 unless they have load-bearing ADT matches. Quick sweep confirms they don't — lists.nx and strings.nx operate on scalar structures.
+5. **Runtime files (std/runtime/)** are out of scope for H6 unless they have load-bearing ADT matches. Quick sweep confirms they don't — lists.mn and strings.mn operate on scalar structures.
 
 ---
 

@@ -1,6 +1,6 @@
 # 08 — Query: forensic substrate for the live graph
 
-**Purpose.** One subcommand, `inka query <file> <question>`, that runs
+**Purpose.** One subcommand, `mentl query <file> <question>`, that runs
 lex + parse + infer on a single file and answers forensic questions
 against the resulting Graph. Sub-second per query. Substrate for
 Arc F.2 (the Mentl-voice surface and its LSP projection — every LSP
@@ -55,7 +55,7 @@ effect Query {
 }
 ```
 
-Installed at `inka query` entry point. The handler declares
+Installed at `mentl query` entry point. The handler declares
 `with GraphRead + EnvRead + FreshHandle`. Read-only by
 construction: no `GraphWrite` / `EnvWrite` in scope means
 `perform graph_bind` or `perform env_extend` fails type-check at
@@ -168,7 +168,7 @@ graph already knows why the handle was bound; query just reads it.
 ## CLI integration
 
 ```lux
-// std/main.nx
+// std/main.mn
 match argv[0] {
   "check"   => lux_check(argv[1]),
   "wasm"    => lux_wasm(argv[1]),
@@ -222,11 +222,11 @@ as JSON-RPC responses.
 
 ## Performance target
 
-`inka query std/compiler/own.nx "type of check_return_pos"` returns in
+`mentl query std/compiler/own.mn "type of check_return_pos"` returns in
 < 1s on a mid-tier laptop.
 
 Bottleneck: lex + parse + infer of one file (not the whole program).
-For the 200-line own.nx, a single-file inference pass is well under
+For the 200-line own.mn, a single-file inference pass is well under
 1s; stage2's ~75s cost is the full pipeline including lowering +
 wasm emit, none of which query needs.
 
@@ -240,9 +240,9 @@ via spec 00).
 ## Consumed by
 
 - Arc F.2 — LSP handler wraps Query + JSON-RPC.
-- Every future forensic session — `inka query` is the default first-
+- Every future forensic session — `mentl query` is the default first-
   line tool after preflight. Commitment #10: "after every rebuild
-  commit, inka query on at least one of the changed modules."
+  commit, mentl query on at least one of the changed modules."
 
 ---
 

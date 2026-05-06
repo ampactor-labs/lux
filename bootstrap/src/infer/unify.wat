@@ -57,7 +57,7 @@
   ;;
   ;; ═══ DESIGN ═══════════════════════════════════════════════════════
   ;;
-  ;; What unification IS. Per DESIGN.md §0.5 + src/types.nx:21: the
+  ;; What unification IS. Per DESIGN.md §0.5 + src/types.mn:21: the
   ;; graph IS the substitution. There is no Algorithm-W (subst, type)
   ;; tuple threaded through unification; there is no constraint set;
   ;; there is no UnifyM monad. $unify(h_a, h_b, span, reason) walks the
@@ -92,7 +92,7 @@
   ;; lands. Seed unifies BASE TYPES of paired TRefined arms only; TRefined
   ;; vs non-TRefined unwraps the LEFT base and recurses.
   ;;
-  ;; Symmetric arms. Per src/infer.nx:1083 et al: when LEFT side of
+  ;; Symmetric arms. Per src/infer.mn:1083 et al: when LEFT side of
   ;; $unify_types is non-TVar and RIGHT is TVar(_), the canonical
   ;; algorithm recurses with arguments flipped — `unify_types(b, a, ...)`.
   ;; This compresses what would otherwise be N copies of TVar-handling
@@ -191,7 +191,7 @@
 
   ;; ─── $unify — entry-point dispatch ───────────────────────────────
   ;;
-  ;; Per src/infer.nx:1038-1058 + Hβ-infer-substrate.md §3:
+  ;; Per src/infer.mn:1038-1058 + Hβ-infer-substrate.md §3:
   ;; identity short-circuit; chase both handles; dispatch on
   ;; (NodeKind_a, NodeKind_b).
   ;;
@@ -208,7 +208,7 @@
     (local $ta i32) (local $tb i32)
     (local $located i32)
 
-    ;; Identity short-circuit (src/infer.nx:1039)
+    ;; Identity short-circuit (src/infer.mn:1039)
     (if (i32.eq (local.get $h_a) (local.get $h_b))
       (then (return)))
 
@@ -221,7 +221,7 @@
       (local.get $span) (local.get $reason)))
 
     ;; ka = NFree (61): bind h_a → TVar(h_b) regardless of kb
-    ;; (src/infer.nx:1046-1047)
+    ;; (src/infer.mn:1046-1047)
     (if (i32.eq (local.get $ka) (i32.const 61))
       (then
         (call $graph_bind (local.get $h_a)
@@ -248,10 +248,10 @@
               (local.get $ta) (local.get $tb)
               (local.get $span) (local.get $reason))
             (return)))
-        ;; kb = NErrorHole / NRowBound / NRowFree: no-op per src/infer.nx:1052-1053
+        ;; kb = NErrorHole / NRowBound / NRowFree: no-op per src/infer.mn:1052-1053
         (return)))
 
-    ;; ka = NErrorHole (64): no-op (src/infer.nx:1055)
+    ;; ka = NErrorHole (64): no-op (src/infer.mn:1055)
     (if (i32.eq (local.get $ka) (i32.const 64))
       (then (return)))
 
@@ -273,7 +273,7 @@
 
   ;; ─── $unify_types — 14-arm shape dispatcher ──────────────────────
   ;;
-  ;; Per src/infer.nx:1060-1175. Dispatches on Ty's tag (100-113) for
+  ;; Per src/infer.mn:1060-1175. Dispatches on Ty's tag (100-113) for
   ;; the LEFT side; each arm handles RIGHT-side cases. TVar on the right
   ;; is handled in each compound arm by recursive flip.
   ;;
@@ -318,7 +318,7 @@
         (return)))
 
     ;; ── 104 TVar(ha) ────────────────────────────────────────────────
-    ;; Per src/infer.nx:1067-1078:
+    ;; Per src/infer.mn:1067-1078:
     ;;   if b is TVar(hb) → $unify on the two handles
     ;;   else            → occurs-check; bind ha → b (or emit on cycle)
     (if (i32.eq (local.get $ta) (i32.const 104))
@@ -343,7 +343,7 @@
         (return)))
 
     ;; ── 105 TList(ea) ──────────────────────────────────────────────
-    ;; Per src/infer.nx:1080-1085. Element recursion threads
+    ;; Per src/infer.mn:1080-1085. Element recursion threads
     ;; ListElement(reason) Reason rewrap.
     (if (i32.eq (local.get $ta) (i32.const 105))
       (then
@@ -366,7 +366,7 @@
         (return)))
 
     ;; ── 106 TTuple(ea) ─────────────────────────────────────────────
-    ;; Per src/infer.nx:1087-1092. Element-list pairwise unification.
+    ;; Per src/infer.mn:1087-1092. Element-list pairwise unification.
     (if (i32.eq (local.get $ta) (i32.const 106))
       (then
         (local.set $tb (call $ty_tag (local.get $b)))
@@ -387,7 +387,7 @@
         (return)))
 
     ;; ── 107 TFun(pa, ra, ea) ───────────────────────────────────────
-    ;; Per src/infer.nx:1094-1111. Three-step structural unification:
+    ;; Per src/infer.mn:1094-1111. Three-step structural unification:
     ;;   $pair_fn_params  — DESIGN Ch 2 Insight 7 tuple-decomposition
     ;;   $unify_types     — return types with FnReturn("fn", reason) Reason
     ;;   row preserved    — see DESIGN Row-preservation paragraph above
@@ -423,7 +423,7 @@
         (return)))
 
     ;; ── 108 TName(name, args) ──────────────────────────────────────
-    ;; Per src/infer.nx:1113-1121. Nominal equality — name-string match
+    ;; Per src/infer.mn:1113-1121. Nominal equality — name-string match
     ;; (structural payload comparison via $str_eq, NOT flag-as-string
     ;; per drift mode 8) + arg-list unification.
     (if (i32.eq (local.get $ta) (i32.const 108))
@@ -454,7 +454,7 @@
         (return)))
 
     ;; ── 109 TRecord(fields) ────────────────────────────────────────
-    ;; Per src/infer.nx:1123-1130. Closed × closed → pointwise; closed ×
+    ;; Per src/infer.mn:1123-1130. Closed × closed → pointwise; closed ×
     ;; open → open-side subset must appear in closed.
     (if (i32.eq (local.get $ta) (i32.const 109))
       (then
@@ -484,7 +484,7 @@
         (return)))
 
     ;; ── 110 TRecordOpen(fields, rowvar) ────────────────────────────
-    ;; Per src/infer.nx:1132-1140. Mirror of TRecord arm.
+    ;; Per src/infer.mn:1132-1140. Mirror of TRecord arm.
     (if (i32.eq (local.get $ta) (i32.const 110))
       (then
         (local.set $tb (call $ty_tag (local.get $b)))
@@ -515,7 +515,7 @@
         (return)))
 
     ;; ── 111 TRefined(base, pred) ───────────────────────────────────
-    ;; Per src/infer.nx:1142-1152 + DESIGN Refinement-composition above.
+    ;; Per src/infer.mn:1142-1152 + DESIGN Refinement-composition above.
     ;; Both-TRefined: unify bases (predicate composition is the named
     ;; Hβ.infer.refinement-compose follow-up). TRefined × non-TRefined:
     ;; unwrap LEFT base + recurse.
@@ -536,7 +536,7 @@
         (return)))
 
     ;; ── 112 TCont(ret, disc) ───────────────────────────────────────
-    ;; Per src/infer.nx:1154-1159. Discipline opaque carry per src/infer.nx:1156
+    ;; Per src/infer.mn:1154-1159. Discipline opaque carry per src/infer.mn:1156
     ;; (canonical also unifies returns only at this layer).
     (if (i32.eq (local.get $ta) (i32.const 112))
       (then
@@ -558,7 +558,7 @@
         (return)))
 
     ;; ── 113 TAlias(name, resolved) ─────────────────────────────────
-    ;; Per src/infer.nx:1161-1167. RN.2 unification alias preservation:
+    ;; Per src/infer.mn:1161-1167. RN.2 unification alias preservation:
     ;; b TVar → flip; b TAlias → pair resolved bodies; else → unwrap
     ;; LEFT alias + recurse with (resolved_a, b).
     (if (i32.eq (local.get $ta) (i32.const 113))
@@ -586,7 +586,7 @@
 
   ;; ─── $expect_same — ground-equality + TVar-on-right ──────────────
   ;;
-  ;; Per src/infer.nx:1177-1183. If b is TVar(hb), bind hb → a; else
+  ;; Per src/infer.mn:1177-1183. If b is TVar(hb), bind hb → a; else
   ;; check $same_ground(a, b); on mismatch route through $type_mismatch.
   (func $expect_same (param $a i32) (param $b i32)
                       (param $span i32) (param $reason i32)
@@ -606,7 +606,7 @@
 
   ;; ─── $same_ground — H6 exhaustive Ty enumeration ─────────────────
   ;;
-  ;; Per src/infer.nx:1189-1205. Ground scalars (100-103) match their
+  ;; Per src/infer.mn:1189-1205. Ground scalars (100-103) match their
   ;; same-variant; compound types (104-113) return 0 — same_ground does
   ;; NOT recurse. unify_types handles structural recursion separately.
   ;;
@@ -639,7 +639,7 @@
 
   ;; ─── $type_mismatch — Hazel productive-under-error: emit + bind ──
   ;;
-  ;; Per src/infer.nx:1536-1541 + DESIGN Hazel-productive-under-error
+  ;; Per src/infer.mn:1536-1541 + DESIGN Hazel-productive-under-error
   ;; paragraph above. The canonical algorithm uses `perform report(...)`
   ;; which doesn't itself bind a handle — but the seed's emit_diag.wat
   ;; helper bakes "emit + bind to NErrorHole(UnifyFailed)" together,
@@ -658,7 +658,7 @@
 
   ;; ─── $arity_mismatch — function param-count diagnostic ───────────
   ;;
-  ;; Per src/infer.nx:1527-1534. Constructs a stderr message; does NOT
+  ;; Per src/infer.mn:1527-1534. Constructs a stderr message; does NOT
   ;; bind to NErrorHole (canonical uses `perform report(...)` only —
   ;; control-level signal, not a handle being typed). $span dropped to
   ;; satisfy WAT.
@@ -678,7 +678,7 @@
 
   ;; ─── $occurs_in — handle-in-Ty membership via $free_in_ty ────────
   ;;
-  ;; Per src/infer.nx canonical occurs-check (and Hβ-infer-substrate.md
+  ;; Per src/infer.mn canonical occurs-check (and Hβ-infer-substrate.md
   ;; §3 cycle prevention). $free_in_ty walks the Ty's structure; we
   ;; linear-scan its handle-list for $h.
   (func $occurs_in (param $h i32) (param $ty i32) (result i32)
@@ -698,7 +698,7 @@
 
   ;; ─── $unify_type_lists — pairwise list unification ───────────────
   ;;
-  ;; Per src/infer.nx:1207-1221. Used by TTuple + TName arms. Both
+  ;; Per src/infer.mn:1207-1221. Used by TTuple + TName arms. Both
   ;; empty → ok; arity mismatch → emit on stderr (control-level
   ;; signal, no NErrorHole); both non-empty → flat-index pairwise
   ;; recursion.
@@ -739,7 +739,7 @@
 
   ;; ─── $unify_param_lists — pairwise TParam unification ────────────
   ;;
-  ;; Per src/infer.nx:1452-1459. Same shape as $unify_type_lists but
+  ;; Per src/infer.mn:1452-1459. Same shape as $unify_type_lists but
   ;; reaches through $tparam_ty for each entry's type.
   (func $unify_param_lists (param $a i32) (param $b i32)
                              (param $span i32) (param $reason i32)
@@ -765,7 +765,7 @@
 
   ;; ─── $pair_fn_params — DESIGN Ch 2 Insight 7: Parameters ARE tuples
   ;;
-  ;; Per src/infer.nx:1472-1478. Three structural cases:
+  ;; Per src/infer.mn:1472-1478. Three structural cases:
   ;;   la == lb        — pair positionally
   ;;   la == 1         — single LEFT param decomposed against many RIGHT
   ;;   lb == 1         — single RIGHT param decomposed against many LEFT
@@ -798,7 +798,7 @@
 
   ;; ─── $try_tuple_decompose — single-param × many-params reconciliation
   ;;
-  ;; Per src/infer.nx:1485-1500. Three structural cases for the single
+  ;; Per src/infer.mn:1485-1500. Three structural cases for the single
   ;; param's type:
   ;;   TTuple(elems) of matching arity — pairwise element/param unify
   ;;   TVar(_)                          — bind TVar → TTuple(many param types)
@@ -835,7 +835,7 @@
 
   ;; ─── $unify_tuple_elems_with_params — pairwise tuple-elem × TParam-ty
   ;;
-  ;; Per src/infer.nx:1504-1511. Flat-index loop avoids snoc-walk
+  ;; Per src/infer.mn:1504-1511. Flat-index loop avoids snoc-walk
   ;; allocation on either input.
   (func $unify_tuple_elems_with_params (param $elems i32) (param $params i32)
                                           (param $span i32) (param $reason i32)
@@ -852,7 +852,7 @@
 
   ;; ─── $param_types_flat — fresh tag-0 list of TParam types ────────
   ;;
-  ;; Per src/infer.nx:1516-1525. O(N) flat-list construction via
+  ;; Per src/infer.mn:1516-1525. O(N) flat-list construction via
   ;; pre-sized buffer + $list_set; result is tag-0 (flat); subsequent
   ;; $list_index is O(1).
   (func $param_types_flat (param $params i32) (result i32)
@@ -873,7 +873,7 @@
 
   ;; ─── $unify_record_fields_closed — closed × closed entry ─────────
   ;;
-  ;; Per src/infer.nx:1229-1234. Length equality precondition; on
+  ;; Per src/infer.mn:1229-1234. Length equality precondition; on
   ;; mismatch wrap as TRecord and route through $type_mismatch (so the
   ;; emit_diag.wat helper sees a stable Ty pair — drift-7-clean).
   (func $unify_record_fields_closed (param $fa i32) (param $fb i32)
@@ -892,7 +892,7 @@
 
   ;; ─── $unify_record_fields_loop — pointwise field-pair unification
   ;;
-  ;; Per src/infer.nx:1236-1247. Both lists arrive sorted (parser +
+  ;; Per src/infer.mn:1236-1247. Both lists arrive sorted (parser +
   ;; smart-constructor invariant). On name-mismatch route through
   ;; $type_mismatch on the whole TRecord pair.
   (func $unify_record_fields_loop (param $fa i32) (param $fb i32)
@@ -923,7 +923,7 @@
 
   ;; ─── $unify_record_open_against_closed — open-side rowvar binding
   ;;
-  ;; Per src/infer.nx:1249-1256. Open-side fields must subset closed-
+  ;; Per src/infer.mn:1249-1256. Open-side fields must subset closed-
   ;; side; rowvar binds to the residual (closed-only) fields wrapped as
   ;; a TRecord row.
   (func $unify_record_open_against_closed
@@ -945,7 +945,7 @@
 
   ;; ─── $unify_record_open_subset — open ⊆ closed check + unify ─────
   ;;
-  ;; Per src/infer.nx:1258-1270. Linear-scan each needed field's
+  ;; Per src/infer.mn:1258-1270. Linear-scan each needed field's
   ;; presence in available; on miss → $type_mismatch (TRecord wrappers
   ;; preserve drift-7 record-shape discipline).
   (func $unify_record_open_subset (param $needed i32) (param $available i32)
@@ -981,7 +981,7 @@
 
   ;; ─── $unify_two_open_records — open × open intersection + dual bind
   ;;
-  ;; Per src/infer.nx:1272-1290. Intersect known fields (unify shared
+  ;; Per src/infer.mn:1272-1290. Intersect known fields (unify shared
   ;; types) + bind each rowvar to the residual relative to the other.
   ;; If rowvars are already linked (==), only verify residuals are
   ;; empty; otherwise dual $graph_bind_row.
@@ -1044,7 +1044,7 @@
 
   ;; ─── $find_record_field_pos — linear scan returning -1 on absent ─
   ;;
-  ;; Per src/infer.nx:1347-1356.
+  ;; Per src/infer.mn:1347-1356.
   (func $find_record_field_pos (param $fields i32) (param $name i32) (result i32)
     (call $find_record_field_pos_loop
       (local.get $fields) (local.get $name)
@@ -1066,7 +1066,7 @@
 
   ;; ─── $intersect_record_fields — buffer-counter accumulation ──────
   ;;
-  ;; Per src/infer.nx:1306-1324. NO `acc ++ [X]` — uses
+  ;; Per src/infer.mn:1306-1324. NO `acc ++ [X]` — uses
   ;; $list_extend_to + $list_set + counter + $slice per CLAUDE.md
   ;; bug-class buffer-counter substrate.
   ;;
@@ -1109,7 +1109,7 @@
 
   ;; ─── $record_fields_diff — buffer-counter accumulation ───────────
   ;;
-  ;; Per src/infer.nx:1326-1345. Returns left-side field-pair entries
+  ;; Per src/infer.mn:1326-1345. Returns left-side field-pair entries
   ;; whose names are absent from right-side. Same buffer-counter
   ;; discipline as $intersect_record_fields.
   (func $record_fields_diff (param $left i32) (param $right i32) (result i32)
@@ -1147,7 +1147,7 @@
 
   ;; ─── $mk_record_row_residual — wrap residual fields as TRecord ────
   ;;
-  ;; Per src/infer.nx:1358-1360. Empty residual yields TRecord([]); the
+  ;; Per src/infer.mn:1358-1360. Empty residual yields TRecord([]); the
   ;; row.wat follow-up will canonicalize the empty-row form.
   (func $mk_record_row_residual (param $fields i32) (result i32)
     (if (i32.eqz (call $len (local.get $fields)))

@@ -4,7 +4,7 @@ This file is no longer the live roadmap.
 
 The canonical roadmap is now:
 
-- [`ROADMAP.md`](/home/suds/Projects/inka/ROADMAP.md)
+- [`ROADMAP.md`](/home/suds/Projects/mentl/ROADMAP.md)
 
 Why this changed:
 

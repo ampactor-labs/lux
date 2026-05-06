@@ -7,12 +7,12 @@
 #
 # Usage:
 #   tools/determinism-gate.sh                  # full src/ + lib/ tree
-#   tools/determinism-gate.sh path/to/file.nx  # single file
+#   tools/determinism-gate.sh path/to/file.mn  # single file
 #
 # Exit codes:
 #   0 — byte-identical (determinism holds)
 #   1 — diff non-empty (non-determinism found; investigate the diff)
-#   2 — invocation error (missing inka binary, unreadable input, etc.)
+#   2 — invocation error (missing mentl binary, unreadable input, etc.)
 #
 # Per drift mode 9 — non-determinism is NEVER acceptable as "for now."
 # Every non-deterministic site is a first-light blocker; fix in-place.
@@ -22,27 +22,27 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-# Resolve the inka binary. Pre-bootstrap (today): no inka binary yet
+# Resolve the mentl binary. Pre-bootstrap (today): no mentl binary yet
 # exists, so this script's full functional form arrives with hand-WAT
 # (item 27). Until then, the script's PRESENCE is substrate — it
 # defines the contract; pre-commit hook installation is straight-line.
-INKA_BIN="${INKA_BIN:-./bootstrap/inka.wasm}"
+INKA_BIN="${INKA_BIN:-./bootstrap/mentl.wasm}"
 
 if [[ ! -f "$INKA_BIN" ]]; then
-  echo "determinism-gate: inka binary not found at $INKA_BIN" >&2
+  echo "determinism-gate: mentl binary not found at $INKA_BIN" >&2
   echo "  (pre-bootstrap: this gate is contract-only until item 27 lands hand-WAT)" >&2
   echo "  set INKA_BIN env var to override; otherwise this is a no-op exit-2" >&2
   exit 2
 fi
 
-# Determine inputs: arg-given file, or full tree (src/*.nx + lib/**/*.nx).
+# Determine inputs: arg-given file, or full tree (src/*.mn + lib/**/*.mn).
 if [[ $# -ge 1 ]]; then
   INPUTS=( "$@" )
 else
   # Sorted globs for determinism of the input list itself (the gate
   # itself must be deterministic in its input ordering).
-  mapfile -t SRC_FILES < <(find src -name '*.nx' -type f | sort)
-  mapfile -t LIB_FILES < <(find lib -name '*.nx' -type f | sort)
+  mapfile -t SRC_FILES < <(find src -name '*.mn' -type f | sort)
+  mapfile -t LIB_FILES < <(find lib -name '*.mn' -type f | sort)
   INPUTS=( "${SRC_FILES[@]}" "${LIB_FILES[@]}" )
 fi
 
@@ -51,7 +51,7 @@ if [[ ${#INPUTS[@]} -eq 0 ]]; then
   exit 2
 fi
 
-# Concat in a stable order; pipe to inka twice; diff outputs.
+# Concat in a stable order; pipe to mentl twice; diff outputs.
 FIRST="$(mktemp -t det_first.XXXXXX.wat)"
 SECOND="$(mktemp -t det_second.XXXXXX.wat)"
 trap 'rm -f "$FIRST" "$SECOND"' EXIT
@@ -71,7 +71,7 @@ DET_TIMEOUT_S="${DET_TIMEOUT_S:-60}"
 # can't fire. `timeout` exits 124 on cap; bash `if !` catches both
 # non-zero exit AND timeout uniformly.
 if ! timeout "${DET_TIMEOUT_S}s" bash -c "cat \"\$@\" | wasmtime run \"$INKA_BIN\"" _ "${INPUTS[@]}" > "$FIRST" 2>/dev/null; then
-  echo "determinism-gate: $INKA_BIN didn't compile Inka within ${DET_TIMEOUT_S}s" >&2
+  echo "determinism-gate: $INKA_BIN didn't compile Mentl within ${DET_TIMEOUT_S}s" >&2
   echo "  (pre-bootstrap: this gate is contract-only until item 27 lands hand-WAT" >&2
   echo "   AND the wheel-through-seed runtime is bounded; today the seed's wheel" >&2
   echo "   compile is single-threaded under perm-pressure and exceeds the cap)" >&2

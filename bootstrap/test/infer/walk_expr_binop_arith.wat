@@ -1,7 +1,7 @@
   ;; ═══ walk_expr_binop_arith.wat — trace harness ═══════════════════
   ;; Executes: Hβ-infer-substrate.md §4.3 production pattern 1 + §9.2
   ;;           worked trace — BinOpExpr BKArith path (BAdd = 140).
-  ;; Per src/infer.nx:1554-1557 — BKArith arm:
+  ;; Per src/infer.mn:1554-1557 — BKArith arm:
   ;;             unify(lh, rh, OpConstraint(...));
   ;;             graph_bind(handle, TVar(lh), Located(span, OpConstraint(...))).
   ;; Per spec 04 §What the walk produces — structural-constraint pattern.

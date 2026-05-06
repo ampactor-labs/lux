@@ -4,7 +4,7 @@
   ;; LDeclareFn, LHandleWith, LHandle, LFeedback, LPerform, LEvPerform.
   ;;
   ;; Phase 5 (LFeedback) IS the `<~` substrate proof — SUBSTRATE.md §II
-  ;; "Feedback IS Inka's Genuine Novelty" made physical: load-prior →
+  ;; "Feedback IS Mentl's Genuine Novelty" made physical: load-prior →
   ;; emit body → tee-current → store-current → reload-current.
   ;;
   ;; Phase 7 (LEvPerform) IS the H1 evidence-reification + Drift 1

@@ -1,6 +1,6 @@
   ;; ═══ emit_lmatch.wat — Hβ.emit.match-pattern-compile harness ═════════
   ;; Executes: Phase E — $emit_lmatch (tag 321) three-shape match dispatch
-  ;;           per Hβ-emit-substrate.md §2.3 + src/backends/wasm.nx:1792+.
+  ;;           per Hβ-emit-substrate.md §2.3 + src/backends/wasm.mn:1792+.
   ;;           Proves the H6 gradient cash-out: Bool is NOT special, every
   ;;           nullary variant compiles through the same PureNullary path.
   ;;           One mechanism for all ADT matching. No Drift 6.

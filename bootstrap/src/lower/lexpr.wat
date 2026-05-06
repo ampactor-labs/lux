@@ -18,7 +18,7 @@
   ;; Implements: Hβ-lower-substrate.md §2 (lines 237-275 + lines 277-294)
   ;;             — 35 LowExpr variants over tag region 300-334; universal
   ;;             $lexpr_handle with LDeclareFn tag-313 anomaly arm;
-  ;;             field ordering per src/lower.nx:97-150 canonical wheel.
+  ;;             field ordering per src/lower.mn:97-150 canonical wheel.
   ;; Exports:    $lexpr_handle (universal),
   ;;             $lexpr_make_lconst $lexpr_lconst_value,
   ;;             $lexpr_make_llocal $lexpr_llocal_name,
@@ -68,7 +68,7 @@
   ;; Per Hβ-lower-substrate.md §2 (lines 237-275 + line 277) +
   ;; ty.wat:145 tag-uniqueness map.
   ;;
-  ;; LowExpr per-variant enumeration (matches src/lower.nx:97-150 verbatim;
+  ;; LowExpr per-variant enumeration (matches src/lower.mn:97-150 verbatim;
   ;; field types per the wheel canonical):
   ;;
   ;;   300 = LConst             arity 2  (handle, value)
@@ -163,12 +163,12 @@
 
   ;; ─── $lexpr_handle — universal source-handle extractor ──────────────
   ;; Per Hβ-lower-substrate.md §2 lines 287-289 + the wheel
-  ;; src/lower.nx:173-209 35-arm match on `lexpr_handle`.
+  ;; src/lower.mn:173-209 35-arm match on `lexpr_handle`.
   ;;
   ;; Field 0 is the source TypeHandle for 34 of 35 variants. The
   ;; lone exception is LDeclareFn (tag 313) whose sole field IS the
   ;; LowFn pointer — `lexpr_handle(LDeclareFn(_)) => 0` per
-  ;; src/lower.nx:187 (module-level handler-arm declarations have no
+  ;; src/lower.mn:187 (module-level handler-arm declarations have no
   ;; runtime expression handle; the LowFn carries its own
   ;; per-statement handle if the caller needs one).
   ;;
@@ -182,7 +182,7 @@
     (call $record_get (local.get $r) (i32.const 0)))
 
   ;; ─── 300 = LConst(handle, value) — arity 2 ────────────────────────
-  ;; Per src/lower.nx:98 LConst(Int, LowValue). Field 0 source handle;
+  ;; Per src/lower.mn:98 LConst(Int, LowValue). Field 0 source handle;
   ;; field 1 LowValue ptr (LowValue ADT shape lands in lvalue.wat
   ;; chunk follow-up — currently the seed treats LowValue as opaque
   ;; i32, same discipline as ty.wat:285-291 TList's elem field).
@@ -197,7 +197,7 @@
     (call $record_get (local.get $r) (i32.const 1)))
 
   ;; ─── 301 = LLocal(handle, name) — arity 2 ─────────────────────────
-  ;; Per src/lower.nx:99 LLocal(Int, String) — "handle, local name
+  ;; Per src/lower.mn:99 LLocal(Int, String) — "handle, local name
   ;; (matches LLet storage)". Field 1 is a string ptr (i32) per the
   ;; wheel canonical; walkthrough §4.2 prose ("slot=0") is stale.
   (func $lexpr_make_llocal (param $h i32) (param $name i32) (result i32)
@@ -211,7 +211,7 @@
     (call $record_get (local.get $r) (i32.const 1)))
 
   ;; ─── 302 = LGlobal(handle, name) — arity 2 ────────────────────────
-  ;; Per src/lower.nx:100 LGlobal(Int, String) — "handle, name".
+  ;; Per src/lower.mn:100 LGlobal(Int, String) — "handle, name".
   (func $lexpr_make_lglobal (param $h i32) (param $name i32) (result i32)
     (local $r i32)
     (local.set $r (call $make_record (i32.const 302) (i32.const 2)))
@@ -223,7 +223,7 @@
     (call $record_get (local.get $r) (i32.const 1)))
 
   ;; ─── 303 = LStore(handle, slot, value) — arity 3 ──────────────────
-  ;; Per src/lower.nx:101 LStore(Int, Int, LowExpr) — "handle, slot, value".
+  ;; Per src/lower.mn:101 LStore(Int, Int, LowExpr) — "handle, slot, value".
   (func $lexpr_make_lstore (param $h i32) (param $slot i32) (param $value i32) (result i32)
     (local $r i32)
     (local.set $r (call $make_record (i32.const 303) (i32.const 3)))
@@ -239,7 +239,7 @@
     (call $record_get (local.get $r) (i32.const 2)))
 
   ;; ─── 304 = LLet(handle, name, value) — arity 3 ────────────────────
-  ;; Per src/lower.nx:102 LLet(Int, String, LowExpr).
+  ;; Per src/lower.mn:102 LLet(Int, String, LowExpr).
   (func $lexpr_make_llet (param $h i32) (param $name i32) (param $value i32) (result i32)
     (local $r i32)
     (local.set $r (call $make_record (i32.const 304) (i32.const 3)))
@@ -255,7 +255,7 @@
     (call $record_get (local.get $r) (i32.const 2)))
 
   ;; ─── 305 = LUpval(handle, slot) — arity 2 ─────────────────────────
-  ;; Per src/lower.nx:103 LUpval(Int, Int).
+  ;; Per src/lower.mn:103 LUpval(Int, Int).
   (func $lexpr_make_lupval (param $h i32) (param $slot i32) (result i32)
     (local $r i32)
     (local.set $r (call $make_record (i32.const 305) (i32.const 2)))
@@ -267,11 +267,11 @@
     (call $record_get (local.get $r) (i32.const 1)))
 
   ;; ─── 306 = LBinOp(handle, op_tag, l, r) — arity 4 ─────────────────
-  ;; Per src/lower.nx:104 LBinOp(Int, BinOp, LowExpr, LowExpr) +
+  ;; Per src/lower.mn:104 LBinOp(Int, BinOp, LowExpr, LowExpr) +
   ;; parser_infra.wat:26 BinOp tag region 140-153 (BAdd=140 .. BConcat=
   ;; 153). Field ordering (h, op, l, r) is canonical — matches the
-  ;; walkthrough §2 line 246 AND the wheel src/lower.nx:104 declaration
-  ;; AND the wheel's lower_expr_body BinOpExpr arm at src/lower.nx:341-342
+  ;; walkthrough §2 line 246 AND the wheel src/lower.mn:104 declaration
+  ;; AND the wheel's lower_expr_body BinOpExpr arm at src/lower.mn:341-342
   ;; which constructs `LBinOp(handle, op, lower_expr(left), lower_expr(right))`.
   ;;
   ;; The op_tag is stored as i32 directly (BinOp's 14 sentinels live
@@ -299,9 +299,9 @@
     (call $record_get (local.get $r) (i32.const 3)))
 
   ;; ─── 307 = LUnaryOp(handle, op, x) — arity 3 ─────────────────────
-  ;; Per src/lower.nx:105 LUnaryOp(Int, UnaryOp, LowExpr) — op is the
+  ;; Per src/lower.mn:105 LUnaryOp(Int, UnaryOp, LowExpr) — op is the
   ;; UnaryOp ADT's i32 sentinel: UNeg=160 / UNot=161 in 160-179 region
-  ;; (mirror of BinOp 140-153 region per src/types.nx). HB drift-6
+  ;; (mirror of BinOp 140-153 region per src/types.mn). HB drift-6
   ;; closure: nullary UnaryOp variants compile to sentinels per "the
   ;; heap has one story." Drift 8 refusal: the op slot is i32 sentinel
   ;; tag, NOT string-keyed.
@@ -320,7 +320,7 @@
     (call $record_get (local.get $r) (i32.const 2)))
 
   ;; ─── 308 = LCall(handle, fn, args) — arity 3 ──────────────────────
-  ;; Per src/lower.nx:106 LCall(Int, LowExpr, List) — "monomorphic
+  ;; Per src/lower.mn:106 LCall(Int, LowExpr, List) — "monomorphic
   ;; direct call". Row proved ground at $monomorphic_at before choosing
   ;; LCall over LMakeClosure-with-evidence.
   (func $lexpr_make_lcall (param $h i32) (param $fn i32) (param $args i32) (result i32)
@@ -338,7 +338,7 @@
     (call $record_get (local.get $r) (i32.const 2)))
 
   ;; ─── 309 = LTailCall(handle, fn, args) — arity 3 ──────────────────
-  ;; Per src/lower.nx:107 LTailCall(Int, LowExpr, List).
+  ;; Per src/lower.mn:107 LTailCall(Int, LowExpr, List).
   (func $lexpr_make_ltailcall (param $h i32) (param $fn i32) (param $args i32) (result i32)
     (local $r i32)
     (local.set $r (call $make_record (i32.const 309) (i32.const 3)))
@@ -354,7 +354,7 @@
     (call $record_get (local.get $r) (i32.const 2)))
 
   ;; ─── 310 = LReturn(handle, x) — arity 2 ───────────────────────────
-  ;; Per src/lower.nx:108 LReturn(Int, LowExpr).
+  ;; Per src/lower.mn:108 LReturn(Int, LowExpr).
   (func $lexpr_make_lreturn (param $h i32) (param $x i32) (result i32)
     (local $r i32)
     (local.set $r (call $make_record (i32.const 310) (i32.const 2)))
@@ -366,7 +366,7 @@
     (call $record_get (local.get $r) (i32.const 1)))
 
   ;; ─── 311 = LMakeClosure(handle, fn, caps, evs) — arity 4 ──────────
-  ;; Per src/lower.nx:109 LMakeClosure(Int, LowFn, List, List) —
+  ;; Per src/lower.mn:109 LMakeClosure(Int, LowFn, List, List) —
   ;; "handle, fn, captures, ev_slots". H1 evidence reification: closure
   ;; record IS the evidence record; ev_slots follow caps in field order.
   ;; fn field is LowFn record (tag 350) per lowfn.wat Phase C.1.
@@ -391,7 +391,7 @@
     (call $record_get (local.get $r) (i32.const 3)))
 
   ;; ─── 312 = LMakeContinuation — arity 6 (H7 multi-shot) ────────────
-  ;; Per src/lower.nx:110-119 LMakeContinuation(Int, LowFn, List, List,
+  ;; Per src/lower.mn:110-119 LMakeContinuation(Int, LowFn, List, List,
   ;; Int, Int) + H7-multishot-runtime.md §1.2. Heap-allocated through
   ;; emit_alloc per the kernel's "heap has one story" crystallization #8;
   ;; fn_index field points to the synthesized __resume function in the
@@ -429,8 +429,8 @@
     (call $record_get (local.get $r) (i32.const 5)))
 
   ;; ─── 313 = LDeclareFn(fn) — arity 1 (NO handle field) ─────────────
-  ;; Per src/lower.nx:120 LDeclareFn(LowFn) — "module-level fn
-  ;; declaration (handler arm) — no runtime slot". Per src/lower.nx:187
+  ;; Per src/lower.mn:120 LDeclareFn(LowFn) — "module-level fn
+  ;; declaration (handler arm) — no runtime slot". Per src/lower.mn:187
   ;; `lexpr_handle(LDeclareFn(_)) => 0` — module-level fn declarations
   ;; are NOT runtime expressions; they have no source TypeHandle in the
   ;; expression-position sense (the LowFn carries its own per-statement
@@ -453,7 +453,7 @@
     (call $record_get (local.get $r) (i32.const 0)))
 
   ;; ─── 314 = LIf(handle, cond, then, else) — arity 4 ─────────────────
-  ;; Per src/lower.nx:121 LIf(Int, LowExpr, List, List). Fields 2 and 3
+  ;; Per src/lower.mn:121 LIf(Int, LowExpr, List, List). Fields 2 and 3
   ;; are List ptrs (i32) for the then/else branch statement lists.
   (func $lexpr_make_lif (param $h i32) (param $cond i32)
                          (param $then_branch i32) (param $else_branch i32)
@@ -476,7 +476,7 @@
     (call $record_get (local.get $r) (i32.const 3)))
 
   ;; ─── 315 = LBlock(handle, stmts) — arity 2 ────────────────────────
-  ;; Per src/lower.nx:122 LBlock(Int, List).
+  ;; Per src/lower.mn:122 LBlock(Int, List).
   (func $lexpr_make_lblock (param $h i32) (param $stmts i32) (result i32)
     (local $r i32)
     (local.set $r (call $make_record (i32.const 315) (i32.const 2)))
@@ -488,7 +488,7 @@
     (call $record_get (local.get $r) (i32.const 1)))
 
   ;; ─── 316 = LMakeList(handle, elems) — arity 2 ─────────────────────
-  ;; Per src/lower.nx:123 LMakeList(Int, List).
+  ;; Per src/lower.mn:123 LMakeList(Int, List).
   (func $lexpr_make_lmakelist (param $h i32) (param $elems i32) (result i32)
     (local $r i32)
     (local.set $r (call $make_record (i32.const 316) (i32.const 2)))
@@ -500,7 +500,7 @@
     (call $record_get (local.get $r) (i32.const 1)))
 
   ;; ─── 317 = LMakeTuple(handle, elems) — arity 2 ────────────────────
-  ;; Per src/lower.nx:124 LMakeTuple(Int, List).
+  ;; Per src/lower.mn:124 LMakeTuple(Int, List).
   (func $lexpr_make_lmaketuple (param $h i32) (param $elems i32) (result i32)
     (local $r i32)
     (local.set $r (call $make_record (i32.const 317) (i32.const 2)))
@@ -512,7 +512,7 @@
     (call $record_get (local.get $r) (i32.const 1)))
 
   ;; ─── 318 = LMakeRecord(handle, fields) — arity 2 ──────────────────
-  ;; Per src/lower.nx:125 LMakeRecord(Int, List) — "handle, [field_value]
+  ;; Per src/lower.mn:125 LMakeRecord(Int, List) — "handle, [field_value]
   ;; sorted by field name". Field 1 is a list of field value exprs (i32).
   (func $lexpr_make_lmakerecord (param $h i32) (param $fields i32) (result i32)
     (local $r i32)
@@ -525,7 +525,7 @@
     (call $record_get (local.get $r) (i32.const 1)))
 
   ;; ─── 319 = LMakeVariant(handle, tag_id, args) — arity 3 ────────────
-  ;; Per src/lower.nx:126 LMakeVariant(Int, TagId, List) — "handle, tag_id,
+  ;; Per src/lower.mn:126 LMakeVariant(Int, TagId, List) — "handle, tag_id,
   ;; field exprs". TagId is i32 (ConstructorScheme tag from H3).
   (func $lexpr_make_lmakevariant (param $h i32) (param $tag_id i32) (param $args i32) (result i32)
     (local $r i32)
@@ -542,7 +542,7 @@
     (call $record_get (local.get $r) (i32.const 2)))
 
   ;; ─── 320 = LIndex(handle, base, idx, is_str) — arity 4 ─────────────
-  ;; Per src/lower.nx:127 LIndex(Int, LowExpr, LowExpr, Bool) — is_str
+  ;; Per src/lower.mn:127 LIndex(Int, LowExpr, LowExpr, Bool) — is_str
   ;; stored as raw i32 0/1 (HB nullary Bool sentinel in [0, HEAP_BASE)).
   (func $lexpr_make_lindex (param $h i32) (param $base i32)
                              (param $idx i32) (param $is_str i32)
@@ -565,7 +565,7 @@
     (call $record_get (local.get $r) (i32.const 3)))
 
   ;; ─── 321 = LMatch(handle, scrut, arms) — arity 3 ───────────────────
-  ;; Per src/lower.nx:128 LMatch(Int, LowExpr, List) — "body + arms".
+  ;; Per src/lower.mn:128 LMatch(Int, LowExpr, List) — "body + arms".
   ;; Arms is a list of LPArm records (tag 369) per lowpat.wat Phase C.2.
   (func $lexpr_make_lmatch (param $h i32) (param $scrut i32) (param $arms i32) (result i32)
     (local $r i32)
@@ -582,7 +582,7 @@
     (call $record_get (local.get $r) (i32.const 2)))
 
   ;; ─── 325 = LSuspend(handle, op_h, fn, args, evs) — arity 5 ─────────
-  ;; Per src/lower.nx:132 LSuspend(Int, Int, LowExpr, List, List) —
+  ;; Per src/lower.mn:132 LSuspend(Int, Int, LowExpr, List, List) —
   ;; "handle, op_h, fn_expr, args, ev_slots". Field 1 is the op's GRAPH
   ;; HANDLE (i32 — the perform site's op-name resolves to a handle at
   ;; infer time; lower carries the handle, not a re-derived string).
@@ -615,7 +615,7 @@
     (call $record_get (local.get $r) (i32.const 4)))
 
   ;; ─── 326 = LStateGet(handle, slot) — arity 2 ───────────────────────
-  ;; Per src/lower.nx:133 LStateGet(Int, Int).
+  ;; Per src/lower.mn:133 LStateGet(Int, Int).
   (func $lexpr_make_lstateget (param $h i32) (param $slot i32) (result i32)
     (local $r i32)
     (local.set $r (call $make_record (i32.const 326) (i32.const 2)))
@@ -627,7 +627,7 @@
     (call $record_get (local.get $r) (i32.const 1)))
 
   ;; ─── 327 = LStateSet(handle, slot, value) — arity 3 ────────────────
-  ;; Per src/lower.nx:134 LStateSet(Int, Int, LowExpr).
+  ;; Per src/lower.mn:134 LStateSet(Int, Int, LowExpr).
   (func $lexpr_make_lstateset (param $h i32) (param $slot i32) (param $value i32) (result i32)
     (local $r i32)
     (local.set $r (call $make_record (i32.const 327) (i32.const 3)))
@@ -643,7 +643,7 @@
     (call $record_get (local.get $r) (i32.const 2)))
 
   ;; ─── 328 = LRegion(handle, body) — arity 2 ─────────────────────────
-  ;; Per src/lower.nx:135 LRegion(Int, List) — "arena scope".
+  ;; Per src/lower.mn:135 LRegion(Int, List) — "arena scope".
   (func $lexpr_make_lregion (param $h i32) (param $body i32) (result i32)
     (local $r i32)
     (local.set $r (call $make_record (i32.const 328) (i32.const 2)))
@@ -655,7 +655,7 @@
     (call $record_get (local.get $r) (i32.const 1)))
 
   ;; ─── 329 = LHandleWith(handle, body, handler) — arity 3 ─────────────
-  ;; Per src/lower.nx:136 LHandleWith(Int, LowExpr, LowExpr) — "~>
+  ;; Per src/lower.mn:136 LHandleWith(Int, LowExpr, LowExpr) — "~>
   ;; desugaring". Both body and handler are LowExpr ptrs (i32).
   (func $lexpr_make_lhandlewith (param $h i32) (param $body i32) (param $handler i32) (result i32)
     (local $r i32)
@@ -672,7 +672,7 @@
     (call $record_get (local.get $r) (i32.const 2)))
 
   ;; ─── 330 = LFeedback(handle, body, spec) — arity 3 ──────────────────
-  ;; Per src/lower.nx:137 LFeedback(Int, LowExpr, LowExpr) — "<~
+  ;; Per src/lower.mn:137 LFeedback(Int, LowExpr, LowExpr) — "<~
   ;; desugaring (iterative ctx required)". Field 2 is the spec LowExpr
   ;; (NOT a metadata record).
   (func $lexpr_make_lfeedback (param $h i32) (param $body i32) (param $spec i32) (result i32)
@@ -690,7 +690,7 @@
     (call $record_get (local.get $r) (i32.const 2)))
 
   ;; ─── 331 = LPerform(handle, op_name, args) — arity 3 ────────────────
-  ;; Per src/lower.nx:138 LPerform(Int, String, List) — "effect op
+  ;; Per src/lower.mn:138 LPerform(Int, String, List) — "effect op
   ;; invocation — monomorphic direct-call form". When inference proves
   ;; ground row, perform → LPerform (direct $op_<name> call); polymorphic
   ;; sites become LEvPerform (tag 333).
@@ -709,7 +709,7 @@
     (call $record_get (local.get $r) (i32.const 2)))
 
   ;; ─── 332 = LHandle(handle, body, arms) — arity 3 ─────────────────────
-  ;; Per src/lower.nx:139 LHandle(Int, LowExpr, List) — "body + arms
+  ;; Per src/lower.mn:139 LHandle(Int, LowExpr, List) — "body + arms
   ;; (handle-expression)". Arms is a list of arm records (opaque i32).
   (func $lexpr_make_lhandle (param $h i32) (param $body i32) (param $arms i32) (result i32)
     (local $r i32)
@@ -726,7 +726,7 @@
     (call $record_get (local.get $r) (i32.const 2)))
 
   ;; ─── 333 = LEvPerform(handle, op_name, slot_idx, args) — arity 4 ────
-  ;; Per src/lower.nx:149 LEvPerform(Int, String, Int, List) — "handle,
+  ;; Per src/lower.mn:149 LEvPerform(Int, String, Int, List) — "handle,
   ;; op_name, slot_idx, args". H1: loads fn_idx from __state at the
   ;; compile-time-resolved slot_idx offset; dispatches via call_indirect.
   ;; Only polymorphic perform sites (open row) become LEvPerform; monomorphic
@@ -752,7 +752,7 @@
     (call $record_get (local.get $r) (i32.const 3)))
 
   ;; ─── 334 = LFieldLoad(handle, record, offset_bytes) — arity 3 ────────
-  ;; Per src/lower.nx:150 LFieldLoad(Int, LowExpr, Int) — "W6: handle,
+  ;; Per src/lower.mn:150 LFieldLoad(Int, LowExpr, Int) — "W6: handle,
   ;; record, offset_bytes".
   (func $lexpr_make_lfieldload (param $h i32) (param $record i32) (param $offset_bytes i32) (result i32)
     (local $r i32)

@@ -77,7 +77,7 @@ tutorial exemplar.
   `conde`, Prolog `cut`, DPLL solver-framework idioms.
 - **§4** — Literal substrate touch sites at file:line targets with
   the actual tokens to insert.
-- **§5** — `lib/tutorial/02b-multishot.nx` (D.3) N-queens example.
+- **§5** — `lib/tutorial/02b-multishot.mn` (D.3) N-queens example.
 - **§6** — Composition with other MS substrate (race, arena
   handlers, Synth).
 - **§7** — Acceptance criteria.
@@ -105,16 +105,16 @@ tutorial exemplar.
 
 ## 1. The substrate — effect declaration + two canonical handlers
 
-The complete CE landing is ONE file: `lib/runtime/search.nx`. It
+The complete CE landing is ONE file: `lib/runtime/search.mn`. It
 adds one effect declaration, two handlers, and documentation. No
-`types.nx` edit (halt-signal §4.0.1 below). No `parser.nx` edit.
-No `infer.nx` edit. No `lower.nx` edit. No emit edit. CE is pure
+`types.mn` edit (halt-signal §4.0.1 below). No `parser.mn` edit.
+No `infer.mn` edit. No `lower.mn` edit. No emit edit. CE is pure
 declaration + handler composition over substrate primitives that
 already exist.
 
 ### 1.1 Effect declaration — `Choice`
 
-```inka
+```mentl
 // ═══ Choice — canonical multi-shot user effect ═════════════════════
 // One op. Generic over the element type A (inferred per call site
 // from the options list's type). @resume=MultiShot declares that
@@ -139,7 +139,7 @@ effect Choice {
 
 ### 1.2 Handler — `pick_first` (OneShot terminal)
 
-```inka
+```mentl
 // ═══ pick_first — OneShot: first option wins, no backtracking ══════
 // Terminal handler. On each choose call, resume with options[0] (the
 // FIRST option) once and only once. If options is empty, perform
@@ -168,7 +168,7 @@ handler pick_first {
 
 ### 1.3 Handler — `backtrack` (MultiShot try-each)
 
-```inka
+```mentl
 // ═══ backtrack — MultiShot: try each option, first non-Abort wins ══
 // For each option, push a checkpoint, resume the continuation with
 // that option, and either accept the outcome (commit; break out)
@@ -211,7 +211,7 @@ handler backtrack with Choice + GraphRead + GraphWrite {
 computation. The runtime shape comes from primitive #2's one-shot
 abort + handler install; the combinator is substrate-native, NOT a
 try/catch/exception reach. If `try_with_abort_catch` isn't yet in
-`lib/runtime/abort.nx`, it ships alongside CE as a peer (the `Fail`
+`lib/runtime/abort.mn`, it ships alongside CE as a peer (the `Fail`
 / `Abort` effect substrate is a prerequisite for `backtrack`; its
 absence earns a sub-handle under CE).
 
@@ -238,7 +238,7 @@ admissible. One line per primitive; the residue is the code.
 | 5 | **Ownership?** | `options: List<A>` is implicitly `ref` (borrowed; function doesn't consume). Return `A` is ownership-polymorphic (inherits the option's ownership marker). No Consume effect at the op surface. |
 | 6 | **Refinement?** | Not required for declaration. Empty-list detection is handler-decided (Q-B.3.2). Optional user opt-in at call site via `NonEmptyList<A>` refinement — orthogonal. |
 | 7 | **Gradient?** | Declaring `Choice` unlocks `CSearch` capability for user code that installs a handler on it. Mentl's Teach tentacle will suggest `~> backtrack` when the user has a `choose` site with no installed handler — surfaced post-H5 Mentl's arms. |
-| 8 | **Reason?** | Effect declaration carries `Declared("effect Choice at <span>")` Reason on the env entry. Every `perform choose(...)` site carries an `OpConstraint("choose", <site_reason>, <type_reason>)` Reason on its result type — existing infer.nx substrate. |
+| 8 | **Reason?** | Effect declaration carries `Declared("effect Choice at <span>")` Reason on the env entry. Every `perform choose(...)` site carries an `OpConstraint("choose", <site_reason>, <type_reason>)` Reason on its result type — existing infer.mn substrate. |
 
 ### 2.2 `handler pick_first { choose(options) => … }`
 
@@ -257,7 +257,7 @@ admissible. One line per primitive; the residue is the code.
 
 | # | Primitive | Interrogation answer |
 |---|-----------|---------------------|
-| 1 | **Graph?** | Uses existing `graph_push_checkpoint` + `graph_rollback` effects declared in `src/types.nx` and implemented in `src/graph.nx`. O(M) rollback per spec 00. No new graph substrate. |
+| 1 | **Graph?** | Uses existing `graph_push_checkpoint` + `graph_rollback` effects declared in `src/types.mn` and implemented in `src/graph.mn`. O(M) rollback per spec 00. No new graph substrate. |
 | 2 | **Handler?** | THIS IS a MultiShot-executing handler. Resume arm is invoked up to `len(options)` times; each invocation re-enters the continuation with a different option value. Primitive #2's substrate — H7 MS runtime emit lands this at wasm level; at source level `resume(options[i])` is the typed-multi-shot form. |
 | 3 | **Verb?** | `~> backtrack` installs. Inside the arm, recursive `try_each(i+1)` is tail-recursion across options — an implicit sequence, no verb. |
 | 4 | **Row?** | Handler claims `Choice` from body; declares `with Choice + GraphRead + GraphWrite + Abort` — the three graph effects + the abort surface. The row algebra proves the handler's declared row ⊇ the handled op's row at install. |
@@ -277,7 +277,7 @@ admissible. One line per primitive; the residue is the code.
 | 5 | **Ownership?** | `Board` passed by value (copy-on-update in tutorial's representation). Each fork's board is its own; commits persist. |
 | 6 | **Refinement?** | `row: Int where 0 <= self && self < 8` optional — keep tutorial without refinements to avoid scope creep. Note in comment that refinements tighten this. |
 | 7 | **Gradient?** | Example demonstrates the gradient step "typed MultiShot op unlocks backtracking search without any loop/recursion-builder framework." Mentl's Teach tentacle, when MV.2 ships, would narrate over this file. |
-| 8 | **Reason?** | Each `choose` site's Reason + each `safe` check's Reason walks back to `OpConstraint("choose", ...)` then `VarLookup("row", ...)`, etc. Visible via `inka query` once MV.2 lands. |
+| 8 | **Reason?** | Each `choose` site's Reason + each `safe` check's Reason walks back to `OpConstraint("choose", ...)` then `VarLookup("row", ...)`, etc. Visible via `mentl query` once MV.2 lands. |
 
 ---
 
@@ -287,7 +287,7 @@ admissible. One line per primitive; the residue is the code.
 site. Plus generalized fluency-taint check for language-specific
 vocabulary that must NOT sneak in.*
 
-### 3.1 At the `Choice` declaration site (`lib/runtime/search.nx:<effect_line>`)
+### 3.1 At the `Choice` declaration site (`lib/runtime/search.mn:<effect_line>`)
 
 | # | Drift | Forbidden shape |
 |---|-------|-----------------|
@@ -303,7 +303,7 @@ vocabulary that must NOT sneak in.*
 
 **Generalized fluency-taint check for the Choice declaration:**
 
-| Foreign idiom | Inka substrate | If the word comes to mind |
+| Foreign idiom | Mentl substrate | If the word comes to mind |
 |---------------|----------------|---------------------------|
 | Scheme `amb` | `Choice.choose` | STOP. Do not name a function, variable, or comment `amb`. Use `choose`. |
 | Haskell `MonadPlus` | row `with Choice` | STOP. Never `MonadPlus`. Use "row entry `Choice`." |
@@ -321,7 +321,7 @@ vocabulary that must NOT sneak in.*
 | 3 | **Python dict / string-keyed** | Effect arm dispatch is `$op_choose` (function-pointer-field on closure struct, per DESIGN γ crystallization #8 + H1 evidence reification) — NOT a string-to-fn-ptr map. |
 | 4 | **Haskell monad transformer** | No `lift`, no `runFirst`. Just `handler pick_first { choose(options) => ... }`. |
 | 5 | **C calling convention** | At source level: no concern. At emit time: single `__state` parameter. |
-| 6 | **Primitive-type-special-case** | `pick_first` is declared exactly like any handler in `lib/runtime/binary.nx` (e.g., `buffer_packer`). No compiler special-case. |
+| 6 | **Primitive-type-special-case** | `pick_first` is declared exactly like any handler in `lib/runtime/binary.mn` (e.g., `buffer_packer`). No compiler special-case. |
 | 7 | **Parallel-arrays-instead-of-record** | `options` accessed by single `options[0]` index — not (options_values, options_metadata). |
 | 8 | **String-keyed-when-structured** | The empty check is `len(options) == 0`, an integer comparison. NOT `if options == "empty"` or `if tag_of(options) == "empty_list_tag"` — structured. |
 | 9 | **Deferred-by-omission** | Empty-list path performs `abort()`, a proper op — not `// TODO: handle empty` comment. |
@@ -332,10 +332,10 @@ vocabulary that must NOT sneak in.*
 |---|-------|-----------------|
 | 1 | **Rust vtable** | No "BacktrackVTable." Resume-per-option is primitive #2's substrate; H7 emit path (when it lands) uses closure evidence fields, not tables. |
 | 2 | **Scheme env frame** | No `reset` / `shift` vocabulary. Checkpoint/rollback operates on the trail buffer (primitive #1), not on a control-frame stack. |
-| 3 | **Python dict / string-keyed** | Trail entries are `Mutation` ADT variants (per types.nx), not `(string_key, old_value)` tuples. |
+| 3 | **Python dict / string-keyed** | Trail entries are `Mutation` ADT variants (per types.mn), not `(string_key, old_value)` tuples. |
 | 4 | **Haskell monad transformer** | No `BacktrackT`, no `>>=` for composition. Just a recursive `try_each` over option indices + the substrate's `graph_push_checkpoint` / `graph_rollback`. |
 | 5 | **C calling convention** | At emit time (H7), forbidden to pass checkpoint as a separate i32 parameter apart from `__state`; single `__state` only. |
-| 6 | **Primitive-type-special-case** | `backtrack` is declared exactly like `collector` in prelude.nx — `handler <name> { op(...) => ... }`. No compiler intrinsic. |
+| 6 | **Primitive-type-special-case** | `backtrack` is declared exactly like `collector` in prelude.mn — `handler <name> { op(...) => ... }`. No compiler intrinsic. |
 | 7 | **Parallel-arrays-instead-of-record** | If `backtrack` ever needs per-fork metadata (e.g., "which fork is this? what's its depth?"), wrap in a record `ForkInfo { depth: Int, parent: Int, ... }`. Never `(depths, parents, ...)` parallel lists. |
 | 8 | **String-keyed-when-structured** | The checkpoint is an `Int` (trail length) — NOT `"checkpoint_<depth>"` string key. The trail itself is `List<Mutation>` — typed ADT throughout. |
 | 9 | **Deferred-by-omission** | Rollback path is COMPLETE: `graph_rollback(checkpoint); try_each(i + 1)`. NOT "rollback; [TODO: handle partial resume elsewhere]." The handler either commits the whole fork or rolls the whole trail. |
@@ -350,7 +350,7 @@ vocabulary that must NOT sneak in.*
 | JS async generator + `for await` | `backtrack` is synchronous; primitive #2's MS is NOT async-await. If an op is Future-returning, it's a different effect entirely. |
 | Rust `futures::stream::iter` / `tokio::select!` | Same — MS is not async. |
 
-### 3.4 At the tutorial `lib/tutorial/02b-multishot.nx` site
+### 3.4 At the tutorial `lib/tutorial/02b-multishot.mn` site
 
 | # | Drift | Forbidden shape |
 |---|-------|-----------------|
@@ -365,13 +365,13 @@ vocabulary that must NOT sneak in.*
 
 ### 4.0 Halt-signal corrections to MSR source
 
-**§4.0.1 `types.nx` does NOT need `Choice` added.**
+**§4.0.1 `types.mn` does NOT need `Choice` added.**
 
 MSR §3 Edit 2 says: *"Add `Choice` to `EffName` ADT (enumerate
 alongside Alloc, IO, Network, etc.)"* — this misreads the
-substrate. `src/types.nx:130-132` defines:
+substrate. `src/types.mn:130-132` defines:
 
-```inka
+```mentl
 type EffName
   = ENamed(String)
   | EParameterized(String, List)    // name + List<EffArg>
@@ -386,10 +386,10 @@ would be drift 6 (primitive-type-special-case) — elevating one
 effect above the registered-via-source-declaration substrate.
 
 **Correction to MSR Edit 2 scope:** the substrate touch is
-**ZERO lines in `src/types.nx`**; **ZERO lines in `src/effects.nx`**;
-**ZERO lines in `src/infer.nx`**; **ZERO lines in `src/lower.nx`**;
-**ZERO lines in `src/backends/wasm.nx`**. CE is pure declaration
-in ONE new file: `lib/runtime/search.nx`.
+**ZERO lines in `src/types.mn`**; **ZERO lines in `src/effects.mn`**;
+**ZERO lines in `src/infer.mn`**; **ZERO lines in `src/lower.mn`**;
+**ZERO lines in `src/backends/wasm.mn`**. CE is pure declaration
+in ONE new file: `lib/runtime/search.mn`.
 
 **§4.0.2 `Abort` / `try_with_abort_catch` prerequisite.**
 
@@ -397,7 +397,7 @@ in ONE new file: `lib/runtime/search.nx`.
 If this combinator (or the `Abort` effect it catches) is NOT yet
 declared in `lib/runtime/`, there are two paths:
 
-- **Path A (preferred):** declare `lib/runtime/abort.nx` with
+- **Path A (preferred):** declare `lib/runtime/abort.mn` with
   `effect Abort { abort() -> () @resume=OneShot }` + the
   `try_with_abort_catch` combinator, as a peer handle to CE. Land
   both in the same commit; CE depends on Abort.
@@ -409,7 +409,7 @@ declared in `lib/runtime/`, there are two paths:
 
 ```bash
 grep -rn "effect Abort\|effect Fail\|try_with_abort_catch\|abort()\|fail()" \
-  ~/Projects/inka/lib ~/Projects/inka/src
+  ~/Projects/mentl/lib ~/Projects/mentl/src
 ```
 
 Classify the output into:
@@ -422,16 +422,16 @@ Do NOT inline an ad-hoc abort mechanism inside `backtrack`.
 **§4.0.3 `graph_push_checkpoint` / `graph_rollback` are PRE-EXISTING.**
 
 Per MSR §1.1, the trail + checkpoint substrate is REAL at
-`src/graph.nx:218-224` + `src/types.nx:609,618`. CE composes
+`src/graph.mn:218-224` + `src/types.mn:609,618`. CE composes
 with them; no new graph substrate.
 
-### 4.1 The new file — `lib/runtime/search.nx`
+### 4.1 The new file — `lib/runtime/search.mn`
 
-Create new file `lib/runtime/search.nx` (full contents below).
+Create new file `lib/runtime/search.mn` (full contents below).
 Literal tokens; every line is the line to write. No pseudocode.
 
-```inka
-// search.nx — Choice effect + canonical handlers (MSR Edit 2, CE)
+```mentl
+// search.mn — Choice effect + canonical handlers (MSR Edit 2, CE)
 //
 // The canonical multi-shot user effect. One op, two handlers, zero
 // compiler intrinsic. Every SAT / CSP / backtracking-parser /
@@ -439,15 +439,15 @@ Literal tokens; every line is the line to write. No pseudocode.
 // composed with a domain handler — this file ships the effect +
 // the two simplest composers; crucibles ship the domain handlers.
 //
-// Declared here, not in types.nx, because effect NAMES are runtime
+// Declared here, not in types.mn, because effect NAMES are runtime
 // strings inside ENamed — the registered-via-source-declaration
 // substrate. Choice is not compiler-special; it is a user effect
 // that happens to be the canonical MS example.
 //
 // Composes with:
-//   - lib/runtime/abort.nx — Abort effect + try_with_abort_catch
+//   - lib/runtime/abort.mn — Abort effect + try_with_abort_catch
 //     (prerequisite; backtrack catches Abort to skip dead-end forks)
-//   - src/graph.nx — graph_push_checkpoint + graph_rollback (trail
+//   - src/graph.mn — graph_push_checkpoint + graph_rollback (trail
 //     rollback substrate, primitive #1)
 //   - H7 MS runtime emit (pending) — enables backtrack to actually
 //     fork at runtime. Until H7, Choice type-checks and row-algebras
@@ -492,20 +492,20 @@ handler backtrack with Choice + GraphRead + GraphWrite + Abort {
 }
 ```
 
-### 4.2-4.6 No edits to `src/*.nx`
+### 4.2-4.6 No edits to `src/*.mn`
 
-Per §4.0.1: `src/types.nx`, `src/effects.nx`, `src/parser.nx`,
-`src/infer.nx`, `src/lower.nx`, `src/backends/wasm.nx` — all
+Per §4.0.1: `src/types.mn`, `src/effects.mn`, `src/parser.mn`,
+`src/infer.mn`, `src/lower.mn`, `src/backends/wasm.mn` — all
 UNCHANGED. The substrate already supports `Choice` via the existing
 ENamed / EffectOpScheme / handler-install machinery.
 
-### 4.7 Possible peer file — `lib/runtime/abort.nx`
+### 4.7 Possible peer file — `lib/runtime/abort.mn`
 
 **Conditional** (per §4.0.2 grep directive). If the Abort substrate
 doesn't yet exist:
 
-```inka
-// abort.nx — Abort effect + try_with_abort_catch combinator
+```mentl
+// abort.mn — Abort effect + try_with_abort_catch combinator
 //
 // Shipped alongside CE. Abort is a OneShot effect — performing it
 // transfers control to the nearest installed catch; no resume back
@@ -528,8 +528,8 @@ fn try_with_abort_catch(inner, on_abort) = {
 }
 ```
 
-If `lib/runtime/abort.nx` already exists with matching shape,
-skip this peer and adjust `search.nx`'s import accordingly.
+If `lib/runtime/abort.mn` already exists with matching shape,
+skip this peer and adjust `search.mn`'s import accordingly.
 
 ### 4.8 `ROADMAP.md` update note (post-CE-land)
 
@@ -540,7 +540,7 @@ crucible_sampling; runtime MS fork execution awaits H7.
 
 ---
 
-## 5. Tutorial — `lib/tutorial/02b-multishot.nx` (MSR Edit 6 / D.3)
+## 5. Tutorial — `lib/tutorial/02b-multishot.mn` (MSR Edit 6 / D.3)
 
 Per QA Q-D.3.1: direct `Choice` exposure, no helper wrappers.
 Canonical N-queens (N=4 for visualization; N=8 for the full
@@ -548,8 +548,8 @@ classic).
 
 ### 5.1 The tutorial file — literal tokens
 
-```inka
-// 02b-multishot.nx — MultiShot resume discipline by example
+```mentl
+// 02b-multishot.mn — MultiShot resume discipline by example
 //
 // Primitive #2's MultiShot arm in residue form. One effect (Choice);
 // one op (choose); one handler (backtrack) that resumes the
@@ -661,15 +661,15 @@ Choice as the enumeration surface.
 
 ### 7.1 Type-level acceptance (pre-H7, post-CE-land)
 
-- **AC1:** `lib/runtime/search.nx` parses cleanly.
+- **AC1:** `lib/runtime/search.mn` parses cleanly.
 - **AC2:** Type-checks cleanly. `perform choose(options)` sites
   infer correctly across `List<Int>`, `List<String>`, `List<A>`.
 - **AC3:** Row algebra admits `with Choice`, `with !Choice`,
   `with Choice + Abort`, `with Choice - Alloc` without error.
 - **AC4:** Handler install via `~>` composes correctly.
-- **AC5:** `drift-audit.sh lib/runtime/search.nx` returns 0.
+- **AC5:** `drift-audit.sh lib/runtime/search.mn` returns 0.
 - **AC6:** `tools/effect-registry-audit.sh` reports `Choice` as
-  singly-declared in `lib/runtime/search.nx`.
+  singly-declared in `lib/runtime/search.mn`.
 
 ### 7.2 Runtime acceptance (post-H7, post-CE-land)
 
@@ -681,10 +681,10 @@ Choice as the enumeration surface.
 
 ### 7.3 Tutorial acceptance
 
-- **AC11:** `lib/tutorial/02b-multishot.nx` reads top-to-bottom as
+- **AC11:** `lib/tutorial/02b-multishot.mn` reads top-to-bottom as
   learner-facing.
 - **AC12:** Every line of the tutorial passes all eight interrogations.
-- **AC13:** Post-MV.2: `inka teach 02b-multishot.nx` surfaces
+- **AC13:** Post-MV.2: `mentl teach 02b-multishot.mn` surfaces
   VoiceLines narrating the handler chain's structure.
 
 ---
@@ -708,18 +708,18 @@ If a new question surfaces during implementation, STOP and surface
 
 ## 9. Dispatch
 
-**inka-implementer (Sonnet).** CE is pure declaration + two
+**mentl-implementer (Sonnet).** CE is pure declaration + two
 canonical handlers over existing substrate. Zero substrate
 extensions (§4.0.1). Mechanical transcription of §4.1 (and
 conditionally §4.7 if Abort substrate is missing).
 
 Deliverables:
-- `lib/runtime/search.nx` (§4.1, full contents)
-- `lib/runtime/abort.nx` (§4.7, if grep misses Abort)
-- `lib/tutorial/02b-multishot.nx` (§5.1, full contents)
+- `lib/runtime/search.mn` (§4.1, full contents)
+- `lib/runtime/abort.mn` (§4.7, if grep misses Abort)
+- `lib/tutorial/02b-multishot.mn` (§5.1, full contents)
 
-Post-edit audit: `bash tools/drift-audit.sh lib/runtime/search.nx
-lib/tutorial/02b-multishot.nx [lib/runtime/abort.nx]`.
+Post-edit audit: `bash tools/drift-audit.sh lib/runtime/search.mn
+lib/tutorial/02b-multishot.mn [lib/runtime/abort.mn]`.
 
 Acceptance: §7.1 AC1–AC6 clean. No commit; Morgan reviews first.
 
@@ -729,7 +729,7 @@ Acceptance: §7.1 AC1–AC6 clean. No commit; Morgan reviews first.
 
 **CE is the smallest possible MS substrate walkthrough.** It adds
 ONE effect with ONE op + TWO handlers + ONE tutorial file. It
-touches ZERO `src/*.nx` files. It is pure declaration over the
+touches ZERO `src/*.mn` files. It is pure declaration over the
 substrate primitives #1, #2, #4 already shipped.
 
 **The reach of this one walkthrough:** SAT, CSP, logic

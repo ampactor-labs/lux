@@ -1,0 +1,143 @@
+// binary.mn — Pack / Unpack effects for structured byte I/O
+//
+// The two fundamental byte-direction effects. Every structured binary
+// operation in Mentl — cache persistence, future binary codegen, network
+// protocols, file formats — flows through Pack (output) and Unpack (input).
+//
+// The developer writes `perform pack_i32(42)` or `perform unpack_str()`.
+// The handler decides WHERE bytes go (memory buffer, file, network).
+// Handler swap → different destination. Config params → same destination,
+// different path. The developer's code never changes.
+//
+// Effect rows express direction contracts:
+//   with Pack          — this function outputs bytes
+//   with Unpack        — this function reads bytes
+//   with Pack + !Unpack — write-only (pure serializer)
+//   with Unpack + !Pack — read-only (pure deserializer)
+
+import types
+import runtime/strings
+
+/// Pack — byte output direction.
+effect Pack {
+  pack_byte(Int) -> ()        @resume=OneShot
+  pack_i32(Int) -> ()         @resume=OneShot
+  pack_str(String) -> ()      @resume=OneShot
+  pack_finalize() -> String   @resume=OneShot
+}
+
+/// Unpack — byte input direction.
+effect Unpack {
+  unpack_byte() -> Int        @resume=OneShot
+  unpack_i32() -> Int         @resume=OneShot
+  unpack_str() -> String      @resume=OneShot
+}
+
+/// buffer_packer — Pack handler that accumulates into a buffer.
+/// Grow-on-demand: doubles capacity when approaching limit.
+/// After the body completes, call finalize_packed to stamp the length.
+handler buffer_packer with buf = 0, offset = 0, capacity = 0 {
+
+  pack_byte(b) => {
+    let (nb, nc) = ensure_capacity(buf, offset, capacity, 1)
+    perform store_i8(nb + 4 + offset, b)
+    resume() with buf = nb, offset = offset + 1, capacity = nc
+  },
+
+  pack_i32(n) => {
+    // Use a 4-byte Memory scratch to let WASM handle signed i32
+    // encoding natively — no bitwise operators needed.
+    let (nb, nc) = ensure_capacity(buf, offset, capacity, 4)
+    let scratch = perform alloc(4)
+    perform store_i32(scratch, n)
+    perform store_i8(nb + 4 + offset,     perform load_i8(scratch))
+    perform store_i8(nb + 4 + offset + 1, perform load_i8(scratch + 1))
+    perform store_i8(nb + 4 + offset + 2, perform load_i8(scratch + 2))
+    perform store_i8(nb + 4 + offset + 3, perform load_i8(scratch + 3))
+    resume() with buf = nb, offset = offset + 4, capacity = nc
+  },
+
+  pack_str(s) => {
+    let slen = byte_len(s)
+    // Length prefix (as i32), then raw bytes.
+    let (nb, nc) = ensure_capacity(buf, offset, capacity, 4 + slen)
+    let scratch = perform alloc(4)
+    perform store_i32(scratch, slen)
+    perform store_i8(nb + 4 + offset,     perform load_i8(scratch))
+    perform store_i8(nb + 4 + offset + 1, perform load_i8(scratch + 1))
+    perform store_i8(nb + 4 + offset + 2, perform load_i8(scratch + 2))
+    perform store_i8(nb + 4 + offset + 3, perform load_i8(scratch + 3))
+    perform mem_copy(nb + 4 + offset + 4, s + 4, slen)
+    resume() with buf = nb, offset = offset + 4 + slen, capacity = nc
+  },
+
+  pack_finalize() => {
+    // Stamp the length header and return the buffer.
+    perform store_i32(buf, offset)
+    resume(buf)
+  }
+}
+
+/// buffer_unpacker — Unpack handler that reads from a byte string.
+/// Tracks a read offset through the source bytes. The caller's read
+/// order must match the writer's write order (structural contract).
+handler buffer_unpacker(source) with pos = 0 {
+
+  unpack_byte() => {
+    let b = perform load_i8(source + 4 + pos)
+    resume(b) with pos = pos + 1
+  },
+
+  unpack_i32() => {
+    // Read 4 bytes into a scratch word, then load as i32 — lets
+    // WASM handle sign extension natively.
+    let scratch = perform alloc(4)
+    perform store_i8(scratch,     perform load_i8(source + 4 + pos))
+    perform store_i8(scratch + 1, perform load_i8(source + 4 + pos + 1))
+    perform store_i8(scratch + 2, perform load_i8(source + 4 + pos + 2))
+    perform store_i8(scratch + 3, perform load_i8(source + 4 + pos + 3))
+    let n = perform load_i32(scratch)
+    resume(n) with pos = pos + 4
+  },
+
+  unpack_str() => {
+    // Read length prefix, then copy that many bytes into a new string.
+    let scratch = perform alloc(4)
+    perform store_i8(scratch,     perform load_i8(source + 4 + pos))
+    perform store_i8(scratch + 1, perform load_i8(source + 4 + pos + 1))
+    perform store_i8(scratch + 2, perform load_i8(source + 4 + pos + 2))
+    perform store_i8(scratch + 3, perform load_i8(source + 4 + pos + 3))
+    let slen = perform load_i32(scratch)
+    let str = perform alloc(4 + slen)
+    perform store_i32(str, slen)
+    perform mem_copy(str + 4, source + 4 + pos + 4, slen)
+    resume(str) with pos = pos + 4 + slen
+  }
+}
+
+/// ensure_capacity — grow-on-demand buffer management.
+fn ensure_capacity(buf, offset, capacity, needed) with Memory + Alloc = {
+  if capacity == 0 {
+    let initial = if needed > 4096 { needed * 2 } else { 4096 }
+    let new_buf = perform alloc(4 + initial)
+    perform store_i32(new_buf, 0)
+    (new_buf, initial)
+  }
+  else if offset + needed > capacity {
+    let new_cap = capacity * 2
+    let final_cap = if offset + needed > new_cap { (offset + needed) * 2 }
+                    else { new_cap }
+    let new_buf = perform alloc(4 + final_cap)
+    perform store_i32(new_buf, 0)
+    perform mem_copy(new_buf + 4, buf + 4, offset)
+    (new_buf, final_cap)
+  }
+  else { (buf, capacity) }
+}
+
+/// Stamp the final length into the buffer header, returning a proper
+/// Mentl string [len:i32][bytes...].
+fn finalize_packed(buf, offset) with Memory = {
+  perform store_i32(buf, offset)
+  buf
+}

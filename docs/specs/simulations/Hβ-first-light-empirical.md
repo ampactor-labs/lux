@@ -59,7 +59,7 @@ ConstructorScheme registration).
 
 The chunk header's named follow-up `Hβ.infer.constructors`
 (walk_stmt.wat:219-223) describes this as "TypeDefStmt arm seed-stub.
-Wheel's register_type_constructors (src/infer.nx:2028-2066) iterates
+Wheel's register_type_constructors (src/infer.mn:2028-2066) iterates
 variants + env_extends each ConstructorScheme(tag_id, total). Seed
 landing gates on parser_decl.wat:30-118 variant emission stabilizing
 the variant-record offset shape."
@@ -81,7 +81,7 @@ So H.1.a is **already-closed**. No walkthrough authoring needed.
 ## §1 Empirical seed-state matrix — per-construct verification
 
 Each row tested with a tiny program; observed verbatim from
-`echo '<source>' | wasmtime run bootstrap/inka.wasm 2>&1`.
+`echo '<source>' | wasmtime run bootstrap/mentl.wasm 2>&1`.
 
 | Construct | Source | Verdict | Notes |
 |---|---|---|---|
@@ -163,7 +163,7 @@ pass must establish actual gaps for each remaining named follow-up.**
 ### 2.1 Verification-pass micro-tests
 
 For each named follow-up in PLAN-to-first-light.md §3, author a
-~5-line wheel-Inka program that exercises ONLY that construct. Run
+~5-line wheel-Mentl program that exercises ONLY that construct. Run
 through the seed. Record:
 - Stderr (E_* diagnostics + count)
 - Stdout (emitted WAT for the relevant function)
@@ -190,7 +190,7 @@ Possibly fewer than 12 boxes; possibly different boxes than named.
    addendum.
 
    **CLOSED 2026-05-04.** Empirical re-verification under the
-   inka-implementer dispatch (planner-authored §A pre-audit gate)
+   mentl-implementer dispatch (planner-authored §A pre-audit gate)
    confirms `Just(42)` now emits the canonical heap-alloc + tag
    store + literal-arg store + variant return sequence verbatim.
    The seed compiles `Just(42)` as `(global.get $heap_ptr)
@@ -225,7 +225,7 @@ Possibly fewer than 12 boxes; possibly different boxes than named.
    ConstructorScheme bindings (where the scheme body Ty is
    `TName(_, [])` tag 108) short-circuit to
    `LMakeVariant(h, tag_id, [])` per wheel parity
-   `src/lower.nx:333-337`. Drift 6 closure: Bool's True/False flow
+   `src/lower.mn:333-337`. Drift 6 closure: Bool's True/False flow
    through the SAME arm because their scheme bodies are
    `TName("Bool", [])`. Post-fix `$main` body emits `(i32.const 1)`
    for the Nothing arg verbatim:
@@ -340,7 +340,7 @@ projection through the seed continues to grow toward L1.
 
 ### 4.5.2 NEW STRUCTURAL DISCOVERY — wheel canonical violates SYNTAX.md brace discipline
 
-While auditing why `cat src/types.nx lib/runtime/strings.nx` still
+While auditing why `cat src/types.mn lib/runtime/strings.mn` still
 produces 393 errors after the lambda fix, I discovered a load-
 bearing structural mismatch:
 
@@ -352,7 +352,7 @@ Y = b; X + Y`) without braces produce `E_MissingBracesMultiLine`.
 Examples:
 
 ```
-src/types.nx:362
+src/types.mn:362
 fn span_join(a, b) with Pure =
   let Span(sl, sc, _, _) = a
   let Span(_, _, el, ec) = b
@@ -363,10 +363,10 @@ This fn body has THREE statements (two let-bindings + final expr)
 with no braces. Per SYNTAX.md, this should be a parse error.
 
 Counts:
-- `src/types.nx`: 19 fns with `fn name(...) with ... =` ending in
+- `src/types.mn`: 19 fns with `fn name(...) with ... =` ending in
   newline (multi-line bare-body candidates)
-- `src/lower.nx`: 2 fns
-- `src/infer.nx`: 1 fn (probably more by other patterns)
+- `src/lower.mn`: 2 fns
+- `src/infer.mn`: 1 fn (probably more by other patterns)
 - (Likely many more across `src/` and `lib/` not counted by the
   narrow grep)
 
@@ -399,8 +399,8 @@ SYNTAX.md is restoration, not loosening.
 
 ### 4.5.4 Newly named real handle
 
-`Hβ.first-light.wheel-brace-discipline` — bring `src/*.nx` and
-`lib/**/*.nx` into SYNTAX.md §126-142 compliance. Each multi-line
+`Hβ.first-light.wheel-brace-discipline` — bring `src/*.mn` and
+`lib/**/*.mn` into SYNTAX.md §126-142 compliance. Each multi-line
 fn body that lacks braces gets `{` after `=` and `}` at end of
 body. Mechanical; bounded; substrate-honest.
 
@@ -425,22 +425,22 @@ functions in the WAT module: `$main`, `$5` (the lambda body), and
 
 Empirical state with full src+lib feed (post all three fixes):
 - ERR=12, FUNCS=2, WAT=19 — still stub-shaped
-- Individual files: strings.nx alone produces 78 funcs+649 errs;
-  lists.nx alone produces 24 funcs+343 errs
-- types.nx + memory.nx + strings.nx: 0 funcs (cascading failure
-  from types.nx's `self` refinement bindings + TParam
+- Individual files: strings.mn alone produces 78 funcs+649 errs;
+  lists.mn alone produces 24 funcs+343 errs
+- types.mn + memory.mn + strings.mn: 0 funcs (cascading failure
+  from types.mn's `self` refinement bindings + TParam
   destructure failures)
 
-**The fundamental remaining gap:** `types.nx` introduces complex
+**The fundamental remaining gap:** `types.mn` introduces complex
 type-system constructs — refinement types (`type X = Y where
 predicate(self)`), TParam record-pattern destructuring (`TParam(_,
 _, _, resolved)`), nested ADT shape constraints — that the seed
 inference can't fully process, causing cascading failures that
 prevent later wheel files from compiling.
 
-When `types.nx` is omitted (e.g., `cat lib/runtime/{strings,lists}.nx`),
+When `types.mn` is omitted (e.g., `cat lib/runtime/{strings,lists}.mn`),
 the seed produces 101 funcs (real wheel substrate compiling). The
-whole-wheel compile fails because types.nx's parse/infer cascade
+whole-wheel compile fails because types.mn's parse/infer cascade
 crashes the env state for everything downstream.
 
 Newly named handles:
@@ -561,13 +561,13 @@ convention); caller must match. wat2wasm rejected with `"expected
 fix to `$emit_levperform` which already pushed `__state` first via
 `$el_emit_local_get_state`.
 
-Wheel-side mirror at `src/backends/wasm.nx:1568-1579` — same shape:
+Wheel-side mirror at `src/backends/wasm.mn:1568-1579` — same shape:
 `perform wat_emit("    (local.get $__state)\n")` before
 `emit_expr_list(args)`.
 
 **Empirical: minimal handler + perform program now compiles + validates + runs:**
 
-```inka
+```mentl
 effect E { op() -> Int @resume=OneShot }
 handler h { op() => 42 }
 fn main() = perform op()
@@ -625,7 +625,7 @@ companion guard at `$emit_functions` head):
 ```
 
 Trap → graceful diagnostic chain. The seed produces SOMETHING for
-the first time on infer.nx-inclusive input. Wheel-scale empirical
+the first time on infer.mn-inclusive input. Wheel-scale empirical
 becomes trustworthy because every run terminates.
 
 The PUE is the SAFETY NET. Named peer `Hβ.first-light.emit-functions-malformed-list-source`
@@ -691,7 +691,7 @@ substrate distinct from List<A>, replacing the buffer-counter abuse
 pattern with a real primitive. Per user directive "no more
 workarounds" + ULTIMATE MEDIUM thesis.
 
-**Wheel** (`lib/runtime/buffer.nx`):
+**Wheel** (`lib/runtime/buffer.mn`):
 - `type Buffer<A> = {data: List<A>, count: Int}` — structural record
   per SYNTAX.md §494; field access via `.` per §572.
 - `buf_make<A>() -> Buffer<A>` — fresh empty
@@ -759,9 +759,9 @@ be sane-sized and we can iterate on the actual L1 fixpoint
 `Hβ.first-light.handler-arm-fn-name-discriminator` — handler-arm
 fns now mint as `op_<handler_name>_<op_name>` instead of the
 H1.4 single-handler-per-op `op_<op_name>`. Closes the named follow-
-up at `src/lower.nx:790` ("Single-handler-per-op naming for now").
+up at `src/lower.mn:790` ("Single-handler-per-op naming for now").
 
-**Why the rename:** `lib/prelude.nx` has 10+ handlers all defining
+**Why the rename:** `lib/prelude.mn` has 10+ handlers all defining
 `yield`-arms for the `Iterate` effect (map/filter/take/drop/collector/
 fold/for_each/any/all/partition + inline handlers in fn bodies).
 Pre-substrate, every arm became `(func $op_yield ...)` at module
@@ -770,7 +770,7 @@ level → wat2wasm rejects with duplicate-fn-name.
 **Empirical surface:** the wheel-scale "84,691 funcref entries
 producing 4.9 GiB WAT" diagnosed in §4.5.10/§4.5.11 wasn't DAG-
 shared LowFn pointers (cfn_walk's hypothesis). Each arm has a
-unique LowFn record; the bloat came from `lib/prelude.nx`'s
+unique LowFn record; the bloat came from `lib/prelude.mn`'s
 many handlers each independently emitting a `(func $op_yield ...)`
 declaration. Same op-name across distinct handler decls. wat2wasm
 correctly rejects 10+ `$op_yield` declarations.
@@ -785,7 +785,7 @@ correctly rejects 10+ `$op_yield` declarations.
   HandlerDeclStmt offset 4 through the call.
 - `bootstrap/src/lower/walk_handle.wat`: passes `int_to_str($h)`
   for inline HandleExpr.
-- `src/lower.nx` (wheel): mirror — `lower_handler_arms_as_decls(arms,
+- `src/lower.mn` (wheel): mirror — `lower_handler_arms_as_decls(arms,
   discriminator)`; `HandlerDeclStmt(name, ...)` passes `name`;
   `HandleExpr(...)` passes `int_to_str(handle)`. Pipe-verb str_concat
   chain `"op_" |> str_concat(discriminator) |> str_concat("_") |>
@@ -850,7 +850,7 @@ Empirical state post all landings:
 Empirical drilling reveals string-interning collision + PTuple-let
 destructure as the next-most-impactful gaps:
 
-```inka
+```mentl
 type Ty = TInt | TFloat | TString
 
 fn ty_to_str(ty) = match ty {
@@ -888,7 +888,7 @@ The user's reminder "remember. dream-code ;)" pulled the cursor
 back from seed-bug-chasing to wheel-ward composition.
 
 Per Anchor 0: **lux3.wasm is not the arbiter.** The wheel canonical
-(src/*.nx) is the ULTIMATE FORM. The seed transcribes the wheel
+(src/*.mn) is the ULTIMATE FORM. The seed transcribes the wheel
 after first-light-L1 per Tier 3 growth pattern. Verification is by
 simulation, walkthrough, and audit — not compilation.
 
@@ -899,7 +899,7 @@ write the wheel's dream code; the seed grows toward it.
 
 Hμ.cursor.transport landed (commit `4c9a44f`):
 
-- src/cursor_transport.nx (~430 lines, ~52 files in the wheel now)
+- src/cursor_transport.mn (~430 lines, ~52 files in the wheel now)
 - Surface effect: surface_render + surface_action + surface_handshake
 - Four transport handlers: terminal / lsp / web / vim
 - TransportState record (drift 5 + 7 closure)
@@ -937,7 +937,7 @@ sites (LEvPerform / closure-fn-ptr-field) are the 15% — peer
 handle `Hβ.first-light.evidence-poly-call-transient` carries the
 Tier 2 substrate when needed.
 
-**Substrate change (wheel `src/lower.nx` + seed
+**Substrate change (wheel `src/lower.mn` + seed
 `bootstrap/src/lower/`):**
 
 - *Lower stage* gains a handler-name stack (`$lower_handler_stack_ptr`,
@@ -1008,7 +1008,7 @@ wat2wasm validates; wasmtime exits 0. 26-line WAT.
 
 **Cursor of attention** post-Tier 1: the wheel-scale empirical
 was about to verify post-discriminator behavior across the 10+
-`yield`-handlers in `lib/prelude.nx` (the prior 84,691 funcref
+`yield`-handlers in `lib/prelude.mn` (the prior 84,691 funcref
 duplicate-symbol bloat) when bash flakiness blocked execution.
 Predicted state: each `op_yield_*` symbol unique (e.g.,
 `$op_map_yield`, `$op_filter_yield`, `$op_take_yield`...) per the
@@ -1030,8 +1030,8 @@ Same bug-class; same fix shape.
   the canonical path is fully wired wheel↔seed.
 - CLAUDE.md Anchor 4 "build the wheel; never wrap the axle" —
   wheel landed FIRST (`50a9512`); seed mirrored (`4cce41d`).
-  Wheel-canonical `src/lower.nx` has `lower_handler_arms_as_decls`
-  in idiomatic Inka with `~>` capability stack + `|>` str_concat
+  Wheel-canonical `src/lower.mn` has `lower_handler_arms_as_decls`
+  in idiomatic Mentl with `~>` capability stack + `|>` str_concat
   pipe-verb chain.
 
 ### 4.5.5 Session running tally (this empirical-execution arc)

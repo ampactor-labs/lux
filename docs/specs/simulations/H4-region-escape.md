@@ -39,7 +39,7 @@ escape. Should compile cleanly.
 ## Layer 0 — what counts as a region
 
 **Every HandleExpr on the Alloc effect creates a region.** This
-is the structural, Inka-native answer. No naming convention; no
+is the structural, Mentl-native answer. No naming convention; no
 attribute markup. A handler that handles Alloc → its scope is a
 memory region → its bounds delimit value lifetime.
 
@@ -272,7 +272,7 @@ enough context to diagnose itself.
 
 ## Layer 3 — FnStmt's return check
 
-At each FnStmt's exit (existing code at infer.nx ~line 210):
+At each FnStmt's exit (existing code at infer.mn ~line 210):
 
 ```
 // After body inference, before declared-effects check:
@@ -320,7 +320,7 @@ complementary.
 - Every alloc-site in every source file carries its region tag.
 - The region_tracker handler has live consumers — its stubs from
   Phase E are replaced with real arms.
-- Inka gains static region-escape analysis without nominal
+- Mentl gains static region-escape analysis without nominal
   region annotations. Structural, handler-mediated, inference-
   time.
 
@@ -335,7 +335,7 @@ LMakeClosure, LMakeList, LMakeTuple, LMakeRecord (H2),
 LMakeVariant (H3), and direct `perform alloc(n)`. At inference
 time, each of these has a node that produces a handle. The
 tag_alloc perform is inserted at every such site. This is
-substantial but mechanical — a sweep across infer.nx.
+substantial but mechanical — a sweep across infer.mn.
 
 ### Revelation B — branch structure mirrors C1's branching ledger
 
@@ -420,12 +420,12 @@ Phase E).
 
 ## Estimated scope
 
-- ~4 files touched: types.nx (effect extension — current_region
-  if we choose that route), own.nx (region_tracker real arms +
-  helpers), infer.nx (tag_alloc insertion sweep, check_escape
+- ~4 files touched: types.mn (effect extension — current_region
+  if we choose that route), own.mn (region_tracker real arms +
+  helpers), infer.mn (tag_alloc insertion sweep, check_escape
   at FnStmt exit, current_region lookups at construction sites),
   docs/errors/ (E_RegionSequencingBug if we surface that),
-  possibly pipeline.nx (region_tracker install).
+  possibly pipeline.mn (region_tracker install).
 - **One commit** with the sweep.
 - **Sub-handles:** H4.1 branch-level region checks (if not
   included), H4.2 closure capture region propagation (if not
@@ -520,7 +520,7 @@ diagnostic-only.
 - Add a **region-join helper** to the tag_alloc path: for
   LMakeRecord/LMakeVariant, compute the field-pointer-regions join
   and tag the constructing handle with the outermost region.
-- One additional helper file (or in-place in own.nx): ~30 lines.
+- One additional helper file (or in-place in own.mn): ~30 lines.
 - The escape-check at FnStmt exit gains a "field-walk" pass for
   records — recursive but bounded by record depth (~5 lines deeper).
 

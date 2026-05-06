@@ -1,6 +1,6 @@
   ;; ═══ unify_ground_mismatch.wat — trace-harness ════════════════════
   ;; Executes: Hβ-infer-substrate.md §3 + §11 acceptance — TInt × TString
-  ;;           Hazel productive-under-error path. Per src/infer.nx:1183 +
+  ;;           Hazel productive-under-error path. Per src/infer.mn:1183 +
   ;;           1536-1541 + DESIGN paragraph in unify.wat: $type_mismatch
   ;;           mints a fresh diagnostic carrier handle, then routes
   ;;           through $infer_emit_type_mismatch which (a) prints

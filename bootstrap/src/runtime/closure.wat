@@ -19,7 +19,7 @@
   ;;
   ;; THERE IS NO VTABLE. The fn_index is a FIELD on the record;
   ;; evidence is a SLOT on the record; dispatch reads the field. Per
-  ;; CLAUDE.md anchor "There is no vtable in Inka" + Koka JFP 2022
+  ;; CLAUDE.md anchor "There is no vtable in Mentl" + Koka JFP 2022
   ;; evidence-passing compilation.
   ;;
   ;; cont.wat (H7 — multi-shot continuation; future Wave 2.B addition)

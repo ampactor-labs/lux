@@ -1,0 +1,158 @@
+// buffer.mn — Buffer<A> mutable-with-counter primitive (Hβ.runtime.buffer-substrate)
+//
+// Per CLAUDE.md "Bug classes that cost hours" + ULTIMATE MEDIUM
+// thesis: every "list-as-buffer" pattern is a substrate gap asking
+// for a real Buffer<A> primitive distinct from `List<A>`. Mentl's
+// `List<A>` is immutable + structural — `len(self) IS the logical
+// count`. Some callsites need O(1) push semantics (cfn_walk in
+// emit's collect_fn_names, emit's per-fn locals collection, etc.);
+// they want a mutable buffer with separate capacity and count.
+//
+// Pre-substrate, those callsites abused `List<A>` by writing count
+// back to offset 0 after `list_extend_to`, conflating capacity and
+// count. Each iteration overwrote the doubled capacity that
+// `list_extend_to`'s `make_list` set, causing O(N²) reallocation.
+// For wheel-scale N≈20K closures this exhausted the perm cap (~1.6
+// GiB) and trapped at perm_alloc.
+//
+// `Buffer<A>` separates the two concerns via a structural record
+// (SYNTAX.md §494 — structural records, no nominal ceremony):
+//   {data: List<A>, count: Int}
+//
+// `data` is the underlying List storage; `count` is the logical
+// fill (count <= data.len). Per kernel crystallization #9
+// (Records-Are-Handler-State-Shape), Buffer is ONE record holding
+// both fields — never (List, Int) returned as parallel arrays
+// (drift mode 7).
+//
+// Per primitive #5 ownership: `buf_push` and `buf_freeze` consume
+// the buffer (`own`); `buf_count` and `buf_data` borrow (`ref`).
+// The data List may be reallocated by extension under-the-hood; the
+// caller never observes mutation through ownership transfer.
+//
+// Authority: SUBSTRATE.md kernel crystallization #9
+// "Records-Are-Handler-State-Shape"; SYNTAX.md §494 + §580 (record
+// literal + spread-update); CLAUDE.md drift mode 7 (parallel-arrays
+// refusal).
+
+import types
+import runtime/lists
+
+/// Buffer<A> — mutable buffer with separate capacity and count.
+///
+/// `data: List<A>` is the underlying storage; `count` is the logical
+/// fill. The data List grows by snoc-tag-1 append (`push`) on
+/// overflow; final freeze materializes to a flat tag-0 List via
+/// `list_to_flat`.
+///
+/// The refinement `where buf_invariant(self)` captures the
+/// structural invariant (primitive #6) — count never exceeds
+/// capacity. Verify discharges it at construction sites once
+/// verify_smt-witness-L2 lands; pre-L2 the predicate parses, the
+/// contract is documented, runtime enforcement is by convention.
+/// Per SYNTAX.md §664 type-with-where form.
+///
+/// Per drift mode 7 (parallel-arrays-instead-of-record): one record
+/// carries both fields, NOT two parallel collections.
+
+type Buffer<A> = {data: List<A>, count: Int}
+  where buf_invariant(self)
+
+/// `buf_invariant(b)` — the structural invariant: count never
+/// exceeds the underlying capacity. Named so the refinement
+/// predicate composes cleanly + Mentl can surface it as the Why
+/// edge for any "buffer over-fill" diagnostic.
+
+fn buf_invariant<A>(b: Buffer<A>) -> Bool with Pure =
+  buf_count(b) <= len(buf_data(b))
+
+/// `buf_make()` — fresh empty buffer. Storage starts as the empty
+/// List; first `buf_push` snoc-appends. Wheel-canonical implementation
+/// uses snoc growth (O(1) push, O(N) freeze materialize). Seed-side
+/// (bootstrap/src/runtime/buffer.wat) uses flat-with-doubling for
+/// O(1) push + O(N) freeze in fewer cache lines.
+
+fn buf_make<A>() -> Buffer<A> with Memory + Alloc =
+  Buffer{data: make_list(0), count: 0}
+
+/// `buf_push(buf, x)` — append `x` to the buffer; bump count.
+/// Snoc-based: `push` allocates a tag-1 node wrapping the previous
+/// data. Amortized O(1) per push regardless of buffer size.
+
+fn buf_push<A>(own buf: Buffer<A>, x: A) -> Buffer<A> with Memory + Alloc =
+  {...buf, data: push(buf.data, x), count: buf.count + 1}
+
+/// `buf_count(buf)` — read the logical count (used slots).
+
+fn buf_count<A>(ref buf: Buffer<A>) -> Int with Pure = buf.count
+
+/// `buf_data(buf)` — read the underlying List<A>. Note this may be
+/// snoc-shaped during the buffer's lifetime; use `buf_freeze` to
+/// materialize a clean flat List of just the valid prefix.
+
+fn buf_data<A>(ref buf: Buffer<A>) -> List<A> with Pure = buf.data
+
+/// `buf_freeze(buf)` — materialize the underlying List as a flat
+/// tag-0 List, returning ownership. The buffer is consumed; after
+/// freeze, callers operate on the resulting List.
+
+fn buf_freeze<A>(own buf: Buffer<A>) -> List<A> with Memory + Alloc =
+  list_to_flat(buf.data)
+
+// ─── Connection to the kernel ─────────────────────────────────────────
+//
+// Primitive #1 (Graph + Env) — Buffer<A> is a structural record per
+//   kernel crystallization #9 (Records-Are-Handler-State-Shape); each
+//   field accessor is graph-resident.
+//
+// Primitive #2 (Handlers + resume) — N/A; runtime substrate. (Memory
+//   + Alloc effects are absorbed by the runtime's outermost handler.)
+//
+// Primitive #3 (Five verbs) — `|>` chain at use sites:
+//     buf_make()
+//       |> buf_push(x)
+//       |> buf_push(y)
+//       |> buf_freeze
+//
+// Primitive #4 (Effect row algebra) — `with Memory + Alloc` on push
+//   because data is reallocated; `with Pure` on count + data because
+//   they only read; `with Memory + Alloc` on make + freeze (allocate).
+//   `!Mutate` would not be honest here — push DOES allocate via the
+//   underlying List substrate.
+//
+// Primitive #5 (Ownership) — `own` on push + freeze (buffer consumed,
+//   replaced); `ref` on count + data (read-only). The data List may
+//   be reallocated by extend; ownership transfer at the buffer level
+//   keeps this invisible to the caller.
+//
+// Primitive #6 (Refinement) — `Buffer<A> where buf_count(self) <=
+//   len(buf_data(self))` is the structural invariant. Verify
+//   discharges it at construction sites (post-L2 peer
+//   `Hβ.refine.buffer-invariant`).
+//
+// Primitive #7 (Annotation gradient) — declaring `with Memory +
+//   Alloc` is an annotation point; declaring the refinement is
+//   another. Mentl can suggest either when cursor surfaces a buffer-
+//   counter pattern in user code.
+//
+// Primitive #8 (Reasons) — each push leaves
+//   Reason::BufPush(handle, span) for the Why Engine to walk back
+//   from a final List to its construction history. Useful for
+//   "where did this entry come from?" diagnostics on collected lists.
+
+// ─── What this substrate refuses ──────────────────────────────────────
+//
+// - Drift 7 (parallel-arrays): Buffer is ONE record holding (data,
+//   count); never (List, Int) returned as a tuple.
+// - Drift 9 (deferred-by-omission): the underlying capacity-vs-count
+//   separation is structural; not a peer "to be added later."
+// - Mutable global mutable buffer state: `buf_count_global` would be
+//   drift mode 2 (Scheme env frame). Buffer<A> is ownership-clean.
+// - List-as-buffer abuse: callers needing buffer semantics use
+//   Buffer<A>; List<A> stays immutable + structural.
+// - Drift 8 (string-keyed): buffer fields are positional record names
+//   (data, count), accessed via `.field` per SYNTAX.md §572.
+//
+// Authority: ULTIMATE_MEDIUM.md §"the medium has no null"; CLAUDE.md
+//   drift mode 7 + 9; SUBSTRATE.md §"Records Are The Handler-State Shape";
+//   SYNTAX.md §494 (structural records) + §580 (spread-update).

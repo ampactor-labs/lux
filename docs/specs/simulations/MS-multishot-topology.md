@@ -1,6 +1,6 @@
 # The Topology of Alternate Realities: 5 Verbs × Multi-Shot
 
-*This document captures the brainstorm exploring the absolute limit of Inka's algebraic primitives, specifically the intersection of spatial topology and temporal realities.*
+*This document captures the brainstorm exploring the absolute limit of Mentl's algebraic primitives, specifically the intersection of spatial topology and temporal realities.*
 
 When we talk about the Five Verbs (`|>`, `<|`, `><`, `~>`, `<~`), we are talking about **spatial topology** — how data moves through the graph. 
 When we talk about Multi-Shot Continuations (`@resume=MultiShot`), we are talking about **temporal topology** — how execution forks into alternate realities (backtracking, generators, quantum superpositions).
@@ -13,7 +13,7 @@ What happens when we intersect them? We stop writing code and start sculpting N-
 
 Per `SYNTAX.md`, `<|` is the structural diverge. It takes one input and routes it into multiple branches, **borrowing** the input so it cannot escape. 
 
-```inka
+```mentl
 sensor_data
   <| (
     process_a,
@@ -27,7 +27,7 @@ Because the handler wraps the whole chain (block-form `~>`), the continuation of
 The universe forks. `process_b` is dragged into 3 parallel realities. 
 
 But what if the handler is inline (Form B)?
-```inka
+```mentl
 sensor_data
   <| (
     process_a ~> stochastic_handler,
@@ -44,7 +44,7 @@ Now the Multi-Shot explosion is *contained* within branch A. Branch A resolves i
 
 Per `SYNTAX.md`, `><` is a structural N-ary parallel compose. The branches are independent pipelines.
 
-```inka
+```mentl
 (camera_feed |> track_objects ~> multi_shot_tracker)
     ><
 (lidar_feed  |> track_depth)
@@ -62,7 +62,7 @@ Because `><` pipelines are independent and run in parallel, the `fuse_sensors` s
 
 Per `SYNTAX.md`, `<~` routes data back to a previous layer, but it requires an iterative context (`Sample`, `Tick`, `Clock`).
 
-```inka
+```mentl
 system_state
   |> predict_next
   ~> particle_filter_handler
@@ -76,7 +76,7 @@ When those realities hit `<~ accumulate(0)`, what happens?
 Because each reality holds its own continuation state, the iterative context (`Tick`) maintains 1,000 independent feedback loops. 
 
 **Developer Scenario:** You just wrote a Monte Carlo Particle Filter in 5 lines of code. No arrays. No `for` loops. The topological wire `|>` carries a single particle. The Multi-Shot handler forks it into 1,000 particles. The `<~` feedback loops the state of all 1,000 particles back to the next tick. 
-You wrote the logic for one reality; Inka compiled it into a massively parallel tensor operation.
+You wrote the logic for one reality; Mentl compiled it into a massively parallel tensor operation.
 
 ---
 

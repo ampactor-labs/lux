@@ -11,7 +11,7 @@ speak in authored vocabulary.*
 
 ## §1 Frame
 
-Inka's primitive #6 is refinement types — compile-time proof, runtime
+Mentl's primitive #6 is refinement types — compile-time proof, runtime
 erasure. `type Port = Int where 1 <= self && self <= 65535`. Verify
 handler discharges predicate obligations at construction sites.
 
@@ -28,7 +28,7 @@ Diagnostic quality delta: *"refinement discharge failed for `1 <= self && self <
 
 ## §2 Trace — where intent drops today
 
-In `std/compiler/infer.nx:187-189` (`RefineStmt` handling):
+In `std/compiler/infer.mn:187-189` (`RefineStmt` handling):
 
 ```
 perform env_extend(name, Forall([], TRefined(base_ty, pred)), Declared(name), FnScheme)
@@ -83,18 +83,18 @@ form.
 
 ## §4 Layer touch-points
 
-### parser.nx
+### parser.mn
 No change. `RefineStmt` already captures alias name.
 
-### types.nx
+### types.mn
 Add `TAlias(String, Ty)` variant to `Ty`. Add `show_type` arm.
 
-### infer.nx
+### infer.mn
 `RefineStmt` handler extends env with `TAlias(name, TRefined(base, pred))`.
 Unification handles `TAlias` by unwrapping (semantic) while preserving
 on result handle (intent).
 
-### Verify handler (verify.nx)
+### Verify handler (verify.mn)
 At discharge-failure site, walk the failing type's outer TAlias
 layer. Emit diagnostic naming the alias, the specific sub-predicate
 that failed, and the offending value.
@@ -106,7 +106,7 @@ No change. Aliases are compile-time-only.
 `perform show_type_authored(handle)` returns the alias-preserved form.
 Existing `show_type` could be replaced with this, or coexist.
 
-### cache.nx
+### cache.mn
 Serialize/deserialize `TAlias(n, inner)` preserving the name.
 
 ---
@@ -138,10 +138,10 @@ ambiguous unification).
 
 | Peer | Surface | Load |
 |---|---|---|
-| RN.1 | `TAlias` variant + infer `RefineStmt` wrapping | Light (~15L types.nx + ~5L infer.nx) |
-| RN.2 | Unification alias preservation + `show_type` rendering | Moderate (~30L infer.nx + ~10L types.nx) |
-| RN.3 | Verify diagnostic upgrade (alias + sub-predicate) | Moderate (~40L verify.nx) |
-| RN.4 | Cache serialization round-trip | Light (~15L cache.nx) |
+| RN.1 | `TAlias` variant + infer `RefineStmt` wrapping | Light (~15L types.mn + ~5L infer.mn) |
+| RN.2 | Unification alias preservation + `show_type` rendering | Moderate (~30L infer.mn + ~10L types.mn) |
+| RN.3 | Verify diagnostic upgrade (alias + sub-predicate) | Moderate (~40L verify.mn) |
+| RN.4 | Cache serialization round-trip | Light (~15L cache.mn) |
 
 Total: ~115 lines. Four commits, landable in parallel after RN.1
 lands first.

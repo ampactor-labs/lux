@@ -15,7 +15,7 @@
   ;; wasi_fs.wat per the FX walkthrough composition arc.
   ;;
   ;; iov scratch is allocated inline (one $alloc per call). Per
-  ;; lib/runtime/io.nx VFINAL: scratch convention; bump allocator
+  ;; lib/runtime/io.mn VFINAL: scratch convention; bump allocator
   ;; recovers all on next session reset (none — bump is monotonic, but
   ;; iov use is small).
 

@@ -1,6 +1,6 @@
   ;; ═══ main_inka_emit_smoke.wat — Hβ.emit.module-wrap acceptance ═════
   ;; Executes: Phase F — $inka_emit module wrapper per Hβ-emit-substrate.md
-  ;;           §10.3 + src/backends/wasm.nx emit_module/emit_start.
+  ;;           §10.3 + src/backends/wasm.mn emit_module/emit_start.
   ;;           Proves the pipeline-stage boundary emits structurally valid
   ;;           WAT module wrapping (header, WASI imports, memory, globals,
   ;;           body functions, funcref table, data section, _start).

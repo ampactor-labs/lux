@@ -1,5 +1,5 @@
   ;; ═══ Type Declaration Parser (Complete) ═════════════════════════════
-  ;; Hand-transcribed from src/parser.nx lines 525-586.
+  ;; Hand-transcribed from src/parser.mn lines 525-586.
   ;;
   ;; type Name = Variant1 | Variant2(Type1, Type2) | ...
   ;; Each variant: (name, field_types_list)
@@ -61,7 +61,7 @@
     ;;              Substrate-honest tag: this is drift-9-safe because
     ;;              the named handle Hβ.first-light.refine-predicate-
     ;;              parser will replace this skip with full predicate
-    ;;              parsing + Verify-emit obligation per src/infer.nx
+    ;;              parsing + Verify-emit obligation per src/infer.mn
     ;;              wheel canonical (RefineStmt arm at line 261-266).
     ;;  7. Gradient? Skipping the predicate doesn't unlock capability
     ;;              today; the named follow-up wires Verify so adding

@@ -1,11 +1,11 @@
-# Inka
+# Mentl
 
 > *The ultimate intent → machine instruction medium. The compiler
 > IS the AI. The graph IS the program. The handler IS the backend.
 > The pipe IS the universal notation. The medium refuses ceremony
 > the graph doesn't require. The medium raises its users.*
 
-Inka is not a programming language. It is a **medium** — a lens
+Mentl is not a programming language. It is a **medium** — a lens
 clear enough that a programmer looks through it and sees their
 intent, realized as machine instructions, for any domain they
 choose. Mentl — an octopus-shaped oracle, She / Her — reads the
@@ -13,7 +13,7 @@ graph underneath and teaches the programmer one step at a time.
 She explores hundreds of alternate realities per second under
 the surface; She surfaces only what's proven.
 
-File extension: `.nx` (the last two letters of Inka).
+File extension: `.mn` (the last two letters of Mentl).
 
 ---
 
@@ -95,7 +95,7 @@ framing is architectural, not decorative.**
 - **Every domain is a handler stack.** Frontend, backend, DSP,
   robotics, sensors, ML, embedded, systems — one substrate.
   The industry's domain-specialty fragmentation is a consequence
-  of language fragmentation; Inka dissolves it.
+  of language fragmentation; Mentl dissolves it.
 - **Mentl is the compiler's voice.** She reads the graph,
   explores alternate realities via multi-shot, surfaces one
   proven suggestion at a time. **She makes modern agentic
@@ -131,17 +131,17 @@ framing is architectural, not decorative.**
 ## What's substrate-live today
 
 After the γ cascade closed, every layer from character → token →
-AST → typed AST → LIR → WAT speaks Inka's vocabulary.
+AST → typed AST → LIR → WAT speaks Mentl's vocabulary.
 Discriminated unions, parameterized effects (`with Sample(44100)`),
 structural records, nominal record types, Bool as nullary-sentinel
 ADT, region-tracked allocation with field-store join, evidence
 reification with transient closures, frame-record handler state.
 
-After Phase II's first cluster, `inka check <module>` runs
+After Phase II's first cluster, `mentl check <module>` runs
 incrementally: per-module `.kai` cached envs, source-hash
 invalidation, env reconstruction without re-inference. Filesystem
 effect grants cache I/O via WASI; the same effect surfaces let
-`inka compile <module>` write WAT to disk.
+`mentl compile <module>` write WAT to disk.
 
 ---
 
@@ -169,16 +169,16 @@ severance, autodiff handler, threads, RPC, refinement SMT. See
 
 ```
 std/
-  prelude.nx              — Iterate effect, Bool ADT, derived collections
-  test.nx                 — Test effect declarations
-  compiler/               — the compiler, written in Inka
-    types.nx graph.nx effects.nx infer.nx lower.nx pipeline.nx
-    own.nx verify.nx clock.nx mentl.nx query.nx lexer.nx parser.nx
-    cache.nx driver.nx main.nx
-    backends/wasm.nx      — LowIR → WAT (peer; native/browser/etc.
+  prelude.mn              — Iterate effect, Bool ADT, derived collections
+  test.mn                 — Test effect declarations
+  compiler/               — the compiler, written in Mentl
+    types.mn graph.mn effects.mn infer.mn lower.mn pipeline.mn
+    own.mn verify.mn clock.mn mentl.mn query.mn lexer.mn parser.mn
+    cache.mn driver.mn main.mn
+    backends/wasm.mn      — LowIR → WAT (peer; native/browser/etc.
                              are sibling handlers — Phase II)
   runtime/
-    strings.nx lists.nx tuples.nx io.nx
+    strings.mn lists.mn tuples.mn io.mn
   dsp/                    — DSP examples (signal, spectral)
   ml/                     — ML examples (autodiff)
 

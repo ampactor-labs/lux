@@ -1,6 +1,6 @@
   ;; ═══ scheme_subst_map.wat — trace-harness ═════════════════════════
   ;; Executes: scheme.wat:351-415 substitution-map trio +
-  ;;           src/infer.nx:1993-1998 find_mapping -1-absent sentinel
+  ;;           src/infer.mn:1993-1998 find_mapping -1-absent sentinel
   ;; Exercises: scheme.wat — $subst_map_make $subst_map_extend
   ;;            $subst_map_lookup $subst_pair_make $subst_pair_old
   ;;            $subst_pair_fresh

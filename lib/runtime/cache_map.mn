@@ -1,0 +1,235 @@
+// cache_map.mn — generic in-memory cache substrate
+//
+// Sorted-list-of-(key, value) pairs as a pure substrate for in-memory
+// caching. Per the substrate Pure-enables-memoization principle
+// (INSIGHTS L480-505), this is the substrate cached_check_with_oracle
+// (per src/mentl_oracle.mn) uses to keep per-module (env, oracle_queue)
+// pairs in memory between invocations.
+//
+// The on-disk persistence story is separate — src/cache.mn owns .kai
+// file serialization via Pack/Unpack; this file owns the in-memory
+// key-value substrate.
+//
+// Per the Q-Morgan-IC composition: IC's existing cache discipline
+// (source-hash-based invalidation) drives this map. cache_map is
+// content-addressable: same key (oracle_cache_key composition) →
+// same value, deterministic. Same Pure-over-broader-input substrate.
+//
+// The map is sorted-by-key; lookup is O(log N) binary search; store
+// inserts in sorted position O(N). For per-module entries (typically
+// dozens to hundreds per project), this is well-bounded.
+
+import types
+
+/// CacheMap — sorted-list-of-(key, value) pairs. Generic over Value
+/// (consumers carry their own Value type — for the oracle case, that's
+/// CachedEntry per src/mentl_oracle.mn). Key is Int (the cache hash;
+/// FNV-1a of the relevant inputs per src/cache.mn hash_source). Sorted
+/// invariant: every (key, _) precedes its successor by key < successor.
+
+type CacheMap
+  = CacheMap(List)               // List<(Int, V)>, sorted by key ascending
+
+/// empty_cache — the identity element. Returns a fresh empty CacheMap.
+/// Pure; no allocation needed (uses the empty-list literal).
+
+fn empty_cache() with Pure = {
+  CacheMap([])
+}
+
+/// cache_lookup — O(log N) binary search by key. Returns Some(value)
+/// if found; None otherwise. Pure over the map.
+
+fn cache_lookup(map, key) with Pure = {
+  let CacheMap(entries) = map
+  cache_lookup_loop(entries, key, 0, entries.len)
+}
+
+fn cache_lookup_loop(entries, key, lo, hi) with Pure = {
+  if lo >= hi { None }
+  else {
+    let mid = (lo + hi) / 2
+    let (k, v) = list_index(entries, mid)
+    if k == key       { Some(v) }
+    else if k < key   { cache_lookup_loop(entries, key, mid + 1, hi) }
+    else              { cache_lookup_loop(entries, key, lo, mid) }
+  }
+}
+
+/// cache_store — insert (key, value) into the map, maintaining sorted
+/// invariant. If the key exists, updates the value; otherwise inserts.
+/// Returns updated CacheMap. O(N) worst case (insertion shift); O(log N)
+/// for the find.
+
+fn cache_store(map, key, value) with Memory + Alloc = {
+  let CacheMap(entries) = map
+  let n = entries.len
+  let pos = cache_find_insert_pos(entries, key, 0, n)
+  if pos < n {
+    let (k, _) = list_index(entries, pos)
+    if k == key {
+      // Update existing entry at pos
+      let buf = make_list(n)
+      let _ = cache_copy_with_replace(entries, n, pos, key, value, buf, 0)
+      CacheMap(slice(buf, 0, n))
+    } else {
+      // Insert at pos, shifting entries [pos..n) right by 1
+      let buf = make_list(n + 1)
+      let _ = cache_copy_with_insert(entries, n, pos, key, value, buf, 0)
+      CacheMap(slice(buf, 0, n + 1))
+    }
+  } else {
+    // Append at end
+    let buf = make_list(n + 1)
+    let _ = cache_copy_with_insert(entries, n, n, key, value, buf, 0)
+    CacheMap(slice(buf, 0, n + 1))
+  }
+}
+
+fn cache_find_insert_pos(entries, key, lo, hi) with Pure = {
+  if lo >= hi { lo }
+  else {
+    let mid = (lo + hi) / 2
+    let (k, _) = list_index(entries, mid)
+    if k < key  { cache_find_insert_pos(entries, key, mid + 1, hi) }
+    else        { cache_find_insert_pos(entries, key, lo, mid) }
+  }
+}
+
+fn cache_copy_with_replace(entries, n, replace_at, new_key, new_val, buf, i) with Memory + Alloc = {
+  if i >= n { i }
+  else {
+    let entry = if i == replace_at { (new_key, new_val) }
+                else                { list_index(entries, i) }
+    let extended = list_extend_to(buf, i + 1)
+    let written  = list_set(extended, i, entry)
+    cache_copy_with_replace(entries, n, replace_at, new_key, new_val, written, i + 1)
+  }
+}
+
+fn cache_copy_with_insert(entries, n, insert_at, new_key, new_val, buf, i) with Memory + Alloc = {
+  if i > n { i }
+  else if i < insert_at {
+    let entry    = list_index(entries, i)
+    let extended = list_extend_to(buf, i + 1)
+    let written  = list_set(extended, i, entry)
+    cache_copy_with_insert(entries, n, insert_at, new_key, new_val, written, i + 1)
+  }
+  else if i == insert_at {
+    let extended = list_extend_to(buf, i + 1)
+    let written  = list_set(extended, i, (new_key, new_val))
+    cache_copy_with_insert(entries, n, insert_at, new_key, new_val, written, i + 1)
+  }
+  else {
+    let entry    = list_index(entries, i - 1)
+    let extended = list_extend_to(buf, i + 1)
+    let written  = list_set(extended, i, entry)
+    cache_copy_with_insert(entries, n, insert_at, new_key, new_val, written, i + 1)
+  }
+}
+
+/// cache_invalidate_set — remove a set of keys from the map. The keys
+/// argument is a sorted List<Int> (per the same invariant the map uses).
+/// O(N + M) merge-style — walk both lists, drop entries whose keys are
+/// in the invalidation set.
+
+fn cache_invalidate_set(map, keys) with Memory + Alloc = {
+  let CacheMap(entries) = map
+  let n = entries.len
+  let m = keys.len
+  let buf = make_list(n)
+  let kept = cache_filter_loop(entries, n, 0, keys, m, 0, buf, 0)
+  CacheMap(slice(buf, 0, kept))
+}
+
+fn cache_filter_loop(entries, n, ei, keys, m, ki, buf, count) with Memory + Alloc = {
+  if ei >= n { count }
+  else {
+    let (entry_key, entry_val) = list_index(entries, ei)
+    let new_ki = cache_advance_ki(keys, m, ki, entry_key)
+    let in_invalidation_set =
+      new_ki < m && list_index(keys, new_ki) == entry_key
+    if in_invalidation_set {
+      cache_filter_loop(entries, n, ei + 1, keys, m, new_ki + 1, buf, count)
+    }
+    else {
+      let extended = list_extend_to(buf, count + 1)
+      let written  = list_set(extended, count, (entry_key, entry_val))
+      cache_filter_loop(entries, n, ei + 1, keys, m, new_ki, written, count + 1)
+    }
+  }
+}
+
+fn cache_advance_ki(keys, m, ki, target) with Pure = {
+  if ki >= m { ki }
+  else if list_index(keys, ki) >= target { ki }
+  else { cache_advance_ki(keys, m, ki + 1, target) }
+}
+
+/// cache_size — number of entries in the map. O(1) — list_len-direct.
+
+fn cache_size(map) with Pure = {
+  let CacheMap(entries) = map
+  entries.len
+}
+
+/// cache_keys — return List<Int> of all keys in the map (sorted, by
+/// invariant). O(N). Used by surface-side debugging + by snapshotting.
+
+fn cache_keys(map) with Memory + Alloc = {
+  let CacheMap(entries) = map
+  let n = entries.len
+  let buf = make_list(n)
+  cache_keys_loop(entries, n, 0, buf, 0)
+}
+
+fn cache_keys_loop(entries, n, i, buf, count) with Memory + Alloc = {
+  if i >= n { slice(buf, 0, count) }
+  else {
+    let (k, _) = list_index(entries, i)
+    let extended = list_extend_to(buf, count + 1)
+    let written  = list_set(extended, count, k)
+    cache_keys_loop(entries, n, i + 1, written, count + 1)
+  }
+}
+
+// ─── Connection to the kernel ─────────────────────────────────────────
+
+/// Primitive #1 (Graph + Env) — the cache itself is a pure data
+/// projection (sorted list of (key, value)); no graph state.
+///
+/// Primitive #2 (Handlers + resume discipline) — N/A; pure substrate.
+///
+/// Primitive #3 (Five verbs) — N/A at substrate-primitive layer.
+///
+/// Primitive #4 (Effect row algebra) — most ops `with Pure` (lookup,
+/// find, size, etc.); construction ops `with Memory + Alloc` for the
+/// list-extend pattern (Ω.3 substrate).
+///
+/// Primitive #5 (Ownership) — entries `own` to the map; map `ref` to
+/// readers; consumers receive new `own` map on store/invalidate (no
+/// in-place mutation).
+///
+/// Primitive #6 (Refinement) — could refine `CacheMap where
+/// sorted_by_key(self)`; V1 maintains the invariant by construction
+/// (sorted insertion + filter preserves order).
+///
+/// Primitive #7 (Annotation gradient) — `with Pure` on lookup unlocks
+/// memoization at consumers (e.g., project_queue_merger's
+/// last_merge_hash check).
+///
+/// Primitive #8 (HM inference + Reasons) — N/A at substrate-primitive
+/// layer; consumers carry their own Reasons.
+
+// ─── What this substrate refuses ──────────────────────────────────────
+
+/// - Hash maps with O(1) average lookup. Hash collisions + bucket
+///   complexity + non-deterministic iteration order. Sorted-list
+///   substrate gives O(log N) lookup with stable order; sufficient
+///   for per-module cache scales (dozens to hundreds of entries).
+/// - Mutation. Every store/invalidate returns a new CacheMap; consumers
+///   handle the with-state update via their handler's resume-with.
+/// - Generic type parameters. CacheMap is keyed by Int (cache hash
+///   per FNV-1a from src/cache.mn); Value is whatever the consumer
+///   stores. Generics arrive in F.X if/when multi-key-type maps are
+///   needed.

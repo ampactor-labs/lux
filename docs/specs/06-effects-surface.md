@@ -47,7 +47,7 @@ effect Infer {
 }
 ```
 
-The `infer.nx` module hosts the handler for these ops; underneath,
+The `infer.mn` module hosts the handler for these ops; underneath,
 the handler performs Graph ops.
 
 ### Diagnostic
@@ -304,7 +304,7 @@ query mints display ids. One function, two handlers.
 
 ### InferCtx (infer-local — spec 04)
 
-Inference-internal effect, declared and handled inside `infer.nx`.
+Inference-internal effect, declared and handled inside `infer.mn`.
 Accumulates each function's effect row during body traversal so the
 row binds to its handle in one write at scope exit (graph_bind is
 one-write-per-handle; rows grow in handler state, not in the graph).
@@ -323,7 +323,7 @@ effect InferCtx {
 
 `<~` feedback requires an ambient Clock / Tick / Sample handler.
 Inference performs `check_iterative_context()` at every `<~` site;
-absence is `E_FeedbackNoContext`. Owner: `clock.nx`.
+absence is `E_FeedbackNoContext`. Owner: `clock.mn`.
 
 ```lux
 effect IterativeContext {
@@ -360,6 +360,6 @@ effect HostClock {
 
 ## Consumed by
 
-- Every std/compiler/*.nx — this is the linker interface; checker enforces
+- Every std/compiler/*.mn — this is the linker interface; checker enforces
   every `perform op` matches a declared op.
 - Arc F.2 LSP handler — serializes Diagnostic and Query as JSON-RPC.

@@ -1,7 +1,7 @@
   ;; ═══ unify_var_bind_no_occurs.wat — trace-harness ═════════════════
   ;; Executes: Hβ-infer-substrate.md §3 + §11 acceptance — TVar(h_a) ×
   ;;           NBound(TInt) at h_b. h_a is NFree at $unify entry. Per
-  ;;           src/infer.nx:1046-1047: NFree-on-left arm binds h_a →
+  ;;           src/infer.mn:1046-1047: NFree-on-left arm binds h_a →
   ;;           TVar(h_b) via $graph_bind. The graph state after:
   ;;             chase(h_a) → NBound(TVar(h_b)),
   ;;             ty_tvar_handle(payload) == h_b,

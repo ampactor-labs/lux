@@ -51,11 +51,11 @@ below.
 
 ### 0.2 §A.1 minimal-repro evidence (verbatim)
 
-Per the inka-implementer §A pre-audit gate, the bug reproduces
-against HEAD seed (`bootstrap/inka.wasm`, 125322 bytes, built
+Per the mentl-implementer §A pre-audit gate, the bug reproduces
+against HEAD seed (`bootstrap/mentl.wasm`, 125322 bytes, built
 clean with empty stderr).
 
-Input program (`/tmp/repro_uniq.nx`):
+Input program (`/tmp/repro_uniq.mn`):
 
 ```
 type T = A(Int) | B(Int)
@@ -93,9 +93,9 @@ the partial wheel slice should produce ≥ 563 KB validating WAT.
 Actual:
 
 ```
-$ cat src/types.nx src/effects.nx lib/runtime/strings.nx \
-        lib/runtime/lists.nx \
-    | wasmtime run bootstrap/inka.wasm > /tmp/partial.wat
+$ cat src/types.mn src/effects.mn lib/runtime/strings.mn \
+        lib/runtime/lists.mn \
+    | wasmtime run bootstrap/mentl.wasm > /tmp/partial.wat
 $ wc -c < /tmp/partial.wat
 563125
 $ wat2wasm /tmp/partial.wat -o /tmp/partial.wasm 2>&1 | head -4
@@ -115,7 +115,7 @@ $n $na $name $names $nb $neg_names $op $residual $ret $span $v
 ```
 
 The bug is widespread; first match-arm fn `$show_type`
-(`src/types.nx:874-921`) has multiple arms each binding
+(`src/types.mn:874-921`) has multiple arms each binding
 overlapping name sets (e.g., `TName(name, args)`, `TAlias(name,
 _)`, `TRecord(fields)`, `TRefined(base, pred)` → `(local $name
 i32) (local $fields i32) (local $base i32)` repeated).
@@ -189,7 +189,7 @@ has no caller; this commit IS the wiring).
 | # | Interrogation | Resolution |
 |---|---|---|
 | 1 | **Graph?** | LPVar's `name` field at record offset 1 already carries the binding's source-level name string-pointer (per `bootstrap/src/lower/lowpat.wat:87-93`). The fn-local-set IS a structural projection of the LowPat tree's LPVar leaves under the current fn body. We add ONE ledger reading these names; we do NOT invent a parallel name source. |
-| 2 | **Handler?** | The existing emit-state ledger family (`$emit_funcref_table_ptr` / `$emit_string_table_ptr`) IS the wheel's handler-with-state shape projected; this is the fourth ledger entry. `@resume=OneShot` (no continuation; pure scan-or-append). The wheel projection IS `body_context` per `src/backends/wasm.nx:117-128 + 960-961`, augmented with a per-fn local-name set. |
+| 2 | **Handler?** | The existing emit-state ledger family (`$emit_funcref_table_ptr` / `$emit_string_table_ptr`) IS the wheel's handler-with-state shape projected; this is the fourth ledger entry. `@resume=OneShot` (no continuation; pure scan-or-append). The wheel projection IS `body_context` per `src/backends/wasm.mn:117-128 + 960-961`, augmented with a per-fn local-name set. |
 | 3 | **Verb?** | N/A at substrate level (intra-handler ledger). |
 | 4 | **Row?** | `EmitMemory` effect — writes via `$list_extend_to` + `$list_set` to the heap-allocated ledger; reads via `$list_index` + `$str_eq`. No row change vs the existing state.wat ledgers. |
 | 5 | **Ownership?** | Ledger OWNS by emit pass; `$emit_fn_reset` length-only-resets at fn boundary (mirrors `$emit_body_evidence_len_g`); name str_ptrs are `ref`-stored (caller retains primary ownership). |
@@ -322,13 +322,13 @@ LPTuple elem-LPVar, LPRecord field-LPVar + rest_var, LPList elem-LPVar + rest_va
 
 | Gate | Action |
 |---|---|
-| **E.1** (primary repro) | `cat /tmp/repro_uniq.nx \| wasmtime run bootstrap/inka.wasm > /tmp/repro_uniq.wat; wat2wasm /tmp/repro_uniq.wat -o /tmp/repro_uniq.wasm` — stage-1 exits 0 + empty stderr; `(local $fields i32)` occurs exactly ONCE; wat2wasm exits 0. |
-| **E.2** (partial-wheel slice) | `cat src/types.nx src/effects.nx lib/runtime/strings.nx lib/runtime/lists.nx \| wasmtime run bootstrap/inka.wasm > /tmp/partial.wat; wat2wasm /tmp/partial.wat -o /tmp/partial.wasm` — wat2wasm `redefinition` count = 0 (was 79 pre-fix). |
+| **E.1** (primary repro) | `cat /tmp/repro_uniq.mn \| wasmtime run bootstrap/mentl.wasm > /tmp/repro_uniq.wat; wat2wasm /tmp/repro_uniq.wat -o /tmp/repro_uniq.wasm` — stage-1 exits 0 + empty stderr; `(local $fields i32)` occurs exactly ONCE; wat2wasm exits 0. |
+| **E.2** (partial-wheel slice) | `cat src/types.mn src/effects.mn lib/runtime/strings.mn lib/runtime/lists.mn \| wasmtime run bootstrap/mentl.wasm > /tmp/partial.wat; wat2wasm /tmp/partial.wat -o /tmp/partial.wasm` — wat2wasm `redefinition` count = 0 (was 79 pre-fix). |
 | **E.3** (drift) | `bash tools/drift-audit.sh bootstrap/src/emit/state.wat bootstrap/src/emit/main.wat bootstrap/test/emit/match_arm_binding_uniqueness.wat` — zero matches. |
 | **E.4** (existing harnesses) | `bash bootstrap/test.sh` — all currently-passing harnesses pass post-fix. Specifically `match_arm_pat_binding_local_decl.wat`, `main_inka_emit_smoke.wat`, `emit_lmatch.wat` still PASS. The 81/81 baseline holds. |
 | **E.5** (new harness) | `bootstrap/test/emit/match_arm_binding_uniqueness.wat` exits 0; assertion: exactly one `(local $fields i32)` substring in `$f`'s preamble. |
-| **E.6** (broader L1 regression) | HEAD self-bootstrap: `cat src/*.nx lib/runtime/*.nx \| wasmtime run bootstrap/inka.wasm > /tmp/inka2.wat; wat2wasm /tmp/inka2.wat -o /tmp/inka2.wasm 2>&1 \| grep -c 'redefinition'` — strictly less than pre-fix baseline. |
-| **E.7** (artifact validation) | `wasm-validate bootstrap/inka.wasm` (post-rebuild) exits 0. |
+| **E.6** (broader L1 regression) | HEAD self-bootstrap: `cat src/*.mn lib/runtime/*.mn \| wasmtime run bootstrap/mentl.wasm > /tmp/inka2.wat; wat2wasm /tmp/inka2.wat -o /tmp/inka2.wasm 2>&1 \| grep -c 'redefinition'` — strictly less than pre-fix baseline. |
+| **E.7** (artifact validation) | `wasm-validate bootstrap/mentl.wasm` (post-rebuild) exits 0. |
 
 ---
 
@@ -337,7 +337,7 @@ LPTuple elem-LPVar, LPRecord field-LPVar + rest_var, LPList elem-LPVar + rest_va
 - **Anchor 0** (dream code; lux3.wasm not the arbiter) — substrate authored against the canonical seed shape. Verification by simulation + walkthrough + audit + harness.
 - **Anchor 1** (graph already knows it) — LPVar.name field IS the binding's source name; we add ONE ledger reading it; no parallel name source.
 - **Anchor 2** (don't patch; restructure or stop) — the existing emit-state ledger family (funcref / body-context / string-intern) IS the structural shape; this commit lands the fourth ledger entry composing with the existing pattern. NOT a patch to `$emit_pat_locals`; STRUCTURE extension.
-- **Anchor 4** (build the wheel; never wrap) — wheel-side `body_context` handler + `set_body_captures` / `set_body_evidence` discipline at `src/backends/wasm.nx:117-128 + 960-961` is the canonical shape; seed's state.wat IS the projection; this extension matches wheel pattern.
+- **Anchor 4** (build the wheel; never wrap) — wheel-side `body_context` handler + `set_body_captures` / `set_body_evidence` discipline at `src/backends/wasm.mn:117-128 + 960-961` is the canonical shape; seed's state.wat IS the projection; this extension matches wheel pattern.
 - **Anchor 7** (cascade discipline; walkthrough first; land whole) — walkthrough + substrate + harness in disciplined sequence per §D order.
 
 ---
@@ -351,4 +351,4 @@ This handle closes when:
 3. `Hβ-first-light-empirical.md` §4.5.5 receives a closure addendum citing both commits + the wheel-slice partial-build evidence becoming validating.
 4. `Hβ-first-light.match-arm-pat-binding-local-decl.md` §9 receives a closure addendum noting the predicted Lock #3 escape was verified and resolved by this handle.
 
-Three-commit citation: this walkthrough (commit 1) + substrate + harness (commit 2) + the empirical / cross-walkthrough closure addenda (commit 3, separate planner-issued follow-up after substrate lands and the wheel is verified). Per the inka-implementer contract, this dispatch lands two commits (walkthrough; substrate+harness); the addenda are named as the follow-up for the next planner cycle.
+Three-commit citation: this walkthrough (commit 1) + substrate + harness (commit 2) + the empirical / cross-walkthrough closure addenda (commit 3, separate planner-issued follow-up after substrate lands and the wheel is verified). Per the mentl-implementer contract, this dispatch lands two commits (walkthrough; substrate+harness); the addenda are named as the follow-up for the next planner cycle.

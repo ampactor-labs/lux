@@ -7,7 +7,7 @@
   ;;   LSuspend with evidence-slot list per H1.6 substrate. Each PerformExpr
   ;;   reads ResumeDiscipline (deferred per Lock #2) and emits LPerform.
   ;;   ResumeExpr collapses to LReturn per the wheel's "structurally a
-  ;;   return from the arm" discipline (src/lower.nx:445-448).
+  ;;   return from the arm" discipline (src/lower.mn:445-448).
   ;;
   ;;   THIS IS WHERE THE ROW INFERENCE'S >95% MONOMORPHIC CLAIM
   ;;   BECOMES PHYSICAL. The LCall vs LSuspend tag IS the gradient bit;
@@ -15,11 +15,11 @@
   ;;   `call_indirect`.
   ;;
   ;; Implements: Hβ-lower-substrate.md §3.2 + §4.2 + §6.2 + §11 + §12.3 #7;
-  ;;             src/lower.nx:242-249 lower_call_default (Lock #1 LSuspend);
-  ;;             src/lower.nx:347-367 CallExpr arm (Lock #3 schemekind defer);
-  ;;             src/lower.nx:442-443 PerformExpr arm (Lock #2 wheel parity);
-  ;;             src/lower.nx:445-448 ResumeExpr → LReturn (Lock #6);
-  ;;             src/lower.nx:258-292 derive_ev_slots family (Lock #7 empty
+  ;;             src/lower.mn:242-249 lower_call_default (Lock #1 LSuspend);
+  ;;             src/lower.mn:347-367 CallExpr arm (Lock #3 schemekind defer);
+  ;;             src/lower.mn:442-443 PerformExpr arm (Lock #2 wheel parity);
+  ;;             src/lower.mn:445-448 ResumeExpr → LReturn (Lock #6);
+  ;;             src/lower.mn:258-292 derive_ev_slots family (Lock #7 empty
   ;;             seed default per named follow-up).
   ;; Exports:    $lower_call,
   ;;             $lower_call_default,
@@ -41,12 +41,12 @@
   ;; ═══ LOCKS (wheel-canonical override walkthrough §4.2 prose) ════════
   ;;
   ;; Lock #1: Polymorphic call → LSuspend tag 325, NOT LMakeClosure.
-  ;;          Per src/lower.nx:242-249. The walkthrough §4.2 line 461
+  ;;          Per src/lower.mn:242-249. The walkthrough §4.2 line 461
   ;;          prescribes LMakeClosure; the wheel emits LSuspend with
   ;;          ev_slots list. Seed transcribes wheel.
   ;;
   ;; Lock #2: $lower_perform emits straight LPerform regardless of
-  ;;          ResumeDiscipline (wheel parity per src/lower.nx:442-443).
+  ;;          ResumeDiscipline (wheel parity per src/lower.mn:442-443).
   ;;          The wheel's PerformExpr arm at line 442 is two lines, no
   ;;          dispatch on op-type's discipline. MultiShot wiring named-
   ;;          follow-up Hβ.lower.perform-multishot-dispatch — lands
@@ -66,18 +66,18 @@
   ;;          collapses to wheel-parity LPerform. Named-follow-up
   ;;          Hβ.lower.op-type-resolution covers when MultiShot lands.
   ;;
-  ;; Lock #5: $lower_args is chunk-private (per src/lower.nx:1055-1057
+  ;; Lock #5: $lower_args is chunk-private (per src/lower.mn:1055-1057
   ;;          lower_expr_list). Helpers used by exactly one chunk live in
   ;;          that chunk; third caller earns the factor.
   ;;
-  ;; Lock #6: ResumeExpr → LReturn (src/lower.nx:445-448 wheel canonical).
+  ;; Lock #6: ResumeExpr → LReturn (src/lower.mn:445-448 wheel canonical).
   ;;          "Structurally a return from the arm." No invocation of
   ;;          cont.wat heap-captured continuation at the lowering layer
   ;;          — that's emit's H7 dispatch concern.
   ;;
   ;; Lock #7: $derive_ev_slots returns empty list unconditionally for
   ;;          the seed. Reasoning: the wheel's str_concat("op_", name,
-  ;;          "_idx") at src/lower.nx:288 requires data segments
+  ;;          "_idx") at src/lower.mn:288 requires data segments
   ;;          ([0, 4096) is densely packed; placing strings ≥ 4096 risks
   ;;          $tag_of misclassification). Chunk #5 conservative-Linear
   ;;          precedent applies — substrate-honest deferral with named
@@ -153,7 +153,7 @@
   ;;
   ;; - Drift 5 (C calling convention): $lower_call_default takes 4 i32
   ;;                                  params, all structurally meaningful
-  ;;                                  per src/lower.nx:242 wheel signature.
+  ;;                                  per src/lower.mn:242 wheel signature.
   ;;                                  NO __closure + __ev + __ret_slot
   ;;                                  split. NO H7 multi-param resume_fn
   ;;                                  signature here (resume_fn lives at
@@ -206,7 +206,7 @@
   ;;
   ;; - Foreign fluency LLVM/GHC IR:   NEVER "SSA value" / "phi node" /
   ;;                                  "calling convention enum" /
-  ;;                                  "core IR". Vocabulary stays Inka:
+  ;;                                  "core IR". Vocabulary stays Mentl:
   ;;                                  LowExpr / LCall / LSuspend /
   ;;                                  LPerform / LReturn per spec 05.
   ;;
@@ -221,7 +221,7 @@
   ;;
   ;;   - Hβ.lower.derive-ev-slots-naming:
   ;;                 Wheel str_concat("op_", op_name, "_idx") at
-  ;;                 src/lower.nx:288 lands in this chunk + emit grows
+  ;;                 src/lower.mn:288 lands in this chunk + emit grows
   ;;                 prefix/suffix data-segment naming; LSuspend's evs
   ;;                 list becomes per-name LGlobal records.
   ;;
@@ -259,7 +259,7 @@
   ;; sub-expression lowering BEFORE chunk #11 lands. The Hβ.infer
   ;; cascade resolved an analogous forward-decl (walk_expr:824 →
   ;; walk_stmt:$infer_stmt_list) by both chunks landing in the same
-  ;; assembled inka.wat — but here chunk #11 hasn't been written yet.
+  ;; assembled mentl.wat — but here chunk #11 hasn't been written yet.
   ;;
   ;; Resolution: define $lower_expr HERE as a partial dispatcher over
   ;; the tags chunks #6 + #7 know about. Future walk chunks (#8-#10)
@@ -361,7 +361,7 @@
       (i32.const 0)))
 
   ;; ─── $lower_args — chunk-private buffer-counter helper (Lock #5) ──
-  ;; Per src/lower.nx:1055-1057 lower_expr_list. Buffer-counter substrate
+  ;; Per src/lower.mn:1055-1057 lower_expr_list. Buffer-counter substrate
   ;; (Ω.3 per CLAUDE.md memory model — avoids O(N²) `acc ++ [x]`).
   ;; Each arg is an N-wrapper; $lower_expr (chunk #11 main.wat —
   ;; forward-resolves at WAT module assembly time) returns the LowExpr.
@@ -385,7 +385,7 @@
   ;; ─── $derive_ev_slots — H1.6 polymorphic ev-list (Lock #7 empty) ──
   ;; Per Lock #7 above + named follow-up Hβ.lower.derive-ev-slots-naming.
   ;; Conservative seed default: returns empty list. Wheel-parity
-  ;; matching wheel src/lower.nx:264-269 EfPure case — which IS empty.
+  ;; matching wheel src/lower.mn:264-269 EfPure case — which IS empty.
   ;; The seed effectively treats every callee as Pure-row at this layer;
   ;; emit's H1.4 substrate handles the per-op naming when it grows.
   ;;
@@ -396,7 +396,7 @@
     (call $make_list (i32.const 0)))
 
   ;; ─── $lower_call_default — monomorphic-vs-polymorphic gate ─────────
-  ;; Per src/lower.nx:242-249 + Lock #1. The gradient cash-out.
+  ;; Per src/lower.mn:242-249 + Lock #1. The gradient cash-out.
   ;;
   ;; Seed signature divergence (per Lock #5):
   ;;   wheel: (handle, f_node, fh, lo_args) — does its own lower_expr(f)
@@ -429,7 +429,7 @@
       (local.get $evs)))
 
   ;; ─── $lower_call — CallExpr arm (parser tag 88) ────────────────────
-  ;; Per src/lower.nx:347-367 CallExpr arm + Lock #3 (schemekind triage
+  ;; Per src/lower.mn:347-367 CallExpr arm + Lock #3 (schemekind triage
   ;; deferred to Hβ.lower.varref-schemekind-dispatch).
   ;;
   ;; AST navigation: $node is the N-wrapper. Per parser_infra.wat:32-39:
@@ -525,7 +525,7 @@
       (local.get $lo_args)))
 
   ;; ─── $lower_perform — PerformExpr arm (parser tag 94) ──────────────
-  ;; Per src/lower.nx:442-443 + Lock #2 (wheel-parity LPerform for ALL
+  ;; Per src/lower.mn:442-443 + Lock #2 (wheel-parity LPerform for ALL
   ;; ResumeDiscipline values; H7 MultiShot dispatch is named follow-up
   ;; Hβ.lower.perform-multishot-dispatch).
   ;;
@@ -551,7 +551,7 @@
     ;; emit undiscriminated for productive-under-error.
     ;;
     ;; Tier 1 ULTIMATE FORM monomorphic direct-call per SUBSTRATE.md
-    ;; §"Three Tiers of Effect Compilation"; mirrors src/lower.nx
+    ;; §"Three Tiers of Effect Compilation"; mirrors src/lower.mn
     ;; commit 50a9512's wheel-canonical PerformExpr discrimination.
     (local.set $resolved (call $lower_resolve_handler_for_op (local.get $op_name)))
     (if (result i32) (i32.ne (local.get $resolved) (i32.const 0))
@@ -567,7 +567,7 @@
           (local.get $lo_args)))))
 
   ;; ─── $lower_resume — ResumeExpr arm (parser tag 95) ────────────────
-  ;; Per src/lower.nx:445-448 + Lock #6. ResumeExpr is "structurally a
+  ;; Per src/lower.mn:445-448 + Lock #6. ResumeExpr is "structurally a
   ;; return from the handler arm" per the wheel comment. Seed emits
   ;; LReturn(handle, lower_expr(val)).
   ;;

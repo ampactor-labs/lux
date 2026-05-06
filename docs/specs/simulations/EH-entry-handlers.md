@@ -14,19 +14,19 @@ Peer languages have:
 - `docker-compose.yml` / `Procfile` — deploy target configuration.
 - `chaos.yaml` — chaos engineering configuration.
 
-**Every one of these is a list of named handler stacks expressed as untyped configuration.** In Inka, each dissolves into a named handler declared as normal Inka code; the CLI's `--with <name>` resolves the handler by symbol through ordinary import.
+**Every one of these is a list of named handler stacks expressed as untyped configuration.** In Mentl, each dissolves into a named handler declared as normal Mentl code; the CLI's `--with <name>` resolves the handler by symbol through ordinary import.
 
 This walkthrough:
-- Names the entry-handler convention (no new file; top-level handler declarations in `main.nx` or any imported module).
+- Names the entry-handler convention (no new file; top-level handler declarations in `main.mn` or any imported module).
 - Specifies CLI `--with <name>` resolution.
-- Maps the subcommand aliases (`inka compile`, `inka check`, etc.) to entry-handler invocations.
+- Maps the subcommand aliases (`mentl compile`, `mentl check`, etc.) to entry-handler invocations.
 - Resolves the `Test` effect's lifting semantics (`assert` becomes compile-time proof where decidable).
-- Rewrites `src/main.nx`'s current subcommand dispatch into entry-handler resolution.
+- Rewrites `src/main.mn`'s current subcommand dispatch into entry-handler resolution.
 
 **What this walkthrough gates:**
-- Item 20 — CLI `--with <name>` substrate implementation in `src/main.nx`.
+- Item 20 — CLI `--with <name>` substrate implementation in `src/main.mn`.
 - Item 34 (post-first-light) — batch CLI unification; all subcommands share Mentl's voice via the `Interact` effect.
-- Implicitly, every user project's `main.nx` adopts the declare-entry-handlers-inline convention.
+- Implicitly, every user project's `main.mn` adopts the declare-entry-handlers-inline convention.
 
 **What this walkthrough does NOT cover:**
 - The `Interact` effect's full op set + Mentl-voice semantics (that's MV-mentl-voice.md, in-flight with open §2 questions).
@@ -39,14 +39,14 @@ This walkthrough:
 
 ### 1.1 Entry-handlers are normal top-level handler declarations (NOT a dedicated file)
 
-**Rejected earlier framing.** An earlier design round proposed `run.nx` as a dedicated per-project file containing entry-handler declarations. That was Makefile/package.json-shaped drift — introducing a special filename for something that's just normal code.
+**Rejected earlier framing.** An earlier design round proposed `run.mn` as a dedicated per-project file containing entry-handler declarations. That was Makefile/package.json-shaped drift — introducing a special filename for something that's just normal code.
 
-**Correct form.** Entry-handlers are **normal `handler` declarations at top level** in `src/main.nx` (or any imported module). They ARE handlers. They have no special status, no special file, no special category.
+**Correct form.** Entry-handlers are **normal `handler` declarations at top level** in `src/main.mn` (or any imported module). They ARE handlers. They have no special status, no special file, no special category.
 
-**Example — the compiler's own `src/main.nx` after the rewrite:**
+**Example — the compiler's own `src/main.mn` after the rewrite:**
 
 ```
-// src/main.nx — Inka compiler entry point
+// src/main.mn — Mentl compiler entry point
 
 import graph
 import effects
@@ -101,7 +101,7 @@ handler query_run {
 handler teach_run {
   ~> real_filesystem
   ~> bump_allocator
-  ~> mentl_voice        // Mentl talks; default when bare inka
+  ~> mentl_voice        // Mentl talks; default when bare mentl
 }
 
 handler test_run {
@@ -129,61 +129,61 @@ handler deterministic_run {
 
 handler new_project(name: String) {
   ~> real_filesystem
-  ~> project_scaffold(name)         // clones lib/tutorial/00-hello.nx + sets up .inka/
+  ~> project_scaffold(name)         // clones lib/tutorial/00-hello.mn + sets up .mentl/
 }
 ```
 
-**The handlers are normal Inka code.** They type-check. They can compose (entry-handler can include other entry-handlers via `~>`). They can take arguments (`new_project(name)`, `chaos_run(seed)`). They can be moved to separate modules and imported (`import handlers/test_variants {chaos_run}`) for organization, but there's no required file.
+**The handlers are normal Mentl code.** They type-check. They can compose (entry-handler can include other entry-handlers via `~>`). They can take arguments (`new_project(name)`, `chaos_run(seed)`). They can be moved to separate modules and imported (`import handlers/test_variants {chaos_run}`) for organization, but there's no required file.
 
-**For user projects:** the same convention. A developer's `src/main.nx` declares `prod_run`, `staging_run`, `test_run`, etc. inline. For larger projects, they can be extracted to `src/handlers.nx` and imported. **No manifest file. No convention file. Just handlers.**
+**For user projects:** the same convention. A developer's `src/main.mn` declares `prod_run`, `staging_run`, `test_run`, etc. inline. For larger projects, they can be extracted to `src/handlers.mn` and imported. **No manifest file. No convention file. Just handlers.**
 
 **Drift modes foreclosed:**
 - **Drift 4 (Haskell monad transformer):** entry-handlers are NOT monad-transformer stacks at the type level; they're `~>` chains, which are capability stacks (not monad composition).
 - **Drift 6 (primitive-type-special-case):** an "entry-handler" is NOT a special kind of handler; it's a normal handler that happens to be the outermost wrap for a `main()` invocation.
-- **Drift 9 (deferred-by-omission):** no `run.nx` convention file that would defer "manifest structure" questions.
+- **Drift 9 (deferred-by-omission):** no `run.mn` convention file that would defer "manifest structure" questions.
 
 ### 1.2 CLI `--with <name>` is the universal invocation form
 
-**Rejected earlier framing.** The current `src/main.nx` parses subcommands (`inka compile`, `inka check`, `inka audit`, `inka query`) with hard-coded dispatch. That's a `mode == 0 / mode == 1 / mode == 2` drift (mode 8).
+**Rejected earlier framing.** The current `src/main.mn` parses subcommands (`mentl compile`, `mentl check`, `mentl audit`, `mentl query`) with hard-coded dispatch. That's a `mode == 0 / mode == 1 / mode == 2` drift (mode 8).
 
 **Correct form.** ONE flag: `--with <handler_name>`. The handler is resolved by symbol through the module graph (same resolution as any other identifier). Subcommands are ALIASES for `--with` + specific names.
 
 **Invocation shapes:**
 
 ```
-inka                                 # bare; defaults to --with teach_run
-inka compile                          # alias for --with compile_run
-inka compile my_file.nx               # --with compile_run, target = my_file.nx
-inka --with compile_run my_file.nx    # explicit form, same effect
-inka --with test_run                  # installs test_run entry-handler
-inka --with chaos_run(seed=42)        # with argument
-inka --with new_project(name="foo")   # with argument; creates new project
-inka --with my_custom_run             # user-defined entry-handler
-inka query my_file.nx "type of main"  # alias for --with query_run + args
-inka audit my_file.nx                 # alias for --with audit_run
-inka teach                            # alias for --with teach_run
-inka run                              # alias for --with compile_run && wasmtime output.wasm
-inka repl                             # alias for --with repl_run
-inka test                             # alias for --with test_run
-inka new foo                          # alias for --with new_project(name="foo")
+mentl                                 # bare; defaults to --with teach_run
+mentl compile                          # alias for --with compile_run
+mentl compile my_file.mn               # --with compile_run, target = my_file.mn
+mentl --with compile_run my_file.mn    # explicit form, same effect
+mentl --with test_run                  # installs test_run entry-handler
+mentl --with chaos_run(seed=42)        # with argument
+mentl --with new_project(name="foo")   # with argument; creates new project
+mentl --with my_custom_run             # user-defined entry-handler
+mentl query my_file.mn "type of main"  # alias for --with query_run + args
+mentl audit my_file.mn                 # alias for --with audit_run
+mentl teach                            # alias for --with teach_run
+mentl run                              # alias for --with compile_run && wasmtime output.wasm
+mentl repl                             # alias for --with repl_run
+mentl test                             # alias for --with test_run
+mentl new foo                          # alias for --with new_project(name="foo")
 ```
 
-**Alias resolution table** (canonical, fold into `src/main.nx`):
+**Alias resolution table** (canonical, fold into `src/main.mn`):
 
 | CLI form | Resolves to |
 |---|---|
-| `inka` (bare) | `--with teach_run` against current project |
-| `inka compile <target>` | `--with compile_run <target>` |
-| `inka check <target>` | `--with check_run <target>` |
-| `inka audit <target>` | `--with audit_run <target>` |
-| `inka query <target> <question>` | `--with query_run <target> <question>` |
-| `inka teach` | `--with teach_run` |
-| `inka run <target>` | `--with compile_run <target> && wasmtime <output>` |
-| `inka repl` | `--with repl_run` |
-| `inka test` | `--with test_run` |
-| `inka new <name>` | `--with new_project(name=<name>)` |
+| `mentl` (bare) | `--with teach_run` against current project |
+| `mentl compile <target>` | `--with compile_run <target>` |
+| `mentl check <target>` | `--with check_run <target>` |
+| `mentl audit <target>` | `--with audit_run <target>` |
+| `mentl query <target> <question>` | `--with query_run <target> <question>` |
+| `mentl teach` | `--with teach_run` |
+| `mentl run <target>` | `--with compile_run <target> && wasmtime <output>` |
+| `mentl repl` | `--with repl_run` |
+| `mentl test` | `--with test_run` |
+| `mentl new <name>` | `--with new_project(name=<name>)` |
 
-**Aliases are defined IN `src/main.nx`'s argument parser**, not in a separate alias table. The parser matches the subcommand keyword and constructs the equivalent `--with` form, then dispatches.
+**Aliases are defined IN `src/main.mn`'s argument parser**, not in a separate alias table. The parser matches the subcommand keyword and constructs the equivalent `--with` form, then dispatches.
 
 **Resolution rule for `--with <name>`:**
 
@@ -201,10 +201,10 @@ inka new foo                          # alias for --with new_project(name="foo")
 
 ### 1.3 The `Test` effect — assert lifts to proof where decidable
 
-The `Test` effect is declared in `lib/test.nx` (post-restructure):
+The `Test` effect is declared in `lib/test.mn` (post-restructure):
 
 ```
-// lib/test.nx — Test effect declarations + reporter handler
+// lib/test.mn — Test effect declarations + reporter handler
 
 effect Test {
   assert(cond: Bool, msg: String) -> ()                @resume=OneShot
@@ -322,9 +322,9 @@ assert_near(a, b)    // E_AssertNearMissingEps at compile time
 
 **Rationale:** floating-point comparison is domain-specific; `1e-9` might be right for physics but wrong for audio (±0.001 dB) or financial calculations (±0.001 = $0.001 matters). Forcing explicit epsilon keeps the developer's intent visible.
 
-### 1.4 `src/main.nx` rewrite — from subcommand dispatch to entry-handler resolution
+### 1.4 `src/main.mn` rewrite — from subcommand dispatch to entry-handler resolution
 
-**Current shape of `src/main.nx` (approximate, pre-rewrite):**
+**Current shape of `src/main.mn` (approximate, pre-rewrite):**
 
 ```
 // Reads args, dispatches to mode (compile / check / query / audit)
@@ -379,7 +379,7 @@ fn parse_cli_args(argv) = match argv {
   ["test", target]              => Invocation("test_run", [], Some(target)),
   ["new", name]                 => Invocation("new_project", [name], None),
   ["--with", full_spec, ...rest] => parse_with_spec(full_spec, rest),
-  _                              => ParseError("unrecognized command; try 'inka --with <handler>' or 'inka help'")
+  _                              => ParseError("unrecognized command; try 'mentl --with <handler>' or 'mentl help'")
 }
 
 fn parse_with_spec(spec, rest) = {
@@ -437,7 +437,7 @@ fn run_project_body(wrapped) with IO + Filesystem + Alloc = match wrapped {
 ```
 
 **The rewrite:**
-- `src/main.nx` shrinks to ~100 lines (from current ~200+).
+- `src/main.mn` shrinks to ~100 lines (from current ~200+).
 - All subcommand-specific logic moves into entry-handler declarations (each subcommand's pipeline is the handler stack in `compile_run`, `check_run`, etc.).
 - Adding a new subcommand = adding a new entry-handler (+ optional alias in `parse_cli_args`). No other code changes.
 
@@ -458,7 +458,7 @@ Each file written as part of item 17' restructure (NS-structure §4.8 absorbs er
 
 ### 2.1 Graph?
 
-What does the graph already know about entry-handlers? After the `main.nx` rewrite, the graph knows:
+What does the graph already know about entry-handlers? After the `main.mn` rewrite, the graph knows:
 - Every `handler <name>_run { ~> ... }` declaration: a handler binding in env.
 - Every handler's declared effect row (what it absorbs + requires).
 - Every handler's type signature (what arguments it takes).
@@ -508,7 +508,7 @@ Every entry-handler installation leaves a Reason in the graph: `Located(invocati
 
 - **Drift 1 (Rust vtable):** forbidden to treat entry-handlers as "dispatched through a table." They're normal handlers resolved at compile time via env.
 - **Drift 6 (primitive-type-special-case):** forbidden to make "entry-handler" a special kind of handler with tagged semantics. They're handlers that happen to wrap `main()`.
-- **Drift 9 (deferred-by-omission):** forbidden to split `main.nx`'s rewrite across multiple commits. One rewrite; test-run + compile-run + all aliases land together.
+- **Drift 9 (deferred-by-omission):** forbidden to split `main.mn`'s rewrite across multiple commits. One rewrite; test-run + compile-run + all aliases land together.
 
 ### Decision 1.2 — CLI `--with` form
 
@@ -520,7 +520,7 @@ Every entry-handler installation leaves a Reason in the graph: `Located(invocati
 - **Drift 4 (Haskell monad transformer):** forbidden to treat `verify_assert ~> assert_reporter` as monad-transformer stacking. It's `~>` capability composition.
 - **Drift 8 (string-keyed):** forbidden to have `assert` that stringly-matches "I think this is decidable" — the `is_statically_decidable` predicate is structural (traverses the expression's AST for purity + free-var-freedom).
 
-### Decision 1.4 — main.nx rewrite
+### Decision 1.4 — main.mn rewrite
 
 - **Drift 5 (C calling convention):** no `argc`/`argv`-style raw parsing.
 - **Drift 9 (deferred-by-omission):** the rewrite lands whole; no "subcommand dispatch moves in phase 1, entry-handler install in phase 2" split.
@@ -537,20 +537,20 @@ Every entry-handler installation leaves a Reason in the graph: `Located(invocati
 
 Item 20 implements this:
 
-### 4.1 Rewrite `src/main.nx`
+### 4.1 Rewrite `src/main.mn`
 
 Replace current subcommand-dispatch body with the rewrite specified in §1.4 above. Approximate ~100 lines.
 
-### 4.2 Write entry-handler declarations in `src/main.nx`
+### 4.2 Write entry-handler declarations in `src/main.mn`
 
 After `fn main`, declare the canonical 9 entry-handlers per §1.1 (compile_run, check_run, audit_run, query_run, teach_run, test_run, repl_run, deterministic_run, new_project).
 
 Each handler declaration is ~5-15 lines.
 
-### 4.3 Write `lib/test.nx`
+### 4.3 Write `lib/test.mn`
 
 ```
-// lib/test.nx — Test effect + assert_reporter + verify_assert handlers
+// lib/test.mn — Test effect + assert_reporter + verify_assert handlers
 //
 // Kernel primitive served: #2 (Handlers with typed resume discipline)
 // Mentl tentacle projected: Verify (secondary; assert_reporter handles runtime)
@@ -628,19 +628,19 @@ Add a new section to `SYNTAX.md` defining:
 ## 5. Post-edit audit command
 
 ```
-bash ~/Projects/inka/tools/drift-audit.sh src/main.nx lib/test.nx docs/errors/E_*.md docs/SYNTAX.md
+bash ~/Projects/mentl/tools/drift-audit.sh src/main.mn lib/test.mn docs/errors/E_*.md docs/SYNTAX.md
 ```
 
 Checks:
-- No residual hardcoded-subcommand `match argv` pattern in `src/main.nx`.
+- No residual hardcoded-subcommand `match argv` pattern in `src/main.mn`.
 - Every entry-handler's row declaration parses.
 - Every error file matches the catalog template.
-- `--with` alias table in SYNTAX.md matches `parse_cli_args` in main.nx.
-- No `run.nx` file exists anywhere (the rejected convention).
+- `--with` alias table in SYNTAX.md matches `parse_cli_args` in main.mn.
+- No `run.mn` file exists anywhere (the rejected convention).
 
 **New drift patterns in `tools/drift-patterns.tsv`:**
 - `match argv \{\s*\["compile"` → flags the old hardcoded dispatch pattern.
-- `\brun\.nx\b` → flags any reintroduction of the rejected convention.
+- `\brun\.mn\b` → flags any reintroduction of the rejected convention.
 
 ---
 
@@ -649,15 +649,15 @@ Checks:
 EH lands as **one focused commit** (item 20), after NS-structure (item 17') closes.
 
 Sequence within the commit:
-1. Rewrite `src/main.nx` with new `main` + `parse_cli_args` + `install_entry_handler`.
-2. Write the 9 entry-handler declarations at top level of `main.nx`.
-3. Write `lib/test.nx` with Test effect + handlers.
+1. Rewrite `src/main.mn` with new `main` + `parse_cli_args` + `install_entry_handler`.
+2. Write the 9 entry-handler declarations at top level of `main.mn`.
+3. Write `lib/test.mn` with Test effect + handlers.
 4. Write 7 new error files.
 5. Update SYNTAX.md with entry-handler section + alias table.
 6. Run drift-audit; confirm exit 0.
-7. Smoke-test by running `inka --with teach_run` (should launch Mentl-voice default).
-8. Smoke-test `inka compile <sample>` (should route through compile_run, produce WAT).
-9. Smoke-test `inka test <sample>` (should route through test_run, report pass/fail).
+7. Smoke-test by running `mentl --with teach_run` (should launch Mentl-voice default).
+8. Smoke-test `mentl compile <sample>` (should route through compile_run, produce WAT).
+9. Smoke-test `mentl test <sample>` (should route through test_run, report pass/fail).
 
 **This walkthrough does NOT split into sub-handles.**
 
@@ -665,16 +665,16 @@ Sequence within the commit:
 
 ## 7. Dispatch
 
-Same three options. Recommendation: **Option C (Opus inline)** for this one — the `main.nx` rewrite has enough subtlety (CLI parsing, handler resolution, smooth alias handling) that keeping Opus's reasoning in one session is preferable. The `lib/test.nx` write could be dual-tier (Option A).
+Same three options. Recommendation: **Option C (Opus inline)** for this one — the `main.mn` rewrite has enough subtlety (CLI parsing, handler resolution, smooth alias handling) that keeping Opus's reasoning in one session is preferable. The `lib/test.mn` write could be dual-tier (Option A).
 
 ---
 
 ## 8. What closes when EH lands
 
 - Item 20 (CLI `--with` substrate) complete.
-- `Test` effect + `assert_reporter` + `verify_assert` handlers LIVE; `inka test` works.
-- `inka` bare invocation launches Mentl-voice (`teach_run`).
-- `inka new <project>` scaffolds new projects from `lib/tutorial/00-hello.nx`.
+- `Test` effect + `assert_reporter` + `verify_assert` handlers LIVE; `mentl test` works.
+- `mentl` bare invocation launches Mentl-voice (`teach_run`).
+- `mentl new <project>` scaffolds new projects from `lib/tutorial/00-hello.mn`.
 - Every post-first-light handler addition adds ONE entry-handler; never touches CLI parser.
 - Build profiles / test suites / deploy targets / chaos runs all express as normal handler compositions from this point on.
 
@@ -686,15 +686,15 @@ None. Every decision is complete.
 
 ## 9. Riffle-back items
 
-1. **User-project entry-handler convention.** After EH lands for the compiler, verify that a user project following the `src/main.nx` template declares entry-handlers inline without friction. If users end up duplicating boilerplate across projects, that's a signal to extract common entry-handlers into a `lib/entry/` module.
+1. **User-project entry-handler convention.** After EH lands for the compiler, verify that a user project following the `src/main.mn` template declares entry-handlers inline without friction. If users end up duplicating boilerplate across projects, that's a signal to extract common entry-handlers into a `lib/entry/` module.
 2. **Reaffirm `*_run` suffix isn't mandated.** The CLI resolves any handler name; the `*_run` suffix is convention. Users can name entry-handlers whatever they want (`production`, `ci_test`, `demo`). Document this in SYNTAX.md and README.md so users don't feel coerced.
-3. **Entry-handler composition examples.** Post-EH, write 2-3 example user-project `main.nx` files showing different handler compositions. These go in `lib/tutorial/` as content for tutorial files `02-handlers.nx` + `07-gradient.nx` (where entry-handler composition is the gradient's natural demonstration).
-4. **CLI argument parsing edge cases.** `inka --with "chaos_run(seed=42, rate=0.01)"` — does the parser handle complex argument syntax? If not, either restrict (`--with chaos_run --seed=42 --rate=0.01` CLI form) or extend the parser. Resolve at implementation time.
+3. **Entry-handler composition examples.** Post-EH, write 2-3 example user-project `main.mn` files showing different handler compositions. These go in `lib/tutorial/` as content for tutorial files `02-handlers.mn` + `07-gradient.mn` (where entry-handler composition is the gradient's natural demonstration).
+4. **CLI argument parsing edge cases.** `mentl --with "chaos_run(seed=42, rate=0.01)"` — does the parser handle complex argument syntax? If not, either restrict (`--with chaos_run --seed=42 --rate=0.01` CLI form) or extend the parser. Resolve at implementation time.
 
 ---
 
 ## 10. Closing
 
-EH dissolves "build profile," "test suite," "deploy target," "chaos config," "CI variant" into **named handler declarations + CLI resolution**. No config files. No manifests. No YAML. Every runtime variation a developer needs is a handler named in `main.nx`; every invocation is `inka --with <name>`. The CLI parser is ~50 lines; the error catalog is 7 small files; `lib/test.nx` is one effect + two handlers. Post-EH, "installing a new CI variant" is "write a new handler in `main.nx`" — nothing else to configure, nothing else to wire up.
+EH dissolves "build profile," "test suite," "deploy target," "chaos config," "CI variant" into **named handler declarations + CLI resolution**. No config files. No manifests. No YAML. Every runtime variation a developer needs is a handler named in `main.mn`; every invocation is `mentl --with <name>`. The CLI parser is ~50 lines; the error catalog is 7 small files; `lib/test.mn` is one effect + two handlers. Post-EH, "installing a new CI variant" is "write a new handler in `main.mn`" — nothing else to configure, nothing else to wire up.
 
-**One walkthrough, one commit, build profiles / test suites / deploy targets all dissolved into normal Inka.**
+**One walkthrough, one commit, build profiles / test suites / deploy targets all dissolved into normal Mentl.**

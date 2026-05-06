@@ -2,7 +2,7 @@
 
 > *The form that best translates intent into computation.*
 
-This document is **the authoritative syntactic spec for Inka**. It binds the parser; the parser implements exactly this. It is written under dream-code discipline: every decision below is the IDEAL form, not a description of the current parser. Where the current parser deviates, the parser is wrong; SYNTAX.md is the wheel, the parser is the lathe being adjusted to it.
+This document is **the authoritative syntactic spec for Mentl**. It binds the parser; the parser implements exactly this. It is written under dream-code discipline: every decision below is the IDEAL form, not a description of the current parser. Where the current parser deviates, the parser is wrong; SYNTAX.md is the wheel, the parser is the lathe being adjusted to it.
 
 DESIGN.md articulates the medium's vision. The 12 specs in `docs/specs/` describe per-module behavior. SUBSTRATE.md crystallizes load-bearing structural truths (kernel, verbs, algebra, handlers, gradient, refinement, theorems). **SYNTAX.md is the layer between vision and implementation: the surface form by which intent reaches the substrate.**
 
@@ -37,7 +37,7 @@ Five rules every syntactic decision below honors:
 
 2. **No redundant form.** If two syntactic forms produce the same graph, one is rejected. The medium refuses ceremony the substrate doesn't require.
 
-3. **No syntactic ambiguity.** Every token sequence parses to exactly one AST under the rules below. Ambiguity in a language is debt the user pays; Inka pays its own debt at design time.
+3. **No syntactic ambiguity.** Every token sequence parses to exactly one AST under the rules below. Ambiguity in a language is debt the user pays; Mentl pays its own debt at design time.
 
 4. **Every construct has graph correspondence.** No syntax exists without a substrate operation it produces. If a form has no graph meaning, it doesn't exist.
 
@@ -89,7 +89,7 @@ The braces enclose a `BlockExpr(stmts, final_expr)` when `let`/intermediate stat
 
 ### The Intent Boundary Rule for Parameters
 
-Inka uses Hindley-Milner type inference. **You do not need to annotate base types** like `Int`, `String`, or structural records on parameters. 
+Mentl uses Hindley-Milner type inference. **You do not need to annotate base types** like `Int`, `String`, or structural records on parameters. 
 
 **Rule:** Parameter type annotations are strictly reserved for **Intent Boundaries**. Use them to explicitly declare:
 1. **Refinement Types** (e.g., `pos: ValidOffset`, `span: ValidSpan`) which encode predicates that `Verify` must discharge.
@@ -332,7 +332,7 @@ Diagnostic: **`E_LambdaAsOrOr`** — `||` is logical OR (TOrOr). Use `() => expr
 
 ## Pipe verbs — the five-verb topology
 
-Inka has FIVE pipe verbs. Each draws a specific shape on the page; the layout IS the topology.
+Mentl has FIVE pipe verbs. Each draws a specific shape on the page; the layout IS the topology.
 
 ### `|>` — converge
 
@@ -466,7 +466,7 @@ raw_string
   |> save_to_db
 ```
 
-A `Newline` token directly before `~>` means Form A. No newline means Form B. **This is the only place in Inka where whitespace is semantically load-bearing.** It is load-bearing because the visual layout IS the computation graph.
+A `Newline` token directly before `~>` means Form A. No newline means Form B. **This is the only place in Mentl where whitespace is semantically load-bearing.** It is load-bearing because the visual layout IS the computation graph.
 
 **Type rule:** `row(expr ~> h) = row(expr) - handled(h) + row(h)`. The handler subtracts what it absorbs; anything its arms perform is added.
 
@@ -492,7 +492,7 @@ signal
 
 ## Records
 
-Inka records are **structural**: a record TYPE is `{name: T1, age: T2}` — no nominal declaration ceremony required. Two records with the same fields and types unify. Row polymorphism is supported.
+Mentl records are **structural**: a record TYPE is `{name: T1, age: T2}` — no nominal declaration ceremony required. Two records with the same fields and types unify. Row polymorphism is supported.
 
 ### Canonical literal form
 
@@ -747,7 +747,7 @@ The argument is evaluated at install time and frozen. Two functions declared wit
 - **`@resume=MultiShot`** — the arm calls `resume(...)` zero or more times. Continuation captured to the heap as a closure. Enables backtracking, non-determinism, generators.
 - **`@resume=Either`** — discipline not pinned at declaration time. Handler arms may use either; loses some optimization headroom.
 
-This annotation is **load-bearing** — see DESIGN Ch 1 and the discussion in this codebase's conversation history. It's why Inka can express real-time DSP and constraint-search backtracking under one effect algebra.
+This annotation is **load-bearing** — see DESIGN Ch 1 and the discussion in this codebase's conversation history. It's why Mentl can express real-time DSP and constraint-search backtracking under one effect algebra.
 
 ### Negation in `with` clauses
 
@@ -758,7 +758,7 @@ fn pure_op(x: Int) -> Int with !Alloc + !IO =
 
 `!E` proves ABSENCE of effect E. Stronger than not-mentioning E because it propagates transitively through the call graph: any callee that performs E causes the whole declaration to fail with `E_EffectMismatch`.
 
-When used alone (e.g., `with !Mutate`), it creates a **capability stance** representing "anything except this effect" (universe-minus). This is how Inka expresses region-freezes and borrows (`ref`) mathematically without a separate borrow-checker.
+When used alone (e.g., `with !Mutate`), it creates a **capability stance** representing "anything except this effect" (universe-minus). This is how Mentl expresses region-freezes and borrows (`ref`) mathematically without a separate borrow-checker.
 
 `Pure` is shorthand for "the body's row must be EfPure (literally empty)":
 ```
@@ -1028,7 +1028,7 @@ fn lowpass_filter(samples: List<Sample>) -> List<Sample> with !Alloc =
 - **Surfaces verbatim.** Mentl has no semantic parse of `///`. She reads the String, renders it alongside her canonical voice (per MV §2.7 + F.1 §5). Render handlers (per F.1 §3.6) interpret presentation per target — HTML may render backticks as `<code>`, terminal as ANSI, markdown as fenced. The substrate stores raw String per DS §8; render handlers decide the rest.
 - **Lede + body structure.** First sentence is the lede — the one sentence Mentl shows in `RTerse` register. Subsequent paragraphs add nuance, invariants, the `Why:` behind non-obvious choices. Mentl shows the full body in `RExplain`.
 - **Cross-references via backticks.** Reference other identifiers, types, effects, handlers, capabilities in `` `backticks` ``. Render handlers resolve to links per target. The author writes the reference; the handler resolves.
-- **Code blocks compile via the same pipeline.** A `///` block containing Inka source IS just Inka source; the compile pipeline verifies it. If it doesn't compile, the project's compile fails at the `doc_attach` site. There are no doc-tests as a separate category (INSIGHTS §"Examples, Not Tests" L398).
+- **Code blocks compile via the same pipeline.** A `///` block containing Mentl source IS just Mentl source; the compile pipeline verifies it. If it doesn't compile, the project's compile fails at the `doc_attach` site. There are no doc-tests as a separate category (INSIGHTS §"Examples, Not Tests" L398).
 
 #### What `///` is NOT
 
@@ -1046,13 +1046,13 @@ The choice between `//` and `///` is the choice between **"this is human-only co
 
 ### No block comments
 
-Inka does not have `/* ... */` block comments. Composability of the substrate means there's no need to disable large code regions; if code is unwanted, delete it. Version control preserves history.
+Mentl does not have `/* ... */` block comments. Composability of the substrate means there's no need to disable large code regions; if code is unwanted, delete it. Version control preserves history.
 
 ---
 
 ## Strings
 
-Inka has **two string forms** distinguished by quote character:
+Mentl has **two string forms** distinguished by quote character:
 
 - **`"..."`** — double-quoted; **supports interpolation** via `{expr}`.
 - **`'...'`** — single-quoted; **literal**, no interpolation.
@@ -1084,7 +1084,7 @@ Each form has a multi-line variant (triple-quoted):
 'regex: ^[a-z]+\s*$'
 ```
 
-No interpolation. Braces are literal characters — no doubling needed. Useful for format strings, regex, shell commands, documentation snippets about Inka itself.
+No interpolation. Braces are literal characters — no doubling needed. Useful for format strings, regex, shell commands, documentation snippets about Mentl itself.
 
 **Escape codes:** `\\`, `\'`, `\0`, `\xHH`. NO `\n` expansion — newlines must be literal (use triple-quoted form for multi-line literal content).
 
@@ -1180,7 +1180,7 @@ After a convergent construct, the chain returns to the left edge:
 
 ### Indentation discipline
 
-Inka uses 2-space indentation. The parser is INDENT-AWARE for layout enforcement (similar to F# and OCaml's indent-sensitive modes). Mixed tabs and spaces: rejected.
+Mentl uses 2-space indentation. The parser is INDENT-AWARE for layout enforcement (similar to F# and OCaml's indent-sensitive modes). Mixed tabs and spaces: rejected.
 
 ---
 
@@ -1238,7 +1238,7 @@ let bad: Sample = 1.5   // E_RefinementRejected: 1.5 violates -1.0 <= self <= 1.
 
 ## Top-level program structure
 
-A `.nx` file is a sequence of top-level statements. Each is one of:
+A `.mn` file is a sequence of top-level statements. Each is one of:
 
 - `import path/to/module` — module imports
 - `type Name<P> = ...` — type declarations
@@ -1247,9 +1247,9 @@ A `.nx` file is a sequence of top-level statements. Each is one of:
 - `fn name(...) = ...` — function declarations
 - `let name = ...` — top-level value bindings (constants)
 
-A `.nx` file with no `main` function is a LIBRARY module — its declarations are imported by other modules. Compilation produces a WAT module whose `_start` is a clean exit.
+A `.mn` file with no `main` function is a LIBRARY module — its declarations are imported by other modules. Compilation produces a WAT module whose `_start` is a clean exit.
 
-A `.nx` file with `fn main()` is an EXECUTABLE — `_start` invokes `main`.
+A `.mn` file with `fn main()` is an EXECUTABLE — `_start` invokes `main`.
 
 ---
 
@@ -1283,7 +1283,7 @@ type TokenKind
   | TOwn | TRef | TPure
   | TTrue | TFalse
   // Note: `loop`, `break`, `continue`, `return`, `for`, `in` are NOT
-  // reserved keywords — Inka has no imperative control flow constructs.
+  // reserved keywords — Mentl has no imperative control flow constructs.
   // Iteration is via `|>` + `<~` + `Iterate` effect handlers.
   // Early-exit is via `Abort` effect + `catch_abort` handler.
 
@@ -1332,7 +1332,7 @@ type TokenKind
 | `TWith`         | `with`           | —         | effect clauses, handler state, handle-with     |
 | `TResume`       | `resume`         | —         | inside handler arm body                        |
 | `TPerform`      | `perform`        | —         | invoking an effect operation                   |
-| *(removed)*     | —                | —         | `for`, `in`, `loop`, `break`, `continue`, `return` were previously reserved but are NOT Inka keywords. Iteration uses pipe verbs + Iterate effect; early-exit uses Abort effect. |
+| *(removed)*     | —                | —         | `for`, `in`, `loop`, `break`, `continue`, `return` were previously reserved but are NOT Mentl keywords. Iteration uses pipe verbs + Iterate effect; early-exit uses Abort effect. |
 | `TImport`       | `import`         | —         | top-level import statement                     |
 | `TWhere`        | `where`          | —         | refinement type clause                         |
 | `TOwn`          | `own`            | —         | parameter ownership marker                     |
@@ -1385,7 +1385,7 @@ type TokenKind
 | `TPipe`         | `\|`             | —         | type variant separator; lambda param fence (`\|x\| expr`) |
 | `TTilde`        | `~`              | —         | reserved                                       |
 | `TAt`           | `@`              | —         | annotation marker (`@resume=OneShot`)          |
-| `THole`         | `??`             | —         | hole — the gradient's syntactic absence marker; Mentl's Synth proposes candidates filling the position. The Inka Mono ligature renders `??` as the octagonal-socket glyph (8 sides ↔ 8 kernel primitives). Single `?` is no longer a token. |
+| `THole`         | `??`             | —         | hole — the gradient's syntactic absence marker; Mentl's Synth proposes candidates filling the position. The Mentl Mono ligature renders `??` as the octagonal-socket glyph (8 sides ↔ 8 kernel primitives). Single `?` is no longer a token. |
 | **Layout / structural (2)** |     |           |                                                |
 | `TNewline`      | `\n`             | —         | semantic per DESIGN Ch 2 (block-form `~>`)     |
 | `TEof`          | (end of input)   | —         | always last token; parser uses to terminate    |

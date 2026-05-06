@@ -7,7 +7,7 @@ Plan-doc.
 
 Today's pipeline is BATCHED: lexer reads ALL stdin → produces ALL
 tokens → parser produces ALL AST → infer walks all → lower → emit.
-For incremental editing (`inka edit`), batched is wrong: a one-line
+For incremental editing (`mentl edit`), batched is wrong: a one-line
 edit shouldn't re-process the whole file.
 
 This cascade introduces STREAMING: tokens emit as the lexer reads;
@@ -16,8 +16,8 @@ stmt incrementally. The IC (incremental compilation) substrate
 (`Hβ-incremental-compilation.md`) gates on this — IC requires per-
 stmt deltas, not whole-file recompiles.
 
-Replacement target: `src/lexer.nx` + `src/parser.nx` +
-`src/main.nx` pipeline → handler-based streaming where each stage
+Replacement target: `src/lexer.mn` + `src/parser.mn` +
+`src/main.mn` pipeline → handler-based streaming where each stage
 is a generator handler, downstream handlers consume one item at a
 time.
 
@@ -43,7 +43,7 @@ time.
 
 ## Acceptance
 
-- Compiling a 10MB Inka file uses bounded memory regardless of
+- Compiling a 10MB Mentl file uses bounded memory regardless of
   file size.
 - Pipeline pauses at parse boundaries when stdin is slow (no busy
   spin).
@@ -61,7 +61,7 @@ test.
 
 - **Gates on:** Phase H + Tier 3.
 - **Enables:** `Hβ-incremental-compilation.md` (existing IC
-  walkthrough at `IC-incremental-compilation.md`); `inka edit`
+  walkthrough at `IC-incremental-compilation.md`); `mentl edit`
   responsiveness on large files.
-- **Composes with:** `Hβ-tooling-build-in-inka.md` (build.sh
+- **Composes with:** `Hβ-tooling-build-in-mentl.md` (build.sh
   uses streaming for fast incremental builds).

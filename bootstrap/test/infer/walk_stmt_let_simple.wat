@@ -3,7 +3,7 @@
   ;;           env-extends with monomorphic Forall([], TVar(eh));
   ;;           subsequent env_lookup returns the binding; body's TVar
   ;;           handle chases to TInt (via the LitInt walk).
-  ;; Per src/infer.nx:200-204 + 1588-1591 — LetStmt(PVar(name), val):
+  ;; Per src/infer.mn:200-204 + 1588-1591 — LetStmt(PVar(name), val):
   ;;   walk_expr(val)  ;; binds val_h to TInt
   ;;   env_extend(name, Forall([], TVar(val_h)), Located(span, LetBinding(name, ...)), FnScheme)
   ;; Verifies: synthetic LetStmt(PVar("x"), LitInt(42)) walked via

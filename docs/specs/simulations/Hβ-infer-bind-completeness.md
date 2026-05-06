@@ -9,8 +9,8 @@
 > `fe5e944`); empirical 1068-line `/tmp/inka2-attempt.err` proves the
 > closure is contingent. `$inka_infer` runs end-to-end on
 > `fn main(x) = x`, but does NOT run end-to-end on real wheel source —
-> it produces 100 distinct `E_MissingVariable` names across `src/*.nx`
-> + `lib/runtime/*.nx`. Phase G's gate harness used a single-stmt
+> it produces 100 distinct `E_MissingVariable` names across `src/*.mn`
+> + `lib/runtime/*.mn`. Phase G's gate harness used a single-stmt
 > minimal AST that did not exercise multi-stmt sibling visibility,
 > typedef-then-fn-body composition, or cross-file constructor
 > resolution. This walkthrough is that gate's substrate-honesty audit.
@@ -41,8 +41,8 @@ that each implicate a different substrate gap:
   `TCont`, `Ref`, `Own`, `EAInt`, `EAString`, `ENamed`,
   `EParameterized`, `FnScheme`, `ConstructorScheme`,
   `CapabilityScheme`, `RecordSchemeKind`, `EffectOpScheme`. These are
-  variant constructors of typedefs in `src/effects.nx`, `src/types.nx`,
-  `src/own.nx`, `src/cache.nx`. Their absence means `$infer_walk_stmt_typedef`
+  variant constructors of typedefs in `src/effects.mn`, `src/types.mn`,
+  `src/own.mn`, `src/cache.mn`. Their absence means `$infer_walk_stmt_typedef`
   either is not running on real input, or runs but the constructor names
   it env-extends are not visible by the time downstream fn bodies walk.
 
@@ -56,7 +56,7 @@ that each implicate a different substrate gap:
   `infer_program`, `lex`, `fs_exists`, `fs_mkdir`, `fs_read_file`,
   `fs_write_file`, `graph_bind_row`, `env_extend`, `env_snapshot`,
   `buffer_packer`, `buffer_unpacker`. These are FnStmts in
-  `lib/runtime/*.nx` and `src/*.nx`. `$infer_pre_register_fn_sigs` runs
+  `lib/runtime/*.mn` and `src/*.mn`. `$infer_pre_register_fn_sigs` runs
   per `infer_program`:1098-1104, so by the time any fn body walks every
   fn name in the concatenated stream should be in env. That a body still
   emits `E_MissingVariable: make_list` says either pre-register isn't
@@ -111,30 +111,30 @@ breaks under multi-file concatenated wheel-source load.
 Every Stmt/Expr arm that env-extends. Absence from this table means
 that arm doesn't bind names; presence means it MUST be verified against
 the canonical (drift mode 9). All "wheel canonical" lines cite
-`src/infer.nx`.
+`src/infer.mn`.
 
 | # | Arm                                  | Seed file:line                                     | Extends env? | scope_enter? | scope_exit? | Wheel canonical          | Status |
 |---|--------------------------------------|----------------------------------------------------|--------------|--------------|-------------|--------------------------|--------|
-| 1 | `$infer_walk_stmt_let` (LetStmt)     | `walk_stmt.wat:472-490`                            | via `$infer_walk_pat` PVar | no | no | `infer.nx:200-204 + 1588-1591` | landed B.5 |
-| 2 | `$infer_walk_stmt_fn` (FnStmt)       | `walk_stmt.wat:513-656`                            | params + name post-generalize | yes (544) | yes (648) | `infer.nx:206-210 + 262-369` | landed Phase B |
-| 3 | `$infer_walk_stmt_typedef`           | `walk_stmt.wat:794-854`                            | each variant ctor → ConstructorScheme | no | no | `infer.nx:212-213 + 2028-2066` | landed B.2 |
-| 4 | `$infer_walk_stmt_effect_decl`       | `walk_stmt.wat:870-915`                            | each op → EffectOpScheme | no | no | `infer.nx:215-216 + 2081-2098` | landed B.3 |
-| 5 | `$infer_walk_stmt_handler_decl`      | `walk_stmt.wat:933-955`                            | handler name → TVar(fresh) | no | no | `infer.nx:222-223 + 2100-2109` | stub B.4 |
-| 6 | `$infer_walk_expr_lambda`            | `walk_expr.wat:744-768`                            | NO (Hβ.infer.lambda-params) | yes (753) | yes (767) | `infer.nx:724-740` | **stub** — params dropped at line 751 |
-| 7 | `$infer_walk_expr_match_arms` (per arm) | `walk_expr.wat:1088-1130`                       | via `$infer_walk_pat` PVar/PCon | yes (1102) | yes (1128) | `infer.nx:1701-1733` | landed B.5 |
-| 8 | `$walk_expr_handle_arm_iter` (per arm) | `walk_expr.wat:449-470` (declared); arm-walking peer | seed-stub per Hβ.infer.handler-stack | seed-stub | seed-stub | `infer.nx:1795-1805` | stub |
-| 9 | `$infer_walk_expr_block` (BlockExpr) | `walk_expr.wat:813-832`                            | calls `$infer_stmt_list` | yes (821) | yes (831) | `infer.nx:541-548` | landed §13.3 #9 |
-| 10 | `$infer_walk_pat` (PVar/PCon/PTuple/PList) | `walk_expr.wat:853-1065`                       | PVar binds, PCon recurses | no | no | `infer.nx:1588-1591 + register_type_constructors:2028-2066` | landed B.5 |
-| 11 | `$infer_pre_register_fn_sigs` (toplevel) | `walk_stmt.wat:343-457`                        | fn name → polymorphic placeholder | no | no | `infer.nx:96-149` | landed |
-| 12 | `$infer_program` (toplevel entry)    | `walk_stmt.wat:1098-1104`                          | initializes graph+env+state, pre-register, walk | no | no | `infer.nx:182-186` | landed |
+| 1 | `$infer_walk_stmt_let` (LetStmt)     | `walk_stmt.wat:472-490`                            | via `$infer_walk_pat` PVar | no | no | `infer.mn:200-204 + 1588-1591` | landed B.5 |
+| 2 | `$infer_walk_stmt_fn` (FnStmt)       | `walk_stmt.wat:513-656`                            | params + name post-generalize | yes (544) | yes (648) | `infer.mn:206-210 + 262-369` | landed Phase B |
+| 3 | `$infer_walk_stmt_typedef`           | `walk_stmt.wat:794-854`                            | each variant ctor → ConstructorScheme | no | no | `infer.mn:212-213 + 2028-2066` | landed B.2 |
+| 4 | `$infer_walk_stmt_effect_decl`       | `walk_stmt.wat:870-915`                            | each op → EffectOpScheme | no | no | `infer.mn:215-216 + 2081-2098` | landed B.3 |
+| 5 | `$infer_walk_stmt_handler_decl`      | `walk_stmt.wat:933-955`                            | handler name → TVar(fresh) | no | no | `infer.mn:222-223 + 2100-2109` | stub B.4 |
+| 6 | `$infer_walk_expr_lambda`            | `walk_expr.wat:744-768`                            | NO (Hβ.infer.lambda-params) | yes (753) | yes (767) | `infer.mn:724-740` | **stub** — params dropped at line 751 |
+| 7 | `$infer_walk_expr_match_arms` (per arm) | `walk_expr.wat:1088-1130`                       | via `$infer_walk_pat` PVar/PCon | yes (1102) | yes (1128) | `infer.mn:1701-1733` | landed B.5 |
+| 8 | `$walk_expr_handle_arm_iter` (per arm) | `walk_expr.wat:449-470` (declared); arm-walking peer | seed-stub per Hβ.infer.handler-stack | seed-stub | seed-stub | `infer.mn:1795-1805` | stub |
+| 9 | `$infer_walk_expr_block` (BlockExpr) | `walk_expr.wat:813-832`                            | calls `$infer_stmt_list` | yes (821) | yes (831) | `infer.mn:541-548` | landed §13.3 #9 |
+| 10 | `$infer_walk_pat` (PVar/PCon/PTuple/PList) | `walk_expr.wat:853-1065`                       | PVar binds, PCon recurses | no | no | `infer.mn:1588-1591 + register_type_constructors:2028-2066` | landed B.5 |
+| 11 | `$infer_pre_register_fn_sigs` (toplevel) | `walk_stmt.wat:343-457`                        | fn name → polymorphic placeholder | no | no | `infer.mn:96-149` | landed |
+| 12 | `$infer_program` (toplevel entry)    | `walk_stmt.wat:1098-1104`                          | initializes graph+env+state, pre-register, walk | no | no | `infer.mn:182-186` | landed |
 
 ### Gap analysis per arm — keyed to the three families
 
 | Family | Implicated arms                          | Gap shape                                                  |
 |--------|------------------------------------------|------------------------------------------------------------|
-| A (ADT ctors)         | #3 typedef, #11 toplevel pre-register   | Pre-register only handles **FnStmt (tag 121)** and recurses Documented. **TypedefStmt (122) is NEVER pre-registered.** Constructor visibility is order-dependent: a fn body in `src/effects.nx` referencing `EfPure` only resolves if `effects.nx`'s typedef textually precedes it within the same file AND the pre-register pass doesn't disturb scope. |
-| A (ADT ctors)         | #3 typedef                              | Cross-file: `src/cache.nx` references `EfPure` (defined in `src/effects.nx`). Concatenation order under `cat src/*.nx lib/**/*.nx` is alphabetical → `cache.nx` comes BEFORE `effects.nx`. So even a correct typedef arm cannot project the ctor in time. |
-| B (top-level fns)     | #11 pre-register, #2 FnStmt             | Pre-register reaches every FnStmt by recursion; the test for tag 121 is correct. Suspect: same alphabetical-order issue is NOT present for fns because pre-register runs whole-list before walking; or — substrate-honest — the fns reaching `E_MissingVariable` are referenced by pat/match arms inside `lib/runtime/*.nx` whose enclosing file is processed AFTER pre-register runs but the names looked up don't match because `$str_eq` in `$env_lookup` uses heap-ptr equality on a different allocation than the one pre-register stored. |
+| A (ADT ctors)         | #3 typedef, #11 toplevel pre-register   | Pre-register only handles **FnStmt (tag 121)** and recurses Documented. **TypedefStmt (122) is NEVER pre-registered.** Constructor visibility is order-dependent: a fn body in `src/effects.mn` referencing `EfPure` only resolves if `effects.mn`'s typedef textually precedes it within the same file AND the pre-register pass doesn't disturb scope. |
+| A (ADT ctors)         | #3 typedef                              | Cross-file: `src/cache.mn` references `EfPure` (defined in `src/effects.mn`). Concatenation order under `cat src/*.mn lib/**/*.mn` is alphabetical → `cache.mn` comes BEFORE `effects.mn`. So even a correct typedef arm cannot project the ctor in time. |
+| B (top-level fns)     | #11 pre-register, #2 FnStmt             | Pre-register reaches every FnStmt by recursion; the test for tag 121 is correct. Suspect: same alphabetical-order issue is NOT present for fns because pre-register runs whole-list before walking; or — substrate-honest — the fns reaching `E_MissingVariable` are referenced by pat/match arms inside `lib/runtime/*.mn` whose enclosing file is processed AFTER pre-register runs but the names looked up don't match because `$str_eq` in `$env_lookup` uses heap-ptr equality on a different allocation than the one pre-register stored. |
 | B (top-level fns)     | #2 FnStmt re-extend                     | After body walk, FnStmt re-extends env at `walk_stmt.wat:650-653` — but **after `$env_scope_exit` at line 648**. The exit pops the fn-body scope; the re-extend lands at parent scope. Correct. Not the bug. |
 | C (local names)       | #1 LetStmt, #6 lambda, #7 match-arms     | Lambda arm at `walk_expr.wat:744-768` **drops `params` at line 751** with explicit comment "Hβ.infer.lambda-params". A wheel-source lambda `(x) => x + 1` produces no env-extend for `x`; body's VarRef misses. **This is the dominant Family C cause** since every closure-style local in wheel source flows through lambda. |
 | C (local names)       | #1 LetStmt                              | Let arm delegates to `$infer_walk_pat`. PVar arm at `walk_expr.wat:874-888` env-extends correctly. Suspect: scope-exit-clobbering during multi-stmt block walks — verify via diagnostic harness in §2. |
@@ -192,13 +192,13 @@ gap.
 
 ### §2.3 Real-source bisection
 
-The probe `cat lib/runtime/strings.nx | wasmtime run bootstrap/inka.wasm
+The probe `cat lib/runtime/strings.mn | wasmtime run bootstrap/mentl.wasm
 2> /tmp/strings.err` would scope the bug to a single file. Predicted
 output: Family A names (`EfPure` etc.) drop out (no effect typedefs in
-`strings.nx`), Family B names (`make_list`, `list_index` if they're
+`strings.mn`), Family B names (`make_list`, `list_index` if they're
 defined elsewhere) drop out, Family C names (`n`, `i`, `acc`) likely
 appear if multi-stmt sibling visibility or lambda-param drift fires
-inside `strings.nx`. **This bisection is the empirical narrowing
+inside `strings.mn`. **This bisection is the empirical narrowing
 between "ordering bug" and "bind-form bug."**
 
 The probe is named as a Plan A.2 verification step. It IS executable
@@ -218,7 +218,7 @@ synthetic harnesses to isolate each family.
 | 3 | Verb?        | Lambdas appear as RHS of `\|>` chains; not relevant at the bind site. |
 | 4 | Row?         | `row_h` is fresh (line 754); body walks under `walk_expr_inf_enter_fn(row_h)`. Correct. Row is not the bug surface. |
 | 5 | Ownership?   | Each param is a fresh binding-introduction. No `Consume` at the bind site. |
-| 6 | Refinement?  | Each param scheme is `Forall([], TVar(param_h))` — monomorphic. Generalization at lambdas is forbidden (`infer.nx` only generalizes at FnStmt exit). |
+| 6 | Refinement?  | Each param scheme is `Forall([], TVar(param_h))` — monomorphic. Generalization at lambdas is forbidden (`infer.mn` only generalizes at FnStmt exit). |
 | 7 | Gradient?    | Param annotations (when present) would compile-time-pin the param TVar; absent, it's runtime-inferred. Not the failing surface. |
 | 8 | Reason?      | Each param env-extend MUST carry `Located(span, Declared(param_name))` — the same shape as FnStmt at `walk_stmt.wat:600-603`. |
 
@@ -239,7 +239,7 @@ synthetic harnesses to isolate each family.
 
 The seed handle arm at `walk_expr.wat:1136-1168` does NOT walk
 arm-pattern PVars into env via `$infer_walk_pat`. The handler arms in
-`src/main.nx` and `src/pipeline.nx` carry effect-op pattern bindings
+`src/main.mn` and `src/pipeline.mn` carry effect-op pattern bindings
 (`PerformEffect(name, args)` syntax in handler arms) whose payload
 PVars must env-extend into the arm body's scope. The seed-stub at line
 1158 (`$walk_expr_handle_arm_iter`) is a closed substrate-stub per
@@ -252,13 +252,13 @@ walkthrough `Hβ.infer.handler-arm-bindings`.
 
 ## §4 Forbidden patterns per drift mode
 
-The eight Inka drift modes, named with the specific forbidden form for
+The eight Mentl drift modes, named with the specific forbidden form for
 each arm-residue. Each drift named below WILL surface in §5 if the
 implementer reaches for the foreign-fluent shape; refuse it.
 
 - **Drift 1 (Rust vtable, closure-as-vtable):** REFUSE writing the
   pre-register-stmt dispatch as a function-pointer table indexed by
-  tag. Inka dispatch is structural (graph-resident ADT tag); the
+  tag. Mentl dispatch is structural (graph-resident ADT tag); the
   walk-stmt arms branch on tag with `if (i32.eq tag 122) ...`. The word
   "vtable" never appears in any correct description of this dispatch.
 
@@ -340,8 +340,8 @@ This preserves drift-7 (no parallel state), drift-9 (one source of
 truth for the env_extend per ctor), and drift-1 (tag-dispatch
 unchanged).
 
-Wheel canonical: `src/infer.nx:96-149` (`pre_register_fn_sigs`) +
-`src/infer.nx:2028-2066` (`register_type_constructors`) — the wheel's
+Wheel canonical: `src/infer.mn:96-149` (`pre_register_fn_sigs`) +
+`src/infer.mn:2028-2066` (`register_type_constructors`) — the wheel's
 pre-register pass walks all toplevel decls (fns AND typedefs AND
 effects AND handlers) before any body walks. The seed currently walks
 only FnStmts; the residue extends to all four.
@@ -440,16 +440,16 @@ The Plan A.2 fix is gated on:
 3. Real-source probe:
 
    ```
-   cat lib/runtime/strings.nx | wasmtime run bootstrap/inka.wasm 2> /tmp/strings.err
+   cat lib/runtime/strings.mn | wasmtime run bootstrap/mentl.wasm 2> /tmp/strings.err
    grep -c E_MissingVariable /tmp/strings.err   # MUST be 0 for every name
                                                 # bound by let/fn/lambda/match/handle
-                                                # in strings.nx
+                                                # in strings.mn
    ```
 
 4. Full-wheel probe:
 
    ```
-   cat src/*.nx lib/**/*.nx | wasmtime run bootstrap/inka.wasm 2> /tmp/wheel.err
+   cat src/*.mn lib/**/*.mn | wasmtime run bootstrap/mentl.wasm 2> /tmp/wheel.err
    awk '/E_MissingVariable:/ {print $2}' /tmp/wheel.err | sort -u | wc -l
    ```
 
@@ -478,7 +478,7 @@ The Plan A.2 fix is gated on:
   graph-resident (4-tuple field per `runtime/env.wat:60-70`); the Why
   Engine walks back from any binding to its declaration site.
   OCaml/Haskell env entries are anonymous — they bind name→type, not
-  name→(type, why). Inka's env IS the Why-substrate.
+  name→(type, why). Mentl's env IS the Why-substrate.
 
 - **Surpass — buffer-counter substrate:** `frame_len` at offset 1 of
   the frame record is the single source of truth for logical length;
@@ -491,7 +491,7 @@ The Plan A.2 fix is gated on:
   `NErrorHole` and continues; the walk doesn't abort. The empirical
   err's 1068 lines ARE the productive-under-error projection — every
   miss is a continued walk, not a halt. OCaml's type-checker halts at
-  first error. Inka's IS Hazel-compatible.
+  first error. Mentl's IS Hazel-compatible.
 
 - **Surpass — gradient-pinnable:** `Forall([], TVar(h))` IS the
   monomorphic gradient pin. Adding a `: T` annotation to a let-binding
@@ -525,7 +525,7 @@ The Plan A.2 fix is gated on:
    correct; the bug is in the consumers (typedef pre-register,
    lambda-param).
 
-4. **Wheel canonical alignment:** `src/infer.nx:1588-1591` (let-PVar
+4. **Wheel canonical alignment:** `src/infer.mn:1588-1591` (let-PVar
    shape — Forall-empty mono pin), `:262-369` (infer_fn — two-pass
    with pre-register-extended placeholder, body walk, generalize,
    re-extend), `:1701-1733` (match arms — scope_enter, walk pat,
@@ -561,7 +561,7 @@ The Plan A.2 fix is gated on:
   - Instance 2: pre-register typedef arm (new in §5.1).
   - Instance 3: future cache-rehydrate typedef arm (named at
     `Hβ-link-protocol.md` rehydrate-from-cache pass — the cache
-    stores typedef constructors per `cache.nx:175-179` and the
+    stores typedef constructors per `cache.mn:175-179` and the
     rehydrate path will re-`$env_extend` from the unpacked
     ConstructorScheme).
 

@@ -1,10 +1,10 @@
   ;; ═══ Compound Expression Parsers (Complete) ════════════════════════
-  ;; Hand-transcribed from src/parser.nx.
+  ;; Hand-transcribed from src/parser.mn.
   ;; No shortcuts — every production from SYNTAX.md is covered.
 
   ;; ─── Parenthesized expr or tuple ──────────────────────────────────
   ;; () → LitUnit, (e) → e, (e1, e2, ...) → MakeTupleExpr
-  ;; Mirrors parser.nx parse_paren_or_tuple (lines 880-897).
+  ;; Mirrors parser.mn parse_paren_or_tuple (lines 880-897).
 
   (func $parse_paren (param $tokens i32) (param $pos i32) (param $span i32) (result i32)
     (local $p i32) (local $result i32) (local $first i32) (local $p2 i32)
@@ -155,7 +155,7 @@
     ;;   [tag=0][body][span][handle] — body at offset 4.
     ;; NodeBody for NExpr per parser_infra.wat:41-47:
     ;;   [tag=110][expr] — expr at offset 4.
-    ;; VarRef per src/parser.nx + seed parser:
+    ;; VarRef per src/parser.mn + seed parser:
     ;;   [tag=85][name] — name at offset 4.
     (local.set $body (i32.load offset=4 (local.get $node)))
     ;; If NodeBody is NExpr (tag 110), unwrap to inner expr.
@@ -271,7 +271,7 @@
 
   ;; ─── Block expression ─────────────────────────────────────────────
   ;; { stmt; stmt; final_expr }
-  ;; Mirrors parser.nx parse_block_body (lines 1042-1069).
+  ;; Mirrors parser.mn parse_block_body (lines 1042-1069).
 
   (func $parse_block (param $tokens i32) (param $pos i32) (param $span i32) (result i32)
     (local $p i32) (local $k i32) (local $buf i32) (local $count i32)
@@ -336,7 +336,7 @@
 
   ;; ─── If expression ────────────────────────────────────────────────
   ;; if cond { then } else { else }
-  ;; Mirrors parser.nx parse_if (lines 1071-1095).
+  ;; Mirrors parser.mn parse_if (lines 1071-1095).
 
   (func $parse_if_expr (param $tokens i32) (param $pos i32) (param $span i32) (result i32)
     (local $cond_r i32) (local $cond i32) (local $p i32)

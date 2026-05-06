@@ -23,10 +23,10 @@ it's free-form natural language describing WHAT the function does
 and WHY. It sits above the declaration. It is the authored intent
 at its most direct.
 
-**Gap.** The lexer (lexer.nx:167-173) emits `TDocComment(content)`
-tokens. The parser (parser.nx:75, 147) recognizes them. But the
+**Gap.** The lexer (lexer.mn:167-173) emits `TDocComment(content)`
+tokens. The parser (parser.mn:75, 147) recognizes them. But the
 parser does NOT attach the docstring to the following declaration.
-The `FnStmt` (types.nx:503-504) has no docstring field. The typed
+The `FnStmt` (types.mn:503-504) has no docstring field. The typed
 AST has no docstring edge. The Graph has no docstring Reason.
 
 The docstring is born in the token stream and dies before it reaches
@@ -39,7 +39,7 @@ surface docstrings in per-fn reports.
 
 ## §2 Trace — where the docstring lives and where it stops
 
-### Lexer (lexer.nx:165-173)
+### Lexer (lexer.mn:165-173)
 
 The lexer detects `///` (three consecutive `/` bytes), captures the
 rest of the line as `TDocComment(doc_text)`, and emits it as a
@@ -56,10 +56,10 @@ if pos + 2 < n && byte_at(source, pos + 2) == 47 {
 }
 ```
 
-### Parser (parser.nx)
+### Parser (parser.mn)
 
-`TDocComment(_)` appears in the token classification (parser.nx:75)
-and the token display function (parser.nx:147). But the parser's
+`TDocComment(_)` appears in the token classification (parser.mn:75)
+and the token display function (parser.mn:147). But the parser's
 statement parsing — `parse_fn_stmt`, `parse_type_def`, etc. — does
 NOT look for a preceding `TDocComment` token. The token is in the
 stream; no parser rule consumes it and attaches it to the next
@@ -135,18 +135,18 @@ pattern match on N() in the compiler (~100 sites).
 
 ## §4 Layer touch-points
 
-### types.nx
+### types.mn
 Add `Documented(String, Stmt)` variant to the `Stmt` type. One line.
 
 Add `DocstringReason(String, Span)` variant to `Reason`. One line.
 
-### parser.nx
+### parser.mn
 Track the most recent `TDocComment` in parser state. When a
 `TDocComment` token is encountered at statement position, store
 its content. When the next statement is parsed, wrap it in
 `Documented(content, stmt)` if a docstring is pending.
 
-### infer.nx
+### infer.mn
 `infer_stmt` gains an arm for `Documented(doc, inner_stmt)`:
 unwrap, set the docstring as context, then infer `inner_stmt`.
 At `env_extend` time for the inner declaration, thread the
@@ -158,7 +158,7 @@ docstring content. Hover on a function name displays the docstring
 above the type signature. Mentl's Teach tentacle reads the
 docstring when explaining the function's purpose.
 
-### cache.nx
+### cache.mn
 Docstrings are compile-time metadata. For incremental compilation,
 they serialize alongside the env entry. Cache serialization gains
 a `DocstringReason` case.
@@ -191,9 +191,9 @@ Idempotent across retries.' — declared own on card, with IO."
 
 | Peer | Surface | Load |
 |---|---|---|
-| DS.1 | `Documented(String, Stmt)` variant + `DocstringReason` | Light (~5L types.nx) |
-| DS.2 | Parser docstring attachment | Moderate (~30L parser.nx) |
-| DS.3 | Inference docstring threading to Reason | Moderate (~20L infer.nx) |
+| DS.1 | `Documented(String, Stmt)` variant + `DocstringReason` | Light (~5L types.mn) |
+| DS.2 | Parser docstring attachment | Moderate (~30L parser.mn) |
+| DS.3 | Inference docstring threading to Reason | Moderate (~20L infer.mn) |
 | DS.4 | Hover/Mentl docstring display | Light (~15L hover/mentl handler) |
 
 Total: ~70 lines. Four commits; DS.1 → DS.2 → DS.3 → DS.4.
@@ -215,7 +215,7 @@ Total: ~70 lines. Four commits; DS.1 → DS.2 → DS.3 → DS.4.
 - **Docstrings as comments.** `//` comments are discarded. `///`
   docstrings are TOKEN-level, GRAPH-level, REASON-level. They are
   intent, not annotation. The lexer already makes this distinction
-  (lexer.nx:166-173). DS completes the pipeline.
+  (lexer.mn:166-173). DS completes the pipeline.
 - **Docstrings as metadata sidecar.** The docstring lives in the
   graph as a Reason, not in a parallel metadata store. One graph,
   one substrate. Mentl reads the same graph everyone reads.

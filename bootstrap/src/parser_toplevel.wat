@@ -1,5 +1,5 @@
   ;; ═══ Statement Dispatch + Top-Level (Complete) ══════════════════════
-  ;; Hand-transcribed from src/parser.nx lines 299-352.
+  ;; Hand-transcribed from src/parser.mn lines 299-352.
 
   ;; ─── parse_stmt_p: dispatch on leading token ──────────────────────
   (func $parse_stmt_p (param $tokens i32) (param $pos i32) (result i32)

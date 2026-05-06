@@ -134,7 +134,7 @@ Graph check at each perform site:
   in the current compilation context → emit direct `call $h_op`.
 - If `EfOpen` (row variable unbound) → emit evidence-passing thunk.
 
-In a self-hosted Inka compilation, >95% of call sites prove
+In a self-hosted Mentl compilation, >95% of call sites prove
 monomorphic. The remaining 5% take the evidence-passing path through
 a function-pointer FIELD on the closure record (H1's `LMakeClosure`;
 CLAUDE.md's drift-mode-1 guard — no vtable). There is no runtime
@@ -209,7 +209,7 @@ graph writes, no rebinds, no snapshots.
 
 ## Emitter handoff
 
-The emitter (`std/backend/wasm_emit.nx`) reads LowExpr handles the
+The emitter (`std/backend/wasm_emit.mn`) reads LowExpr handles the
 same way:
 
 ```lux
@@ -237,7 +237,7 @@ By design, the following are unrepresentable:
 
 ## Consumed by
 
-- `std/backend/wasm_emit.nx` — reads LowExpr, emits WAT.
+- `std/backend/wasm_emit.mn` — reads LowExpr, emits WAT.
 - `07-ownership.md` — ownership escape check operates on typed AST
   (clearer than on LowIR) but reads ownership via TFun's TParam list,
   resolved through `lookup_ty`.

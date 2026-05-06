@@ -19,8 +19,8 @@ Constructors become TOTAL — invariant-preserving by construction.
 The compiler refuses to allocate `ValidSpan(0, 0, 0, 0)` at compile
 time when the literal can be proven to fail the predicate.
 
-Replacement target: `src/parser.nx` + `src/types.nx` ADT shapes
-extend with predicate fields; `src/verify.nx` integrates at the
+Replacement target: `src/parser.mn` + `src/types.mn` ADT shapes
+extend with predicate fields; `src/verify.mn` integrates at the
 constructor site.
 
 ## Handles (positive form)
@@ -53,7 +53,7 @@ constructor site.
   obviously-invalid constructions at compile time.
 - Runtime fallback fires only when predicates depend on runtime
   values.
-- `inka edit`'s gradient narrows when a refinement is added —
+- `mentl edit`'s gradient narrows when a refinement is added —
   invalid ctors at the cursor become Mentl proposals.
 
 ## Dep ordering

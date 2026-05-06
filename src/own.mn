@@ -1,0 +1,609 @@
+// own.mn — ownership as effect (spec 07)
+//
+// Ownership dissolves into the existing effect algebra. Every use of
+// an own-annotated parameter performs Consume. The affine_ledger
+// handler tracks which bindings have been consumed; a double-consume
+// is E_OwnershipViolation. A ref-annotated value cannot escape return position —
+// checked structurally on the body.
+//
+// No separate ownership pass. The Consume effect piggybacks on the
+// inference walk (spec 04). Handler install is per-FnStmt. Fallout
+// from the same Boolean algebra that proves !Alloc, !IO, !Network.
+
+import types
+import runtime/strings
+
+// affine_ledger — the Consume handler. Installed per-function body.
+// State tracks consumed-names and the first-use span (for diagnostic
+// pinpointing). `with !Consume` on the handler would statically
+// prevent the arms from recursing through consume — the Boolean
+// algebra gate.
+
+// State:
+//   used          — flat sorted set of consumed names (O(log N) membership)
+//   used_sites    — insertion-ordered [(name, span)] for first-use diagnosis
+//   branches      — stack of (base, deltas) frames for >< and <| branching.
+//                   Each frame saves `used` at branch_enter; tracks each
+//                   branch's captured delta; branch_exit pairwise-checks
+//                   and merges. Stack shape naturally supports nested
+//                   branches (e.g. (a >< b) >< c).
+
+handler catch_abort {
+  abort() => None
+}
+
+/// Look up a name in the environment. Wraps the EnvRead effect
+/// as a named graph node for |> pipelines.
+fn lookup_env(ref name) = perform env_lookup(name)
+
+/// Unwrap an env lookup result, aborting if None.
+fn unwrap_env(opt) with Abort = match opt {
+  Some((scheme, _, _)) => scheme,
+  None => perform abort()
+}
+
+/// Extract a parameter's owner name and index from a Scheme.
+/// Aborts if the scheme doesn't resolve to a function parameter.
+fn extract_param_owner(scheme) with Abort = match scheme {
+  Forall(_, TVar(h)) => match perform graph_chase(h) {
+    GNode(_, FnParam(owner_name, idx, _)) => (owner_name, idx),
+    _ => perform abort()
+  },
+  _ => perform abort()
+}
+
+/// Extract function parameter list from an owner's Scheme.
+/// Aborts if the scheme doesn't resolve to a function type.
+fn extract_fn_params(scheme) with Abort = match scheme {
+  Forall(_, TVar(fn_h)) => match perform graph_chase(fn_h) {
+    GNode(NBound(TFun(params, _, _)), _) => params,
+    _ => perform abort()
+  },
+  _ => perform abort()
+}
+
+/// Look up a name's authored ownership annotation.
+/// Returns Some(auth) if the parameter has an explicit own/ref marker,
+/// None if not found or if the graph structure doesn't match.
+fn get_authored_ownership(ref name) with !Mutate = {
+  name
+    |> lookup_env
+    |> unwrap_env
+    |> extract_param_owner
+    |> ((owner_name, idx)) => {
+         let params = owner_name
+           |> lookup_env
+           |> unwrap_env
+           |> extract_fn_params
+
+         if idx < params.len {
+           let TParam(_, _, auth, _) = list_index(params, idx)
+           Some(auth)
+         } else { None }
+       }
+    ~> catch_abort
+}
+
+handler affine_ledger with used = [], used_sites = [], branches = [] {
+
+  consume(name, span) => {
+    if set_contains(used, name) {
+      let first = find_first_span(used_sites, name)
+      let auth_hint = match get_authored_ownership(name) {
+        Some(Own) => " — you explicitly declared it 'own'"
+        Some(Inferred) => " — it was inferred as 'own'"
+        _ => ""
+      }
+      perform report("ownership", "E_OwnershipViolation", "OwnershipViolation",
+        "'"
+          |> str_concat(name)
+          |> str_concat("' consumed twice (first at ")
+          |> str_concat(show_span(first))
+          |> str_concat(")")
+          |> str_concat(auth_hint),
+        span, "MachineApplicable")
+      resume()
+    } else {
+      // `used` maintains sort invariant via set_insert — every read
+      // (set_contains above) is O(log N) without boundary normalization.
+      // `used_sites` keeps insertion order so find_first_span returns
+      // the actual first-use span (sorting it would lose temporal order).
+      resume()
+        with used = set_insert(used, name),
+             used_sites = [(name, span)] ++ used_sites
+    }
+  },
+
+  // branch_enter — snapshot the current `used` as the frame's base;
+  // deltas list starts empty. Nested branches push onto the stack.
+  branch_enter() => {
+    resume()
+      with branches = [(used, [])] ++ branches
+  },
+
+  // branch_divider — called between branches of `><` or between
+  // non-last branches of `<|`. Captures the just-finished branch's
+  // delta (names consumed in this branch, i.e. used \ base), appends
+  // to the frame's deltas list, then resets `used` to base so the
+  // next branch sees the original scope.
+  branch_divider(_span) => {
+    if branches.len == 0 { resume() }
+    else {
+      let (base, deltas) = list_head(branches)
+      let delta = set_diff(used, base)
+      resume()
+        with used = base,
+             branches = [(base, [delta] ++ deltas)] ++ list_tail(branches)
+    }
+  },
+
+  // branch_exit — captures the last branch's delta, pairwise-checks
+  // collisions against already-captured deltas (each collision is an
+  // E_OwnershipViolation at the branch site), merges all deltas into
+  // `used` as base ∪ union(deltas), pops the frame.
+  branch_exit(span) => {
+    if branches.len == 0 { resume() }
+    else {
+      let (base, prior_deltas) = list_head(branches)
+      let last_delta = set_diff(used, base)
+      let all_deltas = [last_delta] ++ prior_deltas
+      report_branch_collisions(all_deltas, span)
+      resume()
+        with used = set_union(base, union_all_deltas(all_deltas)),
+             branches = list_tail(branches)
+    }
+  }
+}
+
+/// Flat-array union across all branch deltas. Every delta is already
+/// a sorted set (maintained by set_insert during consume), so folding
+/// set_union across them preserves the invariant.
+fn union_all_deltas(ref deltas) with !Mutate = {
+  union_all_deltas_loop(deltas, 0, deltas.len, [])
+}
+
+fn union_all_deltas_loop(ref deltas, i, n, own acc) with !Mutate = {
+  if i >= n { acc }
+  else {
+    union_all_deltas_loop(
+      deltas, i + 1, n,
+      set_union(acc, list_index(deltas, i))
+    )
+  }
+}
+
+/// Pairwise collision check across branch deltas. For each pair
+/// (delta_i, delta_j) with i < j, any name in their intersection was
+/// consumed in TWO parallel branches — an affine violation. We report
+/// each colliding name once per pair; a name consumed in three
+/// branches surfaces as (1,2), (1,3), (2,3) triples, each naming the
+/// branch pair in its own diagnostic. Span is the branching verb's
+/// span — the site where the violation becomes observable.
+fn report_branch_collisions(ref deltas, ref span) with !Mutate = {
+  report_collisions_outer(deltas, 0, deltas.len, span)
+}
+
+fn report_collisions_outer(ref deltas, i, n, ref span) with !Mutate = {
+  if i >= n { () }
+  else {
+    report_collisions_inner(deltas, i, i + 1, n, span)
+    report_collisions_outer(deltas, i + 1, n, span)
+  }
+}
+
+fn report_collisions_inner(ref deltas, i, j, n, ref span) with !Mutate = {
+  if j >= n { () }
+  else {
+    let delta_i = list_index(deltas, i)
+    let delta_j = list_index(deltas, j)
+    let collisions = set_intersect(delta_i, delta_j)
+    report_each_collision(collisions, 0, collisions.len, span)
+    report_collisions_inner(deltas, i, j + 1, n, span)
+  }
+}
+
+/// Tofte-Talpin region escape tracker (I12). Installed per-function
+/// body alongside `affine_ledger`. Arms react to Alloc/return
+/// surfaces to track region identity on each value:
+///
+/// - `region_enter` — fresh region id + span, pushed onto stack.
+/// - `region_exit` — pops the stack; values tagged with this region
+///   are checked against the ambient live region on escape.
+/// - `check_escape` — compares the value's tagged region against the
+///   stack; mismatches emit `E_RegionEscape` pointing at both alloc
+///   site and escape site.
+///
+/// The arms are wired to the Alloc effect surface; `tag_alloc` stamps
+/// every allocation with the current-top region id. `tag_alloc_join`
+/// takes the deepest (innermost) region across a composite value's
+/// fields — preventing inner-region pointers from escaping via the
+/// composite.
+handler region_tracker with region_stack = [], next_region = 0, tagged_values = [] {
+
+  region_enter(span) => {
+    let rid = next_region
+    resume(rid)
+      with region_stack = [Region(rid, span)] ++ region_stack,
+           next_region = next_region + 1
+  },
+
+  region_exit(_rid) => {
+    if region_stack.len == 0 { resume() }
+    else { resume() with region_stack = list_tail(region_stack) }
+  },
+
+  current_region() => {
+    if region_stack.len == 0 { resume(0) }
+    else {
+      let Region(rid, _) = list_head(region_stack)
+      resume(rid)
+    }
+  },
+
+  tag_alloc(value_handle) => {
+    // Stamp the value with the current-top region (or 0 = no
+    // region active = global lifetime). tagged_values entries
+    // are records — adding metadata fields (e.g., region join
+    // for record/variant fields per H4 addendum) is additive
+    // without breaking lookup_tag's destructure.
+    let rid = if region_stack.len == 0 { 0 }
+              else { let Region(r, _) = list_head(region_stack); r }
+    let install_span = if region_stack.len == 0 { span_zero() }
+                       else { let Region(_, s) = list_head(region_stack); s }
+    let tag = {handle: value_handle, install_span: install_span, region_id: rid}
+    resume()
+      with tagged_values = [tag] ++ tagged_values
+  },
+
+  tag_alloc_join(value_handle, field_handles) => {
+    // H4.1: composite values (record / variant with fields) take
+    // the DEEPEST (innermost = largest region_id) region across
+    // (current_region, every field's region). A field tagged with
+    // an inner region pins the composite to that inner lifetime —
+    // escaping the composite to outer scope would orphan the
+    // inner-region pointer field. The escape check at fn return
+    // uses this max-region tag.
+    let cur_rid = if region_stack.len == 0 { 0 }
+                  else { let Region(r, _) = list_head(region_stack); r }
+    let install_span = if region_stack.len == 0 { span_zero() }
+                       else { let Region(_, s) = list_head(region_stack); s }
+    let joined = join_field_regions(tagged_values, field_handles, cur_rid)
+    let tag = {handle: value_handle, install_span: install_span, region_id: joined}
+    resume()
+      with tagged_values = [tag] ++ tagged_values
+  },
+
+  check_escape(value_handle, escape_span) => {
+    // Look up the value's tagged region. If it's region 0 (global)
+    // or a region still on the stack, the value is safe. If the
+    // region was popped (no longer on stack), the value has
+    // escaped — emit E_RegionEscape pointing at both the install
+    // site and the escape site.
+    let entry = lookup_tag(tagged_values, value_handle)
+    match entry {
+      None => resume(),
+      Some(tag) => {
+        if tag.region_id == 0 || region_on_stack(region_stack, tag.region_id) {
+          resume()
+        } else {
+          perform report("region", "E_RegionEscape", "OwnershipViolation",
+            "value allocated in a scope that ended before this return — region " // drift-audit: ignore
+              |> str_concat(int_to_str(tag.region_id))
+              |> str_concat(" no longer live"),
+            escape_span, "MaybeIncorrect")
+          // tag.install_span retained for future multi-span
+          // diagnostic (Located secondary at the alloc site).
+          resume()
+        }
+      }
+    }
+  }
+}
+
+fn lookup_tag(ref tags, handle) with !Mutate = {
+  lookup_tag_loop(tags, handle, 0, tags.len)
+}
+
+fn lookup_tag_loop(ref tags, handle, i, n) with !Mutate = {
+  if i >= n { None }
+  else {
+    let tag = list_index(tags, i)
+    if tag.handle == handle { Some(tag) }
+    else { lookup_tag_loop(tags, handle, i + 1, n) }
+  }
+}
+
+fn region_on_stack(ref stack, rid) with !Mutate = {
+  region_on_stack_loop(stack, rid, 0, stack.len)
+}
+
+fn region_on_stack_loop(ref stack, rid, i, n) with !Mutate = {
+  if i >= n { false }
+  else {
+    let Region(r, _) = list_index(stack, i)
+    if r == rid { true }
+    else { region_on_stack_loop(stack, rid, i + 1, n) }
+  }
+}
+
+/// H4.1: join field regions with current region — returns the MAX
+/// (innermost) region_id. Untagged fields (scalars, never alloc'd)
+/// contribute region 0 (global lifetime, doesn't bound the join).
+/// The result is the composite's pinning region.
+fn join_field_regions(ref tags, ref fields, current) with !Mutate = {
+  join_field_regions_loop(tags, fields, current, 0, fields.len)
+}
+
+fn join_field_regions_loop(ref tags, ref fields, current, i, n) with !Mutate = {
+  if i >= n { acc }
+  else {
+    let fh = list_index(fields, i)
+    let entry = lookup_tag(tags, fh)
+    let field_rid = match entry {
+      None     => 0,
+      Some(t)  => t.region_id
+    }
+    let next = if field_rid > acc { field_rid } else { acc }
+    join_field_regions_loop(tags, fields, next, i + 1, n)
+  }
+}
+
+fn report_each_collision(ref names, i, n, ref span) with !Mutate = {
+  if i >= n { () }
+  else {
+    let name = list_index(names, i)
+    perform report("ownership", "E_OwnershipViolation", "OwnershipViolation",
+      "'"
+        |> str_concat(name)
+        |> str_concat("' consumed in two parallel branches"),
+      span, "MachineApplicable")
+    report_each_collision(names, i + 1, n, span)
+  }
+}
+
+fn find_first_span(ref sites, ref name) with !Mutate = {
+  find_first_span_loop(sites, name, 0, sites.len)
+}
+
+fn find_first_span_loop(ref sites, ref name, i, n) with !Mutate = {
+  if i >= n { span_zero() }
+  else {
+    let (entry_name, entry_span) = list_index(sites, i)
+    if str_eq(entry_name, name) { entry_span }
+    else { find_first_span_loop(sites, name, i + 1, n) }
+  }
+}
+
+// W8.2 / Phase-A2: `used` now maintains sort invariant by
+// construction (set_insert in consume), so set_contains runs at
+// O(log N) without boundary canonicalize. The local string_in_list
+// adapter is gone — call sites use set_contains directly.
+
+/// Check that ref bindings don't escape to return position or closures.
+/// A `ref`-annotated binding cannot appear in return position or be
+/// captured by a closure that outlives its scope. Called by infer.mn
+/// at every `FnStmt` body.
+fn check_ref_escape(ref params, ref body) with !Mutate = {
+  params
+    |> collect_ref_params
+    |> (refs) =>
+         if refs.len == 0 { () }
+         else { walk_return_positions(refs, body) }
+}
+
+/// Phase-A4: collect_ref_params returns `slice(buf, 0, count)` — a
+/// tag=4 view with len = count. One alloc for the worst-case buffer
+/// + one slice-node alloc; same big-O as pre-trim, but the slice
+/// preserves O(1) read into the original buffer (no copy).
+fn collect_ref_params(ref params) with !Mutate = {
+  let flat = list_to_flat(params)
+  let n = flat.len
+  let buf = make_list(n)
+  let count = collect_ref_params_loop(flat, 0, n, buf, 0)
+  slice(buf, 0, count)
+}
+
+fn collect_ref_params_loop(ref params, i, n, own buf, buf_len) with !Mutate = {
+  if i >= n { buf_len }
+  else {
+    let TParam(name, _, auth, res) = list_index(params, i)
+    match res {
+      Ref => {
+        list_set(buf, buf_len, name)
+        collect_ref_params_loop(params, i + 1, n, buf, buf_len + 1)
+      },
+      _ => collect_ref_params_loop(params, i + 1, n, buf, buf_len)
+    }
+  }
+}
+
+fn walk_return_positions(ref refs, ref node) with !Mutate = {
+  let N(body, span, _) = node
+  match body {
+    NExpr(VarRef(name)) =>
+      if string_in_list(refs, name) {
+        perform report("ownership", "E_OwnershipViolation", "OwnershipViolation",
+          "ref binding '"
+            |> str_concat(name)
+            |> str_concat("' escapes its scope (returned)"),
+          span, "MachineApplicable")
+      } else { () },
+
+    NExpr(BlockExpr(_, final_e)) =>
+      walk_return_positions(refs, final_e),
+
+    NExpr(IfExpr(_, then_e, else_e)) => {
+      walk_return_positions(refs, then_e)
+      walk_return_positions(refs, else_e)
+    },
+
+    NExpr(MatchExpr(_, arms)) =>
+      walk_match_arms(refs, arms),
+
+    NExpr(LambdaExpr(_, lambda_body)) =>
+      walk_return_positions(refs, lambda_body),
+
+    // H6: exhaustive NodeBody + Expr enumeration. Most Expr
+    // variants don't contain a ref-returning sub-position
+    // (the tail of a call, binop, literal, etc.); listing each
+    // makes the decision visible. Future Expr variants must
+    // decide their return-position semantics explicitly.
+    NExpr(LitInt(_))         => (),
+    NExpr(LitFloat(_))       => (),
+    NExpr(LitString(_))      => (),
+    NExpr(LitBool(_))        => (),
+    NExpr(LitUnit)           => (),
+    NExpr(BinOpExpr(_, _, _)) => (),
+    NExpr(UnaryOpExpr(_, _)) => (),
+    NExpr(CallExpr(_, _))    => (),
+    NExpr(PerformExpr(_, _)) => (),
+    NExpr(HandleExpr(_, _))  => (),
+    NExpr(ResumeExpr(_, _))  => (),
+    NExpr(MakeListExpr(_))   => (),
+    NExpr(MakeTupleExpr(_))  => (),
+    NExpr(MakeRecordExpr(_)) => (),
+    NExpr(NamedRecordExpr(_, _)) => (),
+    NExpr(FieldExpr(_, _))   => (),
+    NExpr(PipeExpr(_, _, _)) => (),
+    NExpr(ExprPlaceholder)   => (),
+    NStmt(_) => (),
+    NPat(_)  => (),
+    NHole(_) => ()
+  }
+}
+
+fn walk_match_arms(ref refs, ref arms) with !Mutate = {
+  walk_match_arms_loop(refs, arms, 0, arms.len)
+}
+
+fn walk_match_arms_loop(ref refs, ref arms, i, n) with !Mutate = {
+  if i >= n { () }
+  else {
+    let (_, body) = list_index(arms, i)
+    walk_return_positions(refs, body)
+    walk_match_arms_loop(refs, arms, i + 1, n)
+  }
+}
+
+/// Deduce `Own` vs `Ref` for `Inferred`-marked parameters by counting
+/// uses in the function body: 0 uses → `Inferred` (mark stays),
+/// 1 use → `Own` (consumed once — affine), ≥ 2 uses → `Ref`
+/// (borrowed multiple times).
+fn infer_ownership(ref params, ref body) with !Mutate = {
+  let flat = list_to_flat(params)
+  let n = flat.len
+  infer_ownership_loop(flat, body, 0, n, make_list(n))
+}
+
+fn infer_ownership_loop(ref params, ref body, i, n, own acc) with !Mutate = {
+  if i >= n { acc }
+  else {
+    let TParam(name, ty, authored, _old_resolved) = list_index(params, i)
+    let inferred = match authored {
+      Inferred => classify_usage(name, body),
+      _        => authored
+    }
+    infer_ownership_loop(
+      params, body, i + 1, n,
+      list_set(acc, i, TParam(name, ty, authored, inferred))
+    )
+  }
+}
+
+fn classify_usage(ref name, ref body) with !Mutate = {
+  let count = count_uses(name, body)
+  if count == 0      { Inferred }
+  else if count == 1 { Own }
+  else               { Ref }
+}
+
+fn count_uses(ref name, ref node) with !Mutate = {
+  let N(body, _, _) = node
+  match body {
+    NExpr(VarRef(n)) =>
+      if str_eq(n, name) { 1 } else { 0 },
+    NExpr(CallExpr(f, args)) =>
+      count_uses(name, f) + count_uses_list(name, args),
+    NExpr(BinOpExpr(_, l, r)) =>
+      count_uses(name, l) + count_uses(name, r),
+    NExpr(UnaryOpExpr(_, inner)) =>
+      count_uses(name, inner),
+    NExpr(IfExpr(c, t, e)) =>
+      count_uses(name, c) + count_uses(name, t) + count_uses(name, e),
+    NExpr(BlockExpr(stmts, final_e)) =>
+      count_uses_list(name, stmts) + count_uses(name, final_e),
+    NExpr(LambdaExpr(_, lb)) =>
+      count_uses(name, lb),
+    NExpr(PipeExpr(_, l, r)) =>
+      count_uses(name, l) + count_uses(name, r),
+    NExpr(MatchExpr(s, arms)) =>
+      count_uses(name, s) + count_match_arms(name, arms),
+    NExpr(PerformExpr(_, args)) =>
+      count_uses_list(name, args),
+    NExpr(HandleExpr(b, _)) =>
+      count_uses(name, b),
+    NExpr(MakeListExpr(elems))  => count_uses_list(name, elems),
+    NExpr(MakeTupleExpr(elems)) => count_uses_list(name, elems),
+    NExpr(MakeRecordExpr(flds)) => count_uses_record_fields(name, flds),
+    NExpr(NamedRecordExpr(_, flds)) => count_uses_record_fields(name, flds),
+    NExpr(FieldExpr(rec, _))    => count_uses(name, rec),
+
+    // H6: exhaustive. Remaining Expr variants hold no sub-exprs
+    // containing VarRefs that would count against this name
+    // (literals, ResumeExpr is stubby, ExprPlaceholder is a hole).
+    // NStmt / NPat / NHole contribute no variable references.
+    NExpr(LitInt(_))       => 0,
+    NExpr(LitFloat(_))     => 0,
+    NExpr(LitString(_))    => 0,
+    NExpr(LitBool(_))      => 0,
+    NExpr(LitUnit)         => 0,
+    NExpr(ResumeExpr(v, _)) => count_uses(name, v),
+    NExpr(ExprPlaceholder) => 0,
+    NStmt(_) => 0,
+    NPat(_)  => 0,
+    NHole(_) => 0
+  }
+}
+
+fn count_uses_list(ref name, ref nodes) with !Mutate = {
+  count_uses_list_loop(name, nodes, 0, nodes.len, 0)
+}
+
+fn count_uses_record_fields(ref name, ref flds) with !Mutate = {
+  count_uses_record_fields_loop(name, flds, 0, flds.len, 0)
+}
+
+fn count_uses_record_fields_loop(ref name, ref flds, i, n, acc) with !Mutate = {
+  if i >= n { acc }
+  else {
+    let (_, value) = list_index(flds, i)
+    count_uses_record_fields_loop(
+      name, flds, i + 1, n, acc + count_uses(name, value)
+    )
+  }
+}
+
+fn count_uses_list_loop(ref name, ref nodes, i, n, acc) with !Mutate = {
+  if i >= n { acc }
+  else {
+    count_uses_list_loop(
+      name, nodes, i + 1, n,
+      acc + count_uses(name, list_index(nodes, i))
+    )
+  }
+}
+
+fn count_match_arms(ref name, ref arms) with !Mutate = {
+  count_match_arms_loop(name, arms, 0, arms.len, 0)
+}
+
+fn count_match_arms_loop(ref name, ref arms, i, n, acc) with !Mutate = {
+  if i >= n { acc }
+  else {
+    let (_, body) = list_index(arms, i)
+    count_match_arms_loop(
+      name, arms, i + 1, n,
+      acc + count_uses(name, body)
+    )
+  }
+}

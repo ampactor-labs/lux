@@ -2,7 +2,7 @@
 
 > **Status:** `[PENDING]`. Defines the simplification-pass methodology: what gets audited, how to audit, what counts as "pass," and what the executor does when a site fails. Gates Pending Work item 11 (simplification execution). After this walkthrough closes, item 11 has a prescriptive method — no design left, only mechanical application.
 
-*The simplification audit is Inka's discipline self-applied. Every site in every `.nx` file asked the eight interrogations + screened against the nine drift modes. The output is the most residue-form Inka code possible — the compiler that emerges is Inka-native before Mentl ever audits it.*
+*The simplification audit is Mentl's discipline self-applied. Every site in every `.mn` file asked the eight interrogations + screened against the nine drift modes. The output is the most residue-form Mentl code possible — the compiler that emerges is Mentl-native before Mentl ever audits it.*
 
 ---
 
@@ -12,7 +12,7 @@ The cascade landed substrate across the γ cascade + Phase II first cluster. The
 
 **The simplification audit is the whole-codebase application of the eight interrogations + nine drift modes.** Every top-level declaration, every function body, every match arm, every `|>` chain, every effect invocation is asked: *does the graph already know this? does a handler already project this? which verb draws this? what row already gates this? what ownership/refinement/gradient/Reason applies?* — and the nine drift modes screened against the answer.
 
-**Impact:** 10-20% source-line reduction + equivalent 30-60% reduction in hand-WAT downstream (every line deleted in `.nx` saves 3-5 lines of WAT). **This is exponential cost-reduction before bootstrap.**
+**Impact:** 10-20% source-line reduction + equivalent 30-60% reduction in hand-WAT downstream (every line deleted in `.mn` saves 3-5 lines of WAT). **This is exponential cost-reduction before bootstrap.**
 
 **What this walkthrough gates:**
 - Item 11 — simplification audit execution across `src/` + `lib/`.
@@ -83,7 +83,7 @@ Applies NS-naming.md's rewrite rules mechanically:
 - `Graph → Graph` ADT rename
 - `module_fn()` → `module.fn()` or selective-import bare calls
 - `HostClock → Clock`, `IterativeContext → row constraint`
-- `lexer.nx → lex.nx`, `parser.nx → parse.nx` (files renamed; imports follow)
+- `lexer.mn → lex.mn`, `parser.mn → parse.mn` (files renamed; imports follow)
 
 **Exit condition:** drift-audit with NS-naming patterns exits 0.
 
@@ -118,7 +118,7 @@ Unlike passes 1-3, this pass CANNOT be fully automated by drift-audit. It requir
 
 Per NS-naming.md decision 1.5: every module's top gets the canonical docstring (purpose, kernel primitive served, Mentl tentacle projected, invariants).
 
-**Exit condition:** every `src/*.nx` and `lib/**/*.nx` has the canonical docstring.
+**Exit condition:** every `src/*.mn` and `lib/**/*.mn` has the canonical docstring.
 
 ---
 
@@ -187,7 +187,7 @@ Every rewrite should leave a Reason in the graph if the rewrite is applied via a
 ## 6. Forbidden-pattern list
 
 - **Drift 9 (deferred-by-omission):** the simplification audit MUST complete in one sweep-sequence; splitting into "simplify phase 1 / simplify phase 2" across commits is drift mode 9.
-- **Drift 6 (primitive-type-special-case):** no file is exempt from the audit. `src/types.nx` is subject to the same eight interrogations as any other module.
+- **Drift 6 (primitive-type-special-case):** no file is exempt from the audit. `src/types.mn` is subject to the same eight interrogations as any other module.
 - **`// TODO: simplify`:** forbidden residue. Fix now or split into named sub-handle; nothing else.
 
 ---
@@ -234,7 +234,7 @@ Item 11's execution lands as a sequence of commits (each auditable + revertable)
 
 ## 8. Dispatch
 
-**Option A (dual-tier Sonnet):** preferred for commits 11.A + 11.B + 11.C + 11.F (mechanical sweeps). The inka-implementer system prompt already carries the drift-audit discipline.
+**Option A (dual-tier Sonnet):** preferred for commits 11.A + 11.B + 11.C + 11.F (mechanical sweeps). The mentl-implementer system prompt already carries the drift-audit discipline.
 
 **Option B (Opus-on-Opus):** preferred for commit 11.D (semantic audit — where judgment calls surface).
 
@@ -261,13 +261,13 @@ None in this walkthrough; Pass 4 may surface some during execution, each tracked
 
 1. Re-audit cascade walkthroughs (H1-H6, HB, etc.) to verify the simplification's rewrites preserve the walkthroughs' stated invariants. If any walkthrough's substrate assumption no longer matches post-SIMP code, addendum required.
 2. Verify drift-audit performance remains sub-second over the simplified tree.
-3. Check tutorial stubs (`lib/tutorial/*.nx`) still compile against the simplified `lib/prelude.nx`.
+3. Check tutorial stubs (`lib/tutorial/*.mn`) still compile against the simplified `lib/prelude.mn`.
 4. Run self-simulation (item 23) immediately after SIMP to confirm no `NErrorHole` survives to LIR.
 
 ---
 
 ## 11. Closing
 
-SIMP is Inka's discipline running over Inka. Every line that survives the sweeps passed the eight interrogations + nine drift modes + bug-class screens. Every line that didn't survive got rewritten. Post-SIMP, the compiler's own source IS the reference Inka-native form — and the hand-WAT that comes next has the minimum possible surface to transcribe.
+SIMP is Mentl's discipline running over Mentl. Every line that survives the sweeps passed the eight interrogations + nine drift modes + bug-class screens. Every line that didn't survive got rewritten. Post-SIMP, the compiler's own source IS the reference Mentl-native form — and the hand-WAT that comes next has the minimum possible surface to transcribe.
 
-**One walkthrough, a sequence of 6 commits, Inka's discipline self-applied.**
+**One walkthrough, a sequence of 6 commits, Mentl's discipline self-applied.**

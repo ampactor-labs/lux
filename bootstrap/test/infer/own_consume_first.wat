@@ -1,6 +1,6 @@
   ;; ═══ own_consume_first.wat — trace-harness ════════════════════════
   ;; Executes: Hβ-infer-substrate.md §5 + §11 acceptance — first-time
-  ;;           consume path. Per src/own.nx:104-113 consume arm:
+  ;;           consume path. Per src/own.mn:104-113 consume arm:
   ;;             - $infer_consume_seen returns 0 before call.
   ;;             - $infer_consume_use(handle, name, span, reason)
   ;;               inserts name into used + pushes (name, span) to

@@ -16,7 +16,7 @@
   ;;             $emit_open + $emit_close (emit_infra.wat).
   ;;
   ;; What this chunk IS (per Hβ-emit-substrate.md §2.1 + wheel canonical
-  ;; src/backends/wasm.nx LConst arm shape):
+  ;; src/backends/wasm.mn LConst arm shape):
   ;;
   ;;   $emit_lconst(r) reads:
   ;;     - value via $lexpr_lconst_value(r)              [opaque i32]
@@ -58,7 +58,7 @@
   ;;                   them at-emission to drive dispatch.
   ;;   2. Handler?     At wheel: emit_lconst is one arm of an Emit
   ;;                   effect-projection (perform wat_emit) per
-  ;;                   src/backends/wasm.nx. At seed: direct call to
+  ;;                   src/backends/wasm.mn. At seed: direct call to
   ;;                   emit_infra primitives. @resume=OneShot at the
   ;;                   wheel (single-pass emission).
   ;;   3. Verb?        N/A at expression level — LConst draws no verb
@@ -114,7 +114,7 @@
   ;;                                const-make-arms (drift-9 closure
   ;;                                via explicit naming, not silent
   ;;                                omission).
-  ;;   - Foreign fluency:           Vocabulary stays Inka — "tag",
+  ;;   - Foreign fluency:           Vocabulary stays Mentl — "tag",
   ;;                                "dispatch", "intern", "sentinel".
   ;;                                NEVER "switch-statement" / "lookup-
   ;;                                table" / "emit-strategy."
@@ -331,7 +331,7 @@
   (data (i32.const 1568) "\0b\00\00\00variant_tmp")
 
   ;; ─── $emit_alloc — bump-pattern emitter (EmitMemory swap surface) ─
-  ;; Per Hβ-emit-substrate.md §3.5 + wheel canonical src/backends/wasm.nx:
+  ;; Per Hβ-emit-substrate.md §3.5 + wheel canonical src/backends/wasm.mn:
   ;; 71-84 emit_memory_bump body. Emits the 5-piece WAT sequence that
   ;; allocates `$size` bytes at $heap_ptr and binds the resulting ptr to
   ;; local `$<target>`. THIS IS the substrate-level handler reference
@@ -369,7 +369,7 @@
   ;; ─── $emit_alloc_dyn — bump-pattern with runtime-computed size ────
   ;; Per Hβ-emit-substrate.md §3.5 + wheel canonical "emit_alloc with
   ;; dynamic size: route through emit_alloc_dyn (variant of emit_alloc
-  ;; taking i32 from local.get $<size_local>)" (src/backends/wasm.nx:
+  ;; taking i32 from local.get $<size_local>)" (src/backends/wasm.mn:
   ;; 1423-1424). Emits the 5-piece bump-pattern reading $size from a
   ;; named local instead of a static-int constant. Used at LSuspend
   ;; (chunk #6 emit_call.wat) where the transient closure record's
@@ -393,7 +393,7 @@
     (call $ec_emit_global_set_heap_ptr))
 
   ;; ─── $emit_lmakelist — LMakeList tag 316 emit arm per §2.1 ─────────
-  ;; Per src/backends/wasm.nx:2068-2098 emit_list_literal. Emits:
+  ;; Per src/backends/wasm.mn:2068-2098 emit_list_literal. Emits:
   ;;   (i32.const N) (call $make_list) (i32.const 0) <elem 0> (call $list_set)
   ;;   (i32.const 1) <elem 1> (call $list_set) ... etc.
   ;; list_set returns the list ptr per runtime/list.wat — pointer threads
@@ -425,7 +425,7 @@
 
   ;; ─── $emit_lmaketuple — LMakeTuple tag 317 emit arm per §2.1 ───────
   ;; Mirrors LMakeRecord shape (no tag word, fields at 4*i offset) per
-  ;; wheel emit_record_field_stores (src/backends/wasm.nx:1810-1823).
+  ;; wheel emit_record_field_stores (src/backends/wasm.mn:1810-1823).
   ;; Wheel's emit_tuple_literal uses $alloc_tuple call-style — seed
   ;; transcription unifies with LMakeRecord pattern; named follow-up
   ;; Hβ.emit.tuple-alloc-helper resolves wheel-vs-seed alignment if a
@@ -453,11 +453,11 @@
     (call $ec_emit_local_get_dollar (i32.const 1536)))
 
   ;; ─── $emit_lmakerecord — LMakeRecord tag 318 emit arm per §2.1 ─────
-  ;; Per src/backends/wasm.nx:1343-1354 + 1810-1823 emit_record_field_stores.
+  ;; Per src/backends/wasm.mn:1343-1354 + 1810-1823 emit_record_field_stores.
   ;; Mirror of $emit_lmaketuple; only delta is the local name. H2
   ;; substrate: records carry identity in the type system, no runtime
   ;; tag. Field i lands at byte 4*i — matches LFieldLoad's offset
-  ;; arithmetic in lower.nx.
+  ;; arithmetic in lower.mn.
   (func $emit_lmakerecord (param $r i32)
     (local $fields i32) (local $n i32) (local $i i32) (local $field i32)
     (local.set $fields (call $lexpr_lmakerecord_fields (local.get $r)))
@@ -477,7 +477,7 @@
     (call $ec_emit_local_get_dollar (i32.const 1552)))
 
   ;; ─── $emit_lmakevariant — LMakeVariant tag 319 emit arm per §2.1 ───
-  ;; Per src/backends/wasm.nx:1356-1388 + HB drift-6 closure:
+  ;; Per src/backends/wasm.mn:1356-1388 + HB drift-6 closure:
   ;; - n == 0 → (i32.const tag_id) sentinel  (Bool/Nothing/Up/Down/etc.)
   ;; - n >  0 → $emit_alloc(4 + 4*n, "variant_tmp")
   ;;            (local.get $variant_tmp) (i32.const tag_id) (i32.store offset=0)

@@ -11,7 +11,7 @@
 > it); `Hβ-first-light-residue.md` (cascade context);
 > `PLAN-to-first-light.md` (live first-light tracker);
 > `Hβ-lower-substrate.md` §4.2 (parent walkthrough — VarRef arm
-> Lock #2 chain extended here by Lock #2.0 + new Lock #6); `src/lower.nx:333-337`
+> Lock #2 chain extended here by Lock #2.0 + new Lock #6); `src/lower.mn:333-337`
 > (wheel canonical reference for ConstructorScheme RGlobal short-circuit).
 >
 > **Claim in one sentence:** **`$lower_var_ref` already projects
@@ -24,7 +24,7 @@
 > `$ty_tag($scheme_body) == TName_tag (108)`, and short-circuits to
 > `$lexpr_make_lmakevariant(h, $schemekind_ctor_tag_id, $make_list(0))`
 > — mirroring the wheel's RGlobal `match env_kind_of(name)` branch
-> at src/lower.nx:333-337 with the seed-side topology adjustment that
+> at src/lower.mn:333-337 with the seed-side topology adjustment that
 > SchemeKind dispatch wins over local shadow (Lock #6; future shadow
 > discipline lands as named follow-up
 > `Hβ.lower.ctor-shadow-discipline`), with NO new tags, NO Drift-1
@@ -46,13 +46,13 @@ by §A.1 reproduction below.
 
 ### 0.2 Empirical reproduction (verbatim §A trace)
 
-Per the inka-implementer §A pre-audit gate, the bug reproduces
-against HEAD seed (`bootstrap/inka.wasm`, 123674 bytes, built clean
+Per the mentl-implementer §A pre-audit gate, the bug reproduces
+against HEAD seed (`bootstrap/mentl.wasm`, 123674 bytes, built clean
 with empty stderr).
 
-**Reproducer** (`/tmp/inka-nullary-ctor-call.nx`):
+**Reproducer** (`/tmp/mentl-nullary-ctor-call.mn`):
 
-```inka
+```mentl
 type Maybe = Just(Int) | Nothing
 fn unwrap(m, d) = match m { Just(x) => x, Nothing => d }
 fn main() = unwrap(Nothing, 5)
@@ -80,7 +80,7 @@ To discriminate Scenario L (`$lower_var_ref` doesn't project the
 SchemeKind) from Scenario I (CallExpr-only inference flow gap) from
 Scenario E (out-of-scope), the standalone test:
 
-```inka
+```mentl
 type Maybe = Just(Int) | Nothing
 fn main() = Nothing
 ```
@@ -153,7 +153,7 @@ required — the residue is JUST the projection.
 
 ### 1.2 What the wheel does at this site
 
-`src/lower.nx:319-340` runs `perform ls_resolve(name)` returning a
+`src/lower.mn:319-340` runs `perform ls_resolve(name)` returning a
 `Resolution` ADT, then matches:
 - `RLocal` → `LLocal(local_h, name)`
 - `RUpval(slot)` → `LUpval(local_h, slot)`
@@ -308,13 +308,13 @@ Drift-mode refusals, named:
   substrate-now-wiring-later. The nullary arm IS bodied complete.
 
 - **Foreign fluency — LLVM/GHC:** NO "constant folding"; NO "literal
-  pool"; NO "SSA value". Vocabulary stays Inka.
+  pool"; NO "SSA value". Vocabulary stays Mentl.
 
 ---
 
 ## §4 Scenario decision
 
-Per the inka-implementer §A.5 trace decision:
+Per the mentl-implementer §A.5 trace decision:
 
 - §A.1 reproduce: bug REPRODUCES with `(local.get $__state)(i32.load offset=8)` between args.
 - §A.3 standalone Nothing: ALSO emits the closure-capture form, NOT `(i32.const 1)`.
@@ -410,7 +410,7 @@ peer needed (plan §G.4 trigger NOT fired).
 
 ## §6 Verification gates (per plan §E)
 
-1. `wat2wasm` exit 0 on assembled `bootstrap/inka.wat`.
+1. `wat2wasm` exit 0 on assembled `bootstrap/mentl.wat`.
 2. L1 candidate diagnostic count must NOT regress (record HEAD pre-fix).
 3. `tools/drift-audit.sh` clean on `walk_const.wat`.
 4. Existing `walk_const_*.wat` harnesses PASS (lit_int, var_ref_local, var_ref_global).

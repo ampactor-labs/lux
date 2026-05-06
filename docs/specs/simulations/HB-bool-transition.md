@@ -11,12 +11,12 @@ discrimination) that mixed-variant ADTs also need.*
 
 ## Why this is not a deferred niceity
 
-Today Inka has TBool as a primitive type with `LitBool(true)` /
+Today Mentl has TBool as a primitive type with `LitBool(true)` /
 `LitBool(false)` AST literals lowering to LConst. Match arms on
 Bool dispatch via `i32.eq`. This is the C representation
 (`int b = 1` for true).
 
-But Inka's substrate aspires to ONE MECHANISM. ADTs handle every
+But Mentl's substrate aspires to ONE MECHANISM. ADTs handle every
 discriminated case. Bool's primitive representation is the C-pattern
 fluency (`bool is special because it's small and important`) the
 medium refuses everywhere else.
@@ -96,9 +96,9 @@ The check fires only for MIXED ADTs.
 
 ### `HEAP_BASE` value
 
-runtime/lists.nx's bump allocator uses `__heap_ptr` initialized at
+runtime/lists.mn's bump allocator uses `__heap_ptr` initialized at
 WASM-module init. The current init address is whatever
-`runtime/init.nx` (or analog) writes. Standard bump allocators
+`runtime/init.mn` (or analog) writes. Standard bump allocators
 start at 0x1000 (4 KiB) or higher to leave room for static data.
 
 Decision: **HEAP_BASE = 0x1000 (4096)**. Document as a substrate
@@ -132,7 +132,7 @@ sentinel or pointer; type system carries identity).
 
 ### Option A: prelude declaration
 
-`std/prelude.nx` adds:
+`std/prelude.mn` adds:
 ```
 type Bool = True | False
 ```
@@ -169,7 +169,7 @@ True gets tag 1. Convention preserved.
 **Mentl's choice: Path A.** Less churn; TBool stays as a synonym
 that inference treats as TName("Bool"). Future migration to Path B
 when convenient. The substrate behavior is identical; the
-representation in types.nx is what changes.
+representation in types.mn is what changes.
 
 Actually, let me reconsider. Path A keeps two ways to write the
 same type, which IS drift. Path B is the substrate-honest move.
@@ -364,7 +364,7 @@ to a single i32 const. Zero allocation overhead.
 
 ### Documentation
 
-A new invariant in `runtime/lists.nx` (or wherever the bump
+A new invariant in `runtime/lists.mn` (or wherever the bump
 allocator lives) — a comment marking HEAP_BASE = 4096 as a
 substrate-level invariant the compiler relies on.
 
@@ -372,10 +372,10 @@ substrate-level invariant the compiler relies on.
 // Substrate invariant (HB): the bump allocator MUST start at
 // address >= 4096 (HEAP_BASE). Sentinel values for nullary ADT
 // variants live in [0, 4096) and never collide with valid heap
-// pointers. Mixed-variant match dispatch in backends/wasm.nx
+// pointers. Mixed-variant match dispatch in backends/wasm.mn
 // uses this threshold to discriminate sentinel from pointer.
 //
-// Changing HEAP_BASE requires updating backends/wasm.nx's
+// Changing HEAP_BASE requires updating backends/wasm.mn's
 // emit_match_arms_mixed to match.
 ```
 
@@ -442,12 +442,12 @@ exhausts the first few KB.)
 ## Design synthesis (for approval)
 
 **HEAP_BASE = 4096** — substrate invariant. Documented in
-runtime/lists.nx.
+runtime/lists.mn.
 
-**Bool declared in std/prelude.nx** as `type Bool = False | True`.
+**Bool declared in std/prelude.mn** as `type Bool = False | True`.
 False → tag 0, True → tag 1.
 
-**TBool deleted** from types.nx. Every reference becomes
+**TBool deleted** from types.mn. Every reference becomes
 TName("Bool"). Inference, lower, emit, query, mentl all sweep.
 
 **LitBool(b) lowers to LMakeVariant(handle, b ? 1 : 0, [])** — the
@@ -475,12 +475,12 @@ ConstructorScheme(_, total_variants) machinery.
 
 ## Estimated scope
 
-- ~6 files: types.nx (TBool deletion), prelude.nx (Bool decl),
-  parser.nx (LitBool stays — refers to Bool by TName at infer time),
-  infer.nx (TBool → TName("Bool") sweep, IfExpr / BinOp boolean
-  arms), lower.nx (LitBool → LMakeVariant), backends/wasm.nx
+- ~6 files: types.mn (TBool deletion), prelude.mn (Bool decl),
+  parser.mn (LitBool stays — refers to Bool by TName at infer time),
+  infer.mn (TBool → TName("Bool") sweep, IfExpr / BinOp boolean
+  arms), lower.mn (LitBool → LMakeVariant), backends/wasm.mn
   (LMakeVariant nullary branch + emit_match_arms shape classify +
-  threshold-aware mixed dispatch), runtime/lists.nx (HEAP_BASE
+  threshold-aware mixed dispatch), runtime/lists.mn (HEAP_BASE
   invariant comment).
 - **Single coordinated commit.** Tight cross-file coupling.
 - **Sub-handles:** none expected. Implementation is structural,

@@ -3,7 +3,7 @@
 *Role-play as Mentl, this time not tracing substrate — ACTING as
 the oracle. Two arms, each a user-visible output of the thesis
 made flesh. I15 `AWrapHandler` proposes wrap-candidates that
-unlock tighter signatures. I17 `inka audit` walks the capability
+unlock tighter signatures. I17 `mentl audit` walks the capability
 stack transitively and names what could be tightened.*
 
 ---
@@ -55,7 +55,7 @@ reports to stderr. `graph_handler` mutates the Graph.
 **Mentl's I17 audit:**
 
 ```
-$ inka audit pipeline.nx
+$ mentl audit pipeline.mn
 pipeline(source):
   REACHED capabilities (effects actually performed by the body):
     - Graph (via graph_handler)
@@ -83,7 +83,7 @@ compile-time capability.
 `Annotation` gains a new variant:
 
 ```
-// In mentl.nx:
+// In mentl.mn:
 type Annotation
   = APure(Option)
   | ANotAlloc(Option)
@@ -186,11 +186,11 @@ Render uses span coordinates. IDE shows Quick Fix. User clicks
 
 ---
 
-## Layer 2 — I17 inka audit
+## Layer 2 — I17 mentl audit
 
 ### New Question variant
 
-In query.nx:
+In query.mn:
 
 ```
 type Question = ... | QCapabilitySet(String)   // fn_name to audit
@@ -228,7 +228,7 @@ type AuditReport
 ```
 
 Rendered via a new `render_audit(AuditReport) -> String` in
-mentl.nx (or a new audit.nx). The rendered output is the
+mentl.mn (or a new audit.mn). The rendered output is the
 coordinate-rich audit the user sees.
 
 ### Pipeline route
@@ -260,11 +260,11 @@ renders. Output to stdout or a JSON stream (the IDE consumes).
   sees the capability unlock, chooses.
 
 **I17:**
-- `inka audit <file>` surfaces every fn's capability set with
+- `mentl audit <file>` surfaces every fn's capability set with
   severance candidates.
 - Users can tighten signatures deliberately; each tightening
   unlocks real compile-time capabilities.
-- CI pipelines integrate `inka audit` checks; declaration-
+- CI pipelines integrate `mentl audit` checks; declaration-
   tightness becomes a reviewable property.
 
 **Both together:**
@@ -289,7 +289,7 @@ Patches include source-text replacements. Rendering
 `handle { <body_text> } with temp_arena` requires reading the
 ORIGINAL source text at body_span. The source string is
 available at frontend time but may not be threaded to
-mentl.nx's oracle. A new effect `source_slice(Span) -> String`
+mentl.mn's oracle. A new effect `source_slice(Span) -> String`
 or similar. **Sub-handle: H5.2 patch text synthesis.**
 
 ### Revelation C — "temp_arena" is a concrete handler name — but which concrete?
@@ -297,7 +297,7 @@ or similar. **Sub-handle: H5.2 patch text synthesis.**
 The candidate `temp_arena` in my examples is a specific
 handler name. In a real project, the handler LIBRARY would
 register available handlers at program startup. For first
-landing, Inka's std lib declares canonical handlers:
+landing, Mentl's std lib declares canonical handlers:
 `temp_arena` (Alloc absorber), `log_to_stderr` (IO absorber),
 `dry_run_network` (Network absorber). HandlerCatalog knows
 these.
@@ -315,7 +315,7 @@ handles this cleanly.**
 
 ### Revelation E — The audit's reach
 
-`inka audit` could walk more than one fn. It could report for a
+`mentl audit` could walk more than one fn. It could report for a
 whole MODULE or even a whole PROJECT. For first landing, fn-
 scoped audit. Project-scoped audit is a trivial extension
 (iterate over fns) but produces voluminous output; defer UI
@@ -371,11 +371,11 @@ ev_shapes. H5 lands AFTER H1.
 
 ## Estimated scope
 
-- ~5 files touched: mentl.nx (Annotation extension,
+- ~5 files touched: mentl.mn (Annotation extension,
   apply_annotation_tentatively arm, gradient enumeration,
-  HandlerCatalog effect + handler), query.nx (QCapabilitySet),
-  pipeline.nx (audit route), a new audit.nx (AuditReport +
-  renderers) or extension of mentl.nx, docs/ (example usage +
+  HandlerCatalog effect + handler), query.mn (QCapabilitySet),
+  pipeline.mn (audit route), a new audit.mn (AuditReport +
+  renderers) or extension of mentl.mn, docs/ (example usage +
   audit output format).
 - **One commit.** Tight internal coupling; AWrapHandler and
   audit share the HandlerCatalog substrate.
@@ -416,7 +416,7 @@ type AuditReport = {
 ```
 
 The render side (terminal / JSON) calls `show_eff_name(name)` —
-already exists in types.nx. `Sample(44100)` renders correctly.
+already exists in types.mn. `Sample(44100)` renders correctly.
 
 **Mentl gains a parameterized-effect audit category for free.** A
 function declaring `with Sample(44100)` could be tightened to
@@ -484,7 +484,7 @@ H3's ConstructorScheme(tag_id, total_variants) means: when Mentl
 considers all possible annotations to apply, it can read
 `Annotation`'s declared variants from env (their tag_ids and total
 count) instead of hard-coding the variant list. **Future-proof: a
-new Annotation variant added to types.nx automatically becomes a
+new Annotation variant added to types.mn automatically becomes a
 candidate Mentl considers.**
 
 ```

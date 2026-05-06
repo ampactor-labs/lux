@@ -2,7 +2,7 @@
 
 *The never-been-done work. A deterministic pair programmer whose
 voice is substrate, not UI. Mentl is the one proposer — no LLM in
-the loop by default. She reads the graph Inka's eight-primitive
+the loop by default. She reads the graph Mentl's eight-primitive
 kernel produces (DESIGN.md §0.5) and renders compressed proofs
 into human language, one at a time, surfacing only what She has
 proven through MultiShot-typed handler arms exploring alternate
@@ -121,7 +121,7 @@ compiler in the world feels like a linter with attitude.
 
 A developer's canonical mental model is: projects are folders of
 text files; work is navigating, opening, editing, saving,
-creating, deleting those files. Inka does not subvert this —
+creating, deleting those files. Mentl does not subvert this —
 the medium's power comes from *making the graph an intelligent
 substrate underneath that model*, not from replacing it.
 
@@ -152,10 +152,10 @@ keystroke; no custom live-graph mechanism beyond IC.
    adapter. Hover, inlay hints, code actions, diagnostics — all
    project Mentl's voice through the protocol developers already
    speak.
-2. **Batch CLI subcommands** (`inka compile`, `inka audit`,
-   `inka query`, `inka teach`). Already partially exist; MV
+2. **Batch CLI subcommands** (`mentl compile`, `mentl audit`,
+   `mentl query`, `mentl teach`). Already partially exist; MV
    unifies their voice with the LSP surface.
-3. **Terminal IDE** *(later — the native Inka surface)*. The
+3. **Terminal IDE** *(later — the native Mentl surface)*. The
    evolved-platform form: file tree, editable panes, Mentl
    present throughout, no LSP marshaling overhead. Designed and
    built after the VS Code surface has taught us what a real
@@ -180,7 +180,7 @@ consumed by multiple transports (LSP, custom protocols,
 in-process clients). The LSP protocol is a transport *over*
 `Interact`, not the thing `Interact` is. The terminal IDE
 talks `Interact` directly; the VS Code plugin talks it through
-an `lsp_adapter.nx` handler that marshals LSP ↔ `Interact` ops.
+an `lsp_adapter.mn` handler that marshals LSP ↔ `Interact` ops.
 
 **LSP is ONE transport, not the paradigm.** Earlier framing in
 this doc said "LSP is dissolved" — that was absolutist and
@@ -290,7 +290,7 @@ in Layer 3 without `Interact` needing a v2.*
 ### Q2. The Question/Answer/VoiceLine shapes
 
 `Question` is structured (QTypeAt, QWhy, QRefsOf exist in
-`query.nx`); `Answer` is structured too. `VoiceLine` is the new
+`query.mn`); `Answer` is structured too. `VoiceLine` is the new
 shape and it's where the never-been-done work lives.
 
 A candidate structure:
@@ -378,7 +378,7 @@ type Caret
 
 The legacy `Cursor(Handle, Reason)` ADT defined here is **renamed**
 to `Caret(Handle, Reason)` per Hμ.cursor §2.2. Under the live
-ontology (`src/types.nx` Cursor/Caret split):
+ontology (`src/types.mn` Cursor/Caret split):
 
 - **Caret** is the user's text-attention position — one input among
   many to Cursor's argmax. Updated by every `focus` op (mouse,
@@ -387,7 +387,7 @@ ontology (`src/types.nx` Cursor/Caret split):
   `speak` does NOT update Caret — Mentl doesn't steal attention.
 
 - **Cursor** is the gradient's global argmax over the live graph,
-  with Caret as proximity bias. Lives in `src/types.nx` as
+  with Caret as proximity bias. Lives in `src/types.mn` as
   `Cursor(Handle, Reason, Float)` — the third field is `impact`
   carrying the argmax score (or sentinel-infinity for `??`-pinned
   positions). Updated implicitly on every graph delta via
@@ -397,7 +397,7 @@ The `cursor()` op on the `Interact` effect (line 237 below) returns
 the live Cursor — i.e. the gradient argmax filtered through the
 current Caret bias — not just the Caret. The `focus(CursorTarget)`
 op (line 236) updates the Caret; the auto-argmax recomputes against
-the new Caret on the next query. See `src/cursor.nx`'s
+the new Caret on the next query. See `src/cursor.mn`'s
 `cursor_default` for the projection handler;
 `docs/SUBSTRATE.md` §VI Cursor subsection for the discipline.
 
@@ -733,9 +733,9 @@ fn dot(xs: List<Float>, ys: List<Float>) -> Float =
 - Teach (inlayHint): `Index-fold — unlocks real-time.`
 - Propose (codeAction): `Rewrite to index-fold?` + patch preview
 
-### AT6 — `inka why result`
+### AT6 — `mentl why result`
 
-**Setup:** `let result = compute(data)`; user asks `inka why result`.
+**Setup:** `let result = compute(data)`; user asks `mentl why result`.
 
 **Situation:**
 - tentacle: TentWhy
@@ -752,7 +752,7 @@ fn dot(xs: List<Float>, ys: List<Float>) -> Float =
 
 ### AT7 — Empty file
 
-**Setup:** fresh `.nx` opened; env is prelude only.
+**Setup:** fresh `.mn` opened; env is prelude only.
 
 **Situation:**
 - proof_derivable: false (no user bindings)
@@ -972,9 +972,9 @@ Proof: all eight interrogations terminate on "graph already answers this"; no su
 
 ### Voice identity — first-invocation handling
 
-**VL20.** (Empty project, bare `inka`):
+**VL20.** (Empty project, bare `mentl`):
 > (silence, followed on human cursor onto a tutorial file:)
-> "The tutorial at `lib/tutorial/00-hello.nx` walks the eight
+> "The tutorial at `lib/tutorial/00-hello.mn` walks the eight
 > primitives in order. I'll narrate each as you read."
 
 Proof: graph is empty; no surfaceable content; silence predicate holds. Human motion into tutorial file unlocks teach_narrative tentacle. No canned greeting — presence is proven, not performed.
@@ -1193,7 +1193,7 @@ hole ~> mentl_voice ~> enumerate_inhabitants ───┐
                        outcomes into the VoiceLine's multi-shot-summary
 ```
 
-**This is why modern agentic coding AI is obsolete in Inka.** An
+**This is why modern agentic coding AI is obsolete in Mentl.** An
 LLM proposes tokens in a probability distribution. Mentl
 enumerates inhabitants in a type-and-row-constrained space,
 proves each, and surfaces only the proven set. The candidate
@@ -1248,10 +1248,10 @@ MV is a design substrate + v1 surface. What lands in code v1:
   ↔ `Interact` ops. The file that knows about LSP; everything
   else is pure semantic analysis.
 - The **VS Code extension** — thin wrapper that installs the
-  `inka` binary, spawns it as the language server, handles
+  `mentl` binary, spawns it as the language server, handles
   LSP boilerplate. Published to the marketplace. This is how
   developers first meet Mentl.
-- Batch CLI subcommands (`inka compile`, `inka audit`, etc.)
+- Batch CLI subcommands (`mentl compile`, `mentl audit`, etc.)
   unified with the `Interact` substrate so their voice matches
   what VS Code surfaces.
 - Every `[LIVE · surface pending]` tag in `docs/traces/a-day.md`
@@ -1261,11 +1261,11 @@ MV is a design substrate + v1 surface. What lands in code v1:
 
 What lands later (not in MV v1):
 
-- Terminal IDE (`inka` no-args launching a native surface).
+- Terminal IDE (`mentl` no-args launching a native surface).
 - Web playground (browser-hosted, guided-tutorial first visit).
 - Desktop client (optional, post-first-light).
 
-Mentl becomes the user-facing identity of Inka the moment the
+Mentl becomes the user-facing identity of Mentl the moment the
 VS Code extension ships — she's who the developer meets, through
 the editor they already use.
 
@@ -1374,7 +1374,7 @@ and rendering.
 ### 9.1 VS Code plugin via LSP (v1 — the first integration)
 
 **Transport:** LSP JSON-RPC over stdio (standard). VS Code
-extension spawns `inka --lsp` as the language server; VS Code's
+extension spawns `mentl --lsp` as the language server; VS Code's
 built-in LSP client handles the protocol.
 
 **Rendering (what the developer sees in VS Code):**
@@ -1404,7 +1404,7 @@ built-in LSP client handles the protocol.
 
 **Why LSP first (and why this isn't a retreat from the thesis):**
 - rust-analyzer's architecture is our architectural model: one
-  crate (`lsp_adapter.nx`) knows about LSP/JSON-RPC; the rest is
+  crate (`lsp_adapter.mn`) knows about LSP/JSON-RPC; the rest is
   pure semantic analysis on `Interact`. LSP is transport, not
   paradigm.
 - VS Code is where developers live today. Meeting them there
@@ -1431,11 +1431,11 @@ register), subset of proof-shapes that make sense without
 persistent context (no silence-predicate initiative; no
 intent-capture across invocations).
 
-Existing `inka compile`, `inka check`, `inka audit`, `inka
+Existing `mentl compile`, `mentl check`, `mentl audit`, `mentl
 query` subcommands get unified with the `Interact` substrate so
 their voice matches VS Code.
 
-### 9.3 Terminal IDE (later — the native Inka surface)
+### 9.3 Terminal IDE (later — the native Mentl surface)
 
 **Transport:** terminal I/O (stdin/stdout, raw mode, ANSI escape
 sequences). Direct `Interact` — no LSP marshaling overhead.
@@ -1457,7 +1457,7 @@ the full thesis lives without the LSP overhead.
 ### 9.4 Web playground (later — the onboarding surface)
 
 **Transport:** HTTPS + WebSocket. Browser client connects to a
-server-side Inka instance or in-browser WASM instance (design
+server-side Mentl instance or in-browser WASM instance (design
 TBD — depends on WASM self-host maturity).
 
 **Rendering:** DOM. The terminal IDE's substrate re-rendered
@@ -1466,10 +1466,10 @@ a renderer for the `Interact` substrate, not a self-contained
 editor.
 
 **First-visit experience:** no session cookie → server loads a
-`tutorial` project (curated `.nx` files walking through `fn`,
+`tutorial` project (curated `.mn` files walking through `fn`,
 `|>`, effect rows, annotations, the gradient). Mentl narrates —
 first unprompted VoiceLine is a greeting. **The tutorial is
-written as Inka source** — comments + chosen examples in a
+written as Mentl source** — comments + chosen examples in a
 normal project rendered through the same surface; no special
 tutorial engine.
 
@@ -1502,7 +1502,7 @@ substrate.**
 ## Closing
 
 MV is where the thesis becomes a user-facing medium. The γ
-cascade gave Inka a substrate no other language has; MV gives
+cascade gave Mentl a substrate no other language has; MV gives
 Mentl a voice no other compiler has. Until MV's walkthrough
 closes, no `Interact`-surface code freezes. Character work is
 as load-bearing as substrate work here — getting the voice

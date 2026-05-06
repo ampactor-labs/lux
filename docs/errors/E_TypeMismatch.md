@@ -19,7 +19,7 @@ expressions and why they were tied.
 
 - Check the immediate expression: literal vs. expected type, return
   value vs. annotation.
-- Walk the Reason chain (`inka query "why NAME"`): the mismatch often
+- Walk the Reason chain (`mentl query "why NAME"`): the mismatch often
   surfaces upstream — a parameter annotation propagating through
   several call sites.
 - If the types differ structurally (e.g., `TList(Int)` vs.

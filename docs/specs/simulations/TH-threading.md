@@ -1,7 +1,7 @@
 # TH — Threading · multi-core as handler topology
 
 > **Status:** `[DRAFT 2026-04-23]`. Morgan's prompt: *"imagine how
-> embarrassing it would be if Inka only used one core."* Right.
+> embarrassing it would be if Mentl only used one core."* Right.
 > The substrate is SKETCHED in DESIGN Ch 6-7 + Ch 2 — but no
 > walkthrough names the threading substrate, no effect is
 > declared, no crucible tests scaling, no hand-WAT emits
@@ -9,8 +9,8 @@
 > substrate, specifies the runtime, prescribes the emit shape,
 > commits a crucible.
 
-*Inka's multi-core story is NOT "add threads" — threads are the
-industry's primitive. Inka's primitive is `><` (primitive #3),
+*Mentl's multi-core story is NOT "add threads" — threads are the
+industry's primitive. Mentl's primitive is `><` (primitive #3),
 whose semantics are "independent parallel tracks." A handler
 decides whether tracks run sequentially on one core, concurrently
 via fibers, or genuinely parallel across OS threads. One source;
@@ -19,14 +19,14 @@ language feature.*
 
 ---
 
-## 0. Framing — what threading is in Inka vs what it isn't
+## 0. Framing — what threading is in Mentl vs what it isn't
 
-### 0.1 What threading is NOT in Inka
+### 0.1 What threading is NOT in Mentl
 
 - **Not a keyword.** No `thread { ... }` block, no `go func()`.
   Rust `spawn`, Go `go`, JavaScript `worker` — all would be
   drift-24 (async/await vocabulary) or drift-21 (class-per-thread
-  vocabulary). Inka has no thread keyword.
+  vocabulary). Mentl has no thread keyword.
 - **Not a first-class value the user constructs.** No
   `let t = Thread::new(...)`. Threads are handler-state; the user
   writes `><` and an installed handler interprets.
@@ -34,7 +34,7 @@ language feature.*
   Cross-thread transfer is a row constraint (`with SharedMemory`
   or handler-scoped memory regions), not a type-level marker.
 
-### 0.2 What threading IS in Inka
+### 0.2 What threading IS in Mentl
 
 **Threading is a handler installation on `><` + ambient Alloc.**
 Concretely:
@@ -57,7 +57,7 @@ Concretely:
    target handler's row. The compiler proves data-race freedom
    by walking effect rows, not by T: Send bounds.
 
-**One sentence:** Inka scales to N cores by installing
+**One sentence:** Mentl scales to N cores by installing
 `~> parallel_compose` at the top of a `><` chain. No other source
 change.
 
@@ -218,7 +218,7 @@ read thread identity; internal to handler state otherwise.
 
 ## 4. Cross-thread data — Pack/Unpack as the only wire
 
-Raw pointers don't cross thread boundaries safely. Inka's answer:
+Raw pointers don't cross thread boundaries safely. Mentl's answer:
 **all cross-thread data goes through `Pack` → bytes → `Unpack`**.
 
 ```
@@ -234,7 +234,7 @@ fn consumer(bytes: Bytes) = {
 ```
 
 **Primitive #4 (row algebra):** `Pack + Unpack` is declared in
-`lib/runtime/binary.nx` already (PLAN 2026-04-22). Cross-thread
+`lib/runtime/binary.mn` already (PLAN 2026-04-22). Cross-thread
 is one consumer of that substrate; network/disk are others.
 **One mechanism; multiple transports.**
 
@@ -302,7 +302,7 @@ satisfied. This is the substrate-is-portable claim made real.
 ## 7. Hand-WAT / bootstrap implications
 
 **TH substrate lives in user space, NOT in the seed compiler.**
-The bootstrap compiler (`bootstrap/inka.wat` / `bootstrap/src/`)
+The bootstrap compiler (`bootstrap/mentl.wat` / `bootstrap/src/`)
 is single-threaded; it compiles one module at a time sequentially.
 This is intentional — the compile path is I/O-bound and
 parallel compilation is a Phase II incremental-compilation
@@ -325,9 +325,9 @@ concern (IC walkthrough has already landed).
 `Thread` or `SharedMemory`. L1 closes on current hand-WAT + BT
 linker.
 
-**For L3 (crucible pass) including `crucible_parallel.nx`:** hand-WAT
+**For L3 (crucible pass) including `crucible_parallel.mn`:** hand-WAT
 needs TH emit path. Per Hβ §12.4: grows via Tier 3 incremental
-self-hosting. VFINAL-on-partial-WAT compiles `src/backends/wasm.nx`
+self-hosting. VFINAL-on-partial-WAT compiles `src/backends/wasm.mn`
 extended with Thread/SharedMemory emit; diff into hand-WAT;
 audit paragraph-by-paragraph.
 
@@ -385,7 +385,7 @@ for atomics. Verify discharges at SMT time.
 ### 8.7 Gradient?
 
 Adding `~> parallel_compose` to a pipeline UNLOCKS `CParallelize`
-(existing Capability variant in `src/mentl.nx:48`). Mentl's
+(existing Capability variant in `src/mentl.mn:48`). Mentl's
 Unlock tentacle can surface this as a voice line ("adding
 `~> parallel_compose` unlocks multi-core for this pipeline —
 proven safe by `!SharedMemory` in all branches").
@@ -420,7 +420,7 @@ a Why Engine query.
 
 ---
 
-## 10. The crucible — `crucibles/crucible_parallel.nx`
+## 10. The crucible — `crucibles/crucible_parallel.mn`
 
 *Added to the CRU set as the sixth crucible.*
 
@@ -440,12 +440,12 @@ isn't. Same source, different handler, different wall-clock.
 
 **Expected failure (pre-TH substrate):** `E_UndeclaredEffect` at
 `spawn` / `await` perform sites. Closes when Thread effect lands
-in `lib/runtime/threading.nx` + parallel_compose handler.
+in `lib/runtime/threading.mn` + parallel_compose handler.
 
 **Shape:**
 
 ```
-// crucibles/crucible_parallel.nx
+// crucibles/crucible_parallel.mn
 import runtime/threading
 import runtime/binary
 
@@ -478,13 +478,13 @@ fn render_sequential(ref w: Int, ref h: Int) -> Bytes =
 
 **TH substrate is a peer to existing Phase II landings (FS, IC,
 Phase A/B, Memory/Alloc declarations).** Not blocking for L1.
-Lands pre-L3 (when `crucible_parallel.nx` is expected to pass).
+Lands pre-L3 (when `crucible_parallel.mn` is expected to pass).
 
 **Priority:** add as PLAN Pending Work item 3 (after current 1
 = LFeedback, 2 = Mentl voice) or 1.6 (after 1.5 = H7 MS runtime).
 
-**Dispatch:** Opus inline for the walkthrough; inka-implementer
-for the `lib/runtime/threading.nx` substrate + wasm.nx emit path;
+**Dispatch:** Opus inline for the walkthrough; mentl-implementer
+for the `lib/runtime/threading.mn` substrate + wasm.mn emit path;
 Opus for the cross-wire / determinism audit.
 
 ---
@@ -533,7 +533,7 @@ program. No other source change. No `T: Send` bounds. No `unsafe`.
 The Boolean effect algebra proves safety; the handler provides
 dispatch; the runtime provides threads; the user writes `><`.
 
-*Inka scales to N cores the same way Inka does anything else: a
+*Mentl scales to N cores the same way Mentl does anything else: a
 handler on the substrate. The embarrassing universe is the one
 where we forgot to install the handler; the real universe is the
 one where adding one `~>` line lights up the rest of the CPU.*
@@ -561,8 +561,8 @@ the asymmetry at the lowering layer. After this commit:
 
 Sections §0.2, §3, §8.3, §10 of this walkthrough now read
 "both `<|` and `><`" wherever they previously read "`><`."
-The crucible (`crucible_parallel.nx`) gains a `<|`-shaped sibling
-(`crucible_diverge_parallel.nx`) named as peer follow-up.
+The crucible (`crucible_parallel.mn`) gains a `<|`-shaped sibling
+(`crucible_diverge_parallel.mn`) named as peer follow-up.
 
 This addendum is the riffle-back closure (Anchor 7 step 4) for
 TH against the Hβ.lower.diverge-via-thread landing.

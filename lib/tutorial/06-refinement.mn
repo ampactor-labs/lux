@@ -1,0 +1,58 @@
+// 06-refinement.mn — Primitive #6: Refinement types
+//
+// A refinement type carries a predicate. Values of `ValidSpan` are
+// not just records of four ints — they are records of four ints
+// for which the predicate holds. The compiler refuses to construct
+// values that fail the predicate; the verifier discharges the
+// obligation at compile time when the leaves are constants
+// (verify.mn predicate_decide), at runtime when they aren't, via
+// SMT solver swap when verify_smt is installed (Arc F.1).
+//
+// Refinement is load-bearing at construction. There is no separate
+// "validation phase." The constructor IS the proof obligation;
+// invariants hold by the time the value exists.
+//
+// Read this alongside SUBSTRATE.md §VI "Refinement Types Are
+// Construction" and `docs/specs/02-ty.md`.
+
+import runtime/io
+
+/// `ValidSpan` — a four-int record refined to require legal source-
+/// span ordering: line ≥ 1; col ≥ 1; end-line ≥ start-line; end-col
+/// ≥ start-col. The constructor refuses literally-invalid spans at
+/// compile time. The verifier emits E_RefinementRejected when
+/// predicate_decide proves the predicate false from constants.
+type ValidSpan = Span(sl, sc, el, ec)
+  where sl >= 1 && sc >= 1 && el >= sl && ec >= sc
+
+/// Compile-time decidable construction — `Span(1, 1, 5, 3)` passes
+/// because 1 >= 1 && 1 >= 1 && 5 >= 1 && 3 >= 1 all evaluate true.
+fn good_span() = Span(1, 1, 5, 3)
+
+/// Compile-time decidable refusal — `Span(0, 0, 0, 0)` fails
+/// because 0 >= 1 is decidably false. Uncomment to see the verifier
+/// reject this at compile time; commented out so this file remains
+/// a clean teaching example.
+// fn bad_span() = Span(0, 0, 0, 0)
+
+/// Runtime fallback — when the args are dynamic, the verifier emits
+/// a runtime check. The check fires before the value exists; if it
+/// fails, the chain's E_RefinementViolation handler fires.
+fn dynamic_span(line) = Span(line, 1, line, 1)
+
+/// `area` operates on ValidSpan; the predicate is part of the type.
+/// No defensive `if span.sl < 1 { ... }` guards — invariants hold
+/// by construction. The compiler erases the check at the callee
+/// because the input was proven valid at the constructor.
+fn area(ref span: ValidSpan) = {
+  let Span(sl, sc, el, ec) = span
+  (el - sl + 1) * (ec - sc + 1)
+}
+
+fn main() = {
+  let s = good_span()
+  s
+    |> area
+    |> int_to_str
+    |> print_string
+}

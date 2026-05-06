@@ -1,6 +1,6 @@
   ;; ═══ lowfn.wat — LowFn record substrate (Tier 4) ═══════════════════
   ;; Hβ.lower Phase C.1 — LowFn ADT record at the WAT layer.
-  ;; Per src/lower.nx canonical: `LFn(name, arity, params, body, row)`.
+  ;; Per src/lower.mn canonical: `LFn(name, arity, params, body, row)`.
   ;; The lowering walk's fn-declaration product type. Each LowFn carries
   ;; its source name (String), static arity (Int), parameter name list,
   ;; lowered body (LowExpr), and effect row handle — the row IS the
@@ -33,7 +33,7 @@
   ;;                @resume=N/A (LowFn is a record, not a handler op).
   ;; 3. Verb?       `|>` lowering produces LDeclareFn(LowFn(...)).
   ;; 4. Row?        LowFn carries the fn's effect row directly per
-  ;;                src/lower.nx:109 `LMakeClosure(Int, LowFn, ...)`.
+  ;;                src/lower.mn:109 `LMakeClosure(Int, LowFn, ...)`.
   ;; 5. Ownership?  `own` LowFn — passed-through-once into
   ;;                LMakeClosure/LMakeContinuation/LDeclareFn.
   ;; 6. Refinement? N/A at record level.
@@ -62,7 +62,7 @@
   ;; compile time and what the Why Engine walks back through.
 
   ;; ─── 350 = LowFn(name, arity, params, body, row) — arity 5 ────────
-  ;; Per src/lower.nx canonical LFn record shape.
+  ;; Per src/lower.mn canonical LFn record shape.
   ;;   field_0 = name (String — fn name for WAT $-prefix)
   ;;   field_1 = arity (i32 — static param count)
   ;;   field_2 = params (List of String — parameter names)

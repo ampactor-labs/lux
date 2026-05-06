@@ -14,7 +14,7 @@
   ;;             $len (runtime/list.wat), $str_concat (runtime/str.wat).
   ;;
   ;; What this chunk IS (per Hβ-emit-substrate.md §2.1 + §2.4 + §3 +
-  ;; wheel canonical src/backends/wasm.nx:773-789 emit_type_decls +
+  ;; wheel canonical src/backends/wasm.mn:773-789 emit_type_decls +
   ;; lines 444-475 collect_fn_names + per-Ty-tag dispatch shape per
   ;; emit_diag.wat:540-655 render_ty):
   ;;
@@ -43,7 +43,7 @@
   ;;
   ;;   4. $emit_op_symbol(op_name) — concatenate "op_" + name per H1.4
   ;;      single-handler-per-op naming (Hβ-emit §3 + wheel
-  ;;      src/backends/wasm.nx:583-619 emit_fn_table). Each handler arm
+  ;;      src/backends/wasm.mn:583-619 emit_fn_table). Each handler arm
   ;;      becomes (func $op_<op_name> ...) at module level; this
   ;;      symbol IS the WAT identifier. Caller passes it to
   ;;      $emit_funcref_register (state.wat) for the funcref-table.
@@ -60,7 +60,7 @@
   ;;                   string concatenation.
   ;;   2. Handler?     At wheel: $emit_wat_type_for is one arm of
   ;;                   render_ty-like dispatch; the wheel's
-  ;;                   emit_type_decls (src/backends/wasm.nx:773-789)
+  ;;                   emit_type_decls (src/backends/wasm.mn:773-789)
   ;;                   composes via WasmOut effect (perform wat_emit).
   ;;                   At seed: direct fns; dispatch on $ty_tag.
   ;;                   @resume=OneShot at the wheel (read-only lookup).
@@ -119,7 +119,7 @@
   ;;                                main.wat or as separate helper) —
   ;;                                NAMED, not silently omitted from
   ;;                                this chunk.
-  ;;   - Foreign fluency:           Vocabulary stays Inka — "type",
+  ;;   - Foreign fluency:           Vocabulary stays Mentl — "type",
   ;;                                "arity", "symbol", "tag dispatch".
   ;;                                NEVER "type-of" / "lookup-table" /
   ;;                                "name-mangle."
@@ -130,7 +130,7 @@
   ;;                              gates DSP / ML / numerical crucibles.
   ;;   - Hβ.emit.max-arity-precise-walk: max_arity_in(stmts) + 35-arm
   ;;                              max_arity_expr per wheel src/backends/
-  ;;                              wasm.nx:730-769; lands with chunk #9
+  ;;                              wasm.mn:730-769; lands with chunk #9
   ;;                              main.wat or separate helper.
   ;;
   ;; Static data — WAT type tokens (offsets 488-503; emit-private
@@ -152,7 +152,7 @@
     (i32.const 488))
 
   ;; ─── $emit_arity_of_tfun — TFun's params list length, or -1 ──────
-  ;; Per Hβ-emit-substrate.md §2.4 + wheel src/backends/wasm.nx:773-789.
+  ;; Per Hβ-emit-substrate.md §2.4 + wheel src/backends/wasm.mn:773-789.
   ;; Used by chunk #6 emit_call.wat to pick $ftN signature for LCall
   ;; (monomorphic) vs LSuspend's call_indirect (polymorphic).
   (func $emit_arity_of_tfun (param $ty i32) (result i32)
@@ -168,7 +168,7 @@
     (i32.eq (call $ty_tag (local.get $ty)) (i32.const 114)))
 
   ;; ─── $emit_op_symbol — "op_" + name per H1.4 single-handler-per-op ─
-  ;; Per Hβ-emit-substrate.md §3 + wheel src/backends/wasm.nx:583-619.
+  ;; Per Hβ-emit-substrate.md §3 + wheel src/backends/wasm.mn:583-619.
   ;; Caller passes result to $emit_funcref_register (state.wat) for the
   ;; funcref-table.
   (func $emit_op_symbol (param $op_name i32) (result i32)

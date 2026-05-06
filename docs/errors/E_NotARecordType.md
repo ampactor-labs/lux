@@ -1,7 +1,7 @@
 # E_NotARecordType
 
 **Kind:** Error
-**Emitted by:** `infer.nx` — NamedRecordExpr (spec 04, record-update target check)
+**Emitted by:** `infer.mn` — NamedRecordExpr (spec 04, record-update target check)
 **Applicability:** MaybeIncorrect
 
 ## Summary

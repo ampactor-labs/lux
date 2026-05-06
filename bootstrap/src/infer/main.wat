@@ -9,7 +9,7 @@
   ;;             Hβ-bootstrap.md §1.15 (entry-handler convention —
   ;;             $inka_<verb> naming) + §2.1 Layer 4 (Inference) +
   ;;             docs/specs/04-inference.md §What the walk produces +
-  ;;             canonical wheel src/infer.nx:182-186 infer_program.
+  ;;             canonical wheel src/infer.mn:182-186 infer_program.
   ;;
   ;; Realizes the pipeline-stage projection of primitive #8 (HM inference
   ;; live + productive-under-error + with Reasons — DESIGN.md §0.5) at the
@@ -35,7 +35,7 @@
   ;;                chunks. Per §10.3: post-call the graph IS the artifact
   ;;                Hβ.lower will read via $graph_chase.
   ;; 2. Handler?    @resume=OneShot. Wheel's `handle … with infer_ctx`
-  ;;                (src/infer.nx:184) is a OneShot row-accumulation
+  ;;                (src/infer.mn:184) is a OneShot row-accumulation
   ;;                handler; at the seed it maps onto direct WAT call
   ;;                flow (no resume machinery). When the wheel lands the
   ;;                Synth handler chain (Hβ.infer.synth follow-up per
@@ -51,7 +51,7 @@
   ;;                Hβ-bootstrap §1.15) names each `|>` stage.
   ;; 4. Row?        EfPure at this chunk. main.wat performs no effect ops;
   ;;                the wheel's infer_program toplevel is also pure-
-  ;;                modulo-graph-mutation per src/infer.nx:182-186 (the
+  ;;                modulo-graph-mutation per src/infer.mn:182-186 (the
   ;;                graph IS the constraint store per §0.5).
   ;; 5. Ownership?  $inka_infer takes stmts by shared pointer (`ref` in
   ;;                the wheel); no consumption — the stmts list remains
@@ -70,7 +70,7 @@
   ;;                composes on this layer per the wheel's Mentl tentacle
   ;;                #8) can walk back: "graph state produced by inka_infer
   ;;                stage → $infer_program → $infer_stmt_list →
-  ;;                src/infer.nx:182-186".
+  ;;                src/infer.mn:182-186".
   ;;
   ;; ═══ FORBIDDEN PATTERNS (drift modes 1-9) ════════════════════════════
   ;;
@@ -96,7 +96,7 @@
   ;;                              NOT a silent TODO inline.
   ;;
   ;; Foreign-fluency forbidden:  "compiler driver" / "frontend pipeline" /
-  ;;                              "Algorithm W" / "constraint set" — Inka-
+  ;;                              "Algorithm W" / "constraint set" — Mentl-
   ;;                              native phrase is "pipeline stage" +
   ;;                              "kernel primitive #8" + "§10.3 clean
   ;;                              handoff".
@@ -131,7 +131,7 @@
   ;; ─── $inka_infer — the pipeline-stage entry ──────────────────────────
   ;;
   ;; Per Hβ-infer-substrate.md §8.1 main.wat row + §10 composition + the
-  ;; canonical wheel src/infer.nx:182-186:
+  ;; canonical wheel src/infer.mn:182-186:
   ;;
   ;;   fn infer_program(stmts) =
   ;;     handle {
@@ -149,7 +149,7 @@
   ;; counterpart will be $inka_lower per §10.3; emit's existing
   ;; $emit_program is the third stage. The $inka_<verb> convention from
   ;; Hβ-bootstrap §1.15 marks pipeline stages; $infer_program (per
-  ;; src/infer.nx:182-186) is the algorithmic core.
+  ;; src/infer.mn:182-186) is the algorithmic core.
 
   (func $inka_infer (export "inka_infer")
         (param $stmts i32)

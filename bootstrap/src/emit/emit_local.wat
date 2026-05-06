@@ -21,7 +21,7 @@
   ;;             305/326/327/334 per Hβ.emit.lexpr-dispatch-extension).
   ;;
   ;; What this chunk IS (per Hβ-emit-substrate.md §2.2 + wheel canonical
-  ;; src/backends/wasm.nx:1146-1180 + 1501-1512 + 1628-1633):
+  ;; src/backends/wasm.mn:1146-1180 + 1501-1512 + 1628-1633):
   ;;
   ;;   1. $emit_llocal(r) — LLocal tag 301 (handle, name).
   ;;      Emits "(local.get $<name>)". Lock #1 from chunk #6 walk_const:
@@ -30,7 +30,7 @@
   ;;      emit_handler.wat).
   ;;
   ;;   2. $emit_lglobal(r) — LGlobal tag 302 (handle, name).
-  ;;      Emits "(global.get $<name>)" per src/backends/wasm.nx:1152-1156.
+  ;;      Emits "(global.get $<name>)" per src/backends/wasm.mn:1152-1156.
   ;;
   ;;   3. $emit_lstore(r) — LStore tag 303 (handle, slot, value).
   ;;      Emits sub-LowExpr(value) via $emit_lexpr, then
@@ -65,7 +65,7 @@
   ;;                   chunk #3. Per Anchor 1: ask the LowExpr graph;
   ;;                   never re-derive shape from primitive vocabulary.
   ;;   2. Handler?     At wheel: each arm is one branch of emit_expr
-  ;;                   match per src/backends/wasm.nx:1143-1633. At seed:
+  ;;                   match per src/backends/wasm.mn:1143-1633. At seed:
   ;;                   direct fn dispatch via $emit_lexpr's tag table.
   ;;                   @resume=OneShot at the wheel (single-pass
   ;;                   emission per LowExpr tree).
@@ -125,7 +125,7 @@
   ;;                                 chunks #5-#7 retrofit per
   ;;                                 Hβ.emit.lexpr-dispatch-extension
   ;;                                 named follow-up.
-  ;;   - Foreign fluency:           Vocabulary stays Inka — "local",
+  ;;   - Foreign fluency:           Vocabulary stays Mentl — "local",
   ;;                                "global", "slot", "upval", "state",
   ;;                                "field-load". NEVER "stack-frame" /
   ;;                                "lookup-table" / "register-window".
@@ -231,28 +231,28 @@
     (call $emit_byte (i32.const 41)))
 
   ;; ─── $emit_llocal — LLocal tag 301 emit arm per §2.2 ───────────────
-  ;; Per src/backends/wasm.nx:1146-1150. Reads name string via
+  ;; Per src/backends/wasm.mn:1146-1150. Reads name string via
   ;; $lexpr_llocal_name; emits "(local.get $<name>)".
   (func $emit_llocal (param $r i32)
     (call $el_emit_local_get_dollar
       (call $lexpr_llocal_name (local.get $r))))
 
   ;; ─── $emit_lglobal — LGlobal tag 302 emit arm per §2.2 ─────────────
-  ;; Per src/backends/wasm.nx:1152-1156. Reads name via $lexpr_lglobal_name;
+  ;; Per src/backends/wasm.mn:1152-1156. Reads name via $lexpr_lglobal_name;
   ;; emits "(global.get $<name>)".
   (func $emit_lglobal (param $r i32)
     (call $el_emit_global_get_dollar
       (call $lexpr_lglobal_name (local.get $r))))
 
   ;; ─── $emit_lstore — LStore tag 303 emit arm per §2.2 ───────────────
-  ;; Per src/backends/wasm.nx:1158-1163. Recurses on value via $emit_lexpr,
+  ;; Per src/backends/wasm.mn:1158-1163. Recurses on value via $emit_lexpr,
   ;; then emits "(local.set $l<slot>)".
   (func $emit_lstore (param $r i32)
     (call $emit_lexpr (call $lexpr_lstore_value (local.get $r)))
     (call $el_emit_local_set_l_slot (call $lexpr_lstore_slot (local.get $r))))
 
   ;; ─── $emit_lupval — LUpval tag 305 emit arm per §2.2 ───────────────
-  ;; Per src/backends/wasm.nx:1172-1179. W7 closure record layout —
+  ;; Per src/backends/wasm.mn:1172-1179. W7 closure record layout —
   ;; reads slot index via $lexpr_lupval_slot; emits
   ;;   (local.get $__state)
   ;;   (i32.load offset=<8 + 4*slot>)
@@ -266,14 +266,14 @@
                  (call $lexpr_lupval_slot (local.get $r))))))
 
   ;; ─── $emit_lstateget — LStateGet tag 326 emit arm per §2.2 ─────────
-  ;; Per src/backends/wasm.nx:1501-1505. Reads slot via $lexpr_lstateget_slot;
+  ;; Per src/backends/wasm.mn:1501-1505. Reads slot via $lexpr_lstateget_slot;
   ;; emits "(global.get $s<slot>)".
   (func $emit_lstateget (param $r i32)
     (call $el_emit_global_get_s_slot
       (call $lexpr_lstateget_slot (local.get $r))))
 
   ;; ─── $emit_lstateset — LStateSet tag 327 emit arm per §2.2 ─────────
-  ;; Per src/backends/wasm.nx:1507-1512. Recurses on value via $emit_lexpr,
+  ;; Per src/backends/wasm.mn:1507-1512. Recurses on value via $emit_lexpr,
   ;; then emits "(global.set $s<slot>)".
   (func $emit_lstateset (param $r i32)
     (call $emit_lexpr (call $lexpr_lstateset_value (local.get $r)))
@@ -281,7 +281,7 @@
       (call $lexpr_lstateset_slot (local.get $r))))
 
   ;; ─── $emit_lfieldload — LFieldLoad tag 334 emit arm per §2.2 ───────
-  ;; Per src/backends/wasm.nx:1628-1633. Recurses on record-ptr via
+  ;; Per src/backends/wasm.mn:1628-1633. Recurses on record-ptr via
   ;; $emit_lexpr, then emits "(i32.load offset=<offset_bytes>)".
   ;; H2 record substrate: field i lands at byte 4*i; offset_bytes is
   ;; pre-computed by Hβ.lower walk_compound's $lower_field arm.

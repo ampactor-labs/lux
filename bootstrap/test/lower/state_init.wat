@@ -11,7 +11,7 @@
   ;;               LOCAL_ENTRY ty_handle field; state.wat itself never
   ;;               chases — the harness verifies the field round-trips.
   ;;   Handler?    Direct calls to $ls_* (seed Tier-4 base; @resume=OneShot
-  ;;               at the wheel per LowerState ops src/lower.nx:45-92).
+  ;;               at the wheel per LowerState ops src/lower.mn:45-92).
   ;;   Verb?       N/A — sequential helper invocations.
   ;;   Row?        Pure — no row touched.
   ;;   Ownership?  Locals + captures OWN by current "function" (the harness

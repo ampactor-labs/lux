@@ -5,7 +5,7 @@ Plan-doc.
 
 ## Context
 
-Today: `src/lower.nx` produces `LowExpr` records — a tree-shaped IR
+Today: `src/lower.mn` produces `LowExpr` records — a tree-shaped IR
 mirroring the typed AST. The graph (per the kernel) is the
 substitution; LowExpr-as-tree is a SECOND IR layer alongside the
 graph. This cascade retires the tree IR: lower mutates the GRAPH
@@ -15,7 +15,7 @@ LowExpr tree.
 Per Anchor 1 — the graph already knows. LowExpr is "patch the AST
 with lower info"; restructuring puts the info in the graph.
 
-Replacement target: `src/lower.nx` LowExpr ADT → graph annotations
+Replacement target: `src/lower.mn` LowExpr ADT → graph annotations
 + Reasons. Emit walks graph nodes directly.
 
 ## Handles (positive form)
@@ -39,7 +39,7 @@ Replacement target: `src/lower.nx` LowExpr ADT → graph annotations
 
 ## Acceptance
 
-- `LowExpr` ADT no longer exists in `src/lower.nx` or
+- `LowExpr` ADT no longer exists in `src/lower.mn` or
   `bootstrap/src/lower/lexpr.wat`.
 - Compile-time memory drops (no second IR allocation).
 - Reason chains carry richer trace data (lower's decisions are
@@ -55,10 +55,10 @@ LowExpr trees AND graph annotations to validate equivalence. Then
 
 ## Cross-cascade dependencies
 
-- **Gates on:** Phase H + Tier 3 + `inka edit` working (so we can
+- **Gates on:** Phase H + Tier 3 + `mentl edit` working (so we can
   iteratively migrate without breaking).
-- **Composes with:** `Hβ-bootstrap-seed-in-inka.md` — the seed-in-
-  Inka rewrite is the natural moment to retire LowExpr (don't
+- **Composes with:** `Hβ-bootstrap-seed-in-mentl.md` — the seed-in-
+  Mentl rewrite is the natural moment to retire LowExpr (don't
   port the dead form).
 - **Realizes Anchor 1 fully** — the graph already knows; lower
   decorates the same graph rather than minting a parallel IR.

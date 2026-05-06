@@ -25,16 +25,16 @@ INDEX=bootstrap/test/INDEX.tsv
 ASSEMBLED_DIR=bootstrap/test/.assembled
 mkdir -p "$ASSEMBLED_DIR"
 
-echo "═══ Inka Bootstrap: trace-harness runner ═══"
+echo "═══ Mentl Bootstrap: trace-harness runner ═══"
 
 # ─── Layer 0 shell: copied verbatim from bootstrap/build.sh ──────────
 # The same (module + WASI imports + memory + globals) heredoc that
-# bootstrap/build.sh writes at the head of bootstrap/inka.wat. Per
+# bootstrap/build.sh writes at the head of bootstrap/mentl.wat. Per
 # ROADMAP §5: harness assembly mirrors production assembly so chunk
-# semantics under test are identical to chunk semantics in inka.wasm.
+# semantics under test are identical to chunk semantics in mentl.wasm.
 write_shell() {
   cat > "$1" <<'EOF'
-;; inka.wat — The Reference Seed Compiler (Tier 1 Runtime)
+;; mentl.wat — The Reference Seed Compiler (Tier 1 Runtime)
 ;;
 ;; ASSEMBLED FROM bootstrap/src/* by bootstrap/build.sh. Do not edit
 ;; this file directly; edit the chunk files in bootstrap/src/ and

@@ -1,0 +1,546 @@
+// pipeline.mn — the compiler's spine (spec 04 · 05 · 06 · 10)
+//
+// One file; five entry points; each a `|>` + `~>` topology. The `|>`
+// chain IS the stages. The `~>` chain IS the capability stack —
+// outermost least trusted, innermost most empowered. The shape of
+// this file IS the compiler's architecture.
+//
+//   compile(src)  →  WAT bytes
+//   check(src)    →  diagnostics (no lowering, no emit)
+//   query(src,q)  →  structured answer
+//   teach(src)    →  gradient recommendation
+//   audit(src)    →  capability set + severance suggestions
+//
+// Each route shares the same substrate handlers — graph, env,
+// diagnostics, lookup_ty_graph — and adds route-specific ones.
+// Source is never re-inferred across routes; the graph is one.
+//
+// This file declares two handlers it OWNS:
+//   env_handler         — scoped binding stack (spec 04)
+//   lookup_ty_graph     — bridge GraphRead → LookupTy (spec 05)
+//   diagnostics_handler — stderr diagnostic routing (spec 06)
+//
+// Every other handler is imported from its owner module:
+//   graph_handler       → graph.mn
+//   verify_ledger       → verify.mn
+//   mentl_default       → mentl.mn
+//   query_default       → query.mn
+//   affine_ledger       → own.mn
+//   clock_real, tick_real, sample_real, deadline_real → clock.mn
+
+import graph
+import types
+import effects
+import infer
+import lower
+import backends/wasm
+import lexer
+import parser
+import own
+import verify
+import mentl
+import query
+import dsp/clock
+import cache
+import driver
+
+// The spine — entry points as |> + ~> topology
+// Read top-to-bottom: source flows DOWN through `|>`; handlers wrap
+// OUTWARD through `~>`. Outermost handler is the sandbox boundary.
+//
+// IC.4: compile / check now route through driver_check when invoked
+// with an entry-MODULE name (incremental). The legacy single-source
+// entry compile/check_source remain for tests that pass a raw
+// source string. The driver path consults .kai caches via FS;
+// every module either loads cached entries or re-infers + writes
+// fresh cache.
+
+fn compile(entry_module) = {
+  {
+    driver_check(entry_module)
+    let entry_source = perform fs_read_file(driver_module_path(entry_module))
+    entry_source |> frontend |> lower_program |> emit_module
+  }
+    ~> wat_stdout
+    ~> wasi_filesystem       // FS — per-file byte I/O for driver / cache
+    ~> string_table          // W5 — compile-time interned string offsets
+    ~> emit_memory_bump      // swap for emit_memory_arena to prove surface
+    ~> body_context          // H1 — per-fn-body emit metadata
+    ~> mentl_default
+    ~> affine_ledger
+    ~> region_tracker        // I12 — region-escape ledger (substrate prep)
+    ~> verify_ledger
+    ~> lower_scope
+    ~> lookup_ty_graph
+    ~> env_handler
+    ~> graph_handler
+    ~> diagnostics_handler
+}
+
+fn check(entry_module) = {
+  driver_check(entry_module)
+    ~> wasi_filesystem
+    ~> mentl_default
+    ~> affine_ledger
+    ~> verify_ledger
+    ~> env_handler
+    ~> graph_handler
+    ~> diagnostics_handler
+}
+
+// Legacy single-source entry — for tests that pass raw source
+// without filesystem layout. No caching; full re-infer each call.
+fn compile_source(source) = {
+  source
+    |> frontend
+    |> infer_program
+    |> lower_program
+    |> emit_module
+    ~> wat_stdout
+    ~> string_table
+    ~> emit_memory_bump
+    ~> body_context
+    ~> mentl_default
+    ~> affine_ledger
+    ~> region_tracker
+    ~> verify_ledger
+    ~> lower_scope
+    ~> lookup_ty_graph
+    ~> env_handler
+    ~> graph_handler
+    ~> diagnostics_handler
+}
+
+fn check_source(source) = {
+  source
+    |> frontend
+    |> infer_program
+    ~> mentl_default
+    ~> affine_ledger
+    ~> verify_ledger
+    ~> env_handler
+    ~> graph_handler
+    ~> diagnostics_handler
+}
+
+fn query(source, question) = {
+  {
+    let ast = source |> frontend
+    infer_program(ast)
+    let q = parse_query_string(question)
+    let result = perform ask(q)
+    render_query_result(result)
+  }
+    ~> query_default
+    ~> mentl_default
+    ~> verify_ledger
+    ~> lookup_ty_graph
+    ~> env_handler
+    ~> graph_handler
+    ~> diagnostics_handler
+}
+
+fn teach(source) = {
+  {
+    let ast = source |> frontend
+    infer_program(ast)
+    let gradients = collect_gradients(ast)
+    render_gradients(gradients)
+  }
+    ~> mentl_default
+    ~> verify_ledger
+    ~> lookup_ty_graph
+    ~> env_handler
+    ~> graph_handler
+    ~> diagnostics_handler
+}
+
+fn audit(source) = {
+  {
+    let ast = source |> frontend
+    infer_program(ast)
+    let entries = collect_fn_rows(ast)
+    render_audit(entries)
+  }
+    ~> mentl_default
+    ~> verify_ledger
+    ~> lookup_ty_graph
+    ~> env_handler
+    ~> graph_handler
+    ~> diagnostics_handler
+}
+
+// frontend — lex |> parse
+
+fn frontend(source) = {
+  source
+    |> lex
+    |> parse_program
+}
+
+// env_handler — scoped binding stack (spec 04)
+// Peer of graph_handler. One writer (inference). Scoping via
+// mark-and-truncate: enter pushes entries.len; exit truncates to
+// that mark. Functional; no mutable pointers.
+
+handler env_handler with entries = [], scopes = [] {
+
+  env_lookup(name) =>
+    resume(env_find(entries, name)),
+
+  env_snapshot() =>
+    resume(Env(entries)),
+
+  env_extend(name, scheme, reason, kind) =>
+    resume()
+      with entries = [(name, scheme, reason, kind)] ++ entries,
+
+  env_scope_enter() =>
+    resume()
+      with scopes = [entries.len] ++ scopes,
+
+  env_scope_exit() =>
+    if scopes.len == 0 { resume() }
+    else {
+      let mark = list_head(scopes)
+      resume()
+        with entries = take_last(entries, mark),
+             scopes = list_tail(scopes)
+    }
+}
+
+fn env_find(entries, name) = {
+  if entries.len == 0 { None }
+  else {
+    let (k, scheme, reason, kind) = list_head(entries)
+    if str_eq(k, name) { Some((scheme, reason, kind)) }
+    else { env_find(list_tail(entries), name) }
+  }
+}
+
+fn take_last(lst, n) = {
+  if lst.len <= n { lst }
+  else { take_last(list_tail(lst), n) }
+}
+
+// body_context — H1 emit-time per-fn-body metadata
+// Set at emit_fn_body entry; read by LEvPerform's offset arithmetic
+// (offset = 8 + 4*captures + 4*slot_idx within __state) and by any
+// future evidence-aware emit site. Each fn-body emission resets the
+// state via set_*; reads return the most recent set.
+
+handler body_context with captures = 0, evidence = [] {
+  current_body_captures()    => resume(captures),
+  set_body_captures(n)       => resume() with captures = n,
+  current_body_evidence()    => resume(evidence),
+  set_body_evidence(ev)      => resume() with evidence = ev
+}
+
+// wasi_filesystem — FS substrate (IC prerequisite)
+// Four-arm stateless handler delegating to runtime/io.mn primitives.
+// Grants Filesystem capability to IC's cache layer. Installed in
+// `compile`'s ~> chain between wat_stdout and the compiler-internal
+// handlers — fs stays a driver-level capability, not something the
+// compiler's own code accidentally reaches for.
+//
+// Audit implications: a function that doesn't reach fs_* ops proves
+// `with !Filesystem`; audit-driven linker severance drops path_open
+// / fd_close / path_create_directory / path_filestat_get imports
+// from that binary. DESIGN.md 10.3 capability severance realized.
+
+handler wasi_filesystem {
+  fs_exists(path)                => resume(fs_exists_impl(path)),
+  fs_read_file(path)             => resume(fs_read_file_impl(path)),
+  fs_write_file(path, bytes)     => {
+    fs_write_file_impl(path, bytes)
+    resume()
+  },
+  fs_mkdir(path)                 => {
+    fs_mkdir_impl(path)
+    resume()
+  },
+  // FX.A.basics arms (per FX walkthrough §2.2)
+  fs_open(path)                  => resume(fs_open_impl(path)),
+  fs_close(fd)                   => {
+    fs_close_impl(fd)
+    resume()
+  },
+  fs_unlink(path)                => resume(fs_unlink_impl(path)),
+  fs_rename(old_p, new_p)        => resume(fs_rename_impl(old_p, new_p))
+}
+
+// lookup_ty_graph — GraphRead → LookupTy bridge (spec 05)
+// The ONLY LookupTy handler in Phase 1. Declares GraphRead
+// (inherited from the outer graph_handler). Unresolved handles emit
+// E_UnresolvedType; error holes emit a sentinel that lowering/emit translates
+// to a WASM unreachable trap.
+
+handler lookup_ty_graph {
+
+  lookup_ty(h) => {
+    let GNode(kind, _) = perform graph_chase(h)
+    match kind {
+      NBound(t)        => resume(t),
+      NErrorHole(_)    => resume(TName("ERROR_HOLE", [])),
+      NFree(epoch) => {
+        perform report("pipeline", "E_UnresolvedType", "UnresolvedType",
+          "handle "
+            |> str_concat(int_to_str(h))
+            |> str_concat(" @epoch=")
+            |> str_concat(int_to_str(epoch)),
+          span_zero(), "MaybeIncorrect")
+        resume(TName("UNRESOLVED", []))
+      },
+      NRowBound(_)     => resume(TUnit),
+      NRowFree(_)      => resume(TUnit)
+    }
+  }
+}
+
+// diagnostics_handler — stderr routing (spec 06)
+// The sandbox boundary. Outermost in every route. Declares
+// `with !Diagnostic` so its own arms cannot recursively perform
+// report — structural gate via spec 01's algebra.
+
+handler diagnostics_handler {
+
+  report(source, code, kind, msg, span, applicability) => {
+    eprint_string(
+      source
+        |> str_concat(": ")
+        |> str_concat(code)
+        |> str_concat(" ")
+        |> str_concat(kind)
+        |> str_concat(": ")
+        |> str_concat(msg)
+        |> str_concat(" at ")
+        |> str_concat(show_span(span))
+        |> str_concat("\n")
+    )
+    resume()
+  }
+}
+
+// FreshHandle — two handlers, same function
+// Inference mints via graph_fresh_ty (stored in graph); query mints
+// display ids (ephemeral, for rendering). Both satisfy FreshHandle.
+
+handler fresh_for_inference {
+  mint(reason) => {
+    let h = perform graph_fresh_ty(reason)
+    resume(h)
+  }
+}
+
+handler fresh_for_query with next_display = 0 {
+  mint(_reason) =>
+    resume(next_display)
+      with next_display = next_display + 1
+}
+
+// Collection helpers — consumed by teach / audit
+
+fn collect_gradients(ast) = {
+  if ast.len == 0 { [] }
+  else {
+    let node = list_head(ast)
+    let N(body, _, handle) = node
+    let entry = match body {
+      NStmt(FnStmt(name, _, _, _, _)) =>
+        [(name, perform teach_gradient(handle))],
+      _ => []
+    }
+    entry ++ collect_gradients(list_tail(ast))
+  }
+}
+
+fn render_gradients(gradients) = {
+  if gradients.len == 0 {
+    "All functions are at maximum annotation density.\n"
+  } else {
+    let (name, result) = list_head(gradients)
+    name
+      |> str_concat(": ")
+      |> str_concat(render_gradient_result(result))
+      |> str_concat("\n")
+      |> str_concat(render_gradients(list_tail(gradients)))
+  }
+}
+
+fn render_gradient_result(result) = match result {
+  None => "(no next-step annotation suggested)",
+  Some(suggestion) => {
+    let AnnotationSuggestion(_kind, ann_text, unlocks, _reason) = suggestion
+    "→ add "
+      |> str_concat(ann_text)
+      |> str_concat(" to unlock ")
+      |> str_concat(join_unlock_labels(unlocks))
+  }
+}
+
+fn join_unlock_labels(labels) with Pure = {
+  if labels.len == 0 { "(no capabilities)" }
+  else {
+    let head = list_head(labels)
+    let tail = list_tail(labels)
+    if tail.len == 0 { head }
+    else { head |> str_concat(", ") |> str_concat(join_unlock_labels(tail)) }
+  }
+}
+
+fn collect_fn_rows(ast) = {
+  if ast.len == 0 { [] }
+  else {
+    let node = list_head(ast)
+    let N(body, _, handle) = node
+    let entry = match body {
+      NStmt(FnStmt(name, _, _, _, _)) =>
+        [build_audit_report(name, perform lookup_ty(handle))],
+      _ => []
+    }
+    entry ++ collect_fn_rows(list_tail(ast))
+  }
+}
+
+// H5: AuditReport record per fn — the structured projection Mentl's
+// IDE surfaces (Proof Lens, Gradient ghost text, JSON export). Each
+// field is independently introspectable; the record shape lets new
+// metadata land additively (per CLAUDE.md insight 9).
+//
+// Fields (sorted alphabetically per parser invariant):
+//   fn_name     — the function's identifier
+//   reached     — effects the body actually performs (List<EffName>)
+//   row_str     — pre-rendered row for terminal output
+//   severable   — effects NOT in body that could be added as !E
+//                 (List<EffName>, each unlocking capabilities)
+//   unlocks     — capabilities gained from severing every severable
+fn build_audit_report(fn_name, ty) = {
+  let body_row = extract_row(ty)
+  let reached = row_names(body_row)
+  let severable = severance_candidates(reached)
+  let unlocks = severance_unlocks(severable)
+  {fn_name: fn_name, reached: reached, row_str: show_effrow(body_row),   // drift-audit: ignore — drift-1 heuristic false-positive on record field punning where field name matches value identifier; record literal, not vtable
+   severable: severable, unlocks: unlocks}
+}
+
+// Severance candidates: the canonical effects (Alloc / IO / Network)
+// that the body does NOT perform. Adding `!E` for each unlocks a
+// capability without breaking the row.
+fn severance_candidates(reached) = {
+  let canonical = [ENamed("Alloc"), ENamed("IO"), ENamed("Network")]   // drift-audit: ignore — real drift 8 (EffName should have EAlloc/EIO/ENetwork variants); tracked for item 11.B EffName refactor
+  filter_not_in(canonical, reached, 0, canonical.len, [])
+}
+
+fn filter_not_in(candidates, present, i, n, acc) = {
+  if i >= n { acc }
+  else {
+    let c = list_index(candidates, i)
+    let next = if name_in_list(present, c) { acc }
+               else { acc ++ [c] }   // drift-audit: ignore — real drift 11 on small canonical-3-effect list; buffer-counter conversion requires adding Memory+Alloc to fn row rippling through audit walk; tracked for item 11.B buffer-counter sweep
+    filter_not_in(candidates, present, i + 1, n, next)
+  }
+}
+
+fn name_in_list(names, target) = {
+  name_in_list_loop(names, target, 0, names.len)
+}
+
+fn name_in_list_loop(names, target, i, n) = {
+  if i >= n { false }
+  else if eff_name_eq(list_index(names, i), target) { true }
+  else { name_in_list_loop(names, target, i + 1, n) }
+}
+
+fn severance_unlocks(severable) = {
+  severance_unlocks_loop(severable, 0, severable.len, [])
+}
+
+fn severance_unlocks_loop(severable, i, n, acc) = {
+  if i >= n { acc }
+  else {
+    let caps = capabilities_for_severance(list_index(severable, i))
+    severance_unlocks_loop(severable, i + 1, n, acc ++ caps)
+  }
+}
+
+// Terminal renderer over AuditReport records — reads fields by name.
+// JSON / IDE-projection renderers are peer functions on the same
+// record (one substrate, multiple projections per CLAUDE.md insight 8).
+fn render_audit(entries) = {
+  if entries.len == 0 { "" }
+  else {
+    let report = list_head(entries)
+    let header = report.fn_name
+      |> str_concat(" : ")
+      |> str_concat(report.row_str)
+      |> str_concat("\n")
+    let severance_section =
+      if report.severable.len == 0 { "" }
+      else {
+        "  severable: "
+          |> str_concat(show_list(report.severable, show_eff_name, " + "))
+          |> str_concat(" — unlocks ")
+          |> str_concat(show_list(report.unlocks, show_capability, ", "))
+          |> str_concat("\n")
+      }
+    header
+      |> str_concat(severance_section)
+      |> str_concat(render_audit(list_tail(entries)))
+  }
+}
+
+// Query rendering — delegates to query.mn for Question parsing
+
+fn render_query_result(result) = match result {
+  QRType(ty, reason) =>
+    "→ "
+      |> str_concat(show_type(ty))
+      |> str_concat("\n  Reason: ")
+      |> str_concat(show_reason(reason)),
+  QRUnresolved(entries) =>
+    "→ "
+      |> str_concat(int_to_str(entries.len))
+      |> str_concat(" unresolved entries"),
+  QRChain(hops) =>
+    "→ "
+      |> str_concat(int_to_str(hops.len))
+      |> str_concat(" hops in chain"),
+  QREffects(row) =>
+    "→ "
+      |> str_concat(show_effrow(row)),
+  QROwnership(params) =>
+    "→ "
+      |> str_concat(int_to_str(params.len))
+      |> str_concat(" params"),
+  QRWhy(reason) =>
+    show_reason(reason),
+  QRVerifyDebt(obligations) =>
+    "→ "
+      |> str_concat(int_to_str(obligations.len))
+      |> str_concat(" verification obligations pending"),
+  QRError(msg) =>
+    "error: "
+      |> str_concat(msg)
+}
+
+fn parse_query_string(q) = {
+  match split(q, " ") {
+    []     => QUnknown(q),
+    [w0]   => match w0 {
+      "unresolved"   => QUnresolved,
+      "verification" => QVerifyDebt,
+      _              => QUnknown(q)
+    },
+    [w0, w1] => match w0 {
+      "why" => QWhy(w1),
+      _     => QUnknown(q)
+    },
+    [w0, w1, w2] => match w0 {
+      "type"      => QTypeOf(w2),
+      "effects"   => QEffects(w2),
+      "ownership" => QOwnership(w2),
+      _           => QUnknown(q)
+    },
+    _ => QUnknown(q)
+  }
+}

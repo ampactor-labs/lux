@@ -12,7 +12,7 @@ scrutinee's ADT.
 ## Why it matters
 
 An unhandled variant at runtime has no type — the match would need to
-fabricate a value. Inka rejects this at compile time. Every ADT's
+fabricate a value. Mentl rejects this at compile time. Every ADT's
 variants are known; exhaustiveness is decidable.
 
 ## Canonical fix
@@ -23,7 +23,7 @@ Mentl names the missing variant(s) and offers one of two patches:
    intent visible).
 2. Add a wildcard `_ => …` arm (only when the catch-all semantics
    are genuinely desired; otherwise this is silent fallback, which
-   Inka's discipline discourages — anchor 2).
+   Mentl's discipline discourages — anchor 2).
 
 ## Example
 

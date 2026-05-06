@@ -5,18 +5,18 @@ Plan-doc.
 
 ## Context
 
-Inka targets WASM today. WASM runs in browsers via the JS WASM API.
+Mentl targets WASM today. WASM runs in browsers via the JS WASM API.
 This cascade adds a DIRECT JS backend — same kernel, JS source as
 the projection. Use cases: zero-bundle web playgrounds; embedding
-Inka in JS-only environments (Cloudflare Workers, Deno, browser
-extensions); inka-edit-in-browser without WASM-startup overhead.
+Mentl in JS-only environments (Cloudflare Workers, Deno, browser
+extensions); mentl-edit-in-browser without WASM-startup overhead.
 
-Replacement target: peer to `src/backends/wasm.nx` →
-`src/backends/javascript.nx`. LowIR consumed; JS source emitted.
+Replacement target: peer to `src/backends/wasm.mn` →
+`src/backends/javascript.mn`. LowIR consumed; JS source emitted.
 
 ## Handles (positive form)
 
-1. **Hβ.emit-js.value-encoding** — JS values for Inka primitives:
+1. **Hβ.emit-js.value-encoding** — JS values for Mentl primitives:
    integers as JS Number (or BigInt for i64); strings as JS String;
    ADT variants as `{ tag, fields }` objects; closures as JS
    functions with `[[State]]` carried as a closed-over object.
@@ -30,7 +30,7 @@ Replacement target: peer to `src/backends/wasm.nx` →
    per top-level fn; consumer code imports and calls directly.
 5. **Hβ.emit-js.handler-effect** — `EmitJs` handler peer to
    `EmitWasm` / `EmitBinary` / `EmitNative`.
-6. **Hβ.emit-js.browser-playground** — `inka edit` browser variant:
+6. **Hβ.emit-js.browser-playground** — `mentl edit` browser variant:
    wheel-compiled-to-JS runs in browser; user types `??`; Mentl
    proposes via the same gradient.
 7. **Hβ.emit-js.fixpoint-validation** — wheel compiles to JS; the
@@ -39,9 +39,9 @@ Replacement target: peer to `src/backends/wasm.nx` →
 
 ## Acceptance
 
-- `inka --target=js <input.nx>` produces `.js` source.
+- `mentl --target=js <input.mn>` produces `.js` source.
 - Output JS runs in node + modern browsers without polyfills.
-- The browser playground (Stage E `inka edit` variant) ships with
+- The browser playground (Stage E `mentl edit` variant) ships with
   the JS-compiled wheel.
 - Self-compile fixpoint holds.
 
@@ -53,9 +53,9 @@ playground) → 7 (fixpoint validation).
 
 ## Cross-cascade dependencies
 
-- **Gates on:** Phase H + Tier 3 + Stage E (`inka edit`).
+- **Gates on:** Phase H + Tier 3 + Stage E (`mentl edit`).
 - **Composes with:** `Hβ-emit-binary-direct.md`,
   `Hβ-emit-native-target.md` (peer handlers on the Emit
   interface).
-- **Unlocks:** browser-runnable Inka — every developer can try Inka
+- **Unlocks:** browser-runnable Mentl — every developer can try Mentl
   without installing tooling.

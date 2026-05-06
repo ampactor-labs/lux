@@ -209,8 +209,8 @@ choice:
 - Under `Tick` → one logical step (iterative algorithms).
 - Under `Clock(wall_ms=10)` → 10 ms (control loops).
 
-One operator; topology-only semantics; handler decides timing. Inka
-solves Inka.
+One operator; topology-only semantics; handler decides timing. Mentl
+solves Mentl.
 
 ---
 

@@ -242,7 +242,7 @@ fn row_is_ground(row: EffRow) -> Bool = match row {
 }
 ```
 
-In a self-hosted Inka compilation, >95% of call sites chase to a
+In a self-hosted Mentl compilation, >95% of call sites chase to a
 ground row; the remaining 5% route through evidence-passing. The
 `val_concat` class of bugs originated in v1 where this information
 wasn't derivable from the graph; here it is a pure function of the
@@ -263,7 +263,7 @@ handle.
 
 ## Rejected alternatives
 
-- **Bidirectional type checking.** Inka's surface is HM-inferable;
+- **Bidirectional type checking.** Mentl's surface is HM-inferable;
   bidirectional adds annotation burden. Use HM + marked holes (spec
   03) for guidance where annotations help.
 - **Two passes: prescan + infer.** Any prescan carries a snapshot

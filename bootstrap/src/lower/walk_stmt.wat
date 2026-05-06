@@ -1,7 +1,7 @@
   ;; ═══ walk_stmt.wat — Hβ.lower Stmt arms + $lower_stmt dispatch (Tier 8) ═══
   ;; Hβ.lower cascade chunk #10 of 11 per Hβ-lower-substrate.md §12.3 dep order.
   ;;
-  ;; What this chunk IS (per Hβ-lower-substrate.md §4.3 + src/lower.nx:556-636):
+  ;; What this chunk IS (per Hβ-lower-substrate.md §4.3 + src/lower.mn:556-636):
   ;;   The seed's statement-level lowering layer. Where module-level functions
   ;;   emerge as LMakeClosure-wrapped LLets (Lock #1) and handler declarations
   ;;   cascade their arms through chunk #8's $lower_handler_arms_as_decls
@@ -20,9 +20,9 @@
   ;;     128 Documented       → $lower_stmt(inner_node)            Lock #10
   ;;
   ;; Implements: Hβ-lower-substrate.md §4.3 + §6.3 + §11 + §12.3 #10;
-  ;;             src/lower.nx:564-571 lower_stmt dispatch (NodeBody arms);
-  ;;             src/lower.nx:573-633 lower_stmt_body (9 Stmt arms);
-  ;;             src/lower.nx:556-558 lower_stmt_list (buffer-counter form
+  ;;             src/lower.mn:564-571 lower_stmt dispatch (NodeBody arms);
+  ;;             src/lower.mn:573-633 lower_stmt_body (9 Stmt arms);
+  ;;             src/lower.mn:556-558 lower_stmt_list (buffer-counter form
   ;;             per Lock #11 — diverges from wheel toward Ω.3).
   ;; Exports:    $lower_stmt,
   ;;             $lower_stmt_list,
@@ -56,7 +56,7 @@
   ;; ═══ LOCKS (wheel-canonical override walkthrough §4.3 prose) ════════
   ;;
   ;; Lock #1: FnStmt → LLet(handle, name, LMakeClosure(...)) NOT bare LDeclareFn.
-  ;;          Per src/lower.nx:612 wheel canonical. Walkthrough §4.3 prose
+  ;;          Per src/lower.mn:612 wheel canonical. Walkthrough §4.3 prose
   ;;          ("most arms produce a top-level LDeclareFn") aspirational; the
   ;;          wheel emits LLet wrapping LMakeClosure. LDeclareFn (tag 313)
   ;;          is reserved for handler-arm-only module-level form per chunk #8.
@@ -67,7 +67,7 @@
   ;;          not fn-record absence.
   ;;
   ;; Lock #3: FnStmt's $ls_bind_local(name, handle) fires BEFORE body lower.
-  ;;          Per src/lower.nx:593. Recursive references resolve via locals
+  ;;          Per src/lower.mn:593. Recursive references resolve via locals
   ;;          ledger at chunk #6's $lower_var_ref.
   ;;
   ;; Lock #4: FnStmt's $ls_reset_function NOT called.
@@ -77,24 +77,24 @@
   ;;          Hβ.lower.fn-stmt-frame-discipline.
   ;;
   ;; Lock #5: LetStmt's pat treated as PVar-only at the seed.
-  ;;          Per src/lower.nx:574-587. Pat tag 130 (PVar) → bind + LLet;
+  ;;          Per src/lower.mn:574-587. Pat tag 130 (PVar) → bind + LLet;
   ;;          others → pass-through lo. Named follow-up
   ;;          Hβ.lower.letstmt-destructure for PCon/PTuple/PList/PRecord.
   ;;
   ;; Lock #6: LetStmt's expr_h read via $walk_expr_node_handle on the val node.
-  ;;          Per src/lower.nx:582 — offset 12 of val N-wrapper.
+  ;;          Per src/lower.mn:582 — offset 12 of val N-wrapper.
   ;;
   ;; Lock #7: HandlerDeclStmt → LBlock(h, arm_decls ++ [LConst(h, 0)]).
-  ;;          Per src/lower.nx:617-625 wheel. Calls chunk #8 helper
+  ;;          Per src/lower.mn:617-625 wheel. Calls chunk #8 helper
   ;;          $lower_handler_arms_as_decls — currently returns empty list
   ;;          per chunk #8 Lock #7 (LFn ADT pending); seed emits
   ;;          LBlock(h, [LConst(h, 0)]).
   ;;
   ;; Lock #8: ExprStmt → $lower_expr(inner) direct passthrough.
-  ;;          Per src/lower.nx:632. No LStore wrapper.
+  ;;          Per src/lower.mn:632. No LStore wrapper.
   ;;
   ;; Lock #9: TypeDef/EffectDecl/Import/Refine → $lexpr_make_lconst(handle, 0).
-  ;;          Per src/lower.nx:615-628. Wheel emits LConst(handle, LInt(0));
+  ;;          Per src/lower.mn:615-628. Wheel emits LConst(handle, LInt(0));
   ;;          seed passes 0 directly per chunk #6 Lock #4 LowValue opaque
   ;;          pass-through (named follow-up Hβ.lower.lvalue-lowfn-lpat-
   ;;          substrate covers structured LowValue when ADT lands).
@@ -105,7 +105,7 @@
   ;;           Hβ.lower.documented-arm-substrate.
   ;;
   ;; Lock #11: $lower_stmt_list buffer-counter (Ω.3) NOT tail-recursive cons.
-  ;;           Wheel src/lower.nx:556-558 uses [head] ++ tail (O(N²) drift the
+  ;;           Wheel src/lower.mn:556-558 uses [head] ++ tail (O(N²) drift the
   ;;           wheel itself flags). Seed prefers Ω.3 — chunk #6/#7/#8/#9
   ;;           discipline.
   ;;
@@ -198,13 +198,13 @@
   ;;
   ;; - Foreign fluency — module-level fn declaration: NEVER "global function" /
   ;;                                "top-level function". Vocabulary stays
-  ;;                                Inka — LDeclareFn (handler-arm form) /
+  ;;                                Mentl — LDeclareFn (handler-arm form) /
   ;;                                LMakeClosure (closure form).
   ;;
   ;; - Foreign fluency — let-rec / Y combinator: Recursive `fn fact` resolves
   ;;                                via $ls_bind_local(name, handle) BEFORE
   ;;                                body lower (Lock #3). The wheel's two-pass
-  ;;                                pre-bind IS the Inka substrate.
+  ;;                                pre-bind IS the Mentl substrate.
   ;;
   ;; ═══ Named follow-ups (Drift 9 closure) ═════════════════════════════
   ;;
@@ -215,7 +215,7 @@
   ;;
   ;;   - Hβ.lower.fn-stmt-frame-discipline:
   ;;             Per Lock #4 — $ls_enter_frame / $ls_exit_frame substrate
-  ;;             at state.wat (matching wheel src/lower.nx:599-604).
+  ;;             at state.wat (matching wheel src/lower.mn:599-604).
   ;;
   ;;   - Hβ.lower.letstmt-destructure:
   ;;             Per Lock #5 — when parser surfaces stable PCon/PTuple/PList/
@@ -233,11 +233,11 @@
   ;;   - Hβ.lower.toplevel-pre-register:
   ;;             (cross-cascade with Hβ.infer.toplevel-pre-register) — chunk
   ;;             #11 main.wat's $lower_program may grow collect_top_level_names
-  ;;             per src/lower.nx:1106-1110 if forward-reference resolution
+  ;;             per src/lower.mn:1106-1110 if forward-reference resolution
   ;;             at the seed needs it.
 
   ;; ─── $lower_walk_stmt_let — LetStmt arm (parser tag 120) ────────────
-  ;; Per src/lower.nx:574-587 + Lock #5/#6.
+  ;; Per src/lower.mn:574-587 + Lock #5/#6.
   ;; AST per parser_infra.wat:163-168: [tag=120][pat][val] offsets 0/4/8.
   (func $lower_walk_stmt_let (export "lower_walk_stmt_let")
         (param $stmt i32) (param $handle i32) (result i32)
@@ -511,7 +511,7 @@
     (local.get $s))
 
   ;; ─── $lower_walk_stmt_fn — FnStmt arm (parser tag 121) ──────────────
-  ;; Per src/lower.nx:590-613 + Lock #1/#2/#3/#4.
+  ;; Per src/lower.mn:590-613 + Lock #1/#2/#3/#4.
   ;; AST per parser_infra.wat:171-179:
   ;;   [tag=121][name][params][ret][effs][body] offsets 0/4/8/12/16/20.
   (func $lower_walk_stmt_fn (export "lower_walk_stmt_fn")
@@ -573,10 +573,10 @@
     (call $lexpr_make_lconst (local.get $handle) (i32.const 0)))
 
   ;; ─── $lower_walk_stmt_handler_decl — HandlerDeclStmt arm (tag 124) ──
-  ;; Per src/lower.nx:617-625 + Lock #7.
+  ;; Per src/lower.mn:617-625 + Lock #7.
   ;; Layout assumption: [tag=124][handler_name][effect_name][arms_list]
   ;;   offsets 0/4/8/12 (parser_decl.wat doesn't expose $mk_HandlerDeclStmt
-  ;;   per file read; verified via src/lower.nx wheel canonical).
+  ;;   per file read; verified via src/lower.mn wheel canonical).
   (func $lower_walk_stmt_handler_decl (export "lower_walk_stmt_handler_decl")
         (param $stmt i32) (param $handle i32) (result i32)
     (local $arms i32) (local $arm_decls i32) (local $sentinel i32)
@@ -609,7 +609,7 @@
     (call $lexpr_make_lblock (local.get $handle) (local.get $stmts)))
 
   ;; ─── $lower_walk_stmt_expr — ExprStmt arm (tag 125) ─────────────────
-  ;; Per src/lower.nx:632 + Lock #8. Direct passthrough.
+  ;; Per src/lower.mn:632 + Lock #8. Direct passthrough.
   ;; AST per parser_infra.wat:182-186: [tag=125][node] offsets 0/4.
   (func $lower_walk_stmt_expr (export "lower_walk_stmt_expr")
         (param $stmt i32) (param $handle i32) (result i32)
@@ -633,7 +633,7 @@
     (call $lexpr_make_lconst (local.get $handle) (i32.const 0)))
 
   ;; ─── $lower_walk_stmt_documented — Documented arm (tag 128) ─────────
-  ;; Per src/lower.nx:630 + Lock #10. Recurses on inner_node (offset 8).
+  ;; Per src/lower.mn:630 + Lock #10. Recurses on inner_node (offset 8).
   (func $lower_walk_stmt_documented (export "lower_walk_stmt_documented")
         (param $stmt i32) (param $handle i32) (result i32)
     (local $inner_node i32)
@@ -642,7 +642,7 @@
     (call $lower_stmt (local.get $inner_node)))
 
   ;; ─── $lower_stmt — public dispatcher (per Lock #12) ─────────────────
-  ;; Per src/lower.nx:564-571 + infer/walk_stmt.wat:623-671 sibling.
+  ;; Per src/lower.mn:564-571 + infer/walk_stmt.wat:623-671 sibling.
   (func $lower_stmt (export "lower_stmt") (param $node i32) (result i32)
     (local $body i32) (local $body_tag i32)
     (local $stmt i32) (local $stmt_tag i32)
@@ -694,7 +694,7 @@
     (unreachable))
 
   ;; ─── $lower_stmt_list — buffer-counter iteration (Lock #11) ─────────
-  ;; Per src/lower.nx:556-558 wheel SHAPE; seed Ω.3 buffer-counter.
+  ;; Per src/lower.mn:556-558 wheel SHAPE; seed Ω.3 buffer-counter.
   (func $lower_stmt_list (export "lower_stmt_list")
         (param $stmts i32) (result i32)
     (local $n i32) (local $i i32) (local $buf i32)

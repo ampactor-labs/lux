@@ -36,20 +36,20 @@ based rollback — also powers backtracking, hyperparameter search,
 speculative execution, distributed RPC-as-delimited-continuation."*
 (DESIGN.md:135-141.)
 
-The substrate has known this for the entire γ cascade. `src/types.nx:70-73`
+The substrate has known this for the entire γ cascade. `src/types.mn:70-73`
 declares `type ResumeDiscipline = OneShot | MultiShot | Either`.
-`src/lower.nx:15` has carried the comment *"MultiShot → heap
-continuation struct"* since H1. `src/backends/wasm.nx:14` promises
+`src/lower.mn:15` has carried the comment *"MultiShot → heap
+continuation struct"* since H1. `src/backends/wasm.mn:14` promises
 *"MultiShot have already been rewritten into state machines or
-heap continuation structs by lower.nx."* `src/cache.nx:273-276`
+heap continuation structs by lower.mn."* `src/cache.mn:273-276`
 already persists `ResumeDiscipline` tags across the Pack/Unpack
 boundary.
 
 **The substrate knows. The emit path hasn't been written.**
 
 Today, the tree contains exactly ONE op declared `@resume=MultiShot`:
-`enumerate_inhabitants` at `src/mentl.nx:94`. Its handler arm at
-`src/mentl.nx:453` is the substrate's honest stub:
+`enumerate_inhabitants` at `src/mentl.mn:94`. Its handler arm at
+`src/mentl.mn:453` is the substrate's honest stub:
 
 ```
 enumerate_inhabitants(_ty, _eff, _ctx) => resume([])
@@ -59,7 +59,7 @@ A single `resume([])` — one-shot, empty result, no fork. Mentl's
 oracle loop (§1.1.5 of MO walkthrough — the MS-powered reality
 explorer) cannot fire until H7 lands; until then it surfaces no
 candidates. The gradient oracle is present in the graph
-(`src/mentl.nx:127-175 — gradient_next`), but the speculative
+(`src/mentl.mn:127-175 — gradient_next`), but the speculative
 branch of it — *exploring hundreds of alternate realities* — is
 substrate-gated on MS emit.
 
@@ -75,7 +75,7 @@ H7 lands that substrate. After H7:
 - Arena policies (AM walkthrough) decide — `replay_safe` re-performs,
   `fork_deny` rejects, `fork_copy` deep-copies.
 - Pulse (DP-F.5) exists — autodiff's backward pass is MS.
-- The oracle loop at `src/mentl.nx:134 — gradient_next` completes its
+- The oracle loop at `src/mentl.mn:134 — gradient_next` completes its
   speculative semantics.
 
 H7 is the one substrate edit that unblocks Phase B's MS-dependent
@@ -159,7 +159,7 @@ one `emit_alloc` swap surface.
 ### 1.1 The existing OneShot emit shapes (H1 territory — read-only context for H7)
 
 **`LPerform(Int, String, List)` — monomorphic direct-call.** Per
-`src/lower.nx:66`. Emitted when inference determines the perform
+`src/lower.mn:66`. Emitted when inference determines the perform
 site is monomorphic (row is ground; handler identity known at compile
 time). Lowers to `(call $op_<n> <args>)` in WAT. No closure struct;
 no `call_indirect`; no runtime dispatch. Every op the compiler
@@ -167,7 +167,7 @@ can resolve statically takes this path. This is >95% of all perform
 sites per H1 evidence reification's statistics.
 
 **`LEvPerform(Int, String, Int, List)` — polymorphic evidence-passing.**
-Per `src/lower.nx:77`. Emitted when inference determines the perform
+Per `src/lower.mn:77`. Emitted when inference determines the perform
 site is polymorphic (row carries a row variable; handler evidence
 reaches the site via a closure field populated at handler install).
 Lowers to `(call_indirect ... (i32.load offset=<slot_offset> $closure))`
@@ -177,7 +177,7 @@ form: the closure record IS the evidence record. There is no vtable.
 There is no dispatch table. `fn_index` is a FIELD on the record.
 
 **`LSuspend(Int, Int, LowExpr, List, List)` — polymorphic first-class
-function call with ev_slots.** Per `src/lower.nx:60`. Emitted by
+function call with ev_slots.** Per `src/lower.mn:60`. Emitted by
 `lower_app` (line 178) when the callee is a polymorphic first-class
 function. Same closure-field-read discipline as `LEvPerform`, but for
 function calls rather than perform sites. Read-only context for H7.
@@ -189,7 +189,7 @@ One return per invocation.
 ### 1.2 The new MultiShot emit shape — `LMakeContinuation`
 
 ```
-// src/lower.nx — LowExpr ADT (see §4.0 halt-signal for location
+// src/lower.mn — LowExpr ADT (see §4.0 halt-signal for location
 // correction relative to MSR Edit 1's table)
 type LowExpr
   = ...existing variants...
@@ -224,7 +224,7 @@ type LowExpr
 a precedent in existing LowExpr variants:
 
 - `handle: Int` — every variant carries this (type handle in the graph);
-  `lexpr_handle` (src/lower.nx:126+) preserves it.
+  `lexpr_handle` (src/lower.mn:126+) preserves it.
 - `resume_fn: LowFn` — same type as `LMakeClosure`'s second field. The
   function that the handler arm will invoke via `call_indirect`. Its
   body is a `switch` on `state_index` (a LowSwitch; already emit-able)
@@ -239,7 +239,7 @@ a precedent in existing LowExpr variants:
   scope) that must remain accessible across the suspension.
 - `state_index: Int` — **new field**. Literal integer; the numbered
   state the resume_fn should execute. Compile-time constant per
-  perform site (lower.nx assigns state ordinals in traversal order).
+  perform site (lower.mn assigns state ordinals in traversal order).
   Stored as a field on the heap record so the resume_fn's switch can
   read it.
 - `ret_slot: Int` — **new field**. Local slot in the continuation
@@ -253,7 +253,7 @@ a precedent in existing LowExpr variants:
 
 `LMakeContinuation` emits into a heap record whose layout mirrors
 `LMakeClosure`'s with two additional fields. In the notation of
-`src/backends/wasm.nx`'s `emit_alloc` output:
+`src/backends/wasm.mn`'s `emit_alloc` output:
 
 ```
 offset  field           type    shape reference
@@ -276,7 +276,7 @@ plus two 4-byte fields.)
 
 **One heap record. One allocation. One allocator.** All of it
 through `perform emit_alloc(size, target_local)` —
-`src/backends/wasm.nx:72-74`. The default `emit_memory_bump`
+`src/backends/wasm.mn:72-74`. The default `emit_memory_bump`
 handler monotonically bumps `$heap_ptr`. Arena handlers (`emit_memory_arena`,
 B.5 AM-arena-multishot) intercept with region-tracking discipline.
 GC handlers (F.4 post-first-light) intercept with tracing discipline.
@@ -358,7 +358,7 @@ three arms (1, 2, 3). Each `LMakeContinuation` fixes its
 **The resume_fn is synthesized per capturing function**, not per
 perform site. One function, N switch arms, one heap record shape
 per function (captures + ret_slot vary only in which union-compat
-bytes are valid per state). lower.nx tracks this as a per-function
+bytes are valid per state). lower.mn tracks this as a per-function
 state table during the MS-aware lowering pass.
 
 ### 1.5 Handler-arm semantics at resume
@@ -398,20 +398,20 @@ MS continuation and the handler's arm IS the authority.
 Every edit site passes the eight before being admissible. One line
 per primitive. Residue → code.
 
-### 2.1 `src/lower.nx` — add `LMakeContinuation` variant to `LowExpr`
+### 2.1 `src/lower.mn` — add `LMakeContinuation` variant to `LowExpr`
 
 | # | Primitive | Interrogation answer |
 |---|-----------|---------------------|
-| 1 | **Graph?** | `LowExpr` is consumed by emit; the graph carries the source TypeHandle on every variant. `LMakeContinuation` carries `Int` handle (field 0) — same as its peers. `lexpr_handle` (`src/lower.nx:126+`) extends by one arm returning `h`. No new graph edge type needed. |
+| 1 | **Graph?** | `LowExpr` is consumed by emit; the graph carries the source TypeHandle on every variant. `LMakeContinuation` carries `Int` handle (field 0) — same as its peers. `lexpr_handle` (`src/lower.mn:126+`) extends by one arm returning `h`. No new graph edge type needed. |
 | 2 | **Handler?** | The continuation's allocation routes through `perform emit_alloc(size, target_local)` — the SAME handler that allocates closures, variants, records, tuples, and strings. Three arena-aware handlers (AM / B.5) are peer swaps. `emit_memory_bump` is the default; `emit_memory_arena` intercepts for scoped allocs; `emit_memory_gc` intercepts post-F.4. No new handler surface. |
 | 3 | **Verb?** | N/A at this edit site. LMakeContinuation is an IR node, not a surface verb. Composition via `~>` (handler install) surrounds the perform site; the continuation captures the downstream slice of that `~>` chain. |
-| 4 | **Row?** | Resume discipline is part of the op's type (`TCont(ret, MultiShot)`); row algebra already handles it via primitive #2's type-level resume discipline (`ResumeDiscipline` ADT at `src/types.nx:70-73`). No row algebra extension. `!MultiShot` as a row modifier is DEFERRED per QA Q-B.2.1 — `!Choice`, `!Synth`, etc. (effect-name-level negations) suffice until a concrete need surfaces. |
+| 4 | **Row?** | Resume discipline is part of the op's type (`TCont(ret, MultiShot)`); row algebra already handles it via primitive #2's type-level resume discipline (`ResumeDiscipline` ADT at `src/types.mn:70-73`). No row algebra extension. `!MultiShot` as a row modifier is DEFERRED per QA Q-B.2.1 — `!Choice`, `!Synth`, etc. (effect-name-level negations) suffice until a concrete need surfaces. |
 | 5 | **Ownership?** | Captures are recorded `own` where the source binding was `own`; `ref` captures would fail the fork-deny arena policy (AM §4). H7 does NOT decide fork-deny — that's B.5. H7 stores captures as-is; ownership discipline enforces at the arena handler layer. Per H1's evidence reification addendum, evidence slots carry `fn_index` values (Int, `ref`-level); ownership is borrowed. |
 | 6 | **Refinement?** | N/A at the variant declaration. Refinement on MS resume-count ("handler MUST resume at least once on non-empty options") is a user-level refinement opportunity on specific handlers (e.g., `handler pick_first with NonEmpty(options)`); not substrate-level. |
 | 7 | **Gradient?** | `LMakeContinuation` in LowIR unlocks `CMultiShotRuntime` as a gradient capability — present post-H7 for user code. (Naming per PLAN ledger Capability ADT extension; not substrate-blocking.) |
 | 8 | **Reason?** | Each `LMakeContinuation` construction records a Reason on the graph_bind of its handle — `Inferred("h7 ms capture at <perform_site_span>")` per existing graph_bind conventions. When a handler arm resumes, `graph_push_checkpoint` / `graph_rollback` compose with the continuation's per-resume trail; no new Reason vocabulary. |
 
-### 2.2 `src/lower.nx` — `lower_perform` arm on MS op
+### 2.2 `src/lower.mn` — `lower_perform` arm on MS op
 
 The `lower_app` / `lower_expr` path currently emits `LPerform`
 (monomorphic) or `LEvPerform` (polymorphic) for every perform site.
@@ -421,15 +421,15 @@ H7 adds a third branch: when the op's resume discipline is
 | # | Primitive | Interrogation answer |
 |---|-----------|---------------------|
 | 1 | **Graph?** | Resume discipline is read from the op's TCont — graph-resident. `graph_chase` on the op's handle returns `TCont(ret, MultiShot)` for MS ops; on `TCont(ret, OneShot)` the existing LPerform/LEvPerform path stays. One new match arm at `lower_expr`'s perform-site branch. |
-| 2 | **Handler?** | The `lower_expr` body is inside the LookupTy + GraphRead handler chain; no new handler at this site. The MS branch calls `perform ms_state_alloc(handle)` — a new LowerState effect op that returns the state ordinal for this perform site within its enclosing function. (LowerState is a small MS-only peer effect within lower.nx; details §4.1.) |
+| 2 | **Handler?** | The `lower_expr` body is inside the LookupTy + GraphRead handler chain; no new handler at this site. The MS branch calls `perform ms_state_alloc(handle)` — a new LowerState effect op that returns the state ordinal for this perform site within its enclosing function. (LowerState is a small MS-only peer effect within lower.mn; details §4.1.) |
 | 3 | **Verb?** | N/A (lower arm is internal; verbs are surface-level). |
-| 4 | **Row?** | The arm's row is the existing lower.nx row (GraphRead + EnvRead + LookupTy + Diagnostic); MS emit adds the new `LowerState` effect. `LowerState` is installed by the function-boundary handler; MS-free functions never perform it. |
+| 4 | **Row?** | The arm's row is the existing lower.mn row (GraphRead + EnvRead + LookupTy + Diagnostic); MS emit adds the new `LowerState` effect. `LowerState` is installed by the function-boundary handler; MS-free functions never perform it. |
 | 5 | **Ownership?** | Captures determined by free-var analysis (existing `collect_free_vars` helper, same as H1); ownership per-capture preserved in the capture list. Existing machinery. |
 | 6 | **Refinement?** | N/A. |
 | 7 | **Gradient?** | N/A at lower-time. |
 | 8 | **Reason?** | `graph_bind(h_cont, TCont(ret, MultiShot), Inferred("ms capture site"))` at the LMakeContinuation's handle — one reason per MS perform site. When unification through the capture's type happens at emit, existing `graph_bind` Reason forwarding fires per standard machinery. |
 
-### 2.3 `src/backends/wasm.nx` — `LMakeContinuation` emit arm
+### 2.3 `src/backends/wasm.mn` — `LMakeContinuation` emit arm
 
 The backend matches on LowExpr variants and emits WAT. H7 adds one
 arm (analogous to the existing `LMakeClosure` arm; they share ≥70% of
@@ -442,16 +442,16 @@ offsets).
 | 1 | **Graph?** | Emit reads types via `perform lookup_ty(h)` to size captures; no new read. The continuation record's total size is `(3 + n_captures + 1 + n_evidence + 1) * 4` bytes — compile-time known at emit time. |
 | 2 | **Handler?** | `perform emit_alloc(size, target_local)` — the SAME handler as LMakeClosure / LMakeVariant / LMakeRecord. No new EmitMemory op. The allocation strategy — bump / arena / GC — is at the installed handler's discretion. |
 | 3 | **Verb?** | N/A. |
-| 4 | **Row?** | wasm.nx's `with WasmOut + EmitMemory + LookupTy + GraphRead + Diagnostic` row is unchanged. |
+| 4 | **Row?** | wasm.mn's `with WasmOut + EmitMemory + LookupTy + GraphRead + Diagnostic` row is unchanged. |
 | 5 | **Ownership?** | Capture stores write each source expr's value to its fixed offset; ownership discipline is enforced at lower-time (the fork-deny / fork-copy / replay-safe policy that AM/B.5 adds). Emit is ownership-agnostic — it stores i32s. |
 | 6 | **Refinement?** | N/A. |
 | 7 | **Gradient?** | The MS capability-unlock is at the user's source level; emit just materializes the substrate. |
 | 8 | **Reason?** | Emit is read-only wrt Reason — graph carries the Reasons; emit doesn't write new ones. |
 
-### 2.4 `src/cache.nx` — version bump `v3 → v4`
+### 2.4 `src/cache.mn` — version bump `v3 → v4`
 
 Per QA Q-B.2.3 (resolved). H7 introduces new LowExpr variants and
-new emit sequences. Pack/Unpack is version-gated (`src/cache.nx:43-46`);
+new emit sequences. Pack/Unpack is version-gated (`src/cache.mn:43-46`);
 v3's serialized `.kai` files never contain LMakeContinuation and
 would be silently valid if read back under v4 — a correctness risk.
 Version bump forces full invalidation.
@@ -459,17 +459,17 @@ Version bump forces full invalidation.
 | # | Primitive | Interrogation answer |
 |---|-----------|---------------------|
 | 1 | **Graph?** | N/A (cache serializes the graph, isn't structurally part of it). |
-| 2 | **Handler?** | Pack/Unpack effects (`lib/runtime/binary.nx` + peer handlers) — no new ops; one new variant encoding inside the existing `pack_lowexpr` / `unpack_lowexpr` match. (The new variant adds eight encode/decode lines per 2 x 4 byte fields, mirroring LMakeClosure's encoding.) |
+| 2 | **Handler?** | Pack/Unpack effects (`lib/runtime/binary.mn` + peer handlers) — no new ops; one new variant encoding inside the existing `pack_lowexpr` / `unpack_lowexpr` match. (The new variant adds eight encode/decode lines per 2 x 4 byte fields, mirroring LMakeClosure's encoding.) |
 | 3 | **Verb?** | N/A. |
 | 4 | **Row?** | N/A. |
 | 5 | **Ownership?** | N/A. |
 | 6 | **Refinement?** | N/A. |
 | 7 | **Gradient?** | N/A. |
-| 8 | **Reason?** | Old `.kai` files with `compiler_version=3` fail the version check in `cache.nx:614` and trigger full recompile — the existing cache-invalidation Reason chain handles this. No new Reason vocabulary. |
+| 8 | **Reason?** | Old `.kai` files with `compiler_version=3` fail the version check in `cache.mn:614` and trigger full recompile — the existing cache-invalidation Reason chain handles this. No new Reason vocabulary. |
 
-### 2.5 `src/mentl.nx` — `enumerate_inhabitants` arm unlocked (post-H7)
+### 2.5 `src/mentl.mn` — `enumerate_inhabitants` arm unlocked (post-H7)
 
-Currently at `src/mentl.nx:453`: `enumerate_inhabitants(_ty, _eff, _ctx) => resume([])`.
+Currently at `src/mentl.mn:453`: `enumerate_inhabitants(_ty, _eff, _ctx) => resume([])`.
 After H7 substrate lands, this stub arm remains (still an honest
 empty-search default — the substrate doesn't hallucinate proposers).
 What CHANGES: sibling `Synth` handlers (enumerative, SMT, LLM) can now
@@ -480,12 +480,12 @@ semantics (the `choose` is MS-typed but resuming once is a valid MS
 instance — the first option is `[]`, there's no second option to try,
 semantics hold).
 
-**No source change to `mentl.nx:453` is required for H7 to land.**
+**No source change to `mentl.mn:453` is required for H7 to land.**
 The arm is already correctly shaped. H7 unblocks the *fleet of
 sibling handlers* that will arrive post-H7; the arm-as-baseline is
 honest about what the default handler does. §4.4 clarifies that H7's
-landing commit does not touch mentl.nx; it touches lower.nx + wasm.nx
-+ cache.nx only.
+landing commit does not touch mentl.mn; it touches lower.mn + wasm.mn
++ cache.mn only.
 
 ### 2.6 `bootstrap/src/emit_expr.wat` — Tier 3 growth (deferred post-L1)
 
@@ -517,7 +517,7 @@ sweep.** H7's landing commit does NOT include a bootstrap edit.
 Every edit site passes the nine named drift modes + generalized
 fluency-taint. Foreign-ecosystem signals are flagged and refused.
 
-### 3.1 At `LMakeContinuation` variant declaration (src/lower.nx)
+### 3.1 At `LMakeContinuation` variant declaration (src/lower.mn)
 
 - **Drift 1 (Rust vtable):** CRITICAL. The continuation record's
   `fn_index` field is ONE i32, populated at capture time from a
@@ -525,13 +525,13 @@ fluency-taint. Foreign-ecosystem signals are flagged and refused.
   it is NOT an index into a dispatch table; it is NOT a jump table.
   The function index comes from the WASM funcref table entry for
   the synthesized `resume_fn` — one entry per capturing function,
-  populated at module-init via `(elem ...)`. Per `src/mentl.nx:228`
+  populated at module-init via `(elem ...)`. Per `src/mentl.mn:228`
   `catalog_handled_effects` precedent (and E.6 HandlerCatalog runtime
   — soon-to-be effectful): the catalog is a handler registry, not a
   vtable. Same here.
 - **Drift 3 (Python dict / string-keyed effect):** `state_index` is
   `Int`, NOT `"state_0"` string. Same discipline as `TagId`
-  (`src/types.nx:101` — `ConstructorScheme(TagId, Int)`) and
+  (`src/types.mn:101` — `ConstructorScheme(TagId, Int)`) and
   `ResumeDiscipline` (enum). If you're about to type
   `"state_<N>"`, stop — it's a drift mode 8 in disguise.
 - **Drift 5 (C calling convention):** ONE `$cont_ptr`
@@ -545,7 +545,7 @@ fluency-taint. Foreign-ecosystem signals are flagged and refused.
 - **Drift 7 (parallel-arrays-instead-of-record):** `captures_exprs`
   and `ev_slots` are two LIST fields on the ADT variant, matching
   LMakeClosure's parallel-fields shape (captures and ev_slots are
-  likewise parallel on LMakeClosure). If lower.nx later wants to
+  likewise parallel on LMakeClosure). If lower.mn later wants to
   fuse (captures, captures_handles, ev_slots, ev_types) into a
   single record, that's Ω.5 consolidation — across ALL LMake* variants
   at once, not H7-specific. H7 matches the existing LMakeClosure
@@ -557,22 +557,22 @@ fluency-taint. Foreign-ecosystem signals are flagged and refused.
 - **Drift 9 (deferred-by-omission):** H7's commit lands ALL of:
   - LMakeContinuation variant added to LowExpr.
   - lower_perform MS arm.
-  - wasm.nx emit arm.
-  - cache.nx v3→v4 bump.
+  - wasm.mn emit arm.
+  - cache.mn v3→v4 bump.
   - Drift-audit clean after edit.
   Bootstrap Tier 3 (§2.6) IS the single explicit deferred piece,
   named as its own sub-handle post-L1 (drift mode 9 discipline:
   "name the deferred piece, don't hide it in a 'complete' commit").
-  The mentl.nx arm (§2.5) needs no change — verified-clean, not
+  The mentl.mn arm (§2.5) needs no change — verified-clean, not
   hidden-deferred.
 
-### 3.2 At `lower_perform` MS arm (src/lower.nx)
+### 3.2 At `lower_perform` MS arm (src/lower.mn)
 
 - **Drift 2 (Scheme env frame):** State-slot assignment per function
   is a flat counter + map `(perform_site_span → state_index)`
   populated in one pass, NOT a linked-frame walk per resume site.
   Same discipline as LowerScope's existing flat-frame model
-  (`src/types.nx:686-692 — effect LowerScope`).
+  (`src/types.mn:686-692 — effect LowerScope`).
 - **Drift 4 (Haskell monad transformer):** The MS emit arm COMPOSES
   with the existing OneShot arm under the SAME `lower_expr` match;
   it does NOT introduce a "multi-shot monad" wrapping. One function,
@@ -581,7 +581,7 @@ fluency-taint. Foreign-ecosystem signals are flagged and refused.
 - **Drift 8 (string-keyed):** The dispatch on resume discipline is
   via `match` on `ResumeDiscipline` ADT (`OneShot | MultiShot |
   Either`), NOT string equality on `"MultiShot"`. The ADT already
-  exists at `src/types.nx:70-73`; H7 composes on it.
+  exists at `src/types.mn:70-73`; H7 composes on it.
 - **Foreign fluency — JS async/await:** Do NOT import `yield` /
   `suspend` / `await` / `Promise` vocabulary into the emit path.
   The vocabulary is: *perform site* (the surface), *suspension*
@@ -595,7 +595,7 @@ fluency-taint. Foreign-ecosystem signals are flagged and refused.
   initialized"; it is "entry slice of the capturing function."
 - **Foreign fluency — Rust async fn:** Do NOT introduce a `Future`
   trait, `Poll::Pending / Poll::Ready`, `impl Future`, or any trait
-  infrastructure. Inka has no traits; dispatch is via evidence
+  infrastructure. Mentl has no traits; dispatch is via evidence
   passing (H1) or continuation capture (H7) — both records, neither
   a trait object.
 - **Foreign fluency — Scheme call/cc:** The continuation here is
@@ -605,7 +605,7 @@ fluency-taint. Foreign-ecosystem signals are flagged and refused.
   program's top-level. H7 is delimited-continuation substrate —
   Affect POPL 2025, not Scheme 1975.
 
-### 3.3 At `src/backends/wasm.nx` emit arm
+### 3.3 At `src/backends/wasm.mn` emit arm
 
 - **Drift 1 (vtable):** The `fn_index` stored at offset 0 of the
   continuation record is a WASM funcref table index — a compile-time
@@ -621,7 +621,7 @@ fluency-taint. Foreign-ecosystem signals are flagged and refused.
   is the default handler's body; emit calls it via `perform emit_alloc`
   to preserve the swap surface. DESIGN §7 "The handler IS the backend".
 
-### 3.4 At `src/cache.nx` version bump
+### 3.4 At `src/cache.mn` version bump
 
 - **Drift 9 (deferred-by-omission):** The v3→v4 bump AND the
   LMakeContinuation Pack/Unpack arms land in the same H7 commit; the
@@ -657,20 +657,20 @@ Before typing any line in H7's substrate commits, ask:
 
 ## 4. Substrate touch sites — literal tokens at file:line targets
 
-*Literal tokens pending inka-plan at execution — this section
-specifies WHAT and WHERE; the implementer's inka-plan spec
+*Literal tokens pending mentl-plan at execution — this section
+specifies WHAT and WHERE; the implementer's mentl-plan spec
 specifies EXACTLY HOW.*
 
 ### 4.0 Halt-signals to MSR source
 
 **§4.0.1 — LowExpr's home.** MSR §Edit 1 (line 243) says
-*"`src/types.nx` — Add `LMakeContinuation(captures, ev_list, ret_slot)`
+*"`src/types.mn` — Add `LMakeContinuation(captures, ev_list, ret_slot)`
 variant to `LowExpr`"*. This is imprecise. LowExpr is defined in
-`src/lower.nx:35-78`, not `src/types.nx`. The `types.nx` module
+`src/lower.mn:35-78`, not `src/types.mn`. The `types.mn` module
 mentions LowExpr in comments at lines 84-85 but does not declare
-the ADT. **H7's commit edits `src/lower.nx`, not `src/types.nx`.**
-When implementing from MSR's guidance, ignore the `types.nx`
-destination and edit `lower.nx`.
+the ADT. **H7's commit edits `src/lower.mn`, not `src/types.mn`.**
+When implementing from MSR's guidance, ignore the `types.mn`
+destination and edit `lower.mn`.
 
 **§4.0.2 — LMakeContinuation's field count.** MSR §Edit 1 (line 243)
 lists three fields: `(captures, ev_list, ret_slot)`. H7 expands this
@@ -691,9 +691,9 @@ precedent. The *state_index* is a field on the record (not a
 parameter) so the resume_fn can read it at the top of its switch.
 MSR's shorthand is substantively correct; H7 names the full shape.
 
-### 4.1 `src/lower.nx` — four changes (one file, one commit)
+### 4.1 `src/lower.mn` — four changes (one file, one commit)
 
-**Change 1** — Extend `LowExpr` ADT (`src/lower.nx:35-78`).
+**Change 1** — Extend `LowExpr` ADT (`src/lower.mn:35-78`).
 
 Add one variant after `LMakeClosure` (line 47) to preserve the
 per-kernel-primitive ordering currently in place (LMake* variants
@@ -704,7 +704,7 @@ clustered):
   // handle, resume_fn, captures_exprs, ev_slots, state_index, ret_slot
 ```
 
-**Change 2** — Extend `lexpr_handle` (`src/lower.nx:126+`).
+**Change 2** — Extend `lexpr_handle` (`src/lower.mn:126+`).
 
 Add one arm returning the first field's handle:
 
@@ -720,7 +720,7 @@ reads `EffectOpScheme(name)` from env and emits `LPerform` or
 checks the op's resume discipline:
 
 ```
-// pseudocode — literal tokens per inka-plan at execution
+// pseudocode — literal tokens per mentl-plan at execution
 let cont = perform env_lookup(op_name)
 match cont {
   Some((Forall(_, TCont(ret, MultiShot)), _)) => {
@@ -739,8 +739,8 @@ match cont {
 ```
 
 **Change 4** — Add `LowerState` effect (new effect in
-`src/lower.nx`'s effect prelude area, or via a peer module
-`src/lower_state.nx` if lower.nx crosses a size threshold).
+`src/lower.mn`'s effect prelude area, or via a peer module
+`src/lower_state.mn` if lower.mn crosses a size threshold).
 
 ```
 // ═══ LowerState — per-function MS state machine bookkeeping ══════════
@@ -750,7 +750,7 @@ match cont {
 //     State 0 is the entry; allocations return 1, 2, 3, ...
 //   ms_alloc_ret_slot(fn_handle, state_idx) -> Int
 //     Returns the local-slot offset reserved for the resumed value
-//     at this state. One per state; lower.nx's existing local-
+//     at this state. One per state; lower.mn's existing local-
 //     allocation substrate (ls_bind_local) composes.
 //   ms_function_states(fn_handle) -> List
 //     At function-emit close, returns the complete state table
@@ -796,7 +796,7 @@ The `__resume` function is registered in the WASM funcref table (via
 `(elem ...)`); its index goes into the continuation record's
 `fn_index` field at capture time.
 
-### 4.2 `src/backends/wasm.nx` — one new emit arm
+### 4.2 `src/backends/wasm.mn` — one new emit arm
 
 Add one match arm to `emit_lowexpr` mirroring the existing
 `LMakeClosure` arm. Diff: two extra i32 stores (state_index at
@@ -804,7 +804,7 @@ offset 4, ret_slot at the final offset) and two additional fields
 in the size computation.
 
 ```
-// pseudocode — literal tokens per inka-plan at execution
+// pseudocode — literal tokens per mentl-plan at execution
 LMakeContinuation(h, resume_fn, caps, evs, state_idx, ret_slot) => {
   let n_caps = list_len(caps)
   let n_evs  = list_len(evs)
@@ -833,7 +833,7 @@ The existing `emit_store_captures` and evidence-store helpers from the
 LMakeClosure arm compose — no duplication; H7's arm shares the
 capture/evidence store loops with LMakeClosure.
 
-### 4.3 `src/cache.nx` — version bump + one pack/unpack arm
+### 4.3 `src/cache.mn` — version bump + one pack/unpack arm
 
 Three small edits:
 
@@ -853,21 +853,21 @@ Three small edits:
 the existing `pack_lowexpr` / `unpack_lowexpr` match (pattern per
 LMakeClosure's arms in the same file). Each arm is ~8 lines.
 
-### 4.4 `src/mentl.nx` — no change
+### 4.4 `src/mentl.mn` — no change
 
 Per §2.5: `enumerate_inhabitants(_ty, _eff, _ctx) => resume([])`
 at line 453 is already correct as a baseline handler arm.
 Post-H7, sibling Synth handlers can ship that resume with non-
 empty candidate lists; each such resume emits through the H7
-substrate without further edit at mentl.nx. §9.1 (Acceptance) does
-NOT require mentl.nx to change for H7 to land.
+substrate without further edit at mentl.mn. §9.1 (Acceptance) does
+NOT require mentl.mn to change for H7 to land.
 
 ### 4.5 `bootstrap/src/emit_expr.wat` — DEFERRED
 
 Per §2.6 and MSR Edit 1 landing signal + Hβ §2 Tier 3. H7's landing
 commit does NOT include bootstrap WAT edits. The bootstrap continues
 to emit only OneShot ops (which is sufficient for self-compile — the
-only MS op, `enumerate_inhabitants`, has its arm at `mentl.nx:453`
+only MS op, `enumerate_inhabitants`, has its arm at `mentl.mn:453`
 resume with `[]`, which needs no continuation-capture emit). A peer
 sub-handle (*H7.1 — bootstrap Tier 3 MS emit*) is filed for post-L1
 execution.
@@ -882,12 +882,12 @@ Update `ROADMAP.md` with the H7 landing and what it unblocks:
 ```
 ### 2026-04-XX — H7 MS runtime emit path
 
-MSR Edit 1 landed. src/lower.nx grew one LowExpr variant
-(LMakeContinuation); src/lower.nx's lower_perform dispatches on
-ResumeDiscipline; src/backends/wasm.nx emits the continuation
-record via emit_alloc; src/cache.nx bumped v3 → v4 (all .kai
+MSR Edit 1 landed. src/lower.mn grew one LowExpr variant
+(LMakeContinuation); src/lower.mn's lower_perform dispatches on
+ResumeDiscipline; src/backends/wasm.mn emits the continuation
+record via emit_alloc; src/cache.mn bumped v3 → v4 (all .kai
 invalidated on next recompile). LowerState effect introduced in
-src/lower.nx for per-function state-machine bookkeeping. Sibling
+src/lower.mn for per-function state-machine bookkeeping. Sibling
 sub-handle H7.1 (bootstrap Tier 3 MS emit) filed for post-L1.
 
 Unlocks: B.4 race via MS, B.5 arena-MS, B.11 ML training, C.2
@@ -898,9 +898,9 @@ crucible_oracle, C.4 crucible_ml, D.4 L2 tag, D.5 L3 tag.
 
 ## 5. Worked example — the `Synth`-via-`enumerate_inhabitants` path
 
-Current state of the code: `src/mentl.nx:94` declares
+Current state of the code: `src/mentl.mn:94` declares
 `enumerate_inhabitants(Ty, EffRow, Context) -> List @resume=MultiShot`.
-`src/mentl.nx:453`'s handler arm resumes `[]`. Tree compiles; MS
+`src/mentl.mn:453`'s handler arm resumes `[]`. Tree compiles; MS
 runtime doesn't execute because no substrate calls `enumerate_inhabitants`
 from a body that would require multi-shot forking.
 
@@ -909,7 +909,7 @@ from a body that would require multi-shot forking.
 A sibling handler, post-H7, might ship like this:
 
 ```
-// lib/runtime/synth/enumerative.nx — one example Synth handler
+// lib/runtime/synth/enumerative.mn — one example Synth handler
 // installed above mentl_default. Returns a list of candidates
 // that the calling site should try in order; each try is a
 // speculative resume, trail-bounded.
@@ -954,7 +954,7 @@ semantics, no diagnostic.** This is the correctness gap H7 closes.
 ### 5.3 Post-H7 compilation
 
 At the perform site `perform enumerate_inhabitants(...)` inside
-`gradient_next` (for example, or any other caller), lower.nx now:
+`gradient_next` (for example, or any other caller), lower.mn now:
 
 1. Reads the op's TCont and discovers MultiShot.
 2. Allocates a state ordinal via `perform ms_alloc_state(...)`
@@ -981,7 +981,7 @@ At the perform site `perform enumerate_inhabitants(...)` inside
    calls resume with the next candidate, steps 7-8 repeat — a NEW
    execution of state K's body with a NEW ret_slot value.
 
-**Mentl's oracle loop (mentl.nx:127-175 — gradient_next) becomes
+**Mentl's oracle loop (mentl.mn:127-175 — gradient_next) becomes
 speculative** without any source change at `gradient_next`. The
 code as written CAPTURES the speculative semantics via the MS
 perform site; H7 makes that capture run. Pre-H7, `gradient_next`
@@ -1000,8 +1000,8 @@ its handler-install-time interaction surface.
 
 Per CE walkthrough §1.1 (`effect Choice { choose(options: List<A>)
 -> A @resume=MultiShot }`). `choose` is a MS op declared in
-`lib/runtime/search.nx`. At every `perform choose(opts)` call site,
-lower.nx post-H7 emits `LMakeContinuation` + suspension. CE
+`lib/runtime/search.mn`. At every `perform choose(opts)` call site,
+lower.mn post-H7 emits `LMakeContinuation` + suspension. CE
 provides the effect and two canonical handlers (`pick_first`,
 `backtrack`); H7 provides the emit substrate those handlers resume
 through. CE's landing can precede H7 (its acceptance criteria per
@@ -1026,7 +1026,7 @@ arena-scoped captures:
   LMakeContinuation with `state_index = REPLAY_SENTINEL` and no
   capture payload; the handler arm's replay code reads the trail.
 - **`fork_deny`** — DOES allocate the continuation record via normal
-  emit_alloc, but at the lower.nx MS arm, adds an ownership check:
+  emit_alloc, but at the lower.mn MS arm, adds an ownership check:
   if any capture holds an arena-scoped ref whose region is the
   current handler's, fail with `T_ContinuationEscapes` at lower time.
   Emit never runs.
@@ -1133,7 +1133,7 @@ level is redundant.
 ### 7.3 Candidate C — peer variant LMakeContinuation (CHOSEN)
 
 One variant (`LMakeContinuation`) encodes the capture of a
-continuation; existing `LPerform` / `LEvPerform` unchanged; lower.nx
+continuation; existing `LPerform` / `LEvPerform` unchanged; lower.mn
 emits `LMakeContinuation + LPerform` (or `+ LEvPerform`) together
 at the MS perform site — the capture IS the precondition to the
 perform, emitted inline.
@@ -1180,36 +1180,36 @@ above. Chosen unanimously by the eight interrogations.
 
 ### 8.1 Type-level acceptance (H7 substrate lands)
 
-- [ ] `src/lower.nx`'s `LowExpr` ADT contains
+- [ ] `src/lower.mn`'s `LowExpr` ADT contains
       `LMakeContinuation(Int, LowFn, List, List, Int, Int)`.
-- [ ] `src/lower.nx`'s `lexpr_handle` has the arm returning the
+- [ ] `src/lower.mn`'s `lexpr_handle` has the arm returning the
       first field.
-- [ ] `src/lower.nx`'s perform-site lower path branches on
+- [ ] `src/lower.mn`'s perform-site lower path branches on
       `ResumeDiscipline`; MS arm emits `LBlock([LMakeContinuation(...),
       LPerform(...)])` or equivalent.
-- [ ] `src/lower.nx` declares `effect LowerState` (or peer module
+- [ ] `src/lower.mn` declares `effect LowerState` (or peer module
       declares it) with four ops: `ms_alloc_state`,
       `ms_alloc_ret_slot`, `ms_function_states`, `ms_reset_function`.
-- [ ] `src/lower.nx` synthesizes `__resume` per capturing function
+- [ ] `src/lower.mn` synthesizes `__resume` per capturing function
       at body-close time.
-- [ ] `src/backends/wasm.nx`'s `emit_lowexpr` has the `LMakeContinuation`
+- [ ] `src/backends/wasm.mn`'s `emit_lowexpr` has the `LMakeContinuation`
       arm calling `emit_alloc` + fixed-offset stores per §4.2.
-- [ ] `src/cache.nx`'s `cache_compiler_version` returns `4`.
-- [ ] `src/cache.nx`'s `pack_lowexpr` / `unpack_lowexpr` handle the
+- [ ] `src/cache.mn`'s `cache_compiler_version` returns `4`.
+- [ ] `src/cache.mn`'s `pack_lowexpr` / `unpack_lowexpr` handle the
       new variant.
-- [ ] `bash tools/drift-audit.sh src/lower.nx src/backends/wasm.nx
-      src/cache.nx` exits 0.
+- [ ] `bash tools/drift-audit.sh src/lower.mn src/backends/wasm.mn
+      src/cache.mn` exits 0.
 
 ### 8.2 Runtime acceptance (post-H7-land, pre-C.2)
 
-- [ ] `inka compile src/mentl.nx` succeeds without `E_UnimplementedMultiShot`
+- [ ] `mentl compile src/mentl.mn` succeeds without `E_UnimplementedMultiShot`
       (previously a hypothetical error; post-H7 the emit path exists).
 - [ ] A contrived test handler that installs a sibling `Synth`
       handler calling `resume([x1]); resume([x2])` (multi-shot) on
       `enumerate_inhabitants` produces two observable resume
       executions — verifiable via a trace handler collecting the
       execution order.
-- [ ] `src/mentl.nx`'s `gradient_next` (line 134) remains correct
+- [ ] `src/mentl.mn`'s `gradient_next` (line 134) remains correct
       (unchanged semantics) when invoked via the default
       `mentl_default` handler (which resumes with `[]` — no fork;
       equivalent to pre-H7 behavior).
@@ -1217,7 +1217,7 @@ above. Chosen unanimously by the eight interrogations.
 ### 8.3 Composition acceptance (with CE + AM)
 
 - [ ] (Post-CE-land) `perform choose([1,2,3])` in
-      `lib/tutorial/02b-multishot.nx` compiles and, under
+      `lib/tutorial/02b-multishot.mn` compiles and, under
       `~> backtrack`, resumes three times.
 - [ ] (Post-AM-land) `perform choose([1,2,3])` under
       `~> fork_deny` + capture that holds an arena-scoped ref fails
@@ -1269,8 +1269,8 @@ as specified from §4.
 
 **Authoring:** Opus inline (this walkthrough).
 
-**Implementation:** Opus inline OR inka-planner subagent on Opus
-with literal-token-spec output, then inka-implementer on Sonnet for
+**Implementation:** Opus inline OR mentl-planner subagent on Opus
+with literal-token-spec output, then mentl-implementer on Sonnet for
 mechanical transcription. Per plan file's Phase B agent-execution
 model: H7 is *"the largest single β piece; nesting cases +
 state-machine-desugaring decisions must be Opus"* — so the plan
@@ -1281,9 +1281,9 @@ out to Sonnet workers once the plan is literal.
 
 | Sub-commit | Target file | Dispatch |
 |-----------|-------------|----------|
-| H7.a (core) | `src/lower.nx` | Opus inline — LowerState design + resume_fn synthesis subtlety |
-| H7.b | `src/backends/wasm.nx` | Sonnet via inka-implementer — arm mirrors LMakeClosure, mechanical |
-| H7.c | `src/cache.nx` | Sonnet via inka-implementer — version bump + encode/decode |
+| H7.a (core) | `src/lower.mn` | Opus inline — LowerState design + resume_fn synthesis subtlety |
+| H7.b | `src/backends/wasm.mn` | Sonnet via mentl-implementer — arm mirrors LMakeClosure, mechanical |
+| H7.c | `src/cache.mn` | Sonnet via mentl-implementer — version bump + encode/decode |
 | H7.1 | `bootstrap/src/emit_expr.wat` | POST-L1; dispatch TBD at that phase |
 
 Drift-audit after each sub-commit (PostToolUse hook); single-concern
@@ -1306,7 +1306,7 @@ H7 is the MultiShot peer — continuation as heap record. One
 allocator, one dispatch (`call_indirect` on a record field), one
 numbered-state desugaring per capturing function. No vtable. No
 MS allocator. No coroutine library. No `async` / `await` / `yield`.
-Delimited continuation substrate at the shape Inka's eight
+Delimited continuation substrate at the shape Mentl's eight
 primitives demand.
 
 After H7 lands:
@@ -1327,7 +1327,7 @@ After H7 lands:
 **The keystone of Phase B.** The substrate the oracle has been
 waiting for. The heap-captured continuation, residue of primitive
 #2, emit path of MultiShot, substrate of every multi-reality
-domain Inka will dissolve into a handler chain.
+domain Mentl will dissolve into a handler chain.
 
 *One variant. Six fields. One allocator. One call_indirect. One
 state-machine desugaring. The medium writes itself through itself.*

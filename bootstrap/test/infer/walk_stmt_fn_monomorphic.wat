@@ -5,7 +5,7 @@
   ;;           placeholder Forall, walk body, unify body ↔ ret, exit
   ;;           scope, generalize, re-extend fn name with generalized
   ;;           scheme.
-  ;; Per src/infer.nx:262-369 — infer_fn (canonical wheel).
+  ;; Per src/infer.mn:262-369 — infer_fn (canonical wheel).
   ;; Setup: synthetic FnStmt(name="f",
   ;;                          params=[TParam("n", _, Inferred, Inferred)],
   ;;                          ret=NExpr(LitUnit),

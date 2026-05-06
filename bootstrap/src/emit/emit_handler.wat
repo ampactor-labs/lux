@@ -54,12 +54,12 @@
   ;; What this chunk IS (per Hβ-emit-substrate.md §2.5):
   ;;
   ;;   1. $emit_llet(r) — LLet tag 304 (handle, name, value).
-  ;;      Per src/backends/wasm.nx:1147-1152: emit val + (local.set
+  ;;      Per src/backends/wasm.mn:1147-1152: emit val + (local.set
   ;;      $<name>). Lock #6 of Hβ.lower walk_call: ResumeExpr lowers to
   ;;      LReturn (not LLet); LLet is parser-LetStmt's lowering form.
   ;;
   ;;   2. $emit_ldeclarefn(r) — LDeclareFn tag 313 (lowfn).
-  ;;      Per src/backends/wasm.nx:1601-1608 + H1.4: at expression
+  ;;      Per src/backends/wasm.mn:1601-1608 + H1.4: at expression
   ;;      position this arm emits "(i32.const 0) ;; LDeclareFn marker".
   ;;      The actual `(func $op_<name> ...)` body emission happens at
   ;;      module-emit time via emit_fns_expr deep walk (chunk #9
@@ -67,7 +67,7 @@
   ;;      a no-op marker that the LBlock placeholder Lock makes valid.
   ;;
   ;;   3. $emit_lhandlewith(r) — LHandleWith tag 329 (handle, body, handler).
-  ;;      Per src/backends/wasm.nx:1486-1489: emit body + comment
+  ;;      Per src/backends/wasm.mn:1486-1489: emit body + comment
   ;;      "~> handler attached (tail-resumptive inlined)". The handler-
   ;;      attach is INERT at the seed because tail-resumptive (the ~85%
   ;;      case per SUBSTRATE.md §III "Three Tiers") inlines the handler
@@ -75,33 +75,33 @@
   ;;      runtime handler-stack push.
   ;;
   ;;   4. $emit_lhandle(r) — LHandle tag 332 (handle, body, arms).
-  ;;      Per src/backends/wasm.nx:1549-1552: emit body + comment.
+  ;;      Per src/backends/wasm.mn:1549-1552: emit body + comment.
   ;;      Same inert-substrate as LHandleWith; arms are emitted
   ;;      separately at module-emit time as `(func $op_<name> ...)`.
   ;;
   ;;   5. $emit_lfeedback(r) — LFeedback tag 330 (handle, body, spec).
-  ;;      Per src/backends/wasm.nx:1491-1534 + LF walkthrough §1.5
+  ;;      Per src/backends/wasm.mn:1491-1534 + LF walkthrough §1.5
   ;;      state-machine lowering. THE `<~` SUBSTRATE made physical:
   ;;      load-prior → emit body → tee-current → store-current →
   ;;      reload-current. The handle `h` (from $lexpr_handle) names
   ;;      the per-site state global $s<h> + the per-site locals
   ;;      $__fb_prev_<h> + $__fb_<h>.
   ;;
-  ;;      Per SUBSTRATE.md §II "Feedback IS Inka's Genuine Novelty":
+  ;;      Per SUBSTRATE.md §II "Feedback IS Mentl's Genuine Novelty":
   ;;      `<~` is sugar for a stateful handler capturing output and
   ;;      re-injecting it. State-global substrate reuses LStateGet/
   ;;      LStateSet's `$s<slot>` convention; module-init declares each
   ;;      $s<n> as `(global $s<n> (mut i32) (i32.const 0))`.
   ;;
   ;;   6. $emit_lperform(r) — LPerform tag 331 (handle, op_name, args).
-  ;;      Per src/backends/wasm.nx:1536-1547: emit args + (call $op_
+  ;;      Per src/backends/wasm.mn:1536-1547: emit args + (call $op_
   ;;      <op_name>) per H1.4 single-handler-per-op naming. The
   ;;      monomorphic direct-call form — row inference's >95% claim
   ;;      cashes out HERE (per SUBSTRATE.md §I third truth "OneShot.
   ;;      Direct return_call $op_<name>").
   ;;
   ;;   7. $emit_levperform(r) — LEvPerform tag 333 (handle, op_name,
-  ;;      slot_idx, args). Per src/backends/wasm.nx:1554-1587 + H1
+  ;;      slot_idx, args). Per src/backends/wasm.mn:1554-1587 + H1
   ;;      evidence reification: load fn_idx from __state at offset
   ;;      8 + 4*body_capture_count + 4*slot_idx, push __state + args,
   ;;      call_indirect via $ft<argc+1>. The polymorphic call site
@@ -125,7 +125,7 @@
   ;;                   LEvPerform's runtime call_indirect IS the
   ;;                   handler dispatch substrate per SUBSTRATE.md §I.
   ;;   3. Verb?        LFeedback IS the `<~` verb made physical —
-  ;;                   SUBSTRATE.md §II "Feedback IS Inka's Genuine
+  ;;                   SUBSTRATE.md §II "Feedback IS Mentl's Genuine
   ;;                   Novelty". LHandleWith / LHandle ARE the `~>`
   ;;                   verb made physical (inert seed; tail-resumptive
   ;;                   inline). LPerform / LEvPerform are NOT verbs —
@@ -175,10 +175,10 @@
   ;;                                Hβ.emit.handler-fnref-substrate that
   ;;                                lands AFTER Hβ.lower.lowfn-substrate
   ;;                                materializes the LowFn record (tag
-  ;;                                350 + 5 accessors per src/lower.nx
+  ;;                                350 + 5 accessors per src/lower.mn
   ;;                                LFn ADT). The 7 arms in this chunk
   ;;                                are FULLY bodied; no stubs.
-  ;;   - Foreign fluency:           Vocabulary stays Inka — "perform",
+  ;;   - Foreign fluency:           Vocabulary stays Mentl — "perform",
   ;;                                "handle", "feedback", "evidence
   ;;                                slot", "tail-resumptive". NEVER
   ;;                                "callback" / "method-table" /
@@ -191,7 +191,7 @@
   ;;                                       5 accessors to lower/lexpr.wat;
   ;;                                       update walk_compound + walk_stmt
   ;;                                       to construct LowFn properly per
-  ;;                                       src/lower.nx LFn ADT.
+  ;;                                       src/lower.mn LFn ADT.
   ;;   - Hβ.emit.handler-fnref-substrate:  $emit_lmakeclosure (tag 311) +
   ;;                                       $emit_lmakecontinuation (tag
   ;;                                       312) emit arms; depends on
@@ -325,7 +325,7 @@
       (br $loop))))
 
   ;; ─── $emit_llet — LLet tag 304 emit arm per §2.5 ───────────────────
-  ;; Per src/backends/wasm.nx:1147-1152: sub-emit value + "(local.set
+  ;; Per src/backends/wasm.mn:1147-1152: sub-emit value + "(local.set
   ;; $<name>)". Lock #6 separation: ResumeExpr→LReturn (not LLet);
   ;; parser-LetStmt→LLet.
   (func $emit_llet (param $r i32)
@@ -333,7 +333,7 @@
     (call $ec_emit_local_set_dollar (call $lexpr_llet_name (local.get $r))))
 
   ;; ─── $emit_ldeclarefn — LDeclareFn tag 313 emit arm per §2.5 ───────
-  ;; Per src/backends/wasm.nx:1601-1608 + H1.4: at expression-position
+  ;; Per src/backends/wasm.mn:1601-1608 + H1.4: at expression-position
   ;; this arm is a NO-OP marker. The actual `(func $op_<name> ...)`
   ;; body emission happens at module-emit time via emit_fns_expr deep
   ;; walk (chunk #9 main.wat). LDeclareFn lands inside LBlock per
@@ -344,7 +344,7 @@
     (call $emit_i32_const (i32.const 0)))
 
   ;; ─── $emit_lhandlewith — LHandleWith tag 329 emit arm per §2.5 ─────
-  ;; Per src/backends/wasm.nx:1486-1489: sub-emit body. The handler-
+  ;; Per src/backends/wasm.mn:1486-1489: sub-emit body. The handler-
   ;; attach is INERT at the seed because tail-resumptive (~85% per
   ;; SUBSTRATE.md §III) inlines the handler arm body at the perform
   ;; site through evidence passing — no runtime handler-stack push.
@@ -354,14 +354,14 @@
     (call $emit_lexpr (call $lexpr_lhandlewith_body (local.get $r))))
 
   ;; ─── $emit_lhandle — LHandle tag 332 emit arm per §2.5 ─────────────
-  ;; Per src/backends/wasm.nx:1549-1552: sub-emit body. Same inert-
+  ;; Per src/backends/wasm.mn:1549-1552: sub-emit body. Same inert-
   ;; substrate as LHandleWith; arms are emitted separately at module-
   ;; emit time.
   (func $emit_lhandle (param $r i32)
     (call $emit_lexpr (call $lexpr_lhandle_body (local.get $r))))
 
   ;; ─── $emit_lfeedback — LFeedback tag 330 emit arm per §2.5 ─────────
-  ;; Per src/backends/wasm.nx:1491-1534 + LF walkthrough §1.5 — THE
+  ;; Per src/backends/wasm.mn:1491-1534 + LF walkthrough §1.5 — THE
   ;; `<~` SUBSTRATE made physical at WAT. State-machine lowering:
   ;;
   ;;   (global.get $s<h>)              ;; load prior iteration's output
@@ -376,7 +376,7 @@
   ;; State globals declared at module init by emit_state_globals
   ;; (chunk #9 main.wat).
   ;;
-  ;; Per SUBSTRATE.md §II "Feedback IS Inka's Genuine Novelty":
+  ;; Per SUBSTRATE.md §II "Feedback IS Mentl's Genuine Novelty":
   ;; `<~` is sugar for a stateful handler capturing output and re-
   ;; injecting it. Under `Sample(44100)` it's a sample delay (DSP);
   ;; under `Tick` it's logical-step iteration; under `Clock(wall_ms=10)`
@@ -393,7 +393,7 @@
     (call $ec7_emit_local_get_fb_h (local.get $h)))
 
   ;; ─── $emit_lperform — LPerform tag 331 emit arm per §2.5 ───────────
-  ;; Per src/backends/wasm.nx:1568-1579 + H1.4 single-handler-per-op:
+  ;; Per src/backends/wasm.mn:1568-1579 + H1.4 single-handler-per-op:
   ;;   (local.get $__state)              ;; __state IS first param of $op_<name>
   ;;   <args>                             ;; user-visible args follow
   ;;   (call $op_<op_name>)
@@ -417,7 +417,7 @@
     (call $ec7_emit_call_op_dollar (call $lexpr_lperform_op_name (local.get $r))))
 
   ;; ─── $emit_levperform — LEvPerform tag 333 emit arm per §2.5 ───────
-  ;; Per src/backends/wasm.nx:1554-1587 + H1 evidence reification:
+  ;; Per src/backends/wasm.mn:1554-1587 + H1 evidence reification:
   ;;   (local.get $__state)          ;; implicit __state arg for callee
   ;;   <args>                        ;; user args
   ;;   (local.get $__state)          ;; load state again for fn_idx read
@@ -451,7 +451,7 @@
 
   ;; ─── $emit_lmakeclosure — LMakeClosure tag 311 emit arm ─────────────
   ;; Hβ.emit.handler-fnref-substrate — Phase D closed here.
-  ;; Per src/backends/wasm.nx:1207-1244 + H1 evidence reification.
+  ;; Per src/backends/wasm.mn:1207-1244 + H1 evidence reification.
   ;;
   ;; LMakeClosure(_h, LFn(fn_name,...), captures, ev_slots):
   ;;   closure record — __state IS this record:
@@ -494,7 +494,7 @@
     (call $ec8_emit_local_get_state_tmp))
 
   ;; ─── $emit_lmakecontinuation — LMakeContinuation tag 312 emit arm ───
-  ;; Per src/backends/wasm.nx:1247-1308 + H7 §4.2 multi-shot layout.
+  ;; Per src/backends/wasm.mn:1247-1308 + H7 §4.2 multi-shot layout.
   ;;
   ;; LMakeContinuation(_h, LFn(resume_name,...), caps, evs, state_idx, ret_slot):
   ;;   continuation record — THE MENTL ORACLE SUBSTRATE at WAT:

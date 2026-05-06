@@ -1,4 +1,4 @@
-# Synthesis Manifesto — Crosswalk to Inka
+# Synthesis Manifesto — Crosswalk to Mentl
 
 > **Status: historical context, not a living spec.** This doc predates
 > the current roadmap (`ROADMAP.md`). It remains as confidence — external
@@ -8,7 +8,7 @@
 > didn't are marked "rejected" in the table below.
 
 *An external, context-free conversation produced an eight-pillar
-"Synthesis" manifesto. This doc maps each pillar to where Inka (then
+"Synthesis" manifesto. This doc maps each pillar to where Mentl (then
 called Lux) already is, where it converges, and what's genuinely new.
 Source document is reproduced verbatim at the bottom so future readers
 can see exactly what we were comparing against.*

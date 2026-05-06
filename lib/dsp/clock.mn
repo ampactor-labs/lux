@@ -1,0 +1,222 @@
+// clock.mn — time as four peer effects (spec 11)
+//
+// Four, not one. Different domains need different notions of time;
+// collapsing them into one erases the distinctions the refinement
+// algebra needs to prove.
+//
+//   Clock    — wall time (now, sleep, deadline_remaining)
+//   Tick     — logical time (monotonic counter, no wall relation)
+//   Sample   — DSP time (integer counter at known rate)
+//   Deadline — budget (completion guarantee, independent of wall read)
+//
+// Each is negated independently (`!Clock`, `!Tick`, `!Sample`,
+// `!Deadline`) through spec 01's Boolean algebra. `<~` feedback
+// (spec 10) requires ONE of Clock / Tick / Sample as iterative
+// context; IterativeContext is checked at inference time.
+//
+// Four handler tiers per effect: real (delegates to host) · test
+// (deterministic) · record (tees to trace) · replay (reads trace).
+// Record + replay = time-travel debugging; same source, two handlers.
+
+import types
+
+// Time vocabulary — Instant and Duration are nanosecond-scale wrappers.
+
+type Instant  = Instant(Int)       // nanoseconds since epoch
+type Duration = Duration(Int)      // nanoseconds
+
+// The four peer effects — Clock, Tick, Sample, Deadline.
+
+effect Clock {
+  clock_now() -> Instant                    @resume=OneShot
+  clock_sleep(Duration) -> ()               @resume=OneShot
+}
+
+effect Tick {
+  tick() -> ()                              @resume=OneShot
+  current_tick() -> Int                     @resume=OneShot
+}
+
+effect Sample {
+  sample_rate() -> Int                      @resume=OneShot
+  advance_sample() -> ()                    @resume=OneShot
+  current_sample() -> Int                   @resume=OneShot
+}
+
+effect Deadline {
+  deadline() -> Instant                     @resume=OneShot
+  remaining() -> Duration                   @resume=OneShot
+}
+
+/// IterativeContext — `<~` feedback checker. `<~` in the PipeExpr ADT
+/// requires an ambient Clock / Tick / Sample handler. Inference performs
+/// check_iterative_context(); returns Some(tag) if any is installed, None
+/// otherwise. The handler reports which time-effect is in scope.
+effect IterativeContext {
+  check_iterative_context() -> Option       @resume=OneShot
+}
+
+/// no_iterative_ctx is the identity-element handler for IterativeContext —
+/// the safe default when no time handler is on the stack. `<~` performed
+/// under this handler returns None, which inference reads as
+/// E_FeedbackNoContext. The handler stack installs clock_iterative_ctx /
+/// tick_iterative_ctx / sample_iterative_ctx when a time handler is present.
+handler no_iterative_ctx {
+  check_iterative_context() => resume(None)
+}
+
+handler clock_iterative_ctx {
+  check_iterative_context() => resume(Some("Clock"))
+}
+
+handler tick_iterative_ctx {
+  check_iterative_context() => resume(Some("Tick"))
+}
+
+handler sample_iterative_ctx {
+  check_iterative_context() => resume(Some("Sample"))
+}
+
+// Tier 1: real — delegates to host via HostClock. In WASM builds, host_*
+// effects are mapped at emit time to WASI imports; pure composition here.
+
+effect HostClock {
+  host_clock_ns() -> Int                    @resume=OneShot
+}
+
+handler clock_real {
+  clock_now() => resume(Instant(perform host_clock_ns())),
+  clock_sleep(_d) => resume()   // no-op in batch compilation
+}
+
+handler tick_real with counter = 0 {
+  tick() =>
+    resume()
+      with counter = counter + 1,
+  current_tick() => resume(counter)
+}
+
+handler sample_real with rate = 44100, count = 0 {
+  sample_rate() => resume(rate),
+  advance_sample() =>
+    resume()
+      with count = count + 1,
+  current_sample() => resume(count)
+}
+
+handler deadline_real with deadline_ns = 0 {
+  deadline() => resume(Instant(deadline_ns)),
+  remaining() => resume(Duration(deadline_ns))
+}
+
+// Tier 2: test — deterministic, seeded.
+
+handler clock_test with clock_state = 1000 {
+  clock_now() =>
+    resume(Instant(clock_state))
+      with clock_state = clock_state + 1,
+  clock_sleep(d) => {
+    let Duration(ns) = d
+    resume()
+      with clock_state = clock_state + ns
+  }
+}
+
+handler tick_test with counter = 0 {
+  tick() =>
+    resume()
+      with counter = counter + 1,
+  current_tick() => resume(counter)
+}
+
+handler sample_test with rate = 48000, count = 0 {
+  sample_rate() => resume(rate),
+  advance_sample() =>
+    resume()
+      with count = count + 1,
+  current_sample() => resume(count)
+}
+
+handler deadline_test {
+  deadline() => resume(Instant(5000)),
+  remaining() => resume(Duration(5000))     // 5ms test budget
+}
+
+// Tier 3: record — tees values to a trace. Wraps the real handler;
+// captures every value; produces a trace usable by the replay handler.
+
+// Record handlers append to flat trace buffers via list_extend_to —
+// O(1) amortized per tick. The trace_len counter is the logical
+// length; entries above it are stale (matching the trail substrate
+// in graph.mn). Replay handlers consume by advancing read_idx into
+// the trace, never popping — the trace itself is immutable through
+// the replay so callers can re-replay or inspect post hoc.
+
+handler clock_record with trace = [], trace_len = 0 {
+  clock_now() => {
+    let now = perform host_clock_ns()
+    let new_trace = trace
+      |> list_extend_to(trace_len + 1)
+      |> list_set(trace_len, now)
+    resume(Instant(now))
+      with trace = new_trace, trace_len = trace_len + 1
+  },
+  clock_sleep(_d) => resume()
+}
+
+handler tick_record with counter = 0, trace = [], trace_len = 0 {
+  tick() => {
+    let new_trace = trace
+      |> list_extend_to(trace_len + 1)
+      |> list_set(trace_len, counter)
+    resume()
+      with counter = counter + 1,
+           trace = new_trace,
+           trace_len = trace_len + 1
+  },
+  current_tick() => resume(counter)
+}
+
+// Tier 4: replay — reads from a recorded trace. Replay maintains a read
+// cursor into an immutable trace buffer; advancing is O(1); post-hoc
+// inspection and re-replay are structurally available.
+
+handler clock_replay with trace = [], read_idx = 0 {
+  clock_now() =>
+    if read_idx >= trace.len {
+      perform report("clock", "E_ReplayExhausted", "error",
+        "clock replay trace exhausted",
+        span_zero(), "MaybeIncorrect")
+      resume(Instant(0))
+    } else {
+      let val = list_index(trace, read_idx)
+      resume(Instant(val))
+        with read_idx = read_idx + 1
+    },
+  clock_sleep(_d) => resume()
+}
+
+handler tick_replay with trace = [], read_idx = 0 {
+  tick() =>
+    if read_idx >= trace.len { resume() }
+    else {
+      resume()
+        with read_idx = read_idx + 1
+    },
+  current_tick() =>
+    if read_idx >= trace.len { resume(0) }
+    else { resume(list_index(trace, read_idx)) }
+}
+
+// Deadline budgeting — tight real-time loops. `with_deadline(budget_ns,
+// computation)` installs deadline_budget around computation.
+
+handler deadline_budget with budget_remaining = 0 {
+  deadline() => resume(Instant(budget_remaining)),
+  remaining() => resume(Duration(budget_remaining))
+}
+
+fn with_deadline(budget_ns, computation) = {
+  computation()
+    ~> deadline_budget
+}

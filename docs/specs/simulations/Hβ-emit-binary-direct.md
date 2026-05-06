@@ -13,11 +13,11 @@ encoding per the WASM spec (LEB128, section headers, type indexes,
 function bodies).
 
 Replacement target: `bootstrap/src/emit/*.wat` (text emit) →
-`src/backends/wasm_binary.nx` (direct binary emit).
+`src/backends/wasm_binary.mn` (direct binary emit).
 
 ## Handles (positive form)
 
-1. **Hβ.emit-binary.leb128-encoder** — runtime/binary.nx already
+1. **Hβ.emit-binary.leb128-encoder** — runtime/binary.mn already
    has LEB128 helpers; extend for WASM-spec varuint + varint.
 2. **Hβ.emit-binary.section-headers** — type, import, function,
    table, memory, global, export, start, element, code, data
@@ -39,11 +39,11 @@ Replacement target: `bootstrap/src/emit/*.wat` (text emit) →
 
 ## Acceptance
 
-- `inka <input.nx>` produces `.wasm` directly without `wat2wasm` in
+- `mentl <input.mn>` produces `.wasm` directly without `wat2wasm` in
   the pipeline.
 - All trace harnesses still pass via binary path.
 - Compile time drops (no text serialize / re-parse roundtrip).
-- `Hβ-tooling-assemble-in-inka.md` becomes obsolete (no separate
+- `Hβ-tooling-assemble-in-mentl.md` becomes obsolete (no separate
   wat2wasm needed).
 
 ## Dep ordering
@@ -57,5 +57,5 @@ load-bearing center.
 - **Gates on:** Phase H + Tier 3 + L1 stable.
 - **Composes with:** `Hβ-emit-native-target.md` (Cranelift/LLVM as
   alternative backend); both register as `Emit` handlers.
-- **Closes:** `Hβ-tooling-assemble-in-inka.md` (wat2wasm in Inka)
+- **Closes:** `Hβ-tooling-assemble-in-mentl.md` (wat2wasm in Mentl)
   becomes optional / obsolete.

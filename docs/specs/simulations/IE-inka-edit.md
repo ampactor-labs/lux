@@ -1,8 +1,8 @@
-# IE — `inka edit` walkthrough
+# IE — `mentl edit` walkthrough
 
-*The canonical Inka IDE. Browser-based, holographic, live. Mentl is
+*The canonical Mentl IDE. Browser-based, holographic, live. Mentl is
 the oracle the developer talks to; the medium is the editor; the
-substrate is what's drawn on screen. Where developers discover Inka,
+substrate is what's drawn on screen. Where developers discover Mentl,
 write their first program, and never leave.*
 
 **Handle:** IE (Phase F surface peer to F.1; the canonical first-
@@ -12,7 +12,7 @@ developer-encounter substrate).
 §5 (annotation gradient is conversation), §8 (Mentl as oracle), §10
 (simulations); `docs/SUBSTRATE.md` §VI "The Hole Is the Gradient's
 Absence Marker" + §II "Visual Programming in Plain Text" + §II
-"Feedback Is Inka's Genuine Novelty" + §III "The Handler Chain Is a
+"Feedback Is Mentl's Genuine Novelty" + §III "The Handler Chain Is a
 Capability Stack"; memory protocol `protocol_oracle_is_ic.md` (the
 continuous-oracle-IS-IC discipline) + `protocol_realization_loop.md`
 (compound interest of self-reference); `docs/DESIGN.md` (AI
@@ -21,39 +21,39 @@ obsolescence mechanized);
 walkthrough materializes it as substrate);
 `docs/specs/simulations/MV-mentl-voice.md` (Mentl's voice substrate
 — Interact effect + 8 tentacles);
-`docs/specs/simulations/F1-inka-doc.md` §11 (disintermediation map);
+`docs/specs/simulations/F1-mentl-doc.md` §11 (disintermediation map);
 `docs/specs/simulations/MO-mentl-oracle-loop.md` (speculative gradient
 end-to-end with concrete latency math).
 **Walkthrough peers:** `MV-mentl-voice.md` (Mentl substrate IE
-projects), `F1-inka-doc.md` (inka doc substrate IE composes for the
+projects), `F1-mentl-doc.md` (mentl doc substrate IE composes for the
 doc panel), `MO-mentl-oracle-loop.md` (oracle loop IE's Holographic
 Lens fires), `H7-multishot-runtime.md` (MS runtime IE's Wavefront
-streams), `EH-entry-handlers.md` (`inka --with` dispatch IE registers
+streams), `EH-entry-handlers.md` (`mentl --with` dispatch IE registers
 through), `DS-docstring-edge.md` (`///` substrate IE's doc panel
 reads), `CRU-crucibles.md` (crucible substrate IE's tutorial shell
 demos).
 
 ---
 
-## §0 Framing — what `inka edit` IS
+## §0 Framing — what `mentl edit` IS
 
-`inka edit` is the canonical Inka IDE. **The medium reading itself
+`mentl edit` is the canonical Mentl IDE. **The medium reading itself
 out loud, in a browser, with Mentl as the oracle the developer talks
 to, every keystroke firing the substrate live.**
 
 Not a competitor to VS Code, Cursor, Zed, JetBrains, CodeSandbox,
 StackBlitz, Repl.it, or any other editor product. Not a wrapper over
-existing tooling. Not a "playground." `inka edit` IS the substrate's
+existing tooling. Not a "playground." `mentl edit` IS the substrate's
 own interactive surface — the same kernel that produces binaries
 through `compile_run`, the same Mentl voice that surfaces through
-`inka teach`, the same projection that renders through `inka doc`,
+`mentl teach`, the same projection that renders through `mentl doc`,
 **composed into the form developers see**.
 
 **Why browser-first:** the medium is the lens; the lens is the
 substrate; the substrate compiles to WASM and runs natively in any
 browser at 60fps (per IDE-playground-vision.md L31 + DESIGN §0.5
 primitive #1). A URL is the lowest-friction path between a
-developer's first thought and Inka. Install nothing; visit a URL;
+developer's first thought and Mentl. Install nothing; visit a URL;
 write your first program with Mentl narrating; never need
 documentation because Mentl IS the documentation surface.
 
@@ -67,7 +67,7 @@ documentation because Mentl IS the documentation surface.
    AI-obsolescence thesis (DESIGN §8 + INSIGHTS L689) materialized
    as a UX primitive.
 2. **Live everything** — every keystroke triggers IC-incremental
-   recompilation through the in-browser `inka.wasm`; effect rows
+   recompilation through the in-browser `mentl.wasm`; effect rows
    re-narrow; ownership ledger re-traces; refinement obligations
    re-discharge; Mentl re-explores. The build IS a `<~` feedback
    loop (per insight #11 + INSIGHTS L509); the IDE makes the loop
@@ -93,7 +93,7 @@ documentation because Mentl IS the documentation surface.
    Hμ.cursor (2026-05-02):** `cursor_default`'s `CursorView` IS the
    eight-tentacle read at a position — `query` + `propose` +
    `topology` + `row` + `trace` + `verify` + `teach` + `why` as one
-   record (`src/types.nx` CursorView; `src/cursor.nx`
+   record (`src/types.mn` CursorView; `src/cursor.mn`
    `cursor_default` handler). `voice_lines_for` is a render handler
    over CursorView; the IDE's per-cursor projection is
    Hμ.cursor.transport routing `cursor_default` through the
@@ -103,10 +103,10 @@ documentation because Mentl IS the documentation surface.
 
 **Why other editors stay first-class peers:** per CLAUDE.md anchor +
 DESIGN §0.5 primitive #2 — every transport is a handler. Vim users
-get Mentl through `inka teach` + terminal voice surface. LSP-aware
-editor users get Mentl through `inka lsp`. CLI-only workflows get
+get Mentl through `mentl teach` + terminal voice surface. LSP-aware
+editor users get Mentl through `mentl lsp`. CLI-only workflows get
 machine output by default with optional `~> mentl_voice_default`
-narration. **`inka edit` is canonical because the browser-holographic-
+narration. **`mentl edit` is canonical because the browser-holographic-
 live transport is the medium's most expressive surface — but every
 other transport is first-class for the developers who prefer them.**
 
@@ -114,12 +114,12 @@ other transport is first-class for the developers who prefer them.**
 
 ## §1 Hard constraints
 
-Per IDE-playground-vision.md + Inka substrate discipline:
+Per IDE-playground-vision.md + Mentl substrate discipline:
 
-1. **Browser-first, browser-only for v1.** Inka self-hosted compiles
-   to WASM via the bootstrap; `inka.wasm` runs in any modern browser
+1. **Browser-first, browser-only for v1.** Mentl self-hosted compiles
+   to WASM via the bootstrap; `mentl.wasm` runs in any modern browser
    under WebAssembly + WASI-browser shims. Native desktop wrappers
-   (Tauri / Electron / wails) are post-`inka edit`-ships peer
+   (Tauri / Electron / wails) are post-`mentl edit`-ships peer
    surfaces; they compose on the same substrate via different
    transport handlers. The browser is the canonical container.
 2. **60fps live.** Every keystroke triggers IC-incremental
@@ -149,8 +149,8 @@ Per IDE-playground-vision.md + Inka substrate discipline:
    files on disk are the source of truth; the IDE is one transport
    over them. Edits sync to disk on save (Cmd-S); file_watcher peer
    handler picks up external file changes and re-projects. **A
-   developer can leave `inka edit`, edit the file in vim, return to
-   `inka edit`, and Mentl picks up exactly where the substrate sees
+   developer can leave `mentl edit`, edit the file in vim, return to
+   `mentl edit`, and Mentl picks up exactly where the substrate sees
    it.** No IDE-state shadow over the file's truth.
 7. **WASI in browser via wasmtime-web (or peer).** Filesystem
    capability scoped to the project root via WASI preopen fd; same
@@ -175,7 +175,7 @@ L1932 (Visual Programming in Plain Text): the shape on the page IS
 the computation graph. The Topographic Canvas renders the page
 shape AND draws the graph lines that the canonical layout traces.
 
-Five verb glyphs per Inka Mono (commit `ce7ab37`):
+Five verb glyphs per Mentl Mono (commit `ce7ab37`):
 - `|>` — angular triangle pipe; left edge; flow goes down
 - `<|` — angular triangle fanout; left edge before branch tuple
 - `><` — bowtie cross; indented center between parenthesized branches
@@ -201,7 +201,7 @@ never has to remember the formatter's rules; the editor enforces
 them at typing time. **Per anchor: layout IS contract.**
 
 **Cursor-of-attention** lives in handler state per MV §2 Q5 +
-Cursor(handle, Reason) per `mentl_voice.nx:251`. Every cursor
+Cursor(handle, Reason) per `mentl_voice.mn:251`. Every cursor
 movement updates the Mentl voice panel; every gesture (click,
 drag-select, arrow keys) updates the cursor through `focus(target)`
 on the Interact effect (MV.2.e.Q.focus arm, commit `9798a0e`).
@@ -245,7 +245,7 @@ visually. Per IDE-playground-vision.md §2 layer 3:
 - **Reason DAG navigation:** click any TVar / handle / VoiceLine /
   diagnostic in the Topographic Canvas or HUD; the Wavefront unfurls
   the Reason chain. Each step renders as a node on the timeline:
-  `bound at FnStmt at infer.nx:142` → `return type unified with
+  `bound at FnStmt at infer.mn:142` → `return type unified with
   Forall(qs, body_ty) at line 147` → `body_ty chased from handle
   847` → ... Click any node to jump the cursor to its source span.
   Substrate: `graph_reason_edge` reads via `GraphRead`.
@@ -257,7 +257,7 @@ visually. Per IDE-playground-vision.md §2 layer 3:
   forks fade. Per DESIGN §0.5 primitive #2 + Ch 8:
   "hundreds of alternate realities per second under trail-based
   rollback." Substrate: Synth's `enumerate_inhabitants(ty, row, ctx)
-  @resume=MultiShot` (per `mentl.nx:92`); each resume is a fork the
+  @resume=MultiShot` (per `mentl.mn:92`); each resume is a fork the
   Wavefront renders.
 
 The Wavefront has a scrub control: drag back to see the cursor
@@ -275,10 +275,10 @@ in canonical kernel order Query → Propose → Topology → Unlock →
 Trace → Verify → Teach → Why.
 
 Each VoiceLine renders with:
-- Tentacle color (one of eight per Inka Mono palette)
+- Tentacle color (one of eight per Mentl Mono palette)
 - Form-kind glyph (FFactual / FOffering / FRefutation /
   FNavigation / FCapability / FRefinement / FGradient / FTrace per
-  `mentl_voice.nx:148`)
+  `mentl_voice.mn:148`)
 - Slots rendered per their canonical projection (SType via
   `show_type`; SRow via `show_row`; SSpan as `path:line` link;
   SReason as a Wavefront-pivot link)
@@ -299,7 +299,7 @@ the gradient's top, the proven-complete state.
 
 ### §2.5 Doc panel (left of HUD; tab-switchable with file tree)
 
-Composes the `inka doc` projection (F.1 substrate) for the cursor's
+Composes the `mentl doc` projection (F.1 substrate) for the cursor's
 declaration. The `render_html` output of F.1's doc_handler renders
 inline. Per F.1 §3.1 + DS substrate: signature + author `///` +
 Mentl tentacles + Reason links.
@@ -325,13 +325,13 @@ DESIGN §9.2):
   Re-runs on save (or live via `~> execute_on_save` peer for
   tutorials).
 - **Test pane** — live output of `test_run` invoked on the current
-  module's `*_test.nx` peer files. Per DESIGN §9.2 + plan §99 testing
+  module's `*_test.mn` peer files. Per DESIGN §9.2 + plan §99 testing
   doctrine: same `main()` body, different handler stack
   (`test_collector` + `deterministic_clock` + `in_memory_fs` +
   `capture_stdout`). Test names + pass/fail + per-test diagnostics
   rendered.
 - **Audit pane** — live output of `audit_run` invoked on the current
-  project. `inka audit` projection per DESIGN §9.1 + plan §F.1
+  project. `mentl audit` projection per DESIGN §9.1 + plan §F.1
   collapsed into Mentl's voice surface: capability set required;
   drift findings (drift-audit.sh becomes a handler post-first-light
   per plan §F-retire); plan progress (eventually `plan_handler` per
@@ -346,11 +346,11 @@ plan §99 — the IDE makes the swap one click.
 Per Interact effect's file ops (FX.B handler arms, commit `afc4b0c`):
 `project_root()` + `tree_list(Path) -> List<TreeEntry>` + `open_file`
 + `save_file` + `create_file` + `rename_path` + `delete_path` +
-`file_text`. Each tree entry rendered with file/dir icon per Inka
+`file_text`. Each tree entry rendered with file/dir icon per Mentl
 Mono glyphs; click to open; right-click for rename/delete; drag to
 move; new-file via context menu calls `create_file`.
 
-Module-level glyphs per cursor focus: when cursor is in `src/graph.nx`,
+Module-level glyphs per cursor focus: when cursor is in `src/graph.mn`,
 the tree highlights that file's path; the doc panel updates to the
 Module handle's F.1 render.
 
@@ -363,7 +363,7 @@ INSIGHTS L689 (AI obsolescence mechanized) + MO walkthrough (oracle
 loop end-to-end).
 
 The Holographic Lens is the IDE's load-bearing primitive — what makes
-`inka edit` Inka and not "rustdoc-with-an-editor." When the developer
+`mentl edit` Mentl and not "rustdoc-with-an-editor." When the developer
 types code that creates an opportunity for Mentl to propose
 alternatives — at a hole `??`, at an error site, at a position where
 the gradient would unlock a capability — the Lens fires:
@@ -373,10 +373,10 @@ the gradient would unlock a capability — the Lens fires:
    feeds the project queue; positions with new candidates surface as
    queue items; the Lens reads the cursor-relevant queue items via
    `cursor_relevant(handle, max_distance_bytes)` (per
-   `mentl_oracle.nx:248`).
+   `mentl_oracle.mn:248`).
 2. **Multi-shot enumeration** — Mentl performs Synth's
    `enumerate_inhabitants(ty, row, ctx) @resume=MultiShot` (per
-   `mentl.nx:92`); each resume forks a candidate. The Wavefront
+   `mentl.mn:92`); each resume forks a candidate. The Wavefront
    streams the forks live. Per DESIGN §0.5 primitive #2 + Ch 8 +
    MO walkthrough: hundreds of alternate realities per second under
    trail-based rollback.
@@ -424,7 +424,7 @@ candidates).
 
 | Phase | Substrate | Authority |
 |-------|-----------|-----------|
-| Trigger | `cursor_relevant(handle, max)` from queue projection | insight #11 + `mentl_oracle.nx:248` |
+| Trigger | `cursor_relevant(handle, max)` from queue projection | insight #11 + `mentl_oracle.mn:248` |
 | Enumerate | Synth `enumerate_inhabitants` MS ops; arena_ms `replay_safe` discipline | DESIGN §8 + AM walkthrough |
 | Verify | `graph_push_checkpoint` + tentative `graph_bind` + Verify discharge + `graph_rollback` | DESIGN §0.5 primitive #1 + spec 00 + MO walkthrough |
 | Project | `voice_lines_for(situation)` filtered to TentPropose's `render_propose_arm` for each survivor | D.1.e LOWER LAYER `8e490d8` + MV §2.7.3 |
@@ -441,8 +441,8 @@ AI; the LLM was pretending. The Lens is the demo.**
 ## §4 The handler stack
 
 Per Insight #1 (handler chain IS capability stack) + DESIGN §1
-(handler as one mechanism). `inka edit` composes its full surface
-through one entry handler installed by `inka --with edit_run`:
+(handler as one mechanism). `mentl edit` composes its full surface
+through one entry handler installed by `mentl --with edit_run`:
 
 ```
 inka_edit_session()
@@ -470,16 +470,16 @@ inka_edit_session()
 **`file_watcher`** intercepts disk file changes (via WASI / browser
 file-system-access API); fires `open_file` / `file_text` re-reads;
 invalidates IC cache for affected modules; triggers re-project. **A
-developer leaves `inka edit`, edits in vim, returns; Mentl picks up
+developer leaves `mentl edit`, edits in vim, returns; Mentl picks up
 where the substrate sees it.**
 
 **`execute_on_save`** intercepts `save_file`; fires `compile_run` on
 the touched module; routes output to the Run pane. For tutorial
-files: also fires `test_run` on accompanying `*_test.nx`. **The
+files: also fires `test_run` on accompanying `*_test.mn`. **The
 developer types, saves, sees compiled output without leaving the
 canvas.**
 
-**Composition with `inka doc`:** the doc panel's render handler is
+**Composition with `mentl doc`:** the doc panel's render handler is
 F.1's `render_html` peer; same render-handler instance the IDE uses
 for the Mentl voice panel + Capability HUD + Wavefront's per-node
 detail pop-overs. **One render machinery; many panel projections.**
@@ -490,7 +490,7 @@ The capability stack proves architectural properties:
   handlers cannot escape outward (per Insight #1 + DESIGN §2).
 - **Read-only audit:** install `~> read_only_edit` outside
   `edit_handler` to prove the IDE can't write the graph; verifiable
-  via `inka check`.
+  via `mentl check`.
 - **Per-pane capability:** the doc panel's render chain has Render +
   GraphRead + `!Mutate`; the Run pane's render chain has additionally
   Console + WASI. Each pane's row is structurally bounded.
@@ -549,7 +549,7 @@ someone can type `with !Alloc` and watch Mentl physically
 re-arrange their code topology in real-time") + plan §F.7 (canonical
 new-developer surface).
 
-A new developer visits the public `inka edit` URL. The IDE opens to
+A new developer visits the public `mentl edit` URL. The IDE opens to
 a tutorial overlay. The shell composes on `lib/tutorial/` (per plan
 D.2 + EH-entry-handlers.md):
 
@@ -567,11 +567,11 @@ D.2 + EH-entry-handlers.md):
 - **Eight files for eight primitives** — 00-hello + 01..08 per the
   kernel primitive ordering (per plan §417 + EH walkthrough). Each
   file is ~60-80 lines per QA D.2 resolution. Files are runnable
-  Inka programs, not documentation; Mentl projects them into a
+  Mentl programs, not documentation; Mentl projects them into a
   tutorial experience.
 - **Crucibles section** — after the eight tutorials, the developer
   encounters the six crucibles per CRU walkthrough as
-  conversations Inka has had with its future self. Each crucible
+  conversations Mentl has had with its future self. Each crucible
   renders with its disintermediation claim + a "compiles ✓" badge
   per F.1 §6.3 + AT-F1.6.
 
@@ -583,7 +583,7 @@ substrate.
 
 **The tutorial IS the medium.** Per DESIGN §5 (gradient is
 conversation) + INSIGHTS L1291 (compound interest of self-reference):
-the tutorial doesn't teach about Inka — the tutorial IS Inka, with
+the tutorial doesn't teach about Mentl — the tutorial IS Mentl, with
 Mentl explaining the substrate as the developer manipulates it.
 
 ---
@@ -593,10 +593,10 @@ Mentl explaining the substrate as the developer manipulates it.
 Per CLAUDE.md + DESIGN.md §0.5 + Mentl's anchor. Eight per kernel
 primitive; exhaustive coverage; no skips.
 
-| # | Primitive | What `inka edit` exercises |
+| # | Primitive | What `mentl edit` exercises |
 |---|-----------|---------------------------|
 | 1 | **Graph + Env** (Query) | The IDE's every panel reads the graph through `GraphRead + EnvRead`. Topographic Canvas reads spans + types. HUD reads effect rows + ownership ledger. Wavefront reads Reason DAG via `graph_reason_edge`. Mentl voice panel reads via `voice_lines_for(situation)`. **No panel maintains its own state mirror; every render is a fresh graph projection.** |
-| 2 | **Handlers + resume discipline** (Propose) | The IDE's full surface IS one handler stack composition (§4). The Holographic Lens fires Synth's `@resume=MultiShot` ops (per `mentl.nx:92`); per DESIGN Ch 8 the speculative gradient loop is the IDE's load-bearing thesis demo. Every other handler arm in the chain is `@resume=OneShot`. |
+| 2 | **Handlers + resume discipline** (Propose) | The IDE's full surface IS one handler stack composition (§4). The Holographic Lens fires Synth's `@resume=MultiShot` ops (per `mentl.mn:92`); per DESIGN Ch 8 the speculative gradient loop is the IDE's load-bearing thesis demo. Every other handler arm in the chain is `@resume=OneShot`. |
 | 3 | **Five verbs** (Topology) | Topographic Canvas physically renders the verb topology via geometric lines. Layout enforcement at typing time (§2.1). The doc panel preserves `~>` chain canonical formatting per F.1 §3.4 + INSIGHTS L1932. |
 | 4 | **Boolean effect algebra** (Unlock) | Capability HUD's Unlock section IS the row-algebra engine made UX. Each row narrowing → capability light. `with !Mutate` + `with !Alloc` + `with !IO` + `with Pure` all directly visible as the four headline gates per DESIGN §3.4. |
 | 5 | **Ownership as effect** (Trace) | Capability HUD's ownership ledger renders `affine_ledger` state live. `own` parameters glow amber; consumed ones drain to gray. Trace tentacle voice panel surfaces consume-twice / ref-escape diagnostics with proven fixes. |
@@ -615,7 +615,7 @@ invention.
 - **Mode 1 (Rust vtable):** ✗ — every panel + handler is typed
   effect handler; no dispatch tables. Render handlers are peer
   handlers per F.1 §3.6. The Lens's MultiShot dispatch is per Synth
-  effect ops (per `mentl.nx:92`), not a vtable.
+  effect ops (per `mentl.mn:92`), not a vtable.
 - **Mode 4 (handler-chain-as-monad-transformer):** ✗ — `~>` chain is
   composition; each handler's row independent. No nested
   `handle(handle(...))`.
@@ -633,7 +633,7 @@ invention.
   as peer sub-handle (§9 sub-handles + §11 dependencies); no silent
   omission.
 - **Mascot-as-command-prefix (drift mode 38 per `tools/drift-patterns.tsv`):**
-  ✗ — `inka edit` is the command; Mentl is the voice the developer
+  ✗ — `mentl edit` is the command; Mentl is the voice the developer
   discovers when engaging. No `mentl <verb>` vocabulary anywhere
   per plan §42-50.
 - **OOP drift (mode 25):** ✗ — no class-based "Editor.update()" or
@@ -670,16 +670,16 @@ walkthrough specifies the full design; tracker carries gates.
 | **IE.voice** | Mentl voice panel render handler — composes `voice_lines_for(situation)` per cursor; renders 8 tentacles in canonical order |
 | **IE.doc** | Doc panel — composes F.1's `render_html` projection inline |
 | **IE.run** | Run pane — composes `compile_run` invocation via Interact's run_compile arm |
-| **IE.test** | Test pane — composes `test_run` invocation via Interact's run_check arm + `*_test.nx` discovery |
+| **IE.test** | Test pane — composes `test_run` invocation via Interact's run_check arm + `*_test.mn` discovery |
 | **IE.audit** | Audit pane — composes `audit_run` invocation via Interact's run_audit arm |
 | **IE.tree** | File tree — composes FX.B's 8 file ops |
 | **IE.lens** | Holographic Lens substrate — Synth fork enumeration + projection as ghost text + Tab-snap mechanic |
 | **IE.gradient** | Annotation gradient UX loop — keystroke → IC re-infer → HUD update → Topographic redraw → Lens fire → Mentl voice update; the substrate that orchestrates §5 |
 | **IE.tutorial** | Tutorial UI shell — first-encounter overlay; step-through controls; live-edit invitation; departs to working editor on `create_file` |
-| **IE.cli** | `inka edit [PROJECT_PATH] [--port=N]` entry-handler in `src/main.nx` per EH walkthrough |
-| **IE.transport** | HTTP/WebSocket transport substrate — composes on F.1.T's `http_serve` peer; adds WebSocket framing per LSP-frame substrate (lib/runtime/lsp_frame.nx already provides Content-Length JSON-RPC framing — IE composes the WS protocol on top per browser-WS conventions) |
+| **IE.cli** | `mentl edit [PROJECT_PATH] [--port=N]` entry-handler in `src/main.mn` per EH walkthrough |
+| **IE.transport** | HTTP/WebSocket transport substrate — composes on F.1.T's `http_serve` peer; adds WebSocket framing per LSP-frame substrate (lib/runtime/lsp_frame.mn already provides Content-Length JSON-RPC framing — IE composes the WS protocol on top per browser-WS conventions) |
 | **IE.refine** | DocPort + WSPath + ScreenPos refinement types for IE's own substrate per §3.5 of F.1 walkthrough discipline |
-| **IE.peer-share** | Multi-developer real-time co-edit peer handler (post-`inka edit`-ships extension); composes on the same edit_handler with conflict resolution as a handler swap |
+| **IE.peer-share** | Multi-developer real-time co-edit peer handler (post-`mentl edit`-ships extension); composes on the same edit_handler with conflict resolution as a handler swap |
 
 Each sub-handle is its own peer commit per Anchor 7. The plan
 tracker (`~/.claude/plans/alright-let-s-put-together-silly-nova.md`)
@@ -692,7 +692,7 @@ gates them per substrate dependency order.
 Ten acceptance tests; the IDE substrate is correct iff these render
 as specified. Modeled on MV §2.8 AT1-AT10 + F.1 §10 acceptance tests.
 
-**AT-IE.1 — First keystroke fires the substrate.** Open `inka edit`
+**AT-IE.1 — First keystroke fires the substrate.** Open `mentl edit`
 on an empty buffer; type `fn double(x) = x * 2`. Within 16ms: HUD
 shows `(Int) -> Int with Pure`; Topographic Canvas draws no pipe
 lines (single expression body); Mentl voice panel surfaces Query
@@ -732,54 +732,54 @@ Reason chain unfurled as a horizontal timeline. Each node is a
 binding step; click any node to jump the cursor to its source span.
 Walk back through the inference history.
 
-**AT-IE.8 — File watcher picks up external edits.** Open `inka
-edit` on a project. In a separate terminal, `vim src/graph.nx`;
+**AT-IE.8 — File watcher picks up external edits.** Open `mentl
+edit` on a project. In a separate terminal, `vim src/graph.mn`;
 edit; save. Within 100ms (file_watcher debounce + IC re-infer
 budget): the IDE's Topographic Canvas updates with the new content;
 Mentl voice panel re-renders; HUD re-narrows. **The text file is
 canonical; the IDE composes on it.**
 
-**AT-IE.9 — Tutorial completes; departs to editor.** Open `inka
+**AT-IE.9 — Tutorial completes; departs to editor.** Open `mentl
 edit` on a fresh URL. Tutorial overlay opens to 00-hello. Step
 through 00-hello, then 01-graph. At 02-handlers, click File menu →
-"Create file" → name it `experiment.nx`. The tutorial overlay
+"Create file" → name it `experiment.mn`. The tutorial overlay
 collapses; the buffer opens to the new empty file; Mentl narrates
 over the empty substrate (Teach tentacle: "Add a `fn main() = ...`
 to start").
 
 **AT-IE.10 — Capability stack proves IDE has no graph-write
 escape.** Install `~> read_only_edit` in the IDE chain at install
-time (verifiable via `inka check`). The IDE's `edit` arm is now
+time (verifiable via `mentl check`). The IDE's `edit` arm is now
 proven (by row subsumption) to fail at handler install — the
 `graph_bind` performs are no longer in the available row. **The
-sandbox is by type, not policy.** A developer can prove their `inka
+sandbox is by type, not policy.** A developer can prove their `mentl
 edit` instance cannot write the graph.
 
 ---
 
-## §11 What `inka edit` replaces (disintermediation map)
+## §11 What `mentl edit` replaces (disintermediation map)
 
 Per F.1 §11 disintermediation map shape. Each row is an external
-ecosystem `inka edit` makes architecturally uncompetitive.
+ecosystem `mentl edit` makes architecturally uncompetitive.
 
-| External system | What it does | What `inka edit` does instead |
+| External system | What it does | What `mentl edit` does instead |
 |-----------------|--------------|------------------------------|
-| VS Code (the editor) | Cross-language editor with extension API | `inka edit` is Inka-native; no extension API needed because every capability is a handler chain on Interact; LSP support via `inka lsp` for the developers who prefer VS Code |
+| VS Code (the editor) | Cross-language editor with extension API | `mentl edit` is Mentl-native; no extension API needed because every capability is a handler chain on Interact; LSP support via `mentl lsp` for the developers who prefer VS Code |
 | Cursor / Aider / Continue / GitHub Copilot Chat | LLM-augmented editors with chat / completion / diff | Holographic Lens projects MS-verified candidates as ghost text; Tab snaps; **every proposal is a proof, not a guess**; LLM hallucination surface is zero per CLAUDE.md AI obsolescence argument |
-| CodeSandbox / StackBlitz / Repl.it | Browser-based interactive coding for tutorials + demos | `inka edit` runs `inka.wasm` in-browser at 60fps; live substrate; Mentl narrates; tutorial UI shell + crucibles + `inka new` template all peer handlers |
-| Rust Playground / TypeScript Playground / Go Playground | Single-file playground with limited interactivity | `inka edit` is multi-file, full-project, with live Mentl voice + Holographic Lens + Capability HUD + Wavefront — substrate-cited at every step |
-| JetBrains IDEs | Full-featured IDE with deep language support | `inka edit` IS the medium's own surface — the substrate IS the IDE; not a layer over the language |
+| CodeSandbox / StackBlitz / Repl.it | Browser-based interactive coding for tutorials + demos | `mentl edit` runs `mentl.wasm` in-browser at 60fps; live substrate; Mentl narrates; tutorial UI shell + crucibles + `mentl new` template all peer handlers |
+| Rust Playground / TypeScript Playground / Go Playground | Single-file playground with limited interactivity | `mentl edit` is multi-file, full-project, with live Mentl voice + Holographic Lens + Capability HUD + Wavefront — substrate-cited at every step |
+| JetBrains IDEs | Full-featured IDE with deep language support | `mentl edit` IS the medium's own surface — the substrate IS the IDE; not a layer over the language |
 | Zed | Real-time collaborative editor with built-in AI | IE.peer-share peer handler enables real-time co-edit; Mentl is the AI surface and proven-not-guessed; substrate-cited collaboration |
-| Glitch / Bubble / Webflow | Visual / no-code build environments | `inka edit` IS visual programming in plain text per INSIGHTS L1932 — the geometry IS the program; tighter than visual builders because every shape is typed substrate |
+| Glitch / Bubble / Webflow | Visual / no-code build environments | `mentl edit` IS visual programming in plain text per INSIGHTS L1932 — the geometry IS the program; tighter than visual builders because every shape is typed substrate |
 | Figma + design-handoff tools | Visual design surface separate from code | IE.canvas's geometric pipe lines + HUD's effect-row visual + Wavefront's MS reality streaming = the design surface IS the program; no separate handoff |
 
-**The disintermediation claim:** when `inka edit` ships, **a
+**The disintermediation claim:** when `mentl edit` ships, **a
 developer's primary editor changes** — not because of marketing,
 because of mechanics. The Holographic Lens proves before it
 proposes; the HUD shows what every constraint unlocks; the
 Topographic Canvas physically draws the topology; Mentl narrates
 through eight tentacles per cursor. Every existing IDE asks the
-developer to imagine their program; `inka edit` shows it.
+developer to imagine their program; `mentl edit` shows it.
 
 ---
 
@@ -789,55 +789,55 @@ Per F.1 §13 file-order discipline. After §13 (substrate authorities)
 is satisfied, lands in this order. Each file is its own commit per
 Anchor 7. Walkthrough citation in commit body. Drift-audit clean.
 
-1. **`src/types.nx`** — IE-specific ADTs: `EditTarget` (TextBuffer |
+1. **`src/types.mn`** — IE-specific ADTs: `EditTarget` (TextBuffer |
    FileSystem | RemoteSession), `LensState`, `WavefrontFrame`,
    `HudFacet`, `Pane` (Run | Test | Audit), `TutorialStep`. ~50 lines.
-2. **`lib/runtime/websocket.nx`** — WebSocket transport on top of the
-   existing `lsp_frame` substrate (lib/runtime/lsp_frame.nx). Adds WS
+2. **`lib/runtime/websocket.mn`** — WebSocket transport on top of the
+   existing `lsp_frame` substrate (lib/runtime/lsp_frame.mn). Adds WS
    framing per browser-WS conventions; reuses Pack/Unpack +
    Content-Length pattern from LSP frame. ~80 lines.
-3. **`lib/edit/canvas.nx`** — IE.canvas Topographic Canvas render
+3. **`lib/edit/canvas.mn`** — IE.canvas Topographic Canvas render
    handler. Geometric pipe-line drawing; layout enforcement at
    typing; cursor-of-attention sync. ~250 lines.
-4. **`lib/edit/hud.nx`** — IE.hud Capability HUD render handler.
+4. **`lib/edit/hud.mn`** — IE.hud Capability HUD render handler.
    Live row + ownership ledger + capability unlocks + annotation
    gradient response. ~200 lines.
-5. **`lib/edit/wavefront.nx`** — IE.wavefront Reason DAG navigation
+5. **`lib/edit/wavefront.mn`** — IE.wavefront Reason DAG navigation
    + MultiShot reality streaming + time-travel scrub. ~250 lines.
-6. **`lib/edit/voice_panel.nx`** — IE.voice Mentl voice panel
+6. **`lib/edit/voice_panel.mn`** — IE.voice Mentl voice panel
    render. Composes `voice_lines_for(situation)` D.1.e LOWER LAYER
    per cursor. ~150 lines.
-7. **`lib/edit/lens.nx`** — IE.lens Holographic Lens substrate.
+7. **`lib/edit/lens.mn`** — IE.lens Holographic Lens substrate.
    Synth fork enumeration; projection as ghost text; Tab-snap
    mechanic. ~300 lines.
-8. **`lib/edit/gradient_loop.nx`** — IE.gradient annotation gradient
+8. **`lib/edit/gradient_loop.mn`** — IE.gradient annotation gradient
    UX loop orchestrator. Keystroke → IC re-infer → HUD update →
    Topographic redraw → Lens fire → Mentl voice update. ~150 lines.
-9. **`lib/edit/panes.nx`** — IE.run + IE.test + IE.audit panes.
+9. **`lib/edit/panes.mn`** — IE.run + IE.test + IE.audit panes.
    Composes on Interact's run_compile / run_check / run_audit arms.
    ~200 lines.
-10. **`lib/edit/tree.nx`** — IE.tree file tree render handler.
+10. **`lib/edit/tree.mn`** — IE.tree file tree render handler.
     Composes FX.B's 8 file ops. ~100 lines.
-11. **`lib/edit/doc_panel.nx`** — IE.doc doc panel. Composes F.1's
+11. **`lib/edit/doc_panel.mn`** — IE.doc doc panel. Composes F.1's
     `render_html` projection inline. ~80 lines.
-12. **`lib/edit/tutorial_shell.nx`** — IE.tutorial first-encounter
+12. **`lib/edit/tutorial_shell.mn`** — IE.tutorial first-encounter
     overlay. Step-through controls; live-edit invitation; departs
     to working editor on `create_file`. ~250 lines.
-13. **`lib/edit/handler.nx`** — IE.session `edit_handler` + entry
+13. **`lib/edit/handler.mn`** — IE.session `edit_handler` + entry
     fn `inka_edit_session`; intercepts gestures; pushes WebSocket
     updates on graph_mutated / synth_progress; composes the full
     handler chain (§4). ~300 lines.
-14. **`src/main.nx`** — IE.cli `inka edit [PROJECT_PATH] [--port=N]`
+14. **`src/main.mn`** — IE.cli `mentl edit [PROJECT_PATH] [--port=N]`
     entry-handler dispatch. ~30 lines.
-15. **`lib/edit/static_assets.nx`** — IE static HTML/CSS/JS shell
+15. **`lib/edit/static_assets.mn`** — IE static HTML/CSS/JS shell
     that the browser loads as the WebSocket client. CSS canonical
-    (Inka-styled, single theme); minimal JS for WebSocket round-trip
-    + DOM manipulation; the substrate logic ALL lives in `inka.wasm`
+    (Mentl-styled, single theme); minimal JS for WebSocket round-trip
+    + DOM manipulation; the substrate logic ALL lives in `mentl.wasm`
     via the WebSocket transport. ~400 lines (HTML/CSS/JS combined).
 
-**Total:** ~2790 lines `.nx` + ~400 lines static assets across 15
+**Total:** ~2790 lines `.mn` + ~400 lines static assets across 15
 commits. Comparable to the FX + MV-LSP arcs combined; commensurate
-with `inka edit` being the medium's primary surface.
+with `mentl edit` being the medium's primary surface.
 
 **Substrate dependencies (cited per substrate-honesty discipline):**
 
@@ -855,17 +855,17 @@ substrates:
 - B.5 AM arena_ms (replay_safe / fork_deny / fork_copy) — Lens's MS captures use replay_safe
 - IC.3 per-module overlay separation — every keystroke per-module re-infer
 - Synth handler chain — synth_enumerative + synth_smt per DESIGN §8
-- A.1 BT linker → first-light-L1 — `inka.wasm` runs in-browser at 60fps requires self-hosted compile
+- A.1 BT linker → first-light-L1 — `mentl.wasm` runs in-browser at 60fps requires self-hosted compile
 - WebAssembly + WASI-browser shims (wasmtime-web or peer) — runtime container
 
 ---
 
-## §13 What `inka edit` does NOT cover
+## §13 What `mentl edit` does NOT cover
 
-- **Cross-IDE collaboration with non-Inka users.** Per the
+- **Cross-IDE collaboration with non-Mentl users.** Per the
   text-files-canonical discipline (§1.6): files on disk are the
-  source of truth; non-Inka users edit them in their preferred
-  tool; `inka edit` picks up changes via file_watcher. No cross-IDE
+  source of truth; non-Mentl users edit them in their preferred
+  tool; `mentl edit` picks up changes via file_watcher. No cross-IDE
   protocol; the filesystem IS the protocol.
 - **Real-time multi-developer co-edit in v1.** IE.peer-share peer
   handler is a named sub-handle (§9) that lands when needed; the
@@ -880,14 +880,14 @@ substrates:
 - **Native desktop wrapper.** Tauri / Electron / wails wrappers are
   peer transports that compose on the same `edit_handler`; not in
   IE's primary scope.
-- **Cross-language polyglot editing.** `inka edit` is Inka-native.
+- **Cross-language polyglot editing.** `mentl edit` is Mentl-native.
   TypeScript / Rust / Python files in the project are visible as
   text in the file tree but Mentl doesn't narrate over them (no
   substrate to read). Per the medium discipline: the IDE's surface
   is the substrate's projection; foreign languages have no graph
   here.
 - **The web IDE's URL hosting / deployment / CI / monitoring.**
-  Operational concerns; the substrate ships as `inka edit`; how a
+  Operational concerns; the substrate ships as `mentl edit`; how a
   hosting provider serves it is operational discipline orthogonal
   to the substrate.
 - **JSDoc / JavaDoc / Sphinx extensions.** Per F.1 §14 + plan §1697:
@@ -899,7 +899,7 @@ substrates:
 
 ---
 
-## §14 What closes when `inka edit` lands
+## §14 What closes when `mentl edit` lands
 
 After IE.0 + IE.session + IE.canvas + IE.hud + IE.wavefront +
 IE.voice + IE.lens + IE.gradient + IE.doc + IE.run + IE.test +
@@ -914,7 +914,7 @@ IE.static_assets all land:
 2. **The medium reaches developers at their browsers.** A URL is
    the install. Mentl narrates the first keystroke. The tutorial
    shell teaches the eight primitives via live substrate. Within
-   minutes of first encounter, a developer is writing Inka code
+   minutes of first encounter, a developer is writing Mentl code
    with the substrate visible.
 3. **The realization loop closes for editor-time** per insight #11
    + insight #12. Every keystroke fires IC re-infer + oracle
@@ -950,15 +950,15 @@ IE.static_assets all land:
    narrating.
 
 This walkthrough designs the canonical surface where developers
-discover Inka. Per CLAUDE.md anchor: Mentl is the voice that reads
-the graph. `inka edit` is where that voice reaches its primary
+discover Mentl. Per CLAUDE.md anchor: Mentl is the voice that reads
+the graph. `mentl edit` is where that voice reaches its primary
 audience — every developer with a browser and an idea.
 
 ---
 
 ## §15 Connection to the kernel
 
-Per CLAUDE.md / DESIGN.md §0.5 — `inka edit` composes from the eight
+Per CLAUDE.md / DESIGN.md §0.5 — `mentl edit` composes from the eight
 primitives; nothing extends the kernel; per insight #13 (kernel
 closure 2026-04-24): the next phase is composition not invention.
 
@@ -993,17 +993,17 @@ Each panel + handler + arm cites which primitive it exercises:
   navigable. Tutorial files are runnable substrate that Mentl
   narrates over per Primitive #7 (gradient).
 
-**Mentl tentacle mapping.** `inka edit` IS Mentl's primary surface
+**Mentl tentacle mapping.** `mentl edit` IS Mentl's primary surface
 — eight tentacles projected per cursor. Every other transport
 (LSP, terminal, batch CLI) is a peer surface for the developers who
-prefer them. `inka edit` is canonical because the
+prefer them. `mentl edit` is canonical because the
 browser-holographic-live transport is the medium's most expressive
 form.
 
 ---
 
-*Inka solves Inka. The medium reads itself through itself. Mentl is
-the voice; `inka edit` is where she reaches developers; the
+*Mentl solves Mentl. The medium reads itself through itself. Mentl is
+the voice; `mentl edit` is where she reaches developers; the
 substrate is what she shows them. Eight primitives, eight tentacles,
 one kernel, one graph, one editor.*
 

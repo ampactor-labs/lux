@@ -1,7 +1,7 @@
 # E_ReplayExhausted
 
 **Kind:** Error
-**Emitted by:** `clock.nx` (replay handlers — `clock_replay`, `tick_replay`)
+**Emitted by:** `clock.mn` (replay handlers — `clock_replay`, `tick_replay`)
 **Applicability:** MaybeIncorrect
 
 ## Summary
@@ -12,7 +12,7 @@ recording covers.
 
 ## Why it matters
 
-Record + replay is how Inka delivers deterministic time-travel
+Record + replay is how Mentl delivers deterministic time-travel
 debugging: `clock_record` captures every `clock_now()` value into a
 trace; `clock_replay(trace)` feeds those values back in order. When
 replay outruns the trace, the handler has nothing to feed — which

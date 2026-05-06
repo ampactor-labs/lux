@@ -2,7 +2,7 @@
   ;; Executes: Hβ-infer-substrate.md §3 + §11 acceptance — TInt × TInt
   ;;           ground-match success path. $unify on two NBound(TInt)
   ;;           handles is a no-op in the canonical algorithm
-  ;;           (src/infer.nx:1051 + 1062 + 1190 + 1183) — both handles
+  ;;           (src/infer.mn:1051 + 1062 + 1190 + 1183) — both handles
   ;;           remain NBound(TInt); $expect_same's $same_ground arm
   ;;           returns 1 and falls through to ().
   ;; Exercises: unify.wat — $unify $unify_types $expect_same $same_ground

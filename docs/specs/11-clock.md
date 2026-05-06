@@ -1,7 +1,7 @@
 # 11 — Clock: time as a first-class effect family
 
 **Purpose.** Time is the effect the industry cannot get right.
-Inka makes it first-class: Clock / Tick / Sample / Deadline as peer
+Mentl makes it first-class: Clock / Tick / Sample / Deadline as peer
 effects, each with its own capability negation (`!Clock`, `!Tick`,
 `!Deadline`), each with a default handler and a test/record/replay
 handler family. Every compilation gate that depends on determinism,
@@ -148,7 +148,7 @@ The four constraints together prove:
 - `Deadline` — budgeted; compile-time check if the compiler can bound
   operation count.
 
-This is what DSP has been trying to express for decades. Inka does it
+This is what DSP has been trying to express for decades. Mentl does it
 as a consequence of the existing effect algebra.
 
 ---
@@ -241,7 +241,7 @@ doesn't provide at least 1ms, `E_RefinementRejected`.
   compose as needed.
 - **Time as a primitive, not an effect.** Hardcodes it; no test
   clock, no record/replay, no deadline handler swap. Every valuable
-  timing capability in Inka comes FROM the effect status.
+  timing capability in Mentl comes FROM the effect status.
 - **Deadline as a refinement on Clock rather than its own effect.**
   Real-time guarantees aren't about reading time; they're about
   completion budgets. Orthogonal capability.

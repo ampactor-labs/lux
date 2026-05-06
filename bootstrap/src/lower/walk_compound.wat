@@ -2,7 +2,7 @@
   ;; Hβ.lower cascade chunk #9 of 11 per Hβ-lower-substrate.md §12.3 dep order.
   ;;
   ;; What this chunk IS (per Hβ-lower-substrate.md §4.2 lines 369-461 +
-  ;;                     src/lower.nx:344-461 lower_expr_body compound arms):
+  ;;                     src/lower.mn:344-461 lower_expr_body compound arms):
   ;;   Ten compound-Expr arms — the recursion sites where the kernel's
   ;;   primitive #1 graph carries source TypeHandles through into LowExpr
   ;;   records (LMakeList/LMakeTuple/LMakeRecord/LMakeVariant/LIf/LBlock/
@@ -23,15 +23,15 @@
   ;;   ten tag arms (per chunk #8 Lock #10 two-file precedent).
   ;;
   ;; Implements: Hβ-lower-substrate.md §4.2 + §6.3 + §11 + §12.3 #9;
-  ;;             src/lower.nx:344-345 UnaryOpExpr arm;
-  ;;             src/lower.nx:369-372 IfExpr arm (Lock #10);
-  ;;             src/lower.nx:374-380 BlockExpr arm (Lock #2);
-  ;;             src/lower.nx:382-383 MatchExpr arm (Lock #3);
-  ;;             src/lower.nx:385-389 MakeList/MakeTuple arms;
-  ;;             src/lower.nx:391-399 MakeRecord/NamedRecord arms (Lock #5+#6);
-  ;;             src/lower.nx:401-428 LambdaExpr arm (Lock #1+#11);
-  ;;             src/lower.nx:450-461 FieldExpr arm (Lock #4);
-  ;;             src/lower.nx:1063-1068 lower_record_field_values.
+  ;;             src/lower.mn:344-345 UnaryOpExpr arm;
+  ;;             src/lower.mn:369-372 IfExpr arm (Lock #10);
+  ;;             src/lower.mn:374-380 BlockExpr arm (Lock #2);
+  ;;             src/lower.mn:382-383 MatchExpr arm (Lock #3);
+  ;;             src/lower.mn:385-389 MakeList/MakeTuple arms;
+  ;;             src/lower.mn:391-399 MakeRecord/NamedRecord arms (Lock #5+#6);
+  ;;             src/lower.mn:401-428 LambdaExpr arm (Lock #1+#11);
+  ;;             src/lower.mn:450-461 FieldExpr arm (Lock #4);
+  ;;             src/lower.mn:1063-1068 lower_record_field_values.
   ;; Exports:    $lower_binop,
   ;;             $lower_unary_op,
   ;;             $lower_lambda,
@@ -62,7 +62,7 @@
   ;; ═══ LOCKS (wheel-canonical override walkthrough §4.2 prose) ════════
   ;;
   ;; Lock #1: LambdaExpr seed defaults — caps=empty, evs=empty, fn=0.
-  ;;          Wheel src/lower.nx:411-417 calls collect_free_vars +
+  ;;          Wheel src/lower.mn:411-417 calls collect_free_vars +
   ;;          resolve_captures_outer + ls_enter_frame/ls_exit_frame —
   ;;          NONE of which exist at the seed (state.wat exposes only
   ;;          ls_bind_local/ls_lookup_local/ls_lookup_or_capture/
@@ -76,7 +76,7 @@
   ;;          ls_enter_frame/ls_exit_frame + LFn ADT all converge.
   ;;
   ;; Lock #2: BlockExpr seed lowers final_expr ONLY; stmts list empty.
-  ;;          Wheel src/lower.nx:374-380 lowers stmts via lower_stmt_list +
+  ;;          Wheel src/lower.mn:374-380 lowers stmts via lower_stmt_list +
   ;;          appends final via [lo_final]. $lower_stmt lands at chunk #10;
   ;;          BlockExpr's stmts (parser_compound.wat:130-137 wraps each as
   ;;          nstmt(mk_ExprStmt(...))) require chunk-#10 dispatcher. Seed
@@ -87,7 +87,7 @@
   ;;          NOT silent stub.
   ;;
   ;; Lock #3: MatchExpr seed lowers scrut ONLY; arms list empty. Wheel
-  ;;          src/lower.nx:382-383 calls lower_match_arms which calls
+  ;;          src/lower.mn:382-383 calls lower_match_arms which calls
   ;;          bind_pat_locals + lower_pat + ls_push_scope/ls_pop_scope —
   ;;          NONE of which exist at the seed. LowPat ADT opaque per
   ;;          lexpr.wat:570 lvalue-lowfn-lpat-substrate follow-up. Seed
@@ -96,20 +96,20 @@
   ;;          parity.
   ;;
   ;; Lock #4: FieldExpr offset is sentinel 0 at seed. Wheel
-  ;;          src/lower.nx:457-460 + 525-552 calls resolve_field_offset
+  ;;          src/lower.mn:457-460 + 525-552 calls resolve_field_offset
   ;;          which walks TRecord fields via lookup_ty + structural
   ;;          accessor. ty.wat exposes $ty_tag + $ty_tfun_row +
   ;;          $ty_tcont_discipline (per lookup.wat) but NOT
   ;;          $ty_trecord_fields list-walker at the lower layer. Seed
   ;;          emits LFieldLoad(h, lo_rec, 0) — matches wheel's
-  ;;          src/lower.nx:543 `_ => 0` fallback (which fires when
+  ;;          src/lower.mn:543 `_ => 0` fallback (which fires when
   ;;          lookup returns non-record type). Named follow-up
   ;;          Hβ.lower.field-offset-resolution covers full
   ;;          field-byte-offset arithmetic when ty.wat exposes
   ;;          structural record-fields walker.
   ;;
   ;; Lock #5: NamedRecordExpr (tag 99) collapses to MakeRecord per H2.3.
-  ;;          Wheel src/lower.nx:394-399: nominal records lower
+  ;;          Wheel src/lower.mn:394-399: nominal records lower
   ;;          identically to bare record literals — type identity is
   ;;          type-system-only; runtime sees raw fields. type_name
   ;;          preserved in AST for diagnostics ONLY (drift-8 audit:
@@ -120,7 +120,7 @@
   ;;
   ;; Lock #6: MakeRecordExpr fields list lowered via per-field value
   ;;          extraction (record_get offset 4 of pair-record), NOT
-  ;;          $lower_expr_list. Per wheel src/lower.nx:391-392 +
+  ;;          $lower_expr_list. Per wheel src/lower.mn:391-392 +
   ;;          1063-1068 lower_record_field_values. Each fields-list
   ;;          element is a `(name, value)` pair-record with alphabetical
   ;;          Ω.5 layout (name=offset 0, value=offset 4). Drift 7
@@ -159,8 +159,8 @@
   ;;          constructor landing.
   ;;
   ;; Lock #10: IfExpr branches are SINGLE-ELEMENT lists — [lo_then],
-  ;;           [lo_else]. Per wheel src/lower.nx:369-372 canonical.
-  ;;           lexpr.wat:455-467 LIf field 2/3 are List per src/lower.nx:121
+  ;;           [lo_else]. Per wheel src/lower.mn:369-372 canonical.
+  ;;           lexpr.wat:455-467 LIf field 2/3 are List per src/lower.mn:121
   ;;           LIf(Int, LowExpr, List, List) — current parser_compound.wat:
   ;;           163-188 already handles `if cond { block }` by recursing into
   ;;           parse_block (producing a BlockExpr); IfExpr's then_e/else_e
@@ -259,7 +259,7 @@
   ;;                                  NOT silent stubs.
   ;;
   ;; - Foreign fluency JS async/await: NEVER "promise" / "async" / "future"
-  ;;                                  / "await". Vocabulary stays Inka.
+  ;;                                  / "await". Vocabulary stays Mentl.
   ;;
   ;; - Foreign fluency Scheme call/cc: NEVER "captured stack" /
   ;;                                  "undelimited."
@@ -272,7 +272,7 @@
   ;; ═══ Named follow-ups (Drift 9 closure) ═══════════════════════════════
   ;;
   ;;   - Hβ.lower.lambda-capture-substrate:
-  ;;             Wheel src/lower.nx:411-417 collect_free_vars +
+  ;;             Wheel src/lower.mn:411-417 collect_free_vars +
   ;;             resolve_captures_outer + ls_enter_frame + ls_exit_frame
   ;;             + LFn ADT all converge as one peer landing. Replaces
   ;;             Lock #1+#11 stubs with full closure-capture cash-out.
@@ -291,7 +291,7 @@
   ;;             Per Lock #4. ty.wat structural record-fields walker
   ;;             ($ty_trecord_fields + $ty_trecord_open_fields) lands;
   ;;             $resolve_field_offset becomes a real walk per
-  ;;             src/lower.nx:525-552.
+  ;;             src/lower.mn:525-552.
   ;;
   ;;   - Hβ.lower.compound-mk-constructors:
   ;;             Per Lock #9. parser_compound.wat (or parser_infra.wat)
@@ -310,7 +310,7 @@
   ;;             Future Expr-region growth lands additional arms.
 
   ;; ─── $lower_record_field_values — chunk-private (Lock #6) ──────────
-  ;; Per src/lower.nx:1063-1068 lower_record_field_values. Each fields-list
+  ;; Per src/lower.mn:1063-1068 lower_record_field_values. Each fields-list
   ;; element is a `(name, value)` pair-record with alphabetical Ω.5 layout
   ;; (name=offset 0, value=offset 4); extract value + recursively $lower_expr.
   ;; Buffer-counter (Ω.3). Sort-order = layout-order; ONE lowered list.
@@ -334,7 +334,7 @@
     (local.get $buf))
 
   ;; ─── $lower_expr_list_compound — chunk-private buffer-counter helper ─
-  ;; Per src/lower.nx:1055-1057 lower_expr_list. Same shape as walk_call's
+  ;; Per src/lower.mn:1055-1057 lower_expr_list. Same shape as walk_call's
   ;; $lower_args; chunk-private until third caller emerges.
   (func $lower_expr_list_compound (param $nodes i32) (result i32)
     (local $n i32) (local $i i32) (local $buf i32)
@@ -593,7 +593,7 @@
     (local.get $buf))
 
   ;; ─── $lower_binop — BinOpExpr arm (parser tag 86) ──────────────────
-  ;; Per src/lower.nx:341-342: BinOpExpr(op, left, right) =>
+  ;; Per src/lower.mn:341-342: BinOpExpr(op, left, right) =>
   ;;   LBinOp(handle, op, lower_expr(left), lower_expr(right)).
   ;; AST per parser_infra.wat:101-107:
   ;;   [tag=86][op][left_node][right_node] offsets 0/4/8/12.
@@ -601,7 +601,7 @@
   ;; parser_infra.wat:26 — same nullary-sentinel discipline as
   ;; ResumeDiscipline 250-252; $tag_of(op) returns 140-153 by heap-base
   ;; threshold). Lock-closure for Hβ.lower.binop-arm named follow-up
-  ;; surfaced at chunk #9 landing — the wheel src/lower.nx places this
+  ;; surfaced at chunk #9 landing — the wheel src/lower.mn places this
   ;; arm in lower_expr_body alongside UnaryOp; the seed honors the
   ;; pairing here at walk_compound (the §7.1 walkthrough's "walk_const
   ;; owns BinOp" was prose drift; wheel canonical pairs binop+unaryop
@@ -625,10 +625,10 @@
       (local.get $lo_r)))
 
   ;; ─── $lower_unary_op — UnaryOpExpr arm (parser tag 87) ──────────────
-  ;; Per src/lower.nx:344-345: UnaryOpExpr(op, inner) =>
+  ;; Per src/lower.mn:344-345: UnaryOpExpr(op, inner) =>
   ;;   LUnaryOp(handle, op, lower_expr(inner)).
   ;; AST per Lock #9: [tag=87][op][inner_node] offsets 0/4/8 — op is
-  ;; UnaryOp ADT i32 sentinel (UNeg=160 / UNot=161) per src/types.nx
+  ;; UnaryOp ADT i32 sentinel (UNeg=160 / UNot=161) per src/types.mn
   ;; UnaryOp ADT in 160-179 region. Drift 8 refusal: integer-tag
   ;; sentinel, NOT string-keyed.
   (func $lower_unary_op (export "lower_unary_op") (param $node i32) (result i32)
@@ -646,7 +646,7 @@
       (local.get $lo_inner)))
 
   ;; ─── $lower_if — IfExpr arm (parser tag 90) ──────────────────────────
-  ;; Per src/lower.nx:369-372 + Lock #10: each branch is single-element
+  ;; Per src/lower.mn:369-372 + Lock #10: each branch is single-element
   ;; list [lo_branch]. AST per parser_infra.wat:119-125:
   ;;   [tag=90][cond_node][then_node][else_node] offsets 0/4/8/12.
   (func $lower_if (export "lower_if") (param $node i32) (result i32)
@@ -677,7 +677,7 @@
       (local.get $else_branch)))
 
   ;; ─── $lower_block — BlockExpr arm (parser tag 91) ────────────────────
-  ;; Per src/lower.nx:374-380 + Lock #2 (seed lowers final_expr only).
+  ;; Per src/lower.mn:374-380 + Lock #2 (seed lowers final_expr only).
   ;; AST per parser_infra.wat:128-133:
   ;;   [tag=91][stmts_list][final_expr_node] offsets 0/4/8.
   (func $lower_block (export "lower_block") (param $node i32) (result i32)
@@ -712,7 +712,7 @@
       (local.get $stmts)))
 
   ;; ─── $lower_match — MatchExpr arm (parser tag 92) ────────────────────
-  ;; Per src/lower.nx:382-383 + Lock #3 (seed arms list empty pending
+  ;; Per src/lower.mn:382-383 + Lock #3 (seed arms list empty pending
   ;; pattern substrate). AST per parser_infra.wat:136-141:
   ;;   [tag=92][scrut_node][arms_list] offsets 0/4/8.
   (func $lower_match (export "lower_match") (param $node i32) (result i32)
@@ -733,7 +733,7 @@
       (local.get $arms)))
 
   ;; ─── $lower_make_list — MakeListExpr arm (parser tag 96) ─────────────
-  ;; Per src/lower.nx:385-386: MakeListExpr(elems) =>
+  ;; Per src/lower.mn:385-386: MakeListExpr(elems) =>
   ;;   LMakeList(handle, lower_expr_list(elems)).
   ;; AST per parser_compound.wat:77-81: [tag=96][elems_list] offsets 0/4.
   (func $lower_make_list (export "lower_make_list") (param $node i32) (result i32)
@@ -749,7 +749,7 @@
       (local.get $lo_elems)))
 
   ;; ─── $lower_make_tuple — MakeTupleExpr arm (parser tag 97) ───────────
-  ;; Per src/lower.nx:388-389: MakeTupleExpr(elems) =>
+  ;; Per src/lower.mn:388-389: MakeTupleExpr(elems) =>
   ;;   LMakeTuple(handle, lower_expr_list(elems)).
   ;; AST per parser_compound.wat:70-74: [tag=97][elems_list] offsets 0/4.
   (func $lower_make_tuple (export "lower_make_tuple") (param $node i32) (result i32)
@@ -765,7 +765,7 @@
       (local.get $lo_elems)))
 
   ;; ─── $lower_make_record — MakeRecordExpr arm (parser tag 98) ─────────
-  ;; Per src/lower.nx:391-392 + Lock #6: MakeRecordExpr(fields) =>
+  ;; Per src/lower.mn:391-392 + Lock #6: MakeRecordExpr(fields) =>
   ;;   LMakeRecord(handle, lower_record_field_values(fields)).
   ;; AST per Lock #9: [tag=98][fields_list] offsets 0/4. Each fields-list
   ;; element is pair-record (name=0, value=4) per Lock #6.
@@ -782,7 +782,7 @@
       (local.get $lo_fields)))
 
   ;; ─── $lower_named_record — NamedRecordExpr arm (parser tag 99) ───────
-  ;; Per src/lower.nx:394-399 + Lock #5 (H2.3 collapse — type_name discarded
+  ;; Per src/lower.mn:394-399 + Lock #5 (H2.3 collapse — type_name discarded
   ;; at lower-time; runtime sees raw fields). AST per Lock #9:
   ;;   [tag=99][type_name_str][fields_list] offsets 0/4/8.
   (func $lower_named_record (export "lower_named_record") (param $node i32) (result i32)
@@ -800,7 +800,7 @@
       (local.get $lo_fields)))
 
   ;; ─── $lower_field — FieldExpr arm (parser tag 100) ───────────────────
-  ;; Per src/lower.nx:450-461 + Lock #4 (offset sentinel 0 at seed pending
+  ;; Per src/lower.mn:450-461 + Lock #4 (offset sentinel 0 at seed pending
   ;; ty.wat record-fields walker). AST per Lock #9:
   ;;   [tag=100][rec_node][field_name_str] offsets 0/4/8.
   ;; field_name_str THREADED but NOT COMPARED (drift-8 closure).
@@ -813,7 +813,7 @@
     (local.set $rec_node     (i32.load offset=4 (local.get $field_struct)))
     (local.set $lo_rec       (call $lower_expr (local.get $rec_node)))
     ;; Lock #4: offset sentinel 0 — ty.wat structural record-fields walker
-    ;; not yet exposed at lower layer; matches wheel src/lower.nx:543
+    ;; not yet exposed at lower layer; matches wheel src/lower.mn:543
     ;; non-record-type fallback semantics.
     (call $lexpr_make_lfieldload
       (local.get $h)
@@ -821,7 +821,7 @@
       (i32.const 0)))
 
   ;; ─── $lower_lambda — LambdaExpr arm (parser tag 89) ──────────────────
-  ;; Per src/lower.nx:402-428 + H.2.e lambda-capture-substrate.
+  ;; Per src/lower.mn:402-428 + H.2.e lambda-capture-substrate.
   ;;
   ;; Pipeline (mirrors wheel canonical):
   ;;   1. Snapshot captures-ledger length BEFORE body walk.

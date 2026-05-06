@@ -103,7 +103,7 @@
       (i32.add (global.get $verify_ledger_len_g) (i32.const 1))))
 
   ;; $verify_pending_count — number of pending obligations in the ledger.
-  ;; Used by query / diagnostic surfaces (`inka check` reports the
+  ;; Used by query / diagnostic surfaces (`mentl check` reports the
   ;; V_Pending count; B.6 verify_smt swap reduces this by discharging
   ;; ground obligations).
   (func $verify_pending_count (result i32)

@@ -11,7 +11,7 @@
   ;;     0 = TailResumptive  →  direct (call $h_op ...) — zero indirection
   ;;                            per H1 evidence reification + spec 05 §Handler
   ;;                            elimination "OneShot-typed arms become direct
-  ;;                            call". The 85% case in self-hosted Inka
+  ;;                            call". The 85% case in self-hosted Mentl
   ;;                            (per spec 05 + H1 §1.2).
   ;;     1 = Linear          →  state machine — per-perform-site state ordinal +
   ;;                            saved locals; same shape as MultiShot but with
@@ -41,7 +41,7 @@
   ;;             §11 lock — $either_strategy returns Linear (1) per the
   ;;             Either-discipline seed default ("Linear (1) when handler
   ;;             body's static check can't classify TailResumptive. Per
-  ;;             src/lower.nx classify_handler precedent" — line 922).
+  ;;             src/lower.mn classify_handler precedent" — line 922).
   ;; Exports:    $classify_handler,
   ;;             $is_tail_resumptive,
   ;;             $either_strategy
@@ -175,7 +175,7 @@
   ;;                                       stub. The structural body-walk
   ;;                                       enrichment is named follow-up
   ;;                                       Hβ.lower.tail-resumptive-discrimination
-  ;;                                       (per the wheel src/lower.nx 1284-line
+  ;;                                       (per the wheel src/lower.mn 1284-line
   ;;                                       inventory: the wheel itself does
   ;;                                       NOT yet implement TailResumptive
   ;;                                       discrimination — handler arms lower
@@ -199,7 +199,7 @@
   ;;
   ;; - Foreign fluency — backend enums:    Strategy codes 0/1/2 are NOT a
   ;;                                       generic "calling convention" enum
-  ;;                                       (LLVM/GHC). Vocabulary stays Inka:
+  ;;                                       (LLVM/GHC). Vocabulary stays Mentl:
   ;;                                       TailResumptive / Linear / MultiShot
   ;;                                       per spec 05 §Handler elimination.
   ;;
@@ -222,7 +222,7 @@
   ;;                              stays 1 (Linear). Lands when:
   ;;                                (a) chunk #8 walk_handle.wat has lowered
   ;;                                    handler arm bodies to LowExpr trees;
-  ;;                                (b) the wheel src/lower.nx grows the
+  ;;                                (b) the wheel src/lower.mn grows the
   ;;                                    canonical structural-body-walk
   ;;                                    classifier per Anchor 4 (the seed
   ;;                                    follows the wheel; the wheel hasn't
@@ -264,7 +264,7 @@
   ;; ADT extended without retrofitting this dispatcher).
   ;;
   ;; Dispatch order matches expected frequency per spec 05 + H1 + H7:
-  ;; OneShot first (>85% case in self-hosted Inka per spec 05 §Handler
+  ;; OneShot first (>85% case in self-hosted Mentl per spec 05 §Handler
   ;; elimination); MultiShot second (Mentl hot path per insight #11);
   ;; Either third (rare; install-time negotiation).
   (func $classify_handler (export "classify_handler")
@@ -309,7 +309,7 @@
   ;; Linear (1) — checking every ResumeExpr in the handler arm body is
   ;; in tail position — is named-follow-up substrate. Reasoning:
   ;;
-  ;;   1. The wheel src/lower.nx (full 1284-line inventory) does NOT
+  ;;   1. The wheel src/lower.mn (full 1284-line inventory) does NOT
   ;;      yet implement TailResumptive discrimination. The wheel's
   ;;      lower_handler_arms_as_decls lowers ALL handler arms via the
   ;;      same path: LDeclareFn entries at module level + emit-time
@@ -337,7 +337,7 @@
   ;; ─── $either_strategy — Either-discipline strategy chooser ────────
   ;; Per Hβ-lower-substrate.md §11 line 922 + line 950 walkthrough lock:
   ;; "Linear (1) when handler body's static check can't classify
-  ;; TailResumptive. Per src/lower.nx classify_handler precedent."
+  ;; TailResumptive. Per src/lower.mn classify_handler precedent."
   ;;
   ;; Seed default: returns 1 (Linear) unconditionally. Future enrichment
   ;; under named follow-up Hβ.lower.either-install-negotiation.

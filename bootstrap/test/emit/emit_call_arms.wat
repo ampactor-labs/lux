@@ -3,7 +3,7 @@
   ;; SUBSTRATE.md §I "Duty of Inference is Reification" (three resume
   ;; disciplines on one substrate). 6-phase byte-comparison over the
   ;; call family; UnaryOp ADT integer-tag dispatch (UNeg=160 / UNot=161
-  ;; per src/types.nx) substrate-honesty proven; LIndex's $list_index /
+  ;; per src/types.mn) substrate-honesty proven; LIndex's $list_index /
   ;; $byte_at substrate-correct dispatch proven (vs wheel's flat-
   ;; arithmetic drift).
   ;;

@@ -1,0 +1,100 @@
+// crucible_dsp.mn — real-time audio proves !Alloc transitive (C.3)
+//
+// Per CRU walkthrough §1a: a stereo audio callback at 48 kHz with a
+// multi-stage effects chain compiles with `!Alloc` propagated
+// transitively through every library call. Per the kernel's effect
+// negation algebra (INSIGHTS L302+ + L1806+): `!Alloc` proves
+// ABSENCE — every callee in the transitive call graph must also
+// be `!Alloc`, otherwise compile error.
+//
+// This crucible is THE test of "real-time DSP without GC drama" —
+// the JUCE / Faust / SuperCollider domain that other languages
+// can't typed-prove. Mentl's effect row algebra makes the proof
+// mechanical.
+//
+// Authority: CRU walkthrough §1a + DM-dsp-ml-rewrite.md §1 (Ultimate
+// DSP) + INSIGHTS §"Allocation IS an Effect" L347+ + §"Effect Negation"
+// L1806+ + §"The Effect Algebra: What No Other Language Has" L302
+
+import types
+
+/// Sample — refined Float per the DSP substrate. -1.0 ≤ self ≤ 1.0
+/// is the canonical audio-sample range; refinement at construction
+/// site catches out-of-range values at compile time when constants;
+/// runtime when computed.
+
+type Sample = Float where -1.0 <= self && self <= 1.0
+
+/// gain — pure multiplication; `!Alloc` trivially (no heap touch).
+/// First stage of the chain. Ratio is unconstrained Float (clipping
+/// happens in soft_clip downstream).
+
+fn gain(s: Sample, ratio: Float) -> Sample with !Alloc =
+  s * ratio
+
+/// soft_clip — saturating soft-knee compression; pure math, no
+/// allocation. Maps any Float to Sample-refined range.
+
+fn soft_clip(s: Float) -> Sample with !Alloc =
+  if      s >  1.0 { 1.0 }
+  else if s < -1.0 { -1.0 }
+  else             { s }
+
+/// hard_limit — instant peak limiter at threshold. Pure; no alloc.
+
+fn hard_limit(s: Sample, threshold: Float) -> Sample with !Alloc =
+  if      s >  threshold { threshold }
+  else if s < -threshold { -threshold }
+  else                   { s }
+
+/// process_sample — the hot-path callback per audio frame.
+/// Composes gain → soft_clip → hard_limit via |> chain. The whole
+/// chain is `!Alloc` because every callee is; the row algebra
+/// proves this transitively at compile time.
+
+fn process_sample(s: Sample) -> Sample with !Alloc =
+  s |> gain(0.7) |> soft_clip |> hard_limit(0.95)
+
+/// process_stereo — process L+R independently per frame. Returns
+/// tuple; tuple construction in Mentl is value-level, not heap-
+/// allocated for primitive types per the substrate.
+
+fn process_stereo(left: Sample, right: Sample) -> (Sample, Sample) with !Alloc =
+  (process_sample(left), process_sample(right))
+
+// ─── Acceptance criteria (per CRU §1a + plan C.3) ────────────────────
+//
+// 1. `mentl check crucibles/crucible_dsp.mn` passes.
+// 2. `!Alloc` row subsumption succeeds for every fn — no `Alloc`
+//    in the transitive call graph.
+// 3. Compiled output via `mentl run crucibles/crucible_dsp.mn`
+//    produces a wasm module where `wasm-objdump` shows ZERO
+//    `$alloc` call sites reachable from process_sample or
+//    process_stereo.
+// 4. Refinement on Sample type discharges at construction sites
+//    (constants -1.0 ≤ k ≤ 1.0 pass; out-of-range produce
+//    V_Pending → E_RefinementRejected at compile time when
+//    decidable).
+// 5. The stereo callback could plausibly run at 48 kHz × 2 channels
+//    = 96 kHz sample rate with bounded per-sample time (no GC,
+//    no heap pressure).
+//
+// Fails meaningfully if:
+// - Any DSP primitive (gain, soft_clip, hard_limit) accidentally
+//   performs Alloc (e.g., via tuple construction, list literal,
+//   string concatenation in a debug print)
+// - The Sample refinement doesn't compose with `!Alloc` (refinement
+//   discharge at compile time is supposed to be runtime-erased per
+//   primitive #6 — should not allocate)
+// - The |> chain lowers to per-stage allocations (verb #1 should
+//   be a wire per INSIGHTS L1729 — no splatting allocations)
+// - Tuple construction in process_stereo allocates (per kernel
+//   crystallization #8 + #9 — primitive tuples are value-level
+//   for register-passable types like (Sample, Sample) which is
+//   essentially (Float, Float))
+//
+// Disintermediation: passes this crucible mechanically and the JUCE
+// / Faust / SuperCollider domains' "we don't allocate in the
+// callback" cultural discipline becomes a substrate proof. C++ has
+// no equivalent; the discipline is enforced by code review there.
+// In Mentl the type system enforces it.

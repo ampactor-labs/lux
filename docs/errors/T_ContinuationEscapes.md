@@ -13,7 +13,7 @@ is applied.
 
 ## Why it matters
 
-This is Inka's open research contribution. Affect
+This is Mentl's open research contribution. Affect
 POPL 2025 gives the type machinery (one-shot vs. multi-shot at the
 type level); spec 02's `TCont(ret, discipline)` carries it. Arc F.4
 resolves the runtime semantics. Until then, Mentl surfaces

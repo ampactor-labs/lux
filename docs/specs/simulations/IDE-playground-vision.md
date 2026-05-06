@@ -1,6 +1,6 @@
 # UI/IDE Playground Vision: The Deterministic Holograph
 
-> *This document captures the post-first-light vision for the Inka interactive Web Playground and the ultimate Mentl UX.*
+> *This document captures the post-first-light vision for the Mentl interactive Web Playground and the ultimate Mentl UX.*
 
 ## 1. The Mentl Interface: Deterministic Holography
 
@@ -26,9 +26,9 @@ If you write `fn process(data) with !Mutate`, you mathematically prove to Mentl 
 
 ---
 
-## 2. The Inka Web Playground: Synchronizing the 8 Tentacles
+## 2. The Mentl Web Playground: Synchronizing the 8 Tentacles
 
-A custom Web Playground is the uncompromised manifestation of Inka's algebraic medium. Because the Inka compiler is self-hosted, pure, and compiles to WASM, the playground runs natively in the browser at 60fps. The compiler runs synchronously with every keystroke, rendering the Graph directly to the DOM.
+A custom Web Playground is the uncompromised manifestation of Mentl's algebraic medium. Because the Mentl compiler is self-hosted, pure, and compiles to WASM, the playground runs natively in the browser at 60fps. The compiler runs synchronously with every keystroke, rendering the Graph directly to the DOM.
 
 ### The Three Visual Layers
 1. **The Topographic Canvas (Center):** The text editor with faint geometric lines physically connecting `|>` and `<|` pipelines.

@@ -15,7 +15,7 @@
   ;; The dispatcher ($lower_expr over Expr tags 80-101) lands at chunk #11
   ;; main.wat — this chunk ONLY owns the per-variant arm bodies.
   ;;
-  ;; Wheel canonical: src/lower.nx lines 296-339 (lower_expr + lower_expr_body
+  ;; Wheel canonical: src/lower.mn lines 296-339 (lower_expr + lower_expr_body
   ;; literal + VarRef arms), 309-315 (LitBool → LMakeVariant per HB),
   ;; 318-339 (VarRef → RLocal/RUpval/RGlobal triage), 96-150 (LowExpr ADT).
   ;;
@@ -26,7 +26,7 @@
   ;;            EXTENDED by Lock #2.0 (Hβ.first-light.nullary-ctor-call-context):
   ;;            $env_binding_kind ConstructorScheme + nullary scheme Ty
   ;;            short-circuits to LMakeVariant(h, tag_id, []) BEFORE local
-  ;;            triage. Wheel parity src/lower.nx:333-337.
+  ;;            triage. Wheel parity src/lower.mn:333-337.
   ;;   Lock #3  LitBool → LMakeVariant(h, b, []) — NOT $lexpr_make_lconst.
   ;;   Lock #4  LowValue is opaque i32; no LowValue wrapper today.
   ;;   Lock #5  LitFloat/LitUnit arms land this commit; harnesses deferred to
@@ -145,7 +145,7 @@
   ;;                                No "pending" placeholder arms.
   ;;
   ;; - Foreign fluency — LLVM/GHC:  NO "constant folding", NO "literal pool",
-  ;;                                NO "SSA value". Vocabulary stays Inka.
+  ;;                                NO "SSA value". Vocabulary stays Mentl.
   ;;
   ;; Named follow-ups (per Drift 9 + Hβ-lower-substrate.md §11):
   ;;
@@ -167,7 +167,7 @@
   ;;                              ctor-call-context). $lower_var_ref dispatches
   ;;                              env-binding SchemeKind FIRST: nullary
   ;;                              ConstructorScheme → LMakeVariant(h, tag_id, [])
-  ;;                              short-circuit (matches wheel src/lower.nx:
+  ;;                              short-circuit (matches wheel src/lower.mn:
   ;;                              333-337 RGlobal-with-ConstructorScheme arm).
   ;;                              N-ary ctor + EffectOpScheme dispatch named
   ;;                              as peer follow-up Hβ.lower.unsaturated-ctor /
@@ -210,7 +210,7 @@
     (i32.load offset=4 (local.get $expr)))
 
   ;; ─── $lower_lit_int — tag 80 → LConst(handle, value) tag 300 ─────────
-  ;; Per src/lower.nx:296-307 lower_expr_body LitInt arm + Lock #4 (LowValue
+  ;; Per src/lower.mn:296-307 lower_expr_body LitInt arm + Lock #4 (LowValue
   ;; is opaque i32 today — the raw integer is passed through directly to
   ;; LConst field 1). Avoids Drift 6 (no special-case for int vs other lit).
   (func $lower_lit_int (export "lower_lit_int") (param $node i32) (result i32)
@@ -221,7 +221,7 @@
       (call $walk_const_payload_i32 (local.get $node))))
 
   ;; ─── $lower_lit_float — tag 81 → LConst(handle, raw_f32_bits) tag 300 ─
-  ;; Per src/lower.nx:296-307 lower_expr_body literal fallthrough +
+  ;; Per src/lower.mn:296-307 lower_expr_body literal fallthrough +
   ;; Lock #4 (LowValue opaque i32). Identical body to $lower_lit_int;
   ;; variant distinction handled by chunk #11's tag-80 vs tag-81 dispatch.
   ;; Avoids Lock #5 drift-9: arm lands even without a harness today
@@ -232,7 +232,7 @@
       (call $walk_const_payload_i32 (local.get $node))))
 
   ;; ─── $lower_lit_string — tag 82 → LConst(handle, str_ptr) tag 300 ─────
-  ;; Per src/lower.nx:296-307 lower_expr_body + Lock #4. str_ptr from the
+  ;; Per src/lower.mn:296-307 lower_expr_body + Lock #4. str_ptr from the
   ;; AST payload is passed as the LConst value field directly.
   ;; Avoids Drift 8: no string-keyed dispatch here — tag-82 at chunk #11.
   (func $lower_lit_string (export "lower_lit_string") (param $node i32) (result i32)
@@ -241,7 +241,7 @@
       (call $walk_const_payload_i32 (local.get $node))))
 
   ;; ─── $lower_lit_bool — tag 83 → LMakeVariant(handle, b, []) tag 319 ───
-  ;; Per src/lower.nx:309-315 LitBool arm + Lock #3 (HB drift-6 closure).
+  ;; Per src/lower.mn:309-315 LitBool arm + Lock #3 (HB drift-6 closure).
   ;; LitBool(b) → LMakeVariant(handle, tag=b, args=[]) where b is 0 (False)
   ;; or 1 (True). The AST payload IS the tag_id (0 or 1); passed directly
   ;; to $lexpr_make_lmakevariant field 1.
@@ -259,7 +259,7 @@
       (call $make_list (i32.const 0))))                    ;; empty args list
 
   ;; ─── $lower_lit_unit — tag 84 → LConst(handle, 0) tag 300 ──────────────
-  ;; Per src/lower.nx:296-307 + Lock #4 + Lock #5. Unit sentinel 0 is in
+  ;; Per src/lower.mn:296-307 + Lock #4 + Lock #5. Unit sentinel 0 is in
   ;; [0, HEAP_BASE) — the standard nullary-sentinel discipline (same as
   ;; TInt/TFloat at ty.wat:100-101). Passed as opaque i32 directly.
   ;; Arm lands this commit; harness deferred to Hβ.lower.litfloat-litunit-harness.
@@ -270,7 +270,7 @@
       (i32.const 0)))    ;; unit sentinel — zero in [0, HEAP_BASE)
 
   ;; ─── $lower_var_ref — tag 85 → LLocal/LUpval/LGlobal triage ────────────
-  ;; Per src/lower.nx:318-339 VarRef arm + Locks #1 + #2.
+  ;; Per src/lower.mn:318-339 VarRef arm + Locks #1 + #2.
   ;;
   ;; Discrimination order (Lock #2):
   ;;   1. $ls_lookup_local(name): >= 0 → local slot; emit LLocal(local_h, name)
@@ -307,7 +307,7 @@
     (local.set $h    (call $walk_expr_node_handle  (local.get $node)))
     ;; Lock #2.0 (Hβ.first-light.nullary-ctor-call-context): env-binding
     ;; SchemeKind dispatch FIRST. Nullary ConstructorScheme short-circuits
-    ;; to LMakeVariant(h, tag_id, []) per wheel src/lower.nx:333-337.
+    ;; to LMakeVariant(h, tag_id, []) per wheel src/lower.mn:333-337.
     ;; Nullary detection: ctor's scheme body Ty is TName(_, []) (tag 108) —
     ;; N-ary ctor schemes are TFun (tag 107) per walk_stmt.wat:847-860.
     ;; Avoids Drift 6 (Bool not special — Bool's True/False register as

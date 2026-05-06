@@ -8,7 +8,7 @@
 > games / verification / debugging / compiler / graphics / physics
 > / finance / agents / language design), Mentl's oracle substrate,
 > the emergent topology (frameworks dissolved, cross-domain fusions
-> only Inka can express), and the drift risks MS introduces.
+> only Mentl can express), and the drift risks MS introduces.
 >
 > *Claim in one sentence:* **MultiShot is the kernel's temporal
 > axis. Composed with the other seven primitives, it produces a
@@ -86,7 +86,7 @@ rollback is per-monad and composition is manual. Koka has typed
 row-polymorphic effects with MS support but no Boolean algebra —
 no `!Choice`, no negation, no Verify discharge integrated with the
 resume discipline. Affect (POPL 2025) gives the typed-resume-as-
-part-of-op-signature result formally; Inka is the first production
+part-of-op-signature result formally; Mentl is the first production
 medium to compose it with the other seven primitives.
 
 ---
@@ -468,7 +468,7 @@ inference** in full: prior × likelihood × posterior, all as MS
 handlers on a `Probabilistic` effect.
 
 Stan, PyMC, Edward, Pyro, Turing.jl — each is a separate ecosystem
-in industry. In Inka, ONE kernel + three handlers covers all of
+in industry. In Mentl, ONE kernel + three handlers covers all of
 them. The user writes the model; handler swap chooses the
 inference algorithm.
 
@@ -476,7 +476,7 @@ inference algorithm.
 
 **Hyperparameter search:** MS over hyperparam lattice (learning
 rate, batch size, model depth); each fork trains; best wins.
-Industry pays for Weights-and-Biases, Ray Tune, Optuna; Inka
+Industry pays for Weights-and-Biases, Ray Tune, Optuna; Mentl
 absorbs them as `handler hyperparam_sweep with tried = []`.
 
 **Meta-learning** (MAML, Reptile): MS inside the training loop
@@ -496,7 +496,7 @@ MS × `Choice` × `Verify` composed directly.
 **Federated learning:** §1.3.3 above.
 
 PyTorch, TensorFlow, JAX, HuggingFace — each is a handler stack
-in Inka; swap one for another by handler installation.
+in Mentl; swap one for another by handler installation.
 
 ### 2.4 Parser combinators & logic programming
 
@@ -510,10 +510,10 @@ strategy; **GLR** when MS genuinely forks on ambiguity.
 `perform unify(a, b)` for the graph's unify primitive, `perform
 cut()` for cut (a OneShot `Abort` that forecloses backtracking).
 CLP(FD) adds refinement + Verify. **miniKanren** is MS + `Choice`
-+ continuations with ~20-line reimplementation in Inka. **Datalog**
++ continuations with ~20-line reimplementation in Mentl. **Datalog**
 is MS + fixed-point (primitive #8's one-walk inference generalized).
 
-Each of these is today a separate language or library; Inka
+Each of these is today a separate language or library; Mentl
 expresses them in the common kernel.
 
 ### 2.5 Distributed systems
@@ -526,7 +526,7 @@ IS the result delivery. **Cross-wire** the continuation itself:
 the receiver can checkpoint, execute a subroutine, and resume the
 caller with a reified return value. **Delimited continuations as
 the distributed computing primitive** was Felleisen's research
-direction; Inka ships it.
+direction; Mentl ships it.
 
 **Consensus** (Raft, Paxos): MS over proposal orderings; quorum
 handler commits on proposal acceptance; rollback on rejection.
@@ -535,7 +535,7 @@ handler commits on proposal acceptance; rollback on rejection.
 **Reactive UI / optimistic updates:** MS captures the current UI
 state; optimistic update applies the patch; on server disagreement,
 rollback and apply server's authoritative state. React, Vue, Solid
-all hand-roll this; Inka's MS + trail substrate makes it a `~>
+all hand-roll this; Mentl's MS + trail substrate makes it a `~>
 optimistic(server)` one-liner.
 
 **Event sourcing:** MS replay of the event log; `perform replay`
@@ -567,7 +567,7 @@ pure brute force because Verify prunes early.
 **MCTS** (Monte Carlo Tree Search, AlphaZero-style): MS over game
 tree; per-node resume disciplines (selection/expansion/simulation/
 backprop) each as handlers; neural net policy is `~> nn_policy`
-outermost. The full AlphaZero substrate in ~100 lines of Inka.
+outermost. The full AlphaZero substrate in ~100 lines of Mentl.
 
 **Undo/redo:** trail rollback IS undo; forward-replay IS redo.
 Per-user-action checkpoint. Mid-document rollback is surgical
@@ -589,7 +589,7 @@ Verify discharges "does this subset still fail?"; MS shrinks to
 minimal failing subset. Git bisect generalized.
 
 **Regression triangulation:** MS over commit bisection with proof
-at each commit point. When Inka's incremental compilation lands,
+at each commit point. When Mentl's incremental compilation lands,
 bisection replays only affected modules; bisect is sub-linear.
 
 ### 2.9 Compiler self-improvement
@@ -611,8 +611,8 @@ The compiler optimizes itself against its own crucibles (CRU).
 
 **Language extension:** MS over candidate new primitives; Verify
 checks "does this primitive compose with the existing eight?" The
-primitive either commits (kernel extends) or rolls back. Inka
-designs Inka — §4 below.
+primitive either commits (kernel extends) or rolls back. Mentl
+designs Mentl — §4 below.
 
 ### 2.10 Graphics & physics
 
@@ -662,7 +662,7 @@ handler mediating.
 Verify discharges: "does candidate-primitive-9 compose with the
 existing eight? Does every interrogation still apply? Does every
 domain still reduce?" Only composition-preserving candidates
-commit. **Inka designs itself.**
+commit. **Mentl designs itself.**
 
 **DSL embedding:** any DSL (SQL, LaTeX, shader language, regex) is
 an `~>` handler chain. The DSL is a row of effects; the handler
@@ -721,10 +721,10 @@ Per MO walkthrough. Six primitives compose:
 - #7 (Gradient): surfaces the winner as "one highest-leverage step."
 - #8 (Reason): the winner's chain becomes the provenance.
 
-**Unique to Inka** because no other language composes all six as
+**Unique to Mentl** because no other language composes all six as
 primitives. Koka has #2 but not #6 integrated with #7. Haskell
 has #2 via CPS but no typed row algebra. Dafny / Lean have #6 + #8
-but no MS. Inka is the first to compose the full substrate.
+but no MS. Mentl is the first to compose the full substrate.
 
 ### 3.4 Voice selection from survivors
 
@@ -747,7 +747,7 @@ per handler chain, a property no LLM can offer.
 
 ### 4.1 Frameworks dissolved (the expanded list)
 
-| Industry framework | Inka form | Lines saved |
+| Industry framework | Mentl form | Lines saved |
 |--------------------|-----------|-------------|
 | PyTorch (autodiff) | `Compute` effect + tape/direct handlers (§2.3) | ∼100k |
 | Stan (MCMC) | `Sample` effect + MH/HMC/NUTS handlers (§2.2) | ∼50k |
@@ -768,9 +768,9 @@ per handler chain, a property no LLM can offer.
 **Each row is an ecosystem.** Each ecosystem collapses into a
 handler stack on the one kernel. The "lines saved" column is rough
 but illustrative: the cumulative industry investment in these
-dissolves into Inka's composition.
+dissolves into Mentl's composition.
 
-### 4.2 Cross-domain fusions only Inka can express
+### 4.2 Cross-domain fusions only Mentl can express
 
 These are compositions that no existing language supports because
 no existing language has the full kernel:
@@ -801,7 +801,7 @@ no existing language has the full kernel:
   under `!Alloc` via replay-safe MS; hard-realtime search. ~70
   lines.
 
-**Each cross-domain fusion is ~30-80 lines in Inka; thousands in
+**Each cross-domain fusion is ~30-80 lines in Mentl; thousands in
 the combined libraries it replaces.** The medium's reach
 determines the programmer's reach.
 
@@ -822,7 +822,7 @@ that the new primitive composes. Specifically:
 
 **Only candidates that compose with the existing eight can commit
 to the kernel.** The kernel's soundness is preserved by its own
-Verify substrate. Inka is the first language to have a
+Verify substrate. Mentl is the first language to have a
 self-verifying kernel-design mechanism.
 
 Drift-risk: adding a "ninth primitive" is seductive; the
@@ -845,7 +845,7 @@ semantics?"; commit iff verified. This is the substrate for:
 
 The forbidden shape: **self-modification without Verify**. That's
 drift mode 6 (primitive-special-case disguised as metaprogramming).
-Inka does not support unchecked self-modification; it supports
+Mentl does not support unchecked self-modification; it supports
 Verify-discharged self-modification. Structural, not permissive.
 
 ---
@@ -909,11 +909,11 @@ Foreign-language vocabulary for MS, each foreclosed:
 - **JS/TS:** "async function\*," "yield, resume, next." Drift mode
   24. Effects are typed, not keyword-coded.
 - **C++:** "coroutines," "co_await," "co_yield." Drift mode 23.
-  Inka's MS is closure + trail, not a language keyword on each
+  Mentl's MS is closure + trail, not a language keyword on each
   call site.
 
 If the word that comes to mind is from another language's MS
-story, STOP. Use Inka's vocabulary (resume discipline, MS arm,
+story, STOP. Use Mentl's vocabulary (resume discipline, MS arm,
 speculative fork, trail rollback). The vocabulary IS the
 substrate discipline.
 
@@ -921,7 +921,7 @@ substrate discipline.
 
 **Temptation:** "generate-and-test."
 
-**Reality:** Inka's claim is "the compiler verifies; the proposer
+**Reality:** Mentl's claim is "the compiler verifies; the proposer
 proposes." Returning unverified candidates turns Mentl into a
 better-formatted LLM, which is exactly what she must not be.
 
@@ -1004,11 +1004,11 @@ MS; only on commit does the queue flush.
 Per `lib/tutorial/` (roadmap tutorial lane), MS is taught across the
 eight primitives' tutorial files. The canonical ordering:
 
-1. **02-handlers.nx** introduces OneShot resume — `handle/resume`
+1. **02-handlers.mn** introduces OneShot resume — `handle/resume`
    replaces exceptions, state, DI, generators.
-2. **03-verbs.nx** introduces the five verbs; no MS yet.
-3. **04-row.nx** introduces effect algebra; no MS yet.
-4. **(new) 02b-multishot.nx** introduces MS as a typed resume
+2. **03-verbs.mn** introduces the five verbs; no MS yet.
+3. **04-row.mn** introduces effect algebra; no MS yet.
+4. **(new) 02b-multishot.mn** introduces MS as a typed resume
    discipline. Example: N-queens in 15 lines with `Choice +
    Fail`. One primitive (#2), one op (`Choice.choose`), one
    effect (MS), N realities.
@@ -1048,7 +1048,7 @@ substrate work lives in:
 
 - **MO-mentl-oracle-loop.md** — the oracle loop's compile-time
   contract.
-- **CRU-crucibles.md** — `crucibles/crucible_oracle.nx` as the
+- **CRU-crucibles.md** — `crucibles/crucible_oracle.mn` as the
   fitness test.
 - **H5-mentl-arms.md** — the Mentl-arms substrate.
 - **LF-feedback-lowering.md** — `<~` substrate (needed for §1.3.5).
@@ -1082,7 +1082,7 @@ and Verify but no effects, no MS, no ownership-as-effect. Affect
 (POPL 2025) has the typed resume discipline but is a research
 calculus, not a production medium.
 
-**Inka is the first medium where:**
+**Mentl is the first medium where:**
 - Every domain has a substrate (the graph + handlers + MS).
 - Every proposal is Verify-discharged (the oracle doesn't
   hallucinate).
@@ -1149,8 +1149,8 @@ claim; each earns its own crucible.*
 provable exploration. The compiler IS the AI not as metaphor but
 as mechanism.*
 
-**Inka is not a language that happens to support multi-shot
-continuations. Inka is a medium whose temporal axis IS multi-shot
+**Mentl is not a language that happens to support multi-shot
+continuations. Mentl is a medium whose temporal axis IS multi-shot
 continuations — and because the other seven primitives compose
 with it coherently, the medium reaches every domain where
 exploration, speculation, rollback, or fork appears. Which is

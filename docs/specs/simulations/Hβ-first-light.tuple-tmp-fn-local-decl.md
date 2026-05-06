@@ -49,8 +49,8 @@ fn-local-decl. `Hβ.first-light.nullary-ctor-call-context` (closed
 
 ### 0.2 Empirical reproduction (verbatim §A.1 evidence)
 
-Per the inka-implementer §A pre-audit gate, the bug reproduces against
-HEAD seed (`bootstrap/inka.wasm`):
+Per the mentl-implementer §A pre-audit gate, the bug reproduces against
+HEAD seed (`bootstrap/mentl.wasm`):
 
 Input program:
 ```
@@ -299,9 +299,9 @@ tracked, not deferred-by-omission:
 | Gate | Action |
 |---|---|
 | **E.1** (primary) | Run §A.1's reproduction: emit a `$pair` body whose preamble contains `(local $tuple_tmp i32)` exactly once; `wat2wasm /tmp/v_pt.wat -o /tmp/v_pt.wasm` succeeds with NO `undefined local variable "$tuple_tmp"` errors. |
-| **E.2** (L1 regression baseline) | HEAD self-bootstrap candidate-diagnostic count (`undefined local variable "$tuple_tmp"`) BEFORE fix recorded. Post-fix count must be ZERO. Other `undefined local variable` instances (other names) must NOT increase. Specifically `cat $(find /home/suds/Projects/inka/src -name '*.nx' \| sort) $(find /home/suds/Projects/inka/lib -name '*.nx' \| sort) \| wasmtime run /home/suds/Projects/inka/bootstrap/inka.wasm > /tmp/inka2.wat 2>/tmp/inka2.err; wat2wasm /tmp/inka2.wat -o /tmp/inka2.wasm 2>&1 \| grep -c 'undefined local variable "\$tuple_tmp"'` returns 0. |
-| **E.3** (drift) | `bash /home/suds/Projects/inka/tools/drift-audit.sh /home/suds/Projects/inka/bootstrap/src/emit/main.wat` clean (zero matches for any of the named drift modes 1-9). |
-| **E.4** (existing harnesses) | `bash /home/suds/Projects/inka/bootstrap/test.sh` — all currently-passing harnesses pass post-fix; specifically `bootstrap/test/emit/main_inka_emit_smoke.wat` + `bootstrap/test/emit/emit_const_make_arms.wat` + `bootstrap/test/emit/match_arm_pat_binding_local_decl.wat` still PASS. The new harness `bootstrap/test/emit/tuple_tmp_fn_local_decl.wat` PASSes. |
+| **E.2** (L1 regression baseline) | HEAD self-bootstrap candidate-diagnostic count (`undefined local variable "$tuple_tmp"`) BEFORE fix recorded. Post-fix count must be ZERO. Other `undefined local variable` instances (other names) must NOT increase. Specifically `cat $(find /home/suds/Projects/mentl/src -name '*.mn' \| sort) $(find /home/suds/Projects/mentl/lib -name '*.mn' \| sort) \| wasmtime run /home/suds/Projects/mentl/bootstrap/mentl.wasm > /tmp/inka2.wat 2>/tmp/inka2.err; wat2wasm /tmp/inka2.wat -o /tmp/inka2.wasm 2>&1 \| grep -c 'undefined local variable "\$tuple_tmp"'` returns 0. |
+| **E.3** (drift) | `bash /home/suds/Projects/mentl/tools/drift-audit.sh /home/suds/Projects/mentl/bootstrap/src/emit/main.wat` clean (zero matches for any of the named drift modes 1-9). |
+| **E.4** (existing harnesses) | `bash /home/suds/Projects/mentl/bootstrap/test.sh` — all currently-passing harnesses pass post-fix; specifically `bootstrap/test/emit/main_inka_emit_smoke.wat` + `bootstrap/test/emit/emit_const_make_arms.wat` + `bootstrap/test/emit/match_arm_pat_binding_local_decl.wat` still PASS. The new harness `bootstrap/test/emit/tuple_tmp_fn_local_decl.wat` PASSes. |
 | **E.5** (self-bootstrap delta) | Post-fix: `wat2wasm /tmp/inka2.wat -o /tmp/inka2.wasm 2>&1 \| grep -c 'undefined local variable "\$tuple_tmp"'` returns 0 (was ≥ 1 pre-fix for any wheel file that uses tuples). |
 
 ---
@@ -328,7 +328,7 @@ tracked, not deferred-by-omission:
   canonical preamble form; no V1 to bridge.
 - **Anchor 7** (cascade discipline; walkthrough first; land whole) —
   this walkthrough lands FIRST, in its own commit, then substrate +
-  harness in a second commit per `inka-implementer` dispatch §D order.
+  harness in a second commit per `mentl-implementer` dispatch §D order.
   Three instances (`tuple_tmp` + `record_tmp` + `variant_tmp` all in
   `$emit_standard_locals`) earn the symmetry pattern.
 
@@ -348,6 +348,6 @@ This handle closes when:
    citing both commits (named follow-up for next planner cycle, NOT
    authored under THIS dispatch).
 
-Per the `inka-implementer` contract, this dispatch lands two commits
+Per the `mentl-implementer` contract, this dispatch lands two commits
 (walkthrough, substrate); the empirical closure addendum is the named
 follow-up for the next planner cycle.

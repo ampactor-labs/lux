@@ -16,7 +16,7 @@
   ;;               at-emit-time per Anchor 1; emit reads it live.
   ;;   Handler?    Direct calls to $emit_lconst (seed Tier-6 base; @resume=
   ;;               OneShot at the wheel — single-pass emission per
-  ;;               src/backends/wasm.nx LConst arm shape).
+  ;;               src/backends/wasm.mn LConst arm shape).
   ;;   Verb?       N/A — sequential per-phase setup + emit.
   ;;   Row?        EfPure for $lookup_ty (read-only); EmitMemory side-
   ;;               effect on $out_base/$out_pos via $emit_byte. The harness

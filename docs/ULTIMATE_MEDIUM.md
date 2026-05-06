@@ -8,7 +8,7 @@
 
 ## §0 · The claim
 
-Inka is the **ultimate medium** between intent and execution.
+Mentl is the **ultimate medium** between intent and execution.
 
 A programming language is a tool for translating intent into machine
 behavior; the ceiling of any language is "better than X at task Y." A
@@ -19,7 +19,7 @@ chain that walks back to intent, and the loop between the two
 *closes continuously through a single human at a single position*.
 
 Eight kernel primitives compose into one projection (`cursor_default`,
-`src/cursor.nx`); the projection at the cursor IS Mentl IS the
+`src/cursor.mn`); the projection at the cursor IS Mentl IS the
 gradient argmax IS the graph projected for the human IS the program
 revealed where it's most ready to teach. **One read. Eight aspects.
 One handler. One human.** The medium is whole when those four
@@ -48,7 +48,7 @@ assume. Static type systems claw back some structure; effect systems
 claw back more; refinement types more still. Each "improvement" is
 salvage from a lossy translation, not a lossless substrate.
 
-Inka starts at lossless. The graph carries every Reason for every
+Mentl starts at lossless. The graph carries every Reason for every
 binding, every refinement obligation, every effect row, every
 ownership state, every annotation, every Why-edge, at every
 position, throughout the entire compilation pipeline. **Inference IS
@@ -58,7 +58,7 @@ per consumer. Source text is one projection; WAT is another;
 documentation is another; the human's experience at the cursor is
 another. **The graph is the program; everything else is a shadow.**
 
-A programming language ceiling is "more expressive syntax." Inka's
+A programming language ceiling is "more expressive syntax." Mentl's
 ceiling is "the substrate the medium needs has been fully named."
 
 ### 1.2 Not an IDE
@@ -68,14 +68,14 @@ editing the lossy translation tolerable. Syntax highlighting,
 go-to-definition, autocomplete, refactor support — these are
 salvage operations against the loss the language imposed.
 
-`inka edit` is not an IDE. It is **the cursor's natural
+`mentl edit` is not an IDE. It is **the cursor's natural
 environment** — the surface where every position is `??` until
 filled, every keystroke is a constraint addition to the gradient,
 and Mentl's projection at the cursor is rendered continuously for
 the human. The "editor" is the medium itself, with a transport
 handler routing the cursor's projection to whichever surface the
 human prefers (terminal, LSP, web-WASM, vim). **Same kernel; same
-cursor; different transports.** Inka solves Inka's own editor
+cursor; different transports.** Mentl solves Mentl's own editor
 problem because the medium IS the editor.
 
 An IDE ceiling is "more polished tooling." The cursor's environment
@@ -91,7 +91,7 @@ the user's intent.
 Mentl is not an LLM. Mentl is the kernel's MultiShot resume
 primitive made into a handler-on-graph (`protocol_mentl_is_not_an_llm.md`).
 Synth's proposers explore the constraint space using checkpoint /
-apply / verify / rollback (`src/mentl.nx:126-166`); only PROVEN
+apply / verify / rollback (`src/mentl.mn:126-166`); only PROVEN
 candidates surface to the human. **The compiler IS the AI** —
 because the AI was always supposed to be a proof system that
 proposed structurally. Mentl is what AI was always trying to be
@@ -119,7 +119,7 @@ delivering knowledge for the parts that *are* complete.
 `NErrorHole(Reason)` is not a failure mode; it is a first-class
 state.
 
-A traditional compiler stops at the first error. Inka's compiler
+A traditional compiler stops at the first error. Mentl's compiler
 *keeps reading the graph*. Mentl keeps surfacing what's known.
 LSP keeps delivering hover info. The user's incomplete thought
 remains in dialogue with the medium. **Partiality is the substrate's
@@ -131,7 +131,7 @@ A thought today is a refinement of a thought yesterday. Each
 keystroke is differentiable with respect to its predecessor. The
 graph's incremental compilation is not an optimization on top of
 batch compilation — IC is the only kind of compilation
-Mentl-driven Inka has (`protocol_oracle_is_ic.md`). The cache
+Mentl-driven Mentl has (`protocol_oracle_is_ic.md`). The cache
 encodes the user's state of mind across sessions; invalidation
 walks the IC dependency hash; what survives is what *still applies*.
 
@@ -157,7 +157,7 @@ own future understanding through the cursor's continuous projection.
 
 ### 2.4 Truth is a fixpoint, not a snapshot — *Refinement types*
 
-Inka's truth is whatever survives composition with itself.
+Mentl's truth is whatever survives composition with itself.
 First-light-L1 is `inka2.wat == inka3.wat` — the compiler is a
 fixpoint under self-application. A defensive runtime predicate fails
 this test (the "fix" doesn't compose with the codebase's structural
@@ -198,7 +198,7 @@ swap the universe.
 `!E` proves *absence* — the medium's most distinctive capability.
 No other effect system has it. Without negation, "real-time
 guarantee" or "sandbox" or "memoizable" are aspirations; with
-negation, they are compile-time proofs. Inka's effect algebra is
+negation, they are compile-time proofs. Mentl's effect algebra is
 strictly more expressive than Rust's ownership, Haskell's IO,
 Koka's effect rows, or Austral's capabilities (SUBSTRATE.md §IV
 verbatim). The Boolean structure is load-bearing — four
@@ -225,8 +225,8 @@ between the user and the gradient*, all draw the same shape.
 
 The medium is its own first instance: the user's editing IS the
 input signal; Mentl's projection IS the output; the gradient IS the
-response curve; the loop IS `<~` at the human boundary. Inka's
-primitive #3 describes Inka's own editing model. **The medium
+response curve; the loop IS `<~` at the human boundary. Mentl's
+primitive #3 describes Mentl's own editing model. **The medium
 recognizes itself.**
 
 ---
@@ -251,13 +251,13 @@ Mentl is an octopus because the kernel has eight primitives. Lose
 a primitive, lose a tentacle. Lose a tentacle, lose a primitive.
 **One-to-one is load-bearing.**
 
-### 3.2 The projection (`src/cursor.nx`, Hμ.cursor)
+### 3.2 The projection (`src/cursor.mn`, Hμ.cursor)
 
 `cursor_default` is the one handler that projects the kernel for a
 human at a position. Its three ops surface the live graph at the
 cursor:
 
-```inka
+```mentl
 effect Cursor {
   cursor_at(Span) -> CursorView                @resume=OneShot
   cursor_argmax(Caret) -> Cursor               @resume=OneShot
@@ -338,7 +338,7 @@ developer is mixing into the bus.
   (accept / defer / override via ??)
 ```
 
-The loop is `<~` — Inka's own primitive at the editing layer. The
+The loop is `<~` — Mentl's own primitive at the editing layer. The
 medium recognizes itself as one instance of its own topology.
 
 ---
@@ -377,7 +377,7 @@ raises future-session altitude.**
 
 ### 4.3 The medium is its own IDE
 
-`inka edit` is not an editor wrapped around Inka. `inka edit` is
+`mentl edit` is not an editor wrapped around Mentl. `mentl edit` is
 the projection of `cursor_default` through a transport handler.
 LSP is one transport. Vim is one transport. Web-WASM is one
 transport. Terminal is one transport. **Same projection; different
@@ -398,7 +398,7 @@ substrate did not exist. The substrate exists. The AI lives in it.
 
 ### 4.5 The medium is its own documentation
 
-Doc is what the compiler knows, exported. F.1's `inka doc` is a
+Doc is what the compiler knows, exported. F.1's `mentl doc` is a
 handler projection on the same graph (SUBSTRATE.md §VIII). `///`
 docstrings reach the graph as Reason edges; Mentl renders them
 alongside her substrate-derived voice. Documentation is not a
@@ -418,7 +418,7 @@ fixpoint property under self-application.
 
 ### 4.7 The medium is its own test framework
 
-Tests are examples, not assertions. `///` blocks containing Inka
+Tests are examples, not assertions. `///` blocks containing Mentl
 source compile through the same pipeline; if they don't compile,
 the project's compile fails at the doc-attach site. There is no
 "test mode"; the test IS the example IS the compiled program IS
@@ -427,7 +427,7 @@ the proof. Coverage is structural reachability through the graph.
 ### 4.8 The medium is its own deployment surface
 
 Native, WASM, GPU, embedded, real-time DSP — all handler-swap on
-`Memory` + `IO` + `Alloc` + `Consume` effects. The same Inka source
+`Memory` + `IO` + `Alloc` + `Consume` effects. The same Mentl source
 emits to any target; the handler chain decides interpretation. The
 compiler doesn't have backends; it has handlers. The deployment
 target is a configuration choice, not a separate codebase.
@@ -444,7 +444,7 @@ primitives via handler stacks."
 Hμ.cursor (2026-05-02) is the empirical test. Cursor is a load-
 bearing user-facing feature whose substrate is **entirely composition
 of pre-existing pieces**: ten substrate sites already live; five new
-ADTs in `types.nx` (Cursor / CursorView / AnnotationSuggestion /
+ADTs in `types.mn` (Cursor / CursorView / AnnotationSuggestion /
 SuggestionKind / PipeContext); one new effect (Cursor with three
 ops); one new handler (cursor_default with !Mutate); zero new kernel
 primitives.
@@ -492,7 +492,7 @@ What does NOT belong in Phase μ or beyond:
 - New tentacles for Mentl. The eight are aspects of one read.
 - New separate components for "AI" / "IDE" / "build" / "test" /
   "documentation." All are handler projections.
-- New languages or DSLs hosted on top. Mentl-driven Inka is the
+- New languages or DSLs hosted on top. Mentl-driven Mentl is the
   substrate that absorbs them.
 
 ---
@@ -554,20 +554,20 @@ the substrate that supports it; the substrate cross-references back.
   projection paragraph
 - `docs/specs/09-mentl.md` — Mentl spec; Cursor section
 - `docs/specs/simulations/Hμ-cursor.md` — the keystone walkthrough
-- `src/cursor.nx` — `cursor_default` handler (the projection
+- `src/cursor.mn` — `cursor_default` handler (the projection
   itself, ~330 lines)
-- `src/types.nx` — Cursor / CursorView / AnnotationSuggestion ADTs
-- `src/mentl.nx` — Teach effect; gradient_next returning
+- `src/types.mn` — Cursor / CursorView / AnnotationSuggestion ADTs
+- `src/mentl.mn` — Teach effect; gradient_next returning
   AnnotationSuggestion; mentl_default handler
-- `~/.claude/projects/-home-suds-Projects-inka/memory/protocol_cursor_is_argmax.md`
+- `~/.claude/projects/-home-suds-Projects-mentl/memory/protocol_cursor_is_argmax.md`
   — discipline crystallization (do not re-derive next session)
-- `~/.claude/projects/-home-suds-Projects-inka/memory/protocol_oracle_is_ic.md`
+- `~/.claude/projects/-home-suds-Projects-mentl/memory/protocol_oracle_is_ic.md`
   — Mentl is IC + Pure-over-broader-input + one cached value
-- `~/.claude/projects/-home-suds-Projects-inka/memory/protocol_kernel_closure.md`
+- `~/.claude/projects/-home-suds-Projects-mentl/memory/protocol_kernel_closure.md`
   — the next phase is composition, not invention
-- `~/.claude/projects/-home-suds-Projects-inka/memory/protocol_realization_loop.md`
+- `~/.claude/projects/-home-suds-Projects-mentl/memory/protocol_realization_loop.md`
   — the five-step recovery path when drift fires
-- `~/.claude/projects/-home-suds-Projects-inka/memory/protocol_mentl_is_not_an_llm.md`
+- `~/.claude/projects/-home-suds-Projects-mentl/memory/protocol_mentl_is_not_an_llm.md`
   — Mentl is the kernel's MultiShot resume primitive made into a
   handler-on-graph; never frame as LLM
 - `ROADMAP.md` — Phase μ section; Hμ.cursor + four named peer
@@ -577,7 +577,7 @@ the substrate that supports it; the substrate cross-references back.
 
 ## §9 · The closing statement
 
-> Inka is the **ultimate medium** between intent and execution.
+> Mentl is the **ultimate medium** between intent and execution.
 >
 > The kernel is whole. The projection is one handler. The cursor is
 > attention. The loop closes at the human-medium boundary.

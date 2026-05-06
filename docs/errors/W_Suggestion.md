@@ -18,7 +18,7 @@ than auto-applies — the developer stays in control.
 
 ## Canonical fix
 
-Accept the suggestion (`inka --apply-fix`) or edit to match. If the
+Accept the suggestion (`mentl --apply-fix`) or edit to match. If the
 suggestion is wrong, Mentl treats the rejection as a signal — later
 versions will learn from corrections via the Suggest effect's
 feedback loop.

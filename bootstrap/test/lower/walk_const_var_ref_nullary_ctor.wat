@@ -3,7 +3,7 @@
   ;;           Nullary ConstructorScheme bindings flowing through
   ;;           $lower_var_ref short-circuit to LMakeVariant(h, tag_id, [])
   ;;           BEFORE the locals/captures/global triage. Wheel parity
-  ;;           src/lower.nx:333-337.
+  ;;           src/lower.mn:333-337.
   ;; Exercises: walk_const.wat — $lower_var_ref Lock #2.0 SchemeKind dispatch.
   ;;
   ;; Eight interrogations:

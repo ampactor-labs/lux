@@ -1,7 +1,7 @@
-# Inka Bootstrap (Phase Ω.WAT)
+# Mentl Bootstrap (Phase Ω.WAT)
 
-This directory contains the hand-written WebAssembly Text (WAT) that will serve as Inka's first compiler binary. 
+This directory contains the hand-written WebAssembly Text (WAT) that will serve as Mentl's first compiler binary. 
 
 ## Contents
-- `inka.wat`: The monolithic reference soundness artifact.
+- `mentl.wat`: The monolithic reference soundness artifact.
 - `first-light.sh`: The test harness for first-light.

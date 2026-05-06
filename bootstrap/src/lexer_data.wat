@@ -16,7 +16,7 @@
   ;; [0, 4096) holds (a) nullary ADT variant tags + (b) data-segment
   ;; constants like these.
   ;;
-  ;; Wave 2.A factoring: these segments lived inline in inka.wat's
+  ;; Wave 2.A factoring: these segments lived inline in mentl.wat's
   ;; Layer 0+1 shell because the build.sh "extract shell" pattern
   ;; treated everything before ";; ─── TokenKind Sentinel IDs" as
   ;; shell. They are SEMANTICALLY lexer data — moved here as the

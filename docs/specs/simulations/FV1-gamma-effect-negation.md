@@ -9,15 +9,15 @@
 
 The user astutely pointed out that FV.4 (`!Mutate` ownership sweep) and FV.1 (Effect Negation) are fundamentally the exact same mechanism. 
 
-Inka unifies regions, ownership, and effects into a single Boolean algebra. An immutable borrow (`ref`) mathematically translates to a region-freeze under a `!Mutate` effect constraint. A value that cannot escape translates to `!Alloc`.
+Mentl unifies regions, ownership, and effects into a single Boolean algebra. An immutable borrow (`ref`) mathematically translates to a region-freeze under a `!Mutate` effect constraint. A value that cannot escape translates to `!Alloc`.
 
 ## 2. The FV.1.γ Fix
 
-Before this change, if a developer typed `fn process(buffer) with !Mutate`, Inka's `build_declared_row` would start with `EfPure` and intersect the negation against it, collapsing the row to `EfPure`. This broke capability-security by preventing a function from declaring a DENY-list ("anything except Mutate").
+Before this change, if a developer typed `fn process(buffer) with !Mutate`, Mentl's `build_declared_row` would start with `EfPure` and intersect the negation against it, collapsing the row to `EfPure`. This broke capability-security by preventing a function from declaring a DENY-list ("anything except Mutate").
 
 We rewrote the builder to properly isolate `EfNeg(Closed([Mutate]))`:
 
-```inka
+```mentl
 fn build_from_partition(pos, neg) =
   if len(pos) == 0 && len(neg) == 0 { EfPure }
   else if len(pos) == 0 { neg_row(mk_ef_closed(neg)) } // NEW: Universe-minus
@@ -27,14 +27,14 @@ fn build_from_partition(pos, neg) =
   }
 ```
 
-We also updated `unify_row_canonical` in `effects.nx` to properly unify `EfNeg` nodes, preventing infinite loops when higher-order functions unify their universe-minus capability constraints.
+We also updated `unify_row_canonical` in `effects.mn` to properly unify `EfNeg` nodes, preventing infinite loops when higher-order functions unify their universe-minus capability constraints.
 
-## 3. Inka Solving Inka (The Test)
+## 3. Mentl Solving Mentl (The Test)
 
-Following Inka's testing philosophy ("no `tests/` directory as substrate claim"), we did not write an external test script. Instead, we wrote the test *directly into the compiler's own effect engine*:
+Following Mentl's testing philosophy ("no `tests/` directory as substrate claim"), we did not write an external test script. Instead, we wrote the test *directly into the compiler's own effect engine*:
 
-```inka
-// ═══ Substrate Tests (Inka solving Inka) ═══════════════════════════
+```mentl
+// ═══ Substrate Tests (Mentl solving Mentl) ═══════════════════════════
 // This function exists to statically prove FV.1.γ (Lone Effect Negation).
 // It declares `with !Mutate`. The compiler's own type inference will
 // now infer its row as EfNeg(Closed([Mutate])) instead of collapsing it
@@ -43,7 +43,7 @@ Following Inka's testing philosophy ("no `tests/` directory as substrate claim")
 fn test_mutate_freeze(buffer: ValidSpan) with !Mutate = buffer
 ```
 
-Because `test_mutate_freeze` resides in `effects.nx`, the Inka compiler must successfully parse and statically verify it. This proves that `!Mutate` (FV.4 ownership marker) is now fully native to the architecture.
+Because `test_mutate_freeze` resides in `effects.mn`, the Mentl compiler must successfully parse and statically verify it. This proves that `!Mutate` (FV.4 ownership marker) is now fully native to the architecture.
 
 ## 4. The 8 Interrogations, Applied
 

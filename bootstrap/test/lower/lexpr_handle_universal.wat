@@ -50,7 +50,7 @@
 
     ;; r4 = LDeclareFn(fn=999) → $lexpr_handle(r4) == 0 (NOT 999)
     ;; tag-313 dispatch arm in $lexpr_handle returns i32.const 0 per
-    ;; src/lower.nx:187 wheel canonical + §11 audit lock.
+    ;; src/lower.mn:187 wheel canonical + §11 audit lock.
     (local.set $r4 (call $lexpr_make_ldeclarefn (i32.const 999)))
     (if (i32.ne (call $lexpr_handle (local.get $r4)) (i32.const 0))
       (then (local.set $failed (i32.const 1))))

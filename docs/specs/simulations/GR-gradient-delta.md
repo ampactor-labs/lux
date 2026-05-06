@@ -11,7 +11,7 @@ highest-leverage next annotation per turn.*
 
 ## §1 Frame
 
-Inka's primitive #7 is the continuous annotation gradient: one
+Mentl's primitive #7 is the continuous annotation gradient: one
 annotation → one capability. The developer starts with zero
 annotations; the compiler infers everything. Each annotation the
 developer adds (a type, an effect row, an `own` marker, a refinement
@@ -21,7 +21,7 @@ real-time for `!Alloc`, linearity for `own`, bounded values for
 developer.
 
 **Gap.** The gradient has one query surface today: `T_OverDeclared`
-(infer.nx:259-273). This fires when the developer declares MORE
+(infer.mn:259-273). This fires when the developer declares MORE
 effects than the body uses — "you reserved `Memory + IO` but only
 use `Memory`; tighten to unlock tighter capabilities."
 
@@ -49,10 +49,10 @@ load-bearing truth per turn, never more).
 
 ## §2 Trace — where the delta is computable but unexposed today
 
-### Effect row delta (infer.nx:233-297)
+### Effect row delta (infer.mn:233-297)
 
 After `inf_exit_fn()` binds the accumulated body row, and after
-`declared_effs` is read, infer.nx computes the subsumption check:
+`declared_effs` is read, infer.mn computes the subsumption check:
 
 - If `row_subsumes(body_row, declared_row)` — body fits the
   declaration. If body is strictly narrower, emit `T_OverDeclared`.
@@ -69,7 +69,7 @@ doesn't include `Alloc`), the gradient could suggest: "this function
 is already `!Alloc`-compatible — declaring `with Memory + !Alloc`
 unlocks the real-time gate."
 
-### Ownership delta (own.nx:411-434)
+### Ownership delta (own.mn:411-434)
 
 `infer_ownership` classifies `Inferred` parameters. The
 classification result (Own/Ref/Inferred) IS the gradient's resolved
@@ -116,7 +116,7 @@ program pass when the gradient is per-function and per-turn.
 
 ### §3.2 AnnotationSuggestion shape
 
-**Status: LIVE in `src/types.nx` (Hμ.cursor handle landing,
+**Status: LIVE in `src/types.mn` (Hμ.cursor handle landing,
 2026-05-02). Promoted from shape-only spec to live ADT alongside
 the Cursor / CursorView / SuggestionKind / PipeContext additions
 that compose on the suggestion record.**
@@ -170,32 +170,32 @@ One keyword (`own` or `ref`) vs a full `with ...` clause.
 **Mentl's choice: A — effect row first.** Effect rows are the kernel's
 most unique contribution (primitive #4 is novel; primitive #5 is
 shared with Rust/Vale/Austral). Surfacing the effect row gradient
-first teaches the developer Inka's most distinctive capability.
+first teaches the developer Mentl's most distinctive capability.
 
 ---
 
 ## §4 Layer touch-points
 
-### types.nx
+### types.mn
 Add `SuggestionKind` and `AnnotationSuggestion` ADTs. Add
 `GradientQuery` effect with one op: `gradient_next(Int) ->
 Option<AnnotationSuggestion>` where the Int is the function's
 handle.
 
-### infer.nx
+### infer.mn
 At `inf_exit_fn()`, after the subsumption check, store the body row
 in a gradient-queryable form. When `declared_effs` is empty, the
 entire inferred row is the delta. When non-empty, the over-declared
 delta is already computed — store the narrower body_row vs declared
 difference.
 
-### mentl.nx (future)
+### mentl.mn (future)
 Mentl's Teach tentacle reads `gradient_next(fn_handle)` when the
 developer hovers or asks "what should I annotate next?" The silence
 predicate (MV-mentl-voice.md §2.7) gates: only if the suggestion
 unlocks a capability the developer hasn't already claimed.
 
-### query.nx
+### query.mn
 The gradient_next handler is installed alongside query_default.
 Reads from the graph: function handle → chase to TFun → extract
 declared row and inferred row → compute delta → rank →
@@ -232,10 +232,10 @@ per priority ranking §3.3).
 
 | Peer | Surface | Load |
 |---|---|---|
-| GR.1 | `AnnotationSuggestion` ADT + `GradientQuery` effect | Light (~20L types.nx) |
-| GR.2 | Effect-row delta computation in gradient handler | Moderate (~40L query.nx or gradient.nx) |
+| GR.1 | `AnnotationSuggestion` ADT + `GradientQuery` effect | Light (~20L types.mn) |
+| GR.2 | Effect-row delta computation in gradient handler | Moderate (~40L query.mn or gradient.mn) |
 | GR.3 | Ownership delta computation | Light (~20L, depends on OW) |
-| GR.4 | Mentl Teach arm integration | Moderate (~30L mentl.nx) |
+| GR.4 | Mentl Teach arm integration | Moderate (~30L mentl.mn) |
 
 Total: ~110 lines. Four commits; GR.1 first (ADT), then GR.2
 (load-bearing delta), then GR.3 (depends on OW), then GR.4
@@ -267,7 +267,7 @@ Total: ~110 lines. Four commits; GR.1 first (ADT), then GR.2
   annotation unlocks the most capability), not by ease of typing.
   A short annotation that unlocks nothing ranks below a longer
   one that unlocks a gate.
-- **Gradient for features Inka doesn't have yet.** The gradient
+- **Gradient for features Mentl doesn't have yet.** The gradient
   surfaces annotations for kernel primitives that are LIVE in the
   substrate. Suggestions for future features (e.g., "add a
   capability bundle" before EN.δ lands) would be aspirational, not

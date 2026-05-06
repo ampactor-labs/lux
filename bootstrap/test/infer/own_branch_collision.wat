@@ -1,8 +1,8 @@
   ;; ═══ own_branch_collision.wat — trace-harness ═════════════════════
-  ;; Executes: Hβ-infer-substrate.md §5 + src/own.nx:118-154 branch
+  ;; Executes: Hβ-infer-substrate.md §5 + src/own.mn:118-154 branch
   ;;           protocol + §11.2 acceptance — branch_enter / divider /
   ;;           exit with shared name "x" consumed in two parallel
-  ;;           branches. Per src/own.nx:140-152:
+  ;;           branches. Per src/own.mn:140-152:
   ;;             - branch_enter: snapshot used (empty); push frame.
   ;;             - branch1 consumes "x" via $infer_consume_use(h1, "x", ...).
   ;;             - branch_divider: capture branch1's delta = {x};
@@ -18,7 +18,7 @@
   ;;
   ;; ─── Eight interrogations ─────────────────────────────────────────
   ;;   Graph?      Two NFree handles; collision diagnostic does NOT
-  ;;               $graph_bind_kind (per src/own.nx:343 — per-name,
+  ;;               $graph_bind_kind (per src/own.mn:343 — per-name,
   ;;               not per-handle). The handles' silent path is checked
   ;;               via "x is in used after merge" assertion.
   ;;   Handler?    Direct seed call.
@@ -34,7 +34,7 @@
   ;;   Refinement? None.
   ;;   Gradient?   Collision IS gradient signal: same name in parallel
   ;;               branches = the affine constraint violated.
-  ;;   Reason?     Per src/own.nx:343 the collision diagnostic drops
+  ;;   Reason?     Per src/own.mn:343 the collision diagnostic drops
   ;;               the reason (no $graph_bind_kind to tie it to). The
   ;;               cause-chain Reason flows through caller's enclosing
   ;;               structural Reason (Located(branch_span, ...)).

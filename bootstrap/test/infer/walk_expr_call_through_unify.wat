@@ -2,7 +2,7 @@
   ;; Executes: Hβ-infer-substrate.md §4.3 production pattern 2
   ;;           (unifications) + §9 worked trace — CallExpr unifies callee
   ;;           against built TFun.
-  ;; Per src/infer.nx:820-846 — infer_call:
+  ;; Per src/infer.mn:820-846 — infer_call:
   ;;             ret_h = mint(InferredCallReturn(...));
   ;;             expected = TFun(build_inferred_params(arg_handles),
   ;;                              TVar(ret_h), row_h);

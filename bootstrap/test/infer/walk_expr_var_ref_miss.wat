@@ -1,7 +1,7 @@
   ;; ═══ walk_expr_var_ref_miss.wat — trace harness ═══════════════════
   ;; Executes: Hβ-infer-substrate.md §4.3 production pattern 4 +
   ;;           Hazel productive-under-error pattern.
-  ;; Per src/infer.nx:790 — VarRef on env-miss emits E_MissingVariable +
+  ;; Per src/infer.mn:790 — VarRef on env-miss emits E_MissingVariable +
   ;;                        binds NErrorHole + caller continues. Seed
   ;;                        projection: $infer_emit_missing_var routes
   ;;                        $graph_bind_kind(handle, NErrorHole(reason)).

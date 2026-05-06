@@ -1,18 +1,18 @@
 # Handle IC — Incremental Compilation
 
 *Role-play as Mentl, tracing what happens when Morgan saves a one-
-character edit to `std/compiler/infer.nx` and the LSP re-checks the
+character edit to `std/compiler/infer.mn` and the LSP re-checks the
 project. Today: full recompile, ~seconds. After IC: only the edited
 module re-infers, downstream modules with valid `.kai` caches load
 their envs from disk, the response returns in conversational
 latency. The substrate has been built for this since day one — the
-Salsa 3.0 + overlay pattern in `graph.nx`. What pends is the driver.*
+Salsa 3.0 + overlay pattern in `graph.mn`. What pends is the driver.*
 
 ---
 
 ## The scenario
 
-Morgan opens `std/compiler/infer.nx`. The whole project is checked
+Morgan opens `std/compiler/infer.mn`. The whole project is checked
 once at session start (cold compile; ~1.5s on a modern laptop with
 the current substrate). Morgan edits one line: `let x = 1` becomes
 `let x = 2`. He saves.
@@ -20,8 +20,8 @@ the current substrate). Morgan edits one line: `let x = 1` becomes
 What happens with TODAY's driver:
 
 ```
-$ inka check std/compiler/
-... full recompile of all 16 .nx files ...
+$ mentl check std/compiler/
+... full recompile of all 16 .mn files ...
 Done in 1.4s.
 ```
 
@@ -33,14 +33,14 @@ that change doesn't even alter the module's public type signatures.
 What SHOULD happen:
 
 ```
-[infer.nx:42 saved]
+[infer.mn:42 saved]
 incremental check:
   cache/.kai hashes:
-    types.nx         — hash unchanged, env loaded from cache (3ms)
-    graph.nx         — hash unchanged, env loaded from cache (4ms)
-    effects.nx       — hash unchanged, env loaded from cache (3ms)
-    infer.nx         — hash CHANGED, re-infer (62ms)
-    lower.nx         — public env unchanged in deps, env loaded (5ms)
+    types.mn         — hash unchanged, env loaded from cache (3ms)
+    graph.mn         — hash unchanged, env loaded from cache (4ms)
+    effects.mn       — hash unchanged, env loaded from cache (3ms)
+    infer.mn         — hash CHANGED, re-infer (62ms)
+    lower.mn         — public env unchanged in deps, env loaded (5ms)
     [10 more files, all cached, total 28ms]
 Done in 105ms.
 ```
@@ -54,7 +54,7 @@ question it already answered.
 
 The cascade closed having BUILT for this. Specifically:
 
-- **`graph.nx`'s shape is Salsa 3.0.** Flat array + epoch +
+- **`graph.mn`'s shape is Salsa 3.0.** Flat array + epoch +
   per-module overlays. The `Graph(nodes, epoch, next, overlays)`
   ADT carries `overlays: [(module_name, [handle])]` — one slot per
   module, ready for fork.
@@ -68,7 +68,7 @@ The cascade closed having BUILT for this. Specifically:
   serializable as-is. `.kai` is just env entries on disk.
 - **Module DAG resolution** — parser produces `ImportStmt(name)`
   nodes. The dependency graph extracts trivially.
-- **Content-hash keying** — `runtime/strings.nx` has the byte-level
+- **Content-hash keying** — `runtime/strings.mn` has the byte-level
   primitives needed for SHA-256 or simpler digests.
 
 What pends is purely DRIVER orchestration. No new substrate primitive.
@@ -77,7 +77,7 @@ What pends is purely DRIVER orchestration. No new substrate primitive.
 
 ## Layer 1 — `.kai` file format
 
-A serialized per-module env. One file per `.nx` source.
+A serialized per-module env. One file per `.mn` source.
 
 ### Structure
 
@@ -105,7 +105,7 @@ Located spans serialize as four ints. SchemeKind variants tag-encode
 
 ### File location
 
-`<project>/.inka/cache/<module-path>.kai`. Excluded from git via
+`<project>/.mentl/cache/<module-path>.kai`. Excluded from git via
 project gitignore. Hash-keyed lookup means renaming a module
 invalidates the cache (correct: a renamed module is a different
 module).
@@ -158,7 +158,7 @@ When module A imports module B:
   the Graph. The overlay segregation means B's handle 47 and
   A's handle 47 are different nodes; chase resolves correctly via
   the overlay name embedded in the handle (or via the
-  `current_overlay_idx` discipline already in graph.nx).
+  `current_overlay_idx` discipline already in graph.mn).
 
 This is the load-bearing question: how does a handle in A's typed
 AST refer to B's handle without overlay mixup?
@@ -205,22 +205,22 @@ v2 if measured to matter.
 
 Same operation, driven by `didChange` instead of a batch build.
 
-When the LSP receives `textDocument/didChange` for `infer.nx`:
+When the LSP receives `textDocument/didChange` for `infer.mn`:
 
 1. Hash the new buffer content.
 2. If hash unchanged from last check → no-op (typo/whitespace fix).
-3. Else: invalidate `infer.nx.kai`. Walk import-graph downstream:
-   any module that imports `infer.nx` invalidates too (their
+3. Else: invalidate `infer.mn.kai`. Walk import-graph downstream:
+   any module that imports `infer.mn` invalidates too (their
    recorded imports_hashes now stale).
 4. Re-check the invalidated set in dep order.
 5. Stream diagnostics back via `textDocument/publishDiagnostics`.
 
 The latency target: a one-line edit to a leaf module returns in
-<50ms. A core-module edit (touching `types.nx`) cascades but the
+<50ms. A core-module edit (touching `types.mn`) cascades but the
 cascade is bounded by the import DAG, not by file count.
 
 The shared infrastructure: same `cache/` and `driver/` modules
-serve both `inka check`/`inka build` and the LSP's `didChange`
+serve both `mentl check`/`mentl build` and the LSP's `didChange`
 handler. One implementation; two surfaces.
 
 ---
@@ -282,7 +282,7 @@ exported_entries, imports, imports_hashes, handle_count}` — H2
 record discipline applies (sorted fields, additive).
 
 **Cache module** — serialize/deserialize KaiFile. Hash function on
-source bytes. File I/O via existing `runtime/io.nx` primitives.
+source bytes. File I/O via existing `runtime/io.mn` primitives.
 
 **Driver module** — module DAG resolution from ImportStmt; topo
 sort; per-module graph_fork; cache lookup with downstream-reach
@@ -295,7 +295,7 @@ by module count.
 **LSP didChange handler** — couples to driver; same operation
 dispatched by file event.
 
-**`inka check` and `inka build` use the same driver** — the only
+**`mentl check` and `mentl build` use the same driver** — the only
 difference is whether lowering/emit fires after check.
 
 ---
@@ -308,7 +308,7 @@ difference is whether lowering/emit fires after check.
 - F.2 LSP arc (couples to IC's driver — Priority 1)
 - **FS substrate** — Filesystem effect + WASI handler for
   path_open / fd_read / fd_write / fd_close / path_create_directory.
-  Today `runtime/io.nx` has only stdin/stdout/stderr via fd_write
+  Today `runtime/io.mn` has only stdin/stdout/stderr via fd_write
   + fd_read. IC needs per-module `.kai` files on disk; that's an
   FS capability the current substrate doesn't expose. See
   `docs/specs/simulations/FS-filesystem-effect.md` for the
@@ -324,18 +324,18 @@ effects; this is just one more).
 ## Estimated scope
 
 - ~400-600 lines across 3 new modules:
-  - `std/compiler/cache.nx` — KaiFile, hash, serialize, deserialize
-  - `std/compiler/driver.nx` — module DAG, topo sort, per-module
+  - `std/compiler/cache.mn` — KaiFile, hash, serialize, deserialize
+  - `std/compiler/driver.mn` — module DAG, topo sort, per-module
     invocation, cache invalidation walk
   - LSP handler arms wiring to driver
 
 - Modifications to existing modules:
-  - `graph.nx` — chase function walks overlays for handle resolution
-  - `pipeline.nx` — `compile` and `check` route through driver
-  - `main.nx` — CLI entry to `inka check --watch` and similar
+  - `graph.mn` — chase function walks overlays for handle resolution
+  - `pipeline.mn` — `compile` and `check` route through driver
+  - `main.mn` — CLI entry to `mentl check --watch` and similar
 
-- One coordinated commit-cluster (~3-5 commits): cache.nx first
-  (data type + serialization, no driver), driver.nx second (uses
+- One coordinated commit-cluster (~3-5 commits): cache.mn first
+  (data type + serialization, no driver), driver.mn second (uses
   cache, no LSP), LSP wiring third.
 
 ---
@@ -346,25 +346,25 @@ Walkthrough discipline. The simulation traces:
 
 1. **Cold compile.** Empty cache. Every module re-infers; KaiFile
    written for each. Verify the trace produces correct output
-   (matches today's `inka check` output) AND writes complete
+   (matches today's `mentl check` output) AND writes complete
    `.kai` files.
 
 2. **No-op edit.** Save a file unchanged. Driver hashes; matches
    cached `.kai`; loads env from cache for every module; produces
    identical diagnostics in <50ms.
 
-3. **Leaf-module edit.** Change a one-line in a leaf (e.g., `main.nx`
+3. **Leaf-module edit.** Change a one-line in a leaf (e.g., `main.mn`
    that no other module imports). Only that module re-infers;
    everything else loads from cache. Diagnostic in <100ms.
 
-4. **Core-module edit.** Change `types.nx`. Every module that
+4. **Core-module edit.** Change `types.mn`. Every module that
    imports it (most of them) invalidates and re-infers in dep
    order. Diagnostic in ~500ms (not 100ms, but not 1500ms either).
 
 5. **Public-surface unchanged after dep change.** Edit a private
-   helper in `effects.nx`. v1: `infer.nx` still re-infers
-   (conservative). v2 (future): `infer.nx` cache stays valid
-   because `effects.nx`'s exported_entries hash didn't change.
+   helper in `effects.mn`. v1: `infer.mn` still re-infers
+   (conservative). v2 (future): `infer.mn` cache stays valid
+   because `effects.mn`'s exported_entries hash didn't change.
 
 6. **Chase across overlay.** Module A reads a Scheme from module B's
    `.kai`. The Scheme's TVars carry B's overlay handles. Chase from
@@ -377,9 +377,9 @@ Each verifies as a substrate trace, not a wasmtime run.
 ## Ordering
 
 IC lands as Phase II Priority 1 work, coupled with LSP (F.2).
-Recommended: land `cache.nx` first (data + serialization, no
-driver), then `driver.nx` (uses cache, no LSP), then LSP
-integration third. Each commit is independently useful: cache.nx
-alone enables `inka check` to write caches even without
-invalidation logic; driver.nx enables warm-path checks; LSP wires
+Recommended: land `cache.mn` first (data + serialization, no
+driver), then `driver.mn` (uses cache, no LSP), then LSP
+integration third. Each commit is independently useful: cache.mn
+alone enables `mentl check` to write caches even without
+invalidation logic; driver.mn enables warm-path checks; LSP wires
 the editor.

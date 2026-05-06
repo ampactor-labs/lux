@@ -21,10 +21,10 @@
   ;; Test:       bootstrap/test/emit/state_init.wat (this commit)
   ;;
   ;; What this scratchpad IS (per Hβ-emit-substrate.md §0.6 + §3 + §3.5
-  ;; + wheel canonical src/backends/wasm.nx:117-128 + 945-978):
+  ;; + wheel canonical src/backends/wasm.mn:117-128 + 945-978):
   ;;   The emit walk needs THREE pieces of context across recursive
   ;;   emit_lexpr calls. Per spec 05 §Emitter handoff + Anchor 4 wheel
-  ;;   parity (src/backends/wasm.nx 87 functions): emit-time state is
+  ;;   parity (src/backends/wasm.mn 87 functions): emit-time state is
   ;;   the seed projection of the wheel's `body_context` +
   ;;   `string_table` handlers-with-state plus the implicit
   ;;   `collect_fn_names` pre-pass result.
@@ -38,14 +38,14 @@
   ;;      dispatch substrate per kernel primitive #2 Handlers — closure
   ;;      record's fn_idx field + call_indirect IS the dispatch.
   ;;
-  ;;   2. Body-context (per §5.2 + wheel src/backends/wasm.nx:960-961
+  ;;   2. Body-context (per §5.2 + wheel src/backends/wasm.mn:960-961
   ;;      set_body_captures + set_body_evidence) — current fn's
   ;;      captures_count (the H1 fence between captures and evidence
   ;;      in __state) + evidence list (H1.6 LEvPerform offset
   ;;      arithmetic; list of fn_idx ints per evidence slot). Reset
   ;;      at fn-emit boundary via $emit_fn_reset.
   ;;
-  ;;   3. String-intern table (per W5 + wheel src/backends/wasm.nx:
+  ;;   3. String-intern table (per W5 + wheel src/backends/wasm.mn:
   ;;      117-128 string_table handler + 194-198 collect_string_literals
   ;;      pre-pass) — flat list of STRING_INTERN_ENTRY records (tag
   ;;      360, arity 2: str_ptr + offset_int). Append-on-miss via
@@ -60,11 +60,11 @@
   ;;                   fn_idx ints; string-intern holds (str, offset)
   ;;                   pairs — none chase the graph.
   ;;   2. Handler?     Wheel's body_context (set_body_captures /
-  ;;                   set_body_evidence at src/backends/wasm.nx:960-
+  ;;                   set_body_evidence at src/backends/wasm.mn:960-
   ;;                   961, @resume=OneShot) + string_table (lines
   ;;                   117-128, @resume=OneShot). Seed projection: direct
   ;;                   $emit_* functions; the wheel compiles handler-
-  ;;                   shape from src/backends/wasm.nx.
+  ;;                   shape from src/backends/wasm.mn.
   ;;   3. Verb?        N/A at substrate level.
   ;;   4. Row?         EfPure — state.wat performs no effect ops.
   ;;                   Wheel's body_context composes with WasmOut +
@@ -117,7 +117,7 @@
   ;;                                      composes structurally identical
   ;;                                      with seed's direct fn — no peer
   ;;                                      handle deferred.
-  ;;   - Foreign fluency:                 Vocabulary stays Inka — "table"
+  ;;   - Foreign fluency:                 Vocabulary stays Mentl — "table"
   ;;                                      (WAT-native), "intern table"
   ;;                                      (W5-native), "body context"
   ;;                                      (wheel-native). NOT "registry" /
@@ -138,7 +138,7 @@
   ;;   - Hβ.emit.string-intern-pre-pass: wheel does
   ;;                                    collect_string_literals as a
   ;;                                    SEPARATE pre-pass (src/backends/
-  ;;                                    wasm.nx:194-198) before
+  ;;                                    wasm.mn:194-198) before
   ;;                                    emit_string_data emits all data
   ;;                                    segments. Seed currently runs
   ;;                                    intern lazily per LConst(LString)
@@ -157,12 +157,12 @@
   ;; LMakeContinuation emit per H1.4 single-handler-per-op naming).
   ;; Length tracked separately per buffer-counter substrate (Ω.3); buffer
   ;; grows via $list_extend_to as length crosses capacity. Mirror of
-  ;; wheel collect_fn_names result shape (src/backends/wasm.nx:444-475).
+  ;; wheel collect_fn_names result shape (src/backends/wasm.mn:444-475).
   (global $emit_funcref_table_ptr        (mut i32) (i32.const 0))
   (global $emit_funcref_table_len_g      (mut i32) (i32.const 0))
 
   ;; Body-context: captures_count + evidence list. Per wheel
-  ;; src/backends/wasm.nx:960-961 set_body_captures + set_body_evidence
+  ;; src/backends/wasm.mn:960-961 set_body_captures + set_body_evidence
   ;; perform sites + H1 closure-record fence (offset 8 + 4*nc + 4*j) +
   ;; H1.6 LEvPerform offset arithmetic. Replaced per fn at
   ;; $emit_set_body_context; cleared at $emit_fn_reset.
@@ -172,7 +172,7 @@
 
   ;; String-intern table. Flat list of STRING_INTERN_ENTRY records
   ;; (tag 360, arity 2: str_ptr + offset_int). Per W5 + wheel
-  ;; src/backends/wasm.nx:117-128 string_table handler + 194-198
+  ;; src/backends/wasm.mn:117-128 string_table handler + 194-198
   ;; collect_string_literals pre-pass. Persists program-wide;
   ;; $emit_fn_reset does NOT clear it. Initial offset 65536 per wheel
   ;; comment (line 191) — sits above static-closure region at 0x100
@@ -214,7 +214,7 @@
         (global.set $emit_initialized           (i32.const 1)))))
 
   ;; ─── $emit_funcref_register — append name; return assigned index ───
-  ;; Per Hβ-emit-substrate.md §3 H1.4 + wheel src/backends/wasm.nx:444-475
+  ;; Per Hβ-emit-substrate.md §3 H1.4 + wheel src/backends/wasm.mn:444-475
   ;; collect_fn_names + 583-619 emit_fn_table + emit_fn_index_globals.
   ;; De-dup via $str_eq scan; if name already present return its existing
   ;; index. Otherwise append and return new index. Seed convention: the
@@ -262,7 +262,7 @@
     (global.get $emit_funcref_table_len_g))
 
   ;; ─── $emit_funcref_at — name str_ptr at registered index ───────────
-  ;; Per wheel emit_fn_refs (src/backends/wasm.nx:599-605) — iterated
+  ;; Per wheel emit_fn_refs (src/backends/wasm.mn:599-605) — iterated
   ;; at (elem $fns ...) emission to write each $<name> reference.
   (func $emit_funcref_at (param $idx i32) (result i32)
     (call $emit_init)
@@ -310,7 +310,7 @@
     (i32.const -1))
 
   ;; ─── $emit_set_body_context — install per-fn captures + evidence ───
-  ;; Per Hβ-emit-substrate.md §5.2 + wheel src/backends/wasm.nx:960-961.
+  ;; Per Hβ-emit-substrate.md §5.2 + wheel src/backends/wasm.mn:960-961.
   ;; Called at fn-emit entry by chunk #7 emit_handler.wat at every
   ;; LMakeClosure / LMakeContinuation / LDeclareFn arm. ev_list_ptr
   ;; is `ref` from caller (LowExpr's evidence list per H1.6); state.wat
@@ -339,7 +339,7 @@
     (global.get $emit_body_evidence_len_g))
 
   ;; ─── $emit_string_intern — assign offset; de-dup via $str_eq ───────
-  ;; Per W5 + wheel src/backends/wasm.nx:117-128 string_table handler +
+  ;; Per W5 + wheel src/backends/wasm.mn:117-128 string_table handler +
   ;; 194-198 collect_string_literals. On miss: append STRING_INTERN_ENTRY
   ;; (tag 360, arity 2) with current $emit_strings_next_offset_g; bump
   ;; next_offset by aligned (4 + str_len) per wheel byte_len discipline
@@ -400,7 +400,7 @@
     (global.get $emit_string_table_len_g))
 
   ;; ─── $emit_string_table_at — STRING_INTERN_ENTRY at index ──────────
-  ;; Per wheel emit_string_data_loop (src/backends/wasm.nx:423-434) —
+  ;; Per wheel emit_string_data_loop (src/backends/wasm.mn:423-434) —
   ;; iterated at (data ...) segment emission to write each string body.
   ;; Returns the record (caller does record_get(0) for str + record_get(1)
   ;; for offset).
@@ -409,7 +409,7 @@
     (call $list_index (global.get $emit_string_table_ptr) (local.get $idx)))
 
   ;; ─── $emit_fn_reset — clear body-context at fn-emit boundary ───────
-  ;; Per Hβ-emit-substrate.md §5.2 + wheel src/backends/wasm.nx:945-978
+  ;; Per Hβ-emit-substrate.md §5.2 + wheel src/backends/wasm.mn:945-978
   ;; emit_fn_body invocation pattern (perform set_body_captures /
   ;; set_body_evidence each fn). Length-only-reset semantics for
   ;; evidence; does NOT clear funcref-table or string-intern (program-

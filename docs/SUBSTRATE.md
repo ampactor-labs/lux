@@ -1,13 +1,13 @@
-# Inka — Substrate
+# Mentl — Substrate
 
-**What this is.** The canonical substrate of Inka — load-bearing structural facts the medium is built from. Compiler-verifiable theorems, not vision.
+**What this is.** The canonical substrate of Mentl — load-bearing structural facts the medium is built from. Compiler-verifiable theorems, not vision.
 
 **How to read it.** Cursor-adjacent. CLAUDE.md cites sections by name; load only what the cursor needs. Not always-loaded; not Session-Zero-bulk-read. (Insight #15 — MRCR cliff under Opus 4.7+.)
 
 **What lives elsewhere.**
 - Highest-altitude thesis: `docs/ULTIMATE_MEDIUM.md` (Phase μ anchor)
 - Manifesto / vision: `docs/DESIGN.md`
-- Discipline crystallizations: `/home/suds/.claude/projects/-home-suds-Projects-inka/memory/protocol_*.md`
+- Discipline crystallizations: `/home/suds/.claude/projects/-home-suds-Projects-mentl/memory/protocol_*.md`
 - Per-handle design walkthroughs: `docs/specs/simulations/`
 - Per-module declarative contracts: `docs/specs/00–11-*.md`
 - Live sequencing: `ROADMAP.md`
@@ -34,7 +34,7 @@ composes from.*
 
 **Composition IS the medium.** Every insight below, every
 framework-dissolution, every performance claim, every teaching
-surface — a consequence of these eight composed. Inka is not a
+surface — a consequence of these eight composed. Mentl is not a
 programming language; it is the **ultimate intent → machine
 instruction medium** that also raises its users into better
 programmers. The programs are the means; the programmers they
@@ -47,7 +47,7 @@ tentacle. The mascot framing is architectural, not decorative.
 #### The eight primitives ARE the eight interrogations ARE Mentl's eight tentacles
 
 The same eight are also **the eight structural questions asked
-before every line of Inka**, one per primitive, AND **the eight
+before every line of Mentl**, one per primitive, AND **the eight
 tentacles of Mentl's voice**. Graph? Handler? Verb? Row?
 Ownership? Refinement? Gradient? Reason? Pass all eight, type the
 residue. This is the full method — for writing, reading, teaching,
@@ -75,7 +75,7 @@ Every consumer of that knowledge is a handler:
 - **Errors** — the handler that turns type knowledge into diagnostics
 - **The user** — the handler that turns type knowledge into understanding
 
-One inference. Many handlers. Same mechanism as everything else in Inka.
+One inference. Many handlers. Same mechanism as everything else in Mentl.
 
 
 ### The Second Truth: Zero-Cost Linearity & Scoped Arenas
@@ -92,7 +92,7 @@ We do not use Garbage Collectors, nor do we use immutable "Snoc Trees" to fake i
 
 *Abstract algebra must materialize into one concrete shape.*
 
-`infer.nx` does not just "type-check" code. Its ultimate duty is to
+`infer.mn` does not just "type-check" code. Its ultimate duty is to
 physically synthesize evidence — the concrete closure records that
 carry captures, handler state, and resume discipline **together, in
 one record shape**. **There is no vtable. There is no separate
@@ -129,15 +129,15 @@ memory strategy past, present, and future.
 
 The self-hosted compiler is not vanity. It's the ultimate test:
 
-> If Inka can express its own compiler cleanly, it can express anything.
+> If Mentl can express its own compiler cleanly, it can express anything.
 
 ```
-source → [lexer.nx] → [parser.nx] → [checker.nx] → [codegen.nx] → bytecode → execute
+source → [lexer.mn] → [parser.mn] → [checker.mn] → [codegen.mn] → bytecode → execute
 ```
 
-All four modules are written in Inka. The compiler compiles itself. The
-bootstrap loop is closed. Every subsequent improvement to Inka is written
-IN Inka and compiled BY Inka.
+All four modules are written in Mentl. The compiler compiles itself. The
+bootstrap loop is closed. Every subsequent improvement to Mentl is written
+IN Mentl and compiled BY Mentl.
 
 The Rust implementation becomes historical. Not deprecated — historical.
 Like the OCaml implementation of Rust. A stepping stone that served its
@@ -163,14 +163,14 @@ Roll-call:
 
 | Primitive | Substrate site | Status |
 |---|---|---|
-| #1 Graph + Env | `src/graph.nx`, `src/types.nx` | live since γ cascade |
-| #2 Handlers + resume discipline | `src/lower.nx` LMakeContinuation; `lib/runtime/{search,combinators,arena_ms}.nx`; `src/backends/wasm.nx` H7 emit | live with multi-shot quartet (H7 + B.3 + B.4 + B.5) |
+| #1 Graph + Env | `src/graph.mn`, `src/types.mn` | live since γ cascade |
+| #2 Handlers + resume discipline | `src/lower.mn` LMakeContinuation; `lib/runtime/{search,combinators,arena_ms}.mn`; `src/backends/wasm.mn` H7 emit | live with multi-shot quartet (H7 + B.3 + B.4 + B.5) |
 | #3 Five verbs | `<~` LFeedback emit completion | LIVE NOW (B.9) — last verb closes |
-| #4 Boolean effect algebra | `src/effects.nx` row algebra | live since γ cascade |
-| #5 Ownership-as-effect | `src/own.nx` Consume effect | live since γ cascade |
-| #6 Refinement types | `src/verify.nx` verify_ledger handler | live; verify_smt handler-swap (Arc F.1) is post-first-light upgrade |
-| #7 Annotation gradient | `src/mentl.nx` Teach effect ops | live in shape |
-| #8 HM + Reasons | `src/infer.nx` one-walk HM with Reason chain | live since γ cascade |
+| #4 Boolean effect algebra | `src/effects.mn` row algebra | live since γ cascade |
+| #5 Ownership-as-effect | `src/own.mn` Consume effect | live since γ cascade |
+| #6 Refinement types | `src/verify.mn` verify_ledger handler | live; verify_smt handler-swap (Arc F.1) is post-first-light upgrade |
+| #7 Annotation gradient | `src/mentl.mn` Teach effect ops | live in shape |
+| #8 HM + Reasons | `src/infer.mn` one-walk HM with Reason chain | live since γ cascade |
 
 **This is the closure moment for the kernel-as-substrate.** No
 primitive is now "declared but unimplemented." Every primitive has
@@ -180,8 +180,8 @@ and composes with the others.
 **What this does NOT mean.** The kernel is structurally closed; it is
 NOT yet *demonstrated end-to-end*. Crucibles are seeds (acceptance
 criteria, not running tests). Domain libraries (`lib/dsp/`, `lib/ml/`)
-remain pre-Ultimate-Inka and need DM rewrite (B.10 + B.11). The
-oracle's voice surfaces (LSP adapter, F.1 inka doc) are pending. Most
+remain pre-Ultimate-Mentl and need DM rewrite (B.10 + B.11). The
+oracle's voice surfaces (LSP adapter, F.1 mentl doc) are pending. Most
 critically: the bootstrap translator (items 26-31) hasn't been
 written — first-light is reached only when `diff inka2.wat inka3.wat`
 is empty, and that's bootstrap work the kernel-substrate enables but
@@ -261,12 +261,12 @@ sensor |> pid_controller <~ delay(1) ~> telemetry |> actuator
 
 Same syntax. Different effects. The shape of the code on the page IS the
 shape of the computation graph. Most languages hide topology behind
-call-stack structure; Inka draws it.
+call-stack structure; Mentl draws it.
 
 **Why this matters.** The industry's artificial boundaries — DSP vs. ML
 vs. compilers vs. control vs. data processing — dissolve. Libraries like
 PyTorch and JUCE live in different worlds because their host languages
-can't express the shared algebra. In Inka, they're the same five verbs.
+can't express the shared algebra. In Mentl, they're the same five verbs.
 Swap a DSP stage for a learned component — types and effects still
 compose. Close a feedback loop in a compiler pass — same `<~` as an IIR
 filter. This solves an industry-scale problem through notation.
@@ -274,7 +274,7 @@ filter. This solves an industry-scale problem through notation.
 **Feedback (`<~`) is the one you haven't seen before.** Every other
 language handles pipelines forward. Feedback loops — IIR filters, RNNs,
 PID controllers, iterative solvers, reactive state — get hidden inside
-handler declarations or state machines. Inka makes the back-edge visible.
+handler declarations or state machines. Mentl makes the back-edge visible.
 `y |> f <~ delay(1)` is *one line* that says: "y flows through f; f's
 output, delayed, flows back into f." The topology is on the page.
 
@@ -283,8 +283,8 @@ stateful handler capturing output and re-injecting it. `<~` doesn't
 encode timing; the ambient handler decides. Under `Sample(44100)` it's
 a sample delay (DSP). Under `Tick` it's a logical-step delay
 (iteration). Under `Clock(wall_ms=10)` it's a control-loop delay. One
-operator; topology-only semantics; handler decides interpretation. Inka
-solves Inka.
+operator; topology-only semantics; handler decides interpretation. Mentl
+solves Mentl.
 
 ---
 
@@ -330,12 +330,12 @@ graphs. Therefore five operators draw all five domains. QED.
 
 *2026-04-17. Crystallized from the lexer's Newline token emission.*
 
-The Inka lexer emits `Newline` tokens. Spaces and tabs are silently
+The Mentl lexer emits `Newline` tokens. Spaces and tabs are silently
 consumed. This means the parser is **layout-aware for pipe chains
 only** — not for general indentation (Python's mistake), but for the
 one place where visual layout is semantically load-bearing.
 
-The consequence: **the shape of well-written Inka code on the page IS
+The consequence: **the shape of well-written Mentl code on the page IS
 the shape of the computation graph.** Not metaphorically. The parser
 reads the shape.
 
@@ -446,7 +446,7 @@ Input is SHARED (borrowed). Cannot consume own values. (`E_OwnershipViolation`)
 Inputs are INDEPENDENT. Can safely consume own values.
 ```
 
-`<|` implicitly **borrows** the input for all branches — Inka has no
+`<|` implicitly **borrows** the input for all branches — Mentl has no
 implicit copy. Pure values (Int, Bool, literals) are fine. `ref`
 values are fine. `own` values are an affine violation: the compiler
 catches it because `<|` is visible in the AST.
@@ -487,7 +487,7 @@ No language rule needed. No special case. One mechanism.
 ---
 
 
-### Feedback Is Inka's Genuine Novelty
+### Feedback Is Mentl's Genuine Novelty
 
 *2026-04-17. Crystallized from spec 10's `<~` design.*
 
@@ -499,7 +499,7 @@ Every other language hides feedback loops:
 | Haskell | `fix (\self -> ...)` or `iterate` | No — hidden in recursion |
 | Rust | `loop { state = f(state); }` | No — hidden in loop body |
 | RxJS | `.pipe(scan(...))` | Partially — `scan` implies accumulation but topology is opaque |
-| Inka | `x \|> f <~ delay(1)` | **Yes — the back-edge IS the operator** |
+| Mentl | `x \|> f <~ delay(1)` | **Yes — the back-edge IS the operator** |
 
 `<~` makes the cycle a first-class syntactic construct. The compiler
 sees it in the AST (`PipeExpr(PFeedback, left, right)`). This enables:
@@ -595,7 +595,7 @@ the handler emits `call $fd_write` (the WASI import).
 
 This means: a native x86 backend is not "a new code generator." It is
 **a different handler for the same effects.** `load_i32` → `MOV`.
-`alloc` → `mmap`. `fd_write` → `syscall`. Same Inka program. Different
+`alloc` → `mmap`. `fd_write` → `syscall`. Same Mentl program. Different
 handler. Different binary.
 
 And: a test backend is not "a mock." It is **a different handler.**
@@ -762,7 +762,7 @@ Four compilation gates emerge for free:
 4. **`!Network`** → sandbox — capability security as types
 
 `!Alloc` is the real-time holy grail. Most languages permit safe APIs that
-allocate, making allocation-freedom impossible to prove. In Inka, `!Alloc`
+allocate, making allocation-freedom impossible to prove. In Mentl, `!Alloc`
 propagates through the ENTIRE transitive call graph. If any callee allocates,
 compile error.
 
@@ -774,7 +774,7 @@ compile error.
 *2026-04-17. Crystallized from cross-referencing spec 01 against
 Rust, Haskell, Koka, and Austral.*
 
-Inka's Boolean algebra over effect rows — `+` (union), `-`
+Mentl's Boolean algebra over effect rows — `+` (union), `-`
 (subtraction), `&` (intersection), `!` (negation), `Pure` (identity)
 — is **strictly more expressive** than any single existing capability
 or effect system:
@@ -785,7 +785,7 @@ or effect system:
 | Haskell IO monad | Binary (pure/impure) | No | No | No | No |
 | Koka effect rows | Yes (open rows) | No | No | No | Yes |
 | Austral capabilities | Module-level | No | No | No | Limited |
-| **Inka** | **Yes (Boolean algebra)** | **Yes** | **Yes** | **Yes** | **Yes** |
+| **Mentl** | **Yes (Boolean algebra)** | **Yes** | **Yes** | **Yes** | **Yes** |
 
 The critical differentiator is **negation**. `!E` proves the
 *absence* of a capability. No other effect system can do this.
@@ -799,7 +799,7 @@ Without negation:
 - Rust can prove no data races but cannot prove no allocation, no IO,
   or no network access through the type system.
 
-With negation, Inka expresses **all of the above as instances of one
+With negation, Mentl expresses **all of the above as instances of one
 mechanism:**
 
 ```
@@ -813,7 +813,7 @@ E - Handled         = Koka's handler absorption
 ```
 
 **Action for implementation.** The `row_subsumes` function in
-`effects.nx` IS the proof engine. Every `!E` constraint becomes a
+`effects.mn` IS the proof engine. Every `!E` constraint becomes a
 subsumption check: `body_row ⊆ !E` iff `E ∉ body_row`. This is
 already implemented. The action is to ensure that the compilation
 gates (Phase 1 exit, Phase F optimizations) use `row_subsumes` for
@@ -828,7 +828,7 @@ every capability check, not ad-hoc string comparisons.
 
 ### Allocation IS an Effect
 
-Rust treats ownership as a type system feature. Inka treats it as an **effect**.
+Rust treats ownership as a type system feature. Mentl treats it as an **effect**.
 
 Every allocation — list literals, string concatenation, `push`, `range` — performs
 the `Alloc` effect. The effect algebra handles the rest:
@@ -847,7 +847,7 @@ fn dsp_process(x: Float) -> Float with !Alloc =
 ```
 
 Other languages cannot express this — when safe standard library operations
-allocate freely, there's no way to prove a function is allocation-free. In Inka,
+allocate freely, there's no way to prove a function is allocation-free. In Mentl,
 `!Alloc` propagates through the ENTIRE transitive call graph. One annotation,
 total proof.
 
@@ -936,7 +936,7 @@ specification is the program. **Same hole; same Mentl; constraint
 tightness alone determines the candidate-space size.**
 
 `??` is therefore not a TODO marker bolted onto the gradient. It is
-the **developer's primary write-mode verb in Inka** — the syntactic
+the **developer's primary write-mode verb in Mentl** — the syntactic
 surface for "synthesize here at whatever constraints I've added."
 Read-mode (observing what Mentl proves about finished code) and
 write-mode (asking Mentl to fill an absence) are two faces of the
@@ -950,8 +950,8 @@ constraint-respecting candidates. Single `?` is no longer a token —
 two characters mark a deliberate gradient invitation, not an
 accidental keystroke.
 
-**Visual identity.** Inka Mono renders `??` as the octagonal-socket
-glyph (`tools/editor/inka-mono/features.fea`) — eight sides for eight
+**Visual identity.** Mentl Mono renders `??` as the octagonal-socket
+glyph (`tools/editor/mentl-mono/features.fea`) — eight sides for eight
 kernel primitives. The visual signal "this is where the gradient
 asks the question" reinforces the substrate role: an empty socket
 waiting to be filled, with eight tentacles' worth of proof-search
@@ -976,7 +976,7 @@ the cursor's position?", the kernel already has all eight answers:
 graph node + handler candidates + topology + effect row + ownership
 + refinement + gradient next-step + Reason chain. The Cursor handler
 *reads* these from existing substrate and composes them into one
-`CursorView` record (`src/types.nx` Cursor + CursorView + Annotation-
+`CursorView` record (`src/types.mn` Cursor + CursorView + Annotation-
 Suggestion + SuggestionKind + PipeContext additions per Hμ.cursor
 landing). There is no new computation; the graph carries all eight
 at every node.
@@ -1023,7 +1023,7 @@ result. Cursor *consumes* Caret as a function parameter (`cursor_argmax(caret)
 -> Cursor`). One unified pipeline; no parallel
 "caret_state" + "argmax_state" record.
 
-**Substrate consequence.** `src/cursor.nx` (Hμ.cursor) lands the
+**Substrate consequence.** `src/cursor.mn` (Hμ.cursor) lands the
 `Cursor` effect (three ops: `cursor_at`, `cursor_argmax`,
 `cursor_pinned`) and the `cursor_default` handler with `with !Mutate`
 (read-only — surfaces query, never corrupts oracle state per
@@ -1032,7 +1032,7 @@ tentacle reads via `perform graph_chase` + `perform synth_propose` +
 `perform teach_gradient` + `perform teach_why` + `perform verify_debt`
 + small local helpers for ownership / pipe-context / row extraction.
 Zero new effects beyond `Cursor` itself; zero new ADTs beyond the
-five in types.nx; the eight reads are what the graph already
+five in types.mn; the eight reads are what the graph already
 exposes. See `docs/specs/simulations/Hμ-cursor.md` for the
 walkthrough and `protocol_cursor_is_argmax.md` for the discipline
 crystallization.
@@ -1042,7 +1042,7 @@ continuous (the graph stays live). Cursor argmax is pure on graph
 delta. *Surfacing* (telling the human) is a transport handler choice:
 real-time / idle-debounced (~250ms default) / on-save / on-explicit-
 ask. Same kernel; four handler variants; user picks via configuration
-which transport handler is installed. Inka solves Inka's UX-tradeoff
+which transport handler is installed. Mentl solves Mentl's UX-tradeoff
 problem through handler-swap.
 
 ---
@@ -1082,7 +1082,7 @@ One step — the most impactful annotation the developer could add. Like a tutor
 who knows exactly what to teach next:
 
 ```
-$ lux --teach app.nx
+$ lux --teach app.mn
 
   💡 `process` is Pure — adding `with Pure` would unlock:
      • memoization (same input → same output, guaranteed)
@@ -1197,7 +1197,7 @@ GC eventually. Nullary ADT variants take the sentinel path
 (`(i32.const tag_id)`, no allocation); the heap-base threshold
 (`HEAP_BASE = 4096`) keeps sentinels and pointers disambiguable in
 mixed-variant types. **The word "vtable" never appears in any
-correct description of Inka dispatch at any layer.** Polymorphic
+correct description of Mentl dispatch at any layer.** Polymorphic
 dispatch is `call_indirect` through a function-pointer field on
 the closure record — Koka JFP 2022 evidence passing, not vtable
 indirection.
@@ -1215,7 +1215,7 @@ benefits.
 
 ### Row Algebra Is One Mechanism Over Different Element Types
 
-String-set (`runtime/strings`), name-set (`effects.nx`, `EffName`),
+String-set (`runtime/strings`), name-set (`effects.mn`, `EffName`),
 field-set (records, sorted by field name), `tagged_values`
 (`region_tracker`, sorted by handle) — four parallel
 implementations of one ordered-keyed-set algebra. The abstraction

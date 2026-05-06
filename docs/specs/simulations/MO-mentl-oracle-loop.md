@@ -159,7 +159,7 @@ common case.
 - **Incremental re-infer via Salsa red-green** (spec 00 pattern):
   only recompute handles whose upstream changed. Further reduces
   per-candidate cost.
-- **SMT cache** via `.inka/handlers/`: predicate hash → cached
+- **SMT cache** via `.mentl/handlers/`: predicate hash → cached
   decision. Second hit is O(1).
 
 Post-mitigations target: **p99 ≤ 20ms for 8-candidate annotation
@@ -222,11 +222,11 @@ DESIGN Ch 2 capability stack.
 
 ## 5. Crucible — the minimum end-to-end scenario
 
-Write this `.nx` file as the first oracle crucible (pre-first-light
+Write this `.mn` file as the first oracle crucible (pre-first-light
 target; compile-fails meaningfully if the loop isn't wired):
 
 ```
-// crucibles/oracle_annotation_fill.nx
+// crucibles/oracle_annotation_fill.mn
 //
 // Given: a function whose body is provably Pure but whose signature
 // doesn't declare `with Pure`.
@@ -245,7 +245,7 @@ fn test_oracle_fills_pure() = {
     //     unlocks:   [CMemoize, CParallelize, CCompileTimeEval]
     //     proven:    Yes (verify_obligations discharged 0 items)
     //
-    // Acceptance: `inka teach examples/oracle_annotation_fill.nx`
+    // Acceptance: `mentl teach examples/oracle_annotation_fill.mn`
     // prints exactly one gradient hint for `double` with those
     // three capabilities, and the Reason chain walks back to the
     // graph handle where `*` is resolved to integer multiply
@@ -270,14 +270,14 @@ names its own follow-up.
   (`RT-refinement-boundaries.md` covers the refinement side).
 - **LLM integration**: `synth_llm` scope; a peer handler, not
   load-bearing for the oracle claim. The thesis is that LLMs are
-  proposers; Inka verifies. Chain ordering enforces this.
+  proposers; Mentl verifies. Chain ordering enforces this.
 
 ---
 
 ## 7. Landing order
 
 1. **This walkthrough lands** as design contract.
-2. **Crucible file `crucibles/oracle_annotation_fill.nx`** lands as
+2. **Crucible file `crucibles/oracle_annotation_fill.mn`** lands as
    failing fitness test (compile-fails until substrate wires).
 3. **Substrate wiring lands incrementally** per existing cascade
    handles (H5 Mentl's arms + Synth effect landing).

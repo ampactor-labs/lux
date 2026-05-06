@@ -6,8 +6,8 @@
 > **Phase tag:** `Hβ.unify-tag-bleed` — peer to Hβ-infer-bind-completeness
 > closure (commit `73fc5f9`); Family-A/B/C bind-completeness landed but
 > exposed a deeper-env-reach trap that the harness diet did not cover.
-> **Cascade-state context:** `cat src/*.nx lib/**/*.nx | wasmtime run
-> bootstrap/inka.wasm` exits 134 (SIGABRT) with backtrace
+> **Cascade-state context:** `cat src/*.mn lib/**/*.mn | wasmtime run
+> bootstrap/mentl.wasm` exits 134 (SIGABRT) with backtrace
 > `tag_of ← ty_tag ← graph_chase_loop ← graph_chase ← unify ←
 > infer_walk_expr_binop ← ...`. Trap address `0x2820706f` (672 MiB) sits
 > two orders of magnitude above the 32 MiB linear-memory ceiling
@@ -101,13 +101,13 @@ a heap pointer. Plausible string sources by data-segment audit
 The most likely substrate: `op_<name>` strings produced by emit_handler
 fn-pointer naming OR variable names like `op_str`, `operand_*`. The exact
 string source is named as a Plan D.2 §1 first-step (`wasm-objdump -d
-bootstrap/inka.wasm | grep -A2 'tag_of'` + memory-region map at trap; the
+bootstrap/mentl.wasm | grep -A2 'tag_of'` + memory-region map at trap; the
 binary's data segments project onto specific addresses post-mass-allocation).
 
 ### §1.3 Heap-region map (Tier 1 substrate)
 
-Per `bootstrap/inka.wat:7-13` + `bootstrap/src/runtime/memory.wat` (or the
-inline globals in inka.wat if memory.wat absent):
+Per `bootstrap/mentl.wat:7-13` + `bootstrap/src/runtime/memory.wat` (or the
+inline globals in mentl.wat if memory.wat absent):
 
 | Region | Range (bytes) | Contents |
 |---|---|---|
@@ -117,8 +117,8 @@ inline globals in inka.wat if memory.wat absent):
 | Post-heap | `[0x2000000, ∞)` | OUT OF BOUNDS — trap region |
 
 Trap address `0x2820706f` is `0x820706f` past the heap ceiling. The bump
-allocator init is at `bootstrap/inka.wat` (search `$heap_ptr` global init);
-HEAP_BASE = 4096 per CLAUDE.md "memory model" + `bootstrap/inka.wat:7`.
+allocator init is at `bootstrap/mentl.wat` (search `$heap_ptr` global init);
+HEAP_BASE = 4096 per CLAUDE.md "memory model" + `bootstrap/mentl.wat:7`.
 Bytes "op·(" in a pointer position confirm a Ty-shaped record contained
 8-bit string data where a heap-ptr-or-sentinel was expected.
 
@@ -276,23 +276,23 @@ nor `out of bounds`.
 
 After §2.1 phases run, Plan D.2's first step is the bisection probe:
 ```
-cat lib/runtime/strings.nx | wasmtime run bootstrap/inka.wasm > /tmp/strings.wat 2> /tmp/strings.err
+cat lib/runtime/strings.mn | wasmtime run bootstrap/mentl.wasm > /tmp/strings.wat 2> /tmp/strings.err
 echo "exit: $?"
 grep -c E_MissingVariable /tmp/strings.err
 grep -c E_TypeMismatch /tmp/strings.err
 grep "wasm trap" /tmp/strings.err
 ```
 **Expected outcomes:**
-- If `strings.nx` alone exits cleanly (productive-under-error only, no
+- If `strings.mn` alone exits cleanly (productive-under-error only, no
   trap), the trap is composition-dependent (multi-file deeper-env).
-- If `strings.nx` alone traps at the same address, the trap is
+- If `strings.mn` alone traps at the same address, the trap is
   single-file-reachable; bisect further by halving file content.
 
 ### §2.4 wasm-objdump localization (Plan D.2 step 2)
 
 ```
-wasm-objdump -d bootstrap/inka.wasm | grep -B1 -A8 'tag_of' > /tmp/tag_of.dec
-wasm-objdump -x bootstrap/inka.wasm > /tmp/sections.txt
+wasm-objdump -d bootstrap/mentl.wasm | grep -B1 -A8 'tag_of' > /tmp/tag_of.dec
+wasm-objdump -x bootstrap/mentl.wasm > /tmp/sections.txt
 # Identify which data segment contains the bytes "op" + offset, AND
 # which Ty constructor is most-likely to have stored that string-as-pointer.
 ```
@@ -310,7 +310,7 @@ should NOT include row_h.
 | # | Interrogation | Answer |
 |---|---|---|
 | 1 | Graph?       | The graph already separates ty handles (NFree/NBound) from row handles (NRowFree/NRowBound) at the NodeKind tag layer. Mixing them in a quantifier list erases that distinction; the residue keeps row_h OUT of the quantifier list. |
-| 2 | Handler?     | `$infer_pre_register_quantifier` is the projection. `@resume=OneShot` (single recursive copy). The wheel `src/infer.nx:96-149` `pre_register_fn_sigs` quantifies over ty handles only — row generalization awaits row.wat substrate. |
+| 2 | Handler?     | `$infer_pre_register_quantifier` is the projection. `@resume=OneShot` (single recursive copy). The wheel `src/infer.mn:96-149` `pre_register_fn_sigs` quantifies over ty handles only — row generalization awaits row.wat substrate. |
 | 3 | Verb?        | N/A — substrate-internal. |
 | 4 | Row?         | This IS the row interrogation: row generalization at FnStmt SHOULD quantify row vars per spec 04 §Generalizations, but ONLY when row.wat's `$row_substitute` is the projection that handles them. Until row.wat ships, row vars are NOT polymorphic; the seed conservatively monomorphizes row positions per Hβ.infer.row-normalize follow-up. |
 | 5 | Ownership?   | Quantifiers are reference-counted-once into the Forall record. No Consume. |
@@ -408,8 +408,8 @@ ret_h, row_h]`. The signature drops `$row_h`:
 
 Update caller at `walk_stmt.wat:393-400` to drop the row_h argument.
 
-**Wheel canonical:** `src/infer.nx:96-149` (`pre_register_fn_sigs`) +
-`src/infer.nx:1818-1834` (`generalize`). The wheel quantifies type-side
+**Wheel canonical:** `src/infer.mn:96-149` (`pre_register_fn_sigs`) +
+`src/infer.mn:1818-1834` (`generalize`). The wheel quantifies type-side
 free handles only; row generalization is the named follow-up
 `Hβ.infer.row-normalize`.
 
@@ -488,7 +488,7 @@ The Plan D.2 fix is gated on:
    phases (U.1–U.7) green.
 3. Real-source full-wheel probe:
    ```
-   cat src/*.nx lib/**/*.nx | wasmtime run bootstrap/inka.wasm > /tmp/inka2-postfix.wat 2> /tmp/inka2-postfix.err
+   cat src/*.mn lib/**/*.mn | wasmtime run bootstrap/mentl.wasm > /tmp/inka2-postfix.wat 2> /tmp/inka2-postfix.err
    echo "exit: $?"
    grep "wasm trap" /tmp/inka2-postfix.err   # MUST be empty
    grep "out of bounds" /tmp/inka2-postfix.err   # MUST be empty
@@ -497,7 +497,7 @@ The Plan D.2 fix is gated on:
    surface only, no trap, no SIGABRT).
 4. Real-source single-file probe:
    ```
-   cat lib/runtime/strings.nx | wasmtime run bootstrap/inka.wasm 2> /tmp/strings.err
+   cat lib/runtime/strings.mn | wasmtime run bootstrap/mentl.wasm 2> /tmp/strings.err
    ```
    Exit MUST be 0 OR diagnostic-only (no trap).
 5. `bash bootstrap/first-light.sh` Tier 1 PASS (non-regression).
@@ -528,7 +528,7 @@ The Plan D.2 fix is gated on:
 
 - **Surpass — NodeKind partition IS the type/row distinction:** ty
   handles and row handles share an integer namespace but partition by
-  NodeKind tag. Inka's NodeKind tag is the explicit partition, made
+  NodeKind tag. Mentl's NodeKind tag is the explicit partition, made
   structural via $is_nfree / $is_nrowfree.
 
 - **Surpass — Reason-resident chase:** every chase step records the
@@ -559,10 +559,10 @@ The Plan D.2 fix is gated on:
      that every Ty record ever read must be structurally valid.
 
 4. **Wheel canonical alignment:**
-   - `src/infer.nx:1818-1834` (generalize): wheel quantifies free type
+   - `src/infer.mn:1818-1834` (generalize): wheel quantifies free type
      handles only.
-   - `src/infer.nx:1931-1998` (instantiate): row preserved verbatim.
-   - `src/infer.nx:96-149` (pre_register_fn_sigs): wheel pre-registers
+   - `src/infer.mn:1931-1998` (instantiate): row preserved verbatim.
+   - `src/infer.mn:96-149` (pre_register_fn_sigs): wheel pre-registers
      fns + typedefs at toplevel pre-pass.
 
 ---

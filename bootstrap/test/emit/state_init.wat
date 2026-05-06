@@ -19,7 +19,7 @@
   ;;               to $emit_set_body_context per chunk-header line 134-
   ;;               137 named follow-up Hβ.emit.evidence-slot-naming.
   ;;   Handler?    Direct calls to $emit_* (seed Tier-4 base; @resume=
-  ;;               OneShot at the wheel per src/backends/wasm.nx:117-128
+  ;;               OneShot at the wheel per src/backends/wasm.mn:117-128
   ;;               string_table + 960-961 set_body_captures/_evidence).
   ;;   Verb?       N/A — sequential helper invocations.
   ;;   Row?        EfPure — no effect ops performed.

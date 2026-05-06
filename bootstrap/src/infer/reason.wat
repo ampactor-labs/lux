@@ -56,9 +56,9 @@
   ;; ═══ DESIGN ═══════════════════════════════════════════════════════
   ;;
   ;; Per spec 02 (Reason ADT — vocabulary types) + spec 08 (query —
-  ;; Why Engine walks the DAG) + src/types.nx canonical Reason ADT
+  ;; Why Engine walks the DAG) + src/types.mn canonical Reason ADT
   ;; (lines 231-255): 23 variants. Every graph node and every
-  ;; unification records a Reason. show_reason at src/types.nx:982
+  ;; unification records a Reason. show_reason at src/types.mn:982
   ;; walks every field of every variant — so the seed needs constructors
   ;; AND accessors per field; downstream emit_diag.wat / query layer
   ;; cannot rebuild a show_reason equivalent without them.
@@ -78,10 +78,10 @@
   ;;             INTENT_INDEX_ENTRY)
   ;;   220-249 — Reason variants (30 slots; this chunk uses 220-242 for
   ;;             current 23 variants; 243-249 reserved for future
-  ;;             Reason variants per src/types.nx evolution)
+  ;;             Reason variants per src/types.mn evolution)
   ;;
   ;; Per-variant tag enumeration (alphabetical by ADT order in
-  ;; src/types.nx lines 231-255):
+  ;; src/types.mn lines 231-255):
   ;;   220 = Declared(String)                          arity 1
   ;;   221 = Inferred(String)                          arity 1
   ;;   222 = Fresh(Int)                                arity 1
@@ -133,13 +133,13 @@
   ;;                                  no parallel arrays.
   ;; - Drift 8 (string-keyed):        integer constant tags 220-242;
   ;;                                  not "OpConstraint" strings.
-  ;; - Drift 9 (deferred-by-omission): every variant in src/types.nx
+  ;; - Drift 9 (deferred-by-omission): every variant in src/types.mn
   ;;                                  Reason ADT gets its constructor
   ;;                                  in this commit. No `;; TODO add
   ;;                                  Synth Reasons later` placeholders.
   ;; - Foreign fluency:               no "stack trace" / "log entry" /
   ;;                                  "audit record" vocabulary. Names
-  ;;                                  match src/types.nx variants exactly
+  ;;                                  match src/types.mn variants exactly
   ;;                                  (lowercased for WAT convention).
 
   ;; ─── Universal tag accessor ──────────────────────────────────────
@@ -353,7 +353,7 @@
   ;; ─── 235 = BinOpPlaceholder(BinOp) ───────────────────────────────
   ;; BinOp payload opaque per verify.wat:39 precedent. parser substrate
   ;; owns BinOp tag construction (the 14 BAdd..BConcat variants per
-  ;; src/types.nx:182).
+  ;; src/types.mn:182).
   (func $reason_make_binopplaceholder (param $op i32) (result i32)
     (local $r i32)
     (local.set $r (call $make_record_stage (i32.const 235) (i32.const 1)))

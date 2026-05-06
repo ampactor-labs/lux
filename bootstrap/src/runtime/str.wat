@@ -10,7 +10,7 @@
   ;; length-then-bytes. $str_slice allocates a new substring; clamps
   ;; out-of-range indices.
   ;;
-  ;; The bare `==` shape on strings is forbidden in src/*.nx per
+  ;; The bare `==` shape on strings is forbidden in src/*.mn per
   ;; CLAUDE.md bug classes; user code calls `str_eq(a, b)` (which
   ;; lowers to $str_eq here). Per Ω.2: $str_eq returns Bool (i32 0/1).
 

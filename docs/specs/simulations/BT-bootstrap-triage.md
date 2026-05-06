@@ -1,6 +1,6 @@
 # BT — Bootstrap Triage · the cross-module reference punch list
 
-> **Status:** `[DRAFT 2026-04-23]`. Survey of the 14/15 `.nx` files
+> **Status:** `[DRAFT 2026-04-23]`. Survey of the 14/15 `.mn` files
 > that compile through the bootstrap pipeline but fail to validate
 > standalone, categorized by failure shape. Drives the sequential
 > close-out OR the timebox-and-pivot decision.
@@ -8,9 +8,9 @@
 > **Companion to Hβ-bootstrap.md.** Hβ names the conventions;
 > this walkthrough names the remaining work.
 
-*Baseline: 10,629 lines of Inka across 15 `src/*.nx` files
-assemble a 4,733-line bootstrap `inka.wat` (27,808 bytes of WASM).
-1/15 (`verify.nx`, 63 lines, single `types` import) validates
+*Baseline: 10,629 lines of Mentl across 15 `src/*.mn` files
+assemble a 4,733-line bootstrap `mentl.wat` (27,808 bytes of WASM).
+1/15 (`verify.mn`, 63 lines, single `types` import) validates
 fully. The other 14 compile through the lex/parse/emit pipeline
 but fail to validate as standalone WAT because they reference
 identifiers defined in sibling modules that aren't in the same
@@ -20,9 +20,9 @@ compilation unit.*
 
 ## 0. Framing — what "cross-module reference failure" is
 
-Each `.nx` file is compiled INDEPENDENTLY by the bootstrap seed
-compiler. When `graph.nx` performs `list_index(...)` (defined in
-`lib/runtime/lists.nx`), the seed compiler emits a WAT `(call
+Each `.mn` file is compiled INDEPENDENTLY by the bootstrap seed
+compiler. When `graph.mn` performs `list_index(...)` (defined in
+`lib/runtime/lists.mn`), the seed compiler emits a WAT `(call
 $list_index ...)` instruction but no function import/export binds
 `list_index` across compilation units. `wasm-validate` rejects the
 module: "undefined function `list_index`".
@@ -33,7 +33,7 @@ missing module-linking pass.
 Two honest ways forward:
 
 1. **Sequential close-out.** Land a cross-module linker pass in the
-   bootstrap (read every `.nx`'s exports; resolve every import to
+   bootstrap (read every `.mn`'s exports; resolve every import to
    a ground symbol before emit; link). Scope: ~500-1000 lines WAT.
 2. **Timebox + pivot.** If sequential close-out exceeds $N$ sessions
    (2-3 recommended), write a disposable translator in a
@@ -52,12 +52,12 @@ per-module inventory.
 ## 1. The baseline — what validates
 
 ```
-lib/prelude.nx                          →  ?  (not in current set)
-lib/runtime/lists.nx                    →  ?  (dependency leaf)
-src/verify.nx      (63 lines)           →  ✓  1 import (types), fully standalone
+lib/prelude.mn                          →  ?  (not in current set)
+lib/runtime/lists.mn                    →  ?  (dependency leaf)
+src/verify.mn      (63 lines)           →  ✓  1 import (types), fully standalone
 ```
 
-`verify.nx` validates because its imports don't produce
+`verify.mn` validates because its imports don't produce
 cross-module calls — `types` is ADT declarations, not function
 definitions. Every other file imports modules that provide function
 calls.
@@ -71,26 +71,26 @@ calls.
 
 | Module | Lines | Imports | Primary failure shape |
 |--------|-------|---------|----------------------|
-| `src/verify.nx` | 63 | 1 | ✓ validates |
-| `src/types.nx` | 1099 | 0-1 | Forward-declares ADTs; likely validates on its own if we split out one field |
-| `src/graph.nx` | 484 | 3 (types, effects, runtime/strings) | Calls `str_concat`, `list_index`, `EfClosed` — all cross-module |
-| `src/effects.nx` | 690 | 2 (types, runtime/strings) | Row-algebra primitives cross-referenced |
-| `src/query.nx` | 311 | 3 (types, graph, runtime/strings) | Read-only; lightest cross-module surface |
-| `src/lexer.nx` | 284 | 2 (types, runtime/strings) | Byte primitives from runtime |
-| `src/parser.nx` | 1402 | 2-3 (types, lexer, runtime) | Large surface but pure lookups |
-| `src/own.nx` | 588 | 3 (types, graph, effects) | `consume()` ops cross-module |
-| `src/infer.nx` | 2210 | 5+ (types, graph, effects, own, runtime) | Heaviest cross-module surface |
-| `src/lower.nx` | 1243 | 4+ (types, graph, effects, runtime) | IR construction |
-| `src/pipeline.nx` | 506 | 5+ (types, effects, all handlers) | Handler composition |
-| `src/cache.nx` | 640 | 4 (types, runtime/binary, io, strings) | Pack/Unpack crosses modules |
-| `src/driver.nx` | 311 | 4+ (cache, parser, lexer, infer) | Top-level orchestration |
-| `src/mentl.nx` | 703 | 4+ (types, graph, effects, others) | Teach substrate |
-| `src/main.nx` | 95 | 3+ (driver, pipeline, others) | Entry point |
+| `src/verify.mn` | 63 | 1 | ✓ validates |
+| `src/types.mn` | 1099 | 0-1 | Forward-declares ADTs; likely validates on its own if we split out one field |
+| `src/graph.mn` | 484 | 3 (types, effects, runtime/strings) | Calls `str_concat`, `list_index`, `EfClosed` — all cross-module |
+| `src/effects.mn` | 690 | 2 (types, runtime/strings) | Row-algebra primitives cross-referenced |
+| `src/query.mn` | 311 | 3 (types, graph, runtime/strings) | Read-only; lightest cross-module surface |
+| `src/lexer.mn` | 284 | 2 (types, runtime/strings) | Byte primitives from runtime |
+| `src/parser.mn` | 1402 | 2-3 (types, lexer, runtime) | Large surface but pure lookups |
+| `src/own.mn` | 588 | 3 (types, graph, effects) | `consume()` ops cross-module |
+| `src/infer.mn` | 2210 | 5+ (types, graph, effects, own, runtime) | Heaviest cross-module surface |
+| `src/lower.mn` | 1243 | 4+ (types, graph, effects, runtime) | IR construction |
+| `src/pipeline.mn` | 506 | 5+ (types, effects, all handlers) | Handler composition |
+| `src/cache.mn` | 640 | 4 (types, runtime/binary, io, strings) | Pack/Unpack crosses modules |
+| `src/driver.mn` | 311 | 4+ (cache, parser, lexer, infer) | Top-level orchestration |
+| `src/mentl.mn` | 703 | 4+ (types, graph, effects, others) | Teach substrate |
+| `src/main.mn` | 95 | 3+ (driver, pipeline, others) | Entry point |
 
 **Observations:**
 - **Import graph is mostly acyclic** (types → effects/graph → {infer, own} → lower → pipeline → driver → main).
-- **`types.nx` is the root;** everything else imports it.
-- **Two modules (`infer.nx` + `parser.nx`) account for ~34% of the tree** — linker load concentrates here.
+- **`types.mn` is the root;** everything else imports it.
+- **Two modules (`infer.mn` + `parser.mn`) account for ~34% of the tree** — linker load concentrates here.
 - **No file has more than ~6 import lines;** module graph is sparse.
 
 ---
@@ -98,17 +98,17 @@ calls.
 ## 3. The linking work — what closing the gap actually requires
 
 A bootstrap-level cross-module linker pass reads:
-1. **Every `.nx` file's exports** — every top-level `fn`, `effect`,
+1. **Every `.mn` file's exports** — every top-level `fn`, `effect`,
    `handler`, `type` declaration's symbol + scheme.
-2. **Every `.nx` file's imports** — which external symbols each
+2. **Every `.mn` file's imports** — which external symbols each
    file's emitted WAT references.
-3. **Emits** one assembled `inka.wat` with:
+3. **Emits** one assembled `mentl.wat` with:
    - All functions collected, renamed to avoid collision
      (`<module>__<symbol>`).
    - All handlers collected; handler-chain composition resolved at
      link time.
    - WASI imports deduplicated.
-   - `_start` wired to `main.nx`'s `main()`.
+   - `_start` wired to `main.mn`'s `main()`.
 
 **Scope estimate:** 300-800 lines WAT in a new `bootstrap/src/link.wat`
 chunk + adjustments to `build.sh` to run the link pass before
@@ -117,7 +117,7 @@ chunk + adjustments to `build.sh` to run the link pass before
 **Alternative scope estimate:** a Python linker doing the same work
 as a pre-assembly pass over `bootstrap/src/*.wat` chunks. ~200
 lines. **~0.5-1 sessions.** Post-first-light, the Python linker
-dissolves into an Inka `link_handler` on the graph.
+dissolves into an Mentl `link_handler` on the graph.
 
 ---
 
@@ -139,7 +139,7 @@ self-hosting, never via a foreign-language translator.*
    scheme serialization, handler chain composition), the work is
    transcription, not re-design.
 
-2. **The first module past `verify.nx` validates without
+2. **The first module past `verify.mn` validates without
    surfacing a substrate gap.** If the second module requires only
    the linker pass (no new effect declarations, no new primitive
    semantics), the pattern generalizes to the other twelve.
@@ -161,14 +161,14 @@ self-hosting, never via a foreign-language translator.*
    passing breaks at module boundaries. Stop; name the gap as a
    new substrate walkthrough; land it; resume.
 
-3. **The linker itself starts duplicating Inka substrate logic.**
+3. **The linker itself starts duplicating Mentl substrate logic.**
    If the linker pass is reimplementing env_extend or
    handler_chain in Python/shell, it has become a second
    compiler. Stop; move the logic to `src/` where it belongs;
    call it from the linker as the substrate.
 
 **No temporal criteria.** "Three sessions" was project-management
-vocabulary that Inka doesn't speak. The linker lands when its
+vocabulary that Mentl doesn't speak. The linker lands when its
 walkthrough paragraphs have been transcribed to WAT and the
 audit is clean. Scope is a consequence of substrate necessity.
 
@@ -176,9 +176,9 @@ audit is clean. Scope is a consequence of substrate necessity.
 "speed things up," it would do so by importing that language's
 fluency into the seed compiler's emit shape — the exact drift
 Morgan's 2026-04-20 decision excludes. Growth past L1 is via
-Tier 3 (Hβ §2): VFINAL-on-partial-WAT compiles extended `src/*.nx`;
+Tier 3 (Hβ §2): VFINAL-on-partial-WAT compiles extended `src/*.mn`;
 diff against hand-WAT; integrate; audit per walkthrough
-paragraph. Inka bootstraps through Inka.
+paragraph. Mentl bootstraps through Mentl.
 
 ---
 
@@ -188,27 +188,27 @@ paragraph. Inka bootstraps through Inka.
 - Reads every `bootstrap/src/*.wat` chunk.
 - Collects function/global/memory declarations.
 - Renames collisions (none expected; single namespace).
-- Produces one concatenated, validated `inka.wat`.
+- Produces one concatenated, validated `mentl.wat`.
 
-**Fitness test:** `bootstrap/build.sh` + `wasm-validate inka.wasm`
-exits 0. Today's `types.nx` + `verify.nx` + `runtime/strings.nx` +
-`runtime/lists.nx` compile and validate together.
+**Fitness test:** `bootstrap/build.sh` + `wasm-validate mentl.wasm`
+exits 0. Today's `types.mn` + `verify.mn` + `runtime/strings.mn` +
+`runtime/lists.mn` compile and validate together.
 
-**Session 2:** Extend the linker to run on `src/*.nx` output:
-- Every seed-compiled `.nx` produces a partial WAT.
+**Session 2:** Extend the linker to run on `src/*.mn` output:
+- Every seed-compiled `.mn` produces a partial WAT.
 - Linker concatenates partial WATs, emits unified module.
 - Each validated module = one commit.
 
-**Fitness test:** `graph.nx` + `effects.nx` + their dependencies
+**Fitness test:** `graph.mn` + `effects.mn` + their dependencies
 validate.
 
 **Session 3:** Close out the remaining modules.
 
-**Fitness test:** full `src/*.nx` + `lib/**/*.nx` assembles into
-one `inka.wasm` that `wasmtime` executes.
+**Fitness test:** full `src/*.mn` + `lib/**/*.mn` assembles into
+one `mentl.wasm` that `wasmtime` executes.
 
 **Following session (4):** first-light test — run the assembled
-`inka.wasm` on `src/*.nx` input; compare output to `inka.wat`;
+`mentl.wasm` on `src/*.mn` input; compare output to `mentl.wat`;
 diff.
 
 ---
@@ -235,8 +235,8 @@ Once the linker lands and all 15 modules validate together:
 1. **Runtime stubs may still be unimplemented** (e.g., some
    `list_*` ops that the seed compiler emits but the hand-WAT
    runtime doesn't provide). Fitness test: the assembled
-   `inka.wasm` runs `wasmtime` without trapping on a missing
-   symbol when fed `src/verify.nx` as input.
+   `mentl.wasm` runs `wasmtime` without trapping on a missing
+   symbol when fed `src/verify.mn` as input.
 2. **`_start` needs to read stdin, compile, write stdout.** Today's
    `bootstrap/src/emit_module.wat` wraps an imperative top-level in
    `_start`, but a full self-compile harness needs WASI scaffolding.
@@ -256,7 +256,7 @@ mechanical transcription within known substrate.
 
 - **Linker work:** Opus inline or Opus subagent. The pass is small
   (~200-800 lines) but every drift-mode guard matters.
-- **Post-linking runtime fill-in:** inka-implementer suitable once
+- **Post-linking runtime fill-in:** mentl-implementer suitable once
   the specific missing runtime primitive is named and given a
   walkthrough citation.
 
@@ -271,7 +271,7 @@ diagnostics fires, naming the pivot precisely. **No vibes-based
 pivot; explicit fitness criteria.**
 
 *Cross-module linking is what every bootstrapped language
-eventually builds. Inka's version is smaller because the modules
+eventually builds. Mentl's version is smaller because the modules
 are smaller and the kernel is tighter. Three sessions or one
 explicit pivot.*
 
@@ -288,17 +288,17 @@ landed differently, and what didn't land.**
 ### §11.1 The finding
 
 **Date:** 2026-04-25.
-**Test:** ran `cat src/graph.nx | wasmtime run bootstrap/inka.wasm`
-to verify BT §1's claim that "the other 14 [src/*.nx files] compile
+**Test:** ran `cat src/graph.mn | wasmtime run bootstrap/mentl.wasm`
+to verify BT §1's claim that "the other 14 [src/*.mn files] compile
 through the lex/parse/emit pipeline but fail to validate as
 standalone WAT because they reference identifiers defined in
 sibling modules that aren't in the same compilation unit."
 
 **Result:** the seed produces only 34 lines of degenerate WAT for
-src/graph.nx (484 lines of source). The generated `_start_fn`
+src/graph.mn (484 lines of source). The generated `_start_fn`
 contains a single line: `(drop (i32.div_s (local.get $runtime)
 (local.get $strings)))` referencing nonexistent locals `$runtime`
-and `$strings` — leftover from parsing graph.nx's import statements
+and `$strings` — leftover from parsing graph.mn's import statements
 (`import types`, `import effects`, `import runtime/strings`) as
 identifier-expressions rather than as module imports.
 
@@ -315,10 +315,10 @@ BT §1's per-module inventory said:
 
 > | Module | Lines | Imports | Primary failure shape |
 > |--------|-------|---------|----------------------|
-> | `src/graph.nx` | 484 | 3 | Calls `str_concat`, `list_index`, `EfClosed` — all cross-module |
+> | `src/graph.mn` | 484 | 3 | Calls `str_concat`, `list_index`, `EfClosed` — all cross-module |
 
 The "Primary failure shape" column is **partially aspirational**:
-graph.nx doesn't compile through to the cross-module-ref stage; it
+graph.mn doesn't compile through to the cross-module-ref stage; it
 fails earlier at the import-handling boundary. The same likely
 applies to the other 13/15 modules in BT §1 — their stated failure
 shape assumes compilation reaches the emit-cross-module-call stage,
@@ -335,12 +335,12 @@ per-module.
 **The Python pre-link pass (`bootstrap/src/link.py`) works on the
 ASSUMPTION that per-file compilation produces link-needing WAT
 (valid syntactic WAT with cross-module symbol references).** Today
-that assumption holds for verify.nx alone; for graph.nx + others,
+that assumption holds for verify.mn alone; for graph.mn + others,
 the pre-link pass would link DEGENERATE WAT.
 
 **The linker is therefore not the next move.** The next move is
 **extending the seed's per-file compilation surface** (parser +
-emit per Hβ §1 conventions) to handle the full src/*.nx surface.
+emit per Hβ §1 conventions) to handle the full src/*.mn surface.
 THEN the linker becomes load-bearing as designed.
 
 ### §11.4 Sub-handles surfaced
@@ -348,7 +348,7 @@ THEN the linker becomes load-bearing as designed.
 **Per Anchor 7 cascade discipline + the substrate-honesty principle:**
 
 - **BT.A.0** — per-module-failure-shape verification sweep. Run
-  every src/*.nx + lib/**/*.nx file through the seed; categorize
+  every src/*.mn + lib/**/*.mn file through the seed; categorize
   actual failure shape per file; update §1 per-module inventory
   with reality. Substrate gap: a test harness script (~50 lines
   bash) that runs the seed against each module + reports failure
@@ -396,7 +396,7 @@ residue between intent and substrate. Per the LF.B precedent
 on BT.A.* reads §11 first; doesn't re-discover the finding from
 seed behavior.
 
-**Inka solves Inka.** The walkthrough's role is to specify what
+**Mentl solves Mentl.** The walkthrough's role is to specify what
 IS; my discovery's role is to align the specification with what
 seed-runtime experience proves.
 

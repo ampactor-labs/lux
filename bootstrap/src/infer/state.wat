@@ -31,10 +31,10 @@
   ;;      reads top to know which env entries are part of THIS fn's
   ;;      body. Pure i32 entries — no record wrap.
   ;;   3. span index          — list of (span_ptr, handle).
-  ;;      Per src/graph.nx graph_index_span; query layer reads after
+  ;;      Per src/graph.mn graph_index_span; query layer reads after
   ;;      inference for cursor-position lookups.
   ;;   4. intent index        — list of (handle, declared_effects).
-  ;;      Per src/graph.nx graph_index_intent; query reads for
+  ;;      Per src/graph.mn graph_index_intent; query reads for
   ;;      "what handlers would this fn need?" surfaces.
   ;;
   ;; Eight interrogations at this chunk's edit sites (per §6.1):
@@ -42,7 +42,7 @@
   ;;                   $graph_fresh_ty/_row at FnStmt; span/intent
   ;;                   indices pair handles with source positions.
   ;;   2. Handler?     The seed's inference is direct functions; the
-  ;;                   wheel compiles handler-shape from src/infer.nx.
+  ;;                   wheel compiles handler-shape from src/infer.mn.
   ;;                   These globals are the seed's interim — they do
   ;;                   NOT survive into the wheel's compiled form.
   ;;   3. Verb?        N/A at substrate level.
@@ -225,7 +225,7 @@
   ;; ─── Per-FnStmt-exit ref-escape reset ────────────────────────────
   ;; Finer-grained than $infer_reset_walk — clears only the ref-escape
   ;; tracker (not fn-stack / span-index / intent-index). Called by
-  ;; own.wat's $infer_ref_escape_clear at FnStmt exit per src/own.nx:371-376
+  ;; own.wat's $infer_ref_escape_clear at FnStmt exit per src/own.mn:371-376
   ;; check_ref_escape lifecycle. Length-only reset (buffers stay).
   (func $infer_ref_escape_clear_state
     (call $infer_init)

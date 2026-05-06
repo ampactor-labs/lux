@@ -14,7 +14,7 @@ grammar state).
 
 ## Why it matters
 
-Parse errors halt further parsing on the local construct, but Inka's
+Parse errors halt further parsing on the local construct, but Mentl's
 parser uses the `ParseError` effect's `unexpected` op to return a
 Node holding `NHole` — parsing continues for the rest of the file.
 You see every parse error in one compile, not one-at-a-time.

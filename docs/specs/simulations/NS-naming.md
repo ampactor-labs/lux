@@ -2,18 +2,18 @@
 
 > **Status:** `[PENDING]`. Gates Pending Work items 10–16 (extension migration + simplification execution + doc updates). This walkthrough resolves every naming decision the simplification audit needs to proceed mechanically. After this walkthrough closes, item 11 (simplification execution) has no design left — only transcription.
 
-*One walkthrough; one simplification audit; one commit sequence. No "for now," no "until later" — the naming form that lands after this walkthrough is Inka's canonical form, kept forever.*
+*One walkthrough; one simplification audit; one commit sequence. No "for now," no "until later" — the naming form that lands after this walkthrough is Mentl's canonical form, kept forever.*
 
 ---
 
 ## 0. Framing — why naming is substrate, not style
 
-Inka is the ultimate intent → machine instruction medium. Every line a developer reads is Mentl's voice made visible in source. Names are not cosmetic; they are the interface through which the graph speaks to a human. A name that carries a foreign-language pattern carries that language's cognitive shape into the human's thinking. **Inka's names must be Inka-native, or the medium leaks.**
+Mentl is the ultimate intent → machine instruction medium. Every line a developer reads is Mentl's voice made visible in source. Names are not cosmetic; they are the interface through which the graph speaks to a human. A name that carries a foreign-language pattern carries that language's cognitive shape into the human's thinking. **Mentl's names must be Mentl-native, or the medium leaks.**
 
 This walkthrough resolves six naming decisions, then sequences their mechanical application. Every decision passes the eight interrogations; every rewrite rule is prescriptive at source-site resolution.
 
 **What this walkthrough gates:**
-- Item 10 — `.nx` → `.nx` extension migration
+- Item 10 — `.mn` → `.mn` extension migration
 - Item 11 — simplification audit execution (dot-access conversion, rename sweep, drift-mode audit)
 - Items 12–16 — doc updates reflecting the naming changes
 - Indirectly, every downstream walkthrough inherits the canonical names this walkthrough fixes
@@ -46,16 +46,16 @@ let ok = unify_apply(a, b)
 cache_write(kai)
 ```
 
-This is **drift mode 5 (C calling convention).** C/Rust/Go use module-name-as-prefix because their module systems can't carry the namespace automatically; every function's fully-qualified name is the module prefix + local name. **Inka has proper modules + imports.** The namespace IS the module. Prefixing is redundant ceremony duplicating information `import` already carries.
+This is **drift mode 5 (C calling convention).** C/Rust/Go use module-name-as-prefix because their module systems can't carry the namespace automatically; every function's fully-qualified name is the module prefix + local name. **Mentl has proper modules + imports.** The namespace IS the module. Prefixing is redundant ceremony duplicating information `import` already carries.
 
-**Inka-native form.** Bare names inside the module; dot-access from importers:
+**Mentl-native form.** Bare names inside the module; dot-access from importers:
 
 ```
-// inside src/graph.nx
+// inside src/graph.mn
 fn chase(h) = ...
 fn bind(h, ty, r) = ...
 
-// inside src/infer.nx
+// inside src/infer.mn
 import src/graph
 
 fn expr(node) = {
@@ -75,16 +75,16 @@ fn expr(node) = {
 }
 ```
 
-**Substrate requirement** (verified against current parser + infer state). Dot-access on imported modules requires inference to accept `FieldExpr(VarRef(module_name), field_name)`. The parser already constructs this shape (`parser.nx:704`); inference currently constrains the left-hand side of `FieldExpr` to a record (record-open unification at `infer.nx:602`).
+**Substrate requirement** (verified against current parser + infer state). Dot-access on imported modules requires inference to accept `FieldExpr(VarRef(module_name), field_name)`. The parser already constructs this shape (`parser.mn:704`); inference currently constrains the left-hand side of `FieldExpr` to a record (record-open unification at `infer.mn:602`).
 
-**Resolution (REVISED 2026-04-21 per Inka-solves-Inka re-audit):** ~~modules are records at the type level~~ — that framing was drift-1-adjacent. Corrected: **dotted names are env entries.** When driver installs an imported module's exports, it registers each export under TWO env keys: the flat short name (current behavior) AND the qualified `module_short_name.export_name` form. `FieldExpr(VarRef(m), f)` tries the qualified lookup first; on miss falls through to record-field unification.
+**Resolution (REVISED 2026-04-21 per Mentl-solves-Mentl re-audit):** ~~modules are records at the type level~~ — that framing was drift-1-adjacent. Corrected: **dotted names are env entries.** When driver installs an imported module's exports, it registers each export under TWO env keys: the flat short name (current behavior) AND the qualified `module_short_name.export_name` form. `FieldExpr(VarRef(m), f)` tries the qualified lookup first; on miss falls through to record-field unification.
 
 **Implementation scope** (folded into item 11 simplification execution):
-- `src/driver.nx` gains qualified-name dual-install in `driver_install_loop` (~10 lines). For each export, extend env twice: flat key and `module.export` key.
-- `src/infer.nx` gains FieldExpr qualified-lookup attempt before record unification (~5 lines). Check `env_lookup(left_name ++ "." ++ field)`; hit → use that Scheme; miss → existing record-access path.
+- `src/driver.mn` gains qualified-name dual-install in `driver_install_loop` (~10 lines). For each export, extend env twice: flat key and `module.export` key.
+- `src/infer.mn` gains FieldExpr qualified-lookup attempt before record unification (~5 lines). Check `env_lookup(left_name ++ "." ++ field)`; hit → use that Scheme; miss → existing record-access path.
 - ~15 lines total. No new ADT variant. No new effect. No new type-system concept — dotted names are just more qualified env keys.
 
-**Why this is Inka-native, per the eight interrogations:**
+**Why this is Mentl-native, per the eight interrogations:**
 - **Graph?** Env already keys by strings; dotted names are qualified strings. No new substrate.
 - **Handler?** `env_lookup` (EnvRead) is the existing handler; no new handler.
 - **Verb?** No verb change.
@@ -100,9 +100,9 @@ fn expr(node) = {
 
 | Current form | New form (dot-access) | Alternative (selective import) |
 |---|---|---|
-| `graph_chase(h)` inside `graph.nx` | `chase(h)` | — |
+| `graph_chase(h)` inside `graph.mn` | `chase(h)` | — |
 | `graph_chase(h)` inside another module | `graph.chase(h)` | `chase(h)` w/ `import graph {chase}` |
-| `cache_write(kai)` inside `cache.nx` | `write(kai)` | — |
+| `cache_write(kai)` inside `cache.mn` | `write(kai)` | — |
 | `cache_write(kai)` elsewhere | `cache.write(kai)` | `write(kai)` w/ selective import |
 
 **Heuristic for dot vs. selective-import:** if a module's function is called ≥5 times in one importer, selective-import is worth it (terser at each call site); if ≤4, dot-access keeps origin visible without bloating imports. Simplification audit applies this heuristic mechanically.
@@ -122,11 +122,11 @@ fn expr(node) = {
 
 **Why it's drift.** "Graph" encodes history — "substitution graph" from type-theory tradition where "subst" refers to the substitution a unifier produces. The name answers "what was its origin?" not "what is it?" A newcomer reads `Graph` and asks "sub-what? substitute for what? is there another graph?" — legitimate questions the name doesn't answer.
 
-**What it IS, per INSIGHTS crystallization #6: *The Graph IS the Program.*** The substrate is the graph. There is no other graph in Inka's vocabulary (not a neural graph — that's `Tensor`; not a dependency graph — that's handler composition; not a parse graph — that's the AST which is projections of the graph). **One graph; name it `Graph`.**
+**What it IS, per INSIGHTS crystallization #6: *The Graph IS the Program.*** The substrate is the graph. There is no other graph in Mentl's vocabulary (not a neural graph — that's `Tensor`; not a dependency graph — that's handler composition; not a parse graph — that's the AST which is projections of the graph). **One graph; name it `Graph`.**
 
 **Verified non-collisions.**
 - No user-space collision expected: users interact with `GraphRead`/`GraphWrite` effects; the ADT is compiler-internal.
-- The `graph.nx` module name stays (the module is `graph`, not `Graph`; lowercase module, PascalCase ADT — canonical naming convention).
+- The `graph.mn` module name stays (the module is `graph`, not `Graph`; lowercase module, PascalCase ADT — canonical naming convention).
 - Effect names stay `GraphRead` / `GraphWrite` (already shortened in earlier session).
 
 **Rewrite rules:**
@@ -140,9 +140,9 @@ fn expr(node) = {
 | `the Graph` (prose) | `the Graph` (occasionally lowercase "the graph" in informal prose) |
 
 **Files affected:**
-- `src/types.nx` — ADT declaration + ~5 references
-- `src/graph.nx` — the module implementing it (~40 refs)
-- `src/infer.nx`, `src/lower.nx`, `src/query.nx`, `src/mentl.nx`, others — chase calls + type mentions
+- `src/types.mn` — ADT declaration + ~5 references
+- `src/graph.mn` — the module implementing it (~40 refs)
+- `src/infer.mn`, `src/lower.mn`, `src/query.mn`, `src/mentl.mn`, others — chase calls + type mentions
 - `docs/DESIGN.md` §0.5 + Ch 4 (~40 refs)
 - `docs/SUBSTRATE.md` (kernel shorthand + various)
 - `docs/CLAUDE.md` (kernel anchor, interrogations, file map)
@@ -159,14 +159,14 @@ fn expr(node) = {
 
 ### 1.3 `lexer` / `parser` → `lex` / `parse`
 
-**Current form.** `src/compiler/lexer.nx` and `src/compiler/parser.nx`. Agent-named ("the thing that acts").
+**Current form.** `src/compiler/lexer.mn` and `src/compiler/parser.mn`. Agent-named ("the thing that acts").
 
-**Why it's drift.** Other compiler modules are action-named (`infer.nx`, `lower.nx`, `verify.nx`, `query.nx`) or subject-named (`types.nx`, `effects.nx`, `graph.nx`, `clock.nx`). The `-er` agent suffix is German-programming-textbook residue ("The Lexer processes..."), not Inka-native.
+**Why it's drift.** Other compiler modules are action-named (`infer.mn`, `lower.mn`, `verify.mn`, `query.mn`) or subject-named (`types.mn`, `effects.mn`, `graph.mn`, `clock.mn`). The `-er` agent suffix is German-programming-textbook residue ("The Lexer processes..."), not Mentl-native.
 
-**Inka-native form.** Match the majority pattern — verb form:
+**Mentl-native form.** Match the majority pattern — verb form:
 
-- `lexer.nx` → `lex.nx`
-- `parser.nx` → `parse.nx`
+- `lexer.mn` → `lex.mn`
+- `parser.mn` → `parse.mn`
 
 **Side effect (synergy with decision 1.1):** with dot-access, the call sites become `lex.tokenize(source)`, `parse.program(tokens)` — literal statements of what's happening. The subject-verb pairing reads naturally; agent-form would have been `lexer.tokenize` which redundantly expresses "the lex-er does lex."
 
@@ -203,7 +203,7 @@ fn expr(node) = {
 | `GraphRead` | `GraphRead` | Already shortened; audit for any residual |
 | `GraphWrite` | `GraphWrite` | Same |
 
-**Files affected:** `src/effects.nx`, `src/clock.nx`, any module performing `HostClock` ops, any `with IterativeContext` constraints.
+**Files affected:** `src/effects.mn`, `src/clock.mn`, any module performing `HostClock` ops, any `with IterativeContext` constraints.
 
 **Drift modes foreclosed:**
 - **#6 (primitive-type-special-case)** — `HostClock`-as-separate-effect treated "real time" as special; it's not; it's a handler choice.
@@ -213,12 +213,12 @@ fn expr(node) = {
 
 ### 1.5 Docstring consistency
 
-**Current state.** Some modules open with rich purpose statements (e.g., `src/types.nx`'s "THE vocabulary of Inka"). Others open with one-liners. No canonical top-of-module documentation form.
+**Current state.** Some modules open with rich purpose statements (e.g., `src/types.mn`'s "THE vocabulary of Mentl"). Others open with one-liners. No canonical top-of-module documentation form.
 
 **Canonical top-of-module docstring** (prescriptive):
 
 ```
-// <module-name>.nx — <one-line purpose>
+// <module-name>.mn — <one-line purpose>
 //
 // Kernel primitive served: <#N — primitive name>
 // Mentl tentacle projected: <tentacle name, e.g., Query>
@@ -243,7 +243,7 @@ fn expr(node) = {
 
 **Current state.** The file opens with: *"Status: historical context, not a living spec. This doc predates the rebuild plan..."*
 
-**Why it's drift.** Anchor 8 of CLAUDE.md: **"Delete fearlessly. Nobody uses Inka. No backwards compatibility. No archive folders. No 'for reference.'"** A file marked historical is an archive-folder-as-file. Its presence is archaeology kept as decoration.
+**Why it's drift.** Anchor 8 of CLAUDE.md: **"Delete fearlessly. Nobody uses Mentl. No backwards compatibility. No archive folders. No 'for reference.'"** A file marked historical is an archive-folder-as-file. Its presence is archaeology kept as decoration.
 
 **Resolution:** delete the file. If any nugget remains load-bearing, it's moved into DESIGN.md or SUBSTRATE.md first (verified during simplification execution). Then delete.
 
@@ -262,7 +262,7 @@ What does the graph already know about naming? After item 11 (simplification exe
 
 ### Handler?
 
-What handler currently projects "module.function" call sites? `infer.nx`'s VarRef arm currently resolves bare names; the FieldExpr arm constrains to records. After module-as-record synthesis, **one handler projects both `bare_name` and `module.name` access** through the same type-level substrate. One less special case; one more unified projection.
+What handler currently projects "module.function" call sites? `infer.mn`'s VarRef arm currently resolves bare names; the FieldExpr arm constrains to records. After module-as-record synthesis, **one handler projects both `bare_name` and `module.name` access** through the same type-level substrate. One less special case; one more unified projection.
 
 ### Verb?
 
@@ -340,7 +340,7 @@ Every rename site gets a `Reason::Inferred("renamed per NS-naming.md:<decision-n
 
 **Pattern:**
 ```
-// inside X.nx
+// inside X.mn
 fn X_foo(args) = body
 ...
 let v = X_foo(args_here)
@@ -348,7 +348,7 @@ let v = X_foo(args_here)
 
 **Rewrite:**
 ```
-// inside X.nx
+// inside X.mn
 fn foo(args) = body
 ...
 let v = foo(args_here)
@@ -358,7 +358,7 @@ let v = foo(args_here)
 
 **Pattern:**
 ```
-// inside Y.nx, which imports X
+// inside Y.mn, which imports X
 import src/X
 
 let v = X_foo(args_here)
@@ -366,7 +366,7 @@ let v = X_foo(args_here)
 
 **Rewrite:**
 ```
-// inside Y.nx
+// inside Y.mn
 import src/X
 
 let v = X.foo(args_here)
@@ -374,11 +374,11 @@ let v = X.foo(args_here)
 
 ### Rule 1C — function call, cross-module, hot-path selective import
 
-**Pattern:** `X_foo` called ≥ 5 times in Y.nx
+**Pattern:** `X_foo` called ≥ 5 times in Y.mn
 
 **Rewrite:**
 ```
-// inside Y.nx
+// inside Y.mn
 import src/X {foo}
 
 let v = foo(args_here)    // every call site drops X. prefix
@@ -405,8 +405,8 @@ let Graph(nodes, epoch, next, overlays) = g
 ### Rule 3 — file rename
 
 ```
-mv src/compiler/lexer.nx → src/lex.nx
-mv src/compiler/parser.nx → src/parse.nx
+mv src/compiler/lexer.mn → src/lex.mn
+mv src/compiler/parser.mn → src/parse.mn
 ```
 
 Plus every `import compiler/lexer` → `import src/lex`, every `import compiler/parser` → `import src/parse`. (Note: `src/` prefix drops post-restructure per item 17' since imports become project-relative; either form works during transition.)
@@ -427,20 +427,20 @@ handler clock_test with s = 0 { now() => resume(s); ... }
 
 Every `src/` and `lib/` module's top gets the canonical form from decision 1.5. Representative:
 
-**Before** (current `src/compiler/cache.nx`, approximate):
+**Before** (current `src/compiler/cache.mn`, approximate):
 ```
-// cache.nx — IC cache for module envs
+// cache.mn — IC cache for module envs
 ```
 
 **After:**
 ```
-// cache.nx — per-module env cache via .kai interface files
+// cache.mn — per-module env cache via .kai interface files
 //
 // Kernel primitive served: #1 (Graph + Env)
 // Mentl tentacle projected: Query (for cache-hit reporting)
 //
 // The cache projects each module's post-inference env into a
-// content-addressed .kai file keyed by source-hash. driver.nx
+// content-addressed .kai file keyed by source-hash. driver.mn
 // consults cache before re-inferring; hit returns env without
 // re-work. Closes drift mode 10 ("the graph as stateless cache")
 // at the driver level.
@@ -466,7 +466,7 @@ Plus remove the pointer from `CLAUDE.md`'s "Deep context" section.
 After simplification execution (item 11) applies these rules, the audit is:
 
 ```
-bash ~/Projects/inka/tools/drift-audit.sh src/*.nx lib/**/*.nx
+bash ~/Projects/mentl/tools/drift-audit.sh src/*.mn lib/**/*.mn
 ```
 
 **The audit MUST exit 0** or the simplification commit doesn't land. The audit checks for:
@@ -496,10 +496,10 @@ If any pattern matches, the audit exits non-zero with the specific offending sit
 2. `tools/drift-patterns.tsv` updated with the new patterns (small commit).
 3. Simplification execution (item 11) runs across the whole `src/` + `lib/` tree in ONE focused series of commits:
    - Commit A: `Graph → Graph` ADT rename sweep (mechanical, grep-safe).
-   - Commit B: module-to-record infer synthesis (~30 lines in `infer.nx`); test compiles.
+   - Commit B: module-to-record infer synthesis (~30 lines in `infer.mn`); test compiles.
    - Commit C: dot-access / selective-import conversion across all `src/` + `lib/` modules (largest commit; audit clean before closing).
    - Commit D: effect normalization (`HostClock` → `Clock`, `IterativeContext` dissolution).
-   - Commit E: file renames (`lexer.nx` → `lex.nx`, `parser.nx` → `parse.nx`) + every import updated. (Fold into restructure item 17' for extension migration.)
+   - Commit E: file renames (`lexer.mn` → `lex.mn`, `parser.mn` → `parse.mn`) + every import updated. (Fold into restructure item 17' for extension migration.)
    - Commit F: docstring harmonization (per-module passes; can split by directory if size warrants).
    - Commit G: delete `SYNTHESIS_CROSSWALK.md` + remove CLAUDE.md pointer.
    - Commit H: doc updates propagating the renames into DESIGN.md, SUBSTRATE.md, CLAUDE.md, README.md, SYNTAX.md, specs, walkthroughs, traces, memory files (this is items 12-16, 19, 20, 21, 22 combined).
@@ -517,16 +517,16 @@ This walkthrough has the contract-shape required for dispatch. Three options:
 **Option A — dual-tier (default, cheapest for planner context):**
 ```
 Agent({
-  subagent_type: "inka-implementer",
+  subagent_type: "mentl-implementer",
   prompt: "<this walkthrough, verbatim, + pending work item 11 framing>"
 })
 ```
-Inka-implementer (Sonnet by default) executes the sweep mechanically; simplification audit discipline is in its system prompt.
+Mentl-implementer (Sonnet by default) executes the sweep mechanically; simplification audit discipline is in its system prompt.
 
 **Option B — Opus-on-Opus (for the most delicate renames):**
 ```
 Agent({
-  subagent_type: "inka-implementer",
+  subagent_type: "mentl-implementer",
   model: "opus",
   prompt: "<walkthrough verbatim>"
 })
@@ -547,7 +547,7 @@ Opus (this session) applies edits directly, one commit at a time, per the sequen
 - Items 12–16 (doc updates) scoped; they ride through commit H.
 - Item 17' (structural migration) can now reference canonical names in its own walkthrough (`NS-structure.md`) without re-litigating.
 - Items 19, 20, 21, 22 (spec + walkthrough + trace + memory updates) scoped as part of commit H.
-- The compiler source becomes Inka-native-named throughout; every call site reads as structural access, not C-style mangling.
+- The compiler source becomes Mentl-native-named throughout; every call site reads as structural access, not C-style mangling.
 - The drift-audit gets five new patterns permanently defending against regression.
 
 **Sub-handles split off for future walkthroughs:**
@@ -567,6 +567,6 @@ None. Every decision in this walkthrough is complete and self-contained.
 
 ## 10. Closing
 
-NS-naming turns a 548-function C-style-prefixed compiler into Inka-native dot-access notation, renames the substrate to what it IS (`Graph`), matches filenames to the verb form that already dominates, normalizes effect names, harmonizes docstrings around kernel-primitive-served, and deletes the last archaeology file. The simplification audit that follows this walkthrough has no design questions left — only mechanical application of these rules across the `src/` + `lib/` tree, gated by drift audit.
+NS-naming turns a 548-function C-style-prefixed compiler into Mentl-native dot-access notation, renames the substrate to what it IS (`Graph`), matches filenames to the verb form that already dominates, normalizes effect names, harmonizes docstrings around kernel-primitive-served, and deletes the last archaeology file. The simplification audit that follows this walkthrough has no design questions left — only mechanical application of these rules across the `src/` + `lib/` tree, gated by drift audit.
 
-**One walkthrough, one sequence of commits, one Inka-native compiler.**
+**One walkthrough, one sequence of commits, one Mentl-native compiler.**

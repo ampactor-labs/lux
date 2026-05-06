@@ -2,31 +2,31 @@
 
 *The audit that makes hand-WAT Tier 2's scope honest. Descriptive: what
 features does the compiler source currently use? Normative: what SHOULD
-it use to exemplify Inka? Action: FV.1–FV.9 close the gap before
+it use to exemplify Mentl? Action: FV.1–FV.9 close the gap before
 first-light so the post-first-light compiler IS the medium, not a
 weak demonstration of it.*
 
 *Status: walkthrough for the feature-usage sweep, expanded prescriptively
-per Inka-solves-Inka discipline — a descriptive audit alone would ship
+per Mentl-solves-Mentl discipline — a descriptive audit alone would ship
 a compiler that claims 8 primitives but exercises 3.*
 
 ---
 
-## 0. Framing — the compiler IS the first Inka program
+## 0. Framing — the compiler IS the first Mentl program
 
-Per Inka's self-similarity discipline (DESIGN.md): *"Inka's hardest
+Per Mentl's self-similarity discipline (DESIGN.md): *"Mentl's hardest
 implementation problems dissolve when viewed through its own
 abstractions."* Per the Masterpiece Test: *"Is this what the ultimate
 intent → machine instruction medium would do?"*
 
-The compiler is not just "a program written in Inka" — it is the
-**first Inka program every user sees**. If the compiler doesn't use
+The compiler is not just "a program written in Mentl" — it is the
+**first Mentl program every user sees**. If the compiler doesn't use
 `!Alloc`, users won't trust `!Alloc`. If the compiler doesn't use
 refinement types, users won't believe they're practical. If the
 compiler uses only 2 of the 5 verbs, users will infer the other 3
 are decorative.
 
-**The compiler must exemplify Inka.** This audit checks whether it
+**The compiler must exemplify Mentl.** This audit checks whether it
 does. Where it doesn't, the gap is named and closed before first-
 light.
 
@@ -34,24 +34,24 @@ light.
 
 ## 1. Descriptive audit — what the compiler uses TODAY
 
-Scan of `std/compiler/*.nx` + `std/compiler/backends/*.nx` + `std/prelude.nx`
+Scan of `std/compiler/*.mn` + `std/compiler/backends/*.mn` + `std/prelude.mn`
 (2026-04-21). ~630 `fn` declarations across 17 modules.
 
 ### 1.1 Primitive-by-primitive inventory
 
 | # | Primitive | Status | Evidence |
 |---|-----------|--------|----------|
-| 1 | Graph + Env | ✓ used | graph.nx, infer.nx, driver.nx |
-| 2 | Handlers with resume discipline | ✓ used (OneShot only) | ~20 top-level handlers in clock.nx / graph.nx / infer.nx etc. |
-| 2a | MultiShot resume | 1 decl (mentl.nx:94 `enumerate_inhabitants`) | Mentl's op; never actually invoked from compiler source |
+| 1 | Graph + Env | ✓ used | graph.mn, infer.mn, driver.mn |
+| 2 | Handlers with resume discipline | ✓ used (OneShot only) | ~20 top-level handlers in clock.mn / graph.mn / infer.mn etc. |
+| 2a | MultiShot resume | 1 decl (mentl.mn:94 `enumerate_inhabitants`) | Mentl's op; never actually invoked from compiler source |
 | 2b | Parameterized effects | **0 uses** | no `effect Name(arg) { ... }` in compiler |
-| 3a | `\|>` sequential | ✓ used | main.nx / pipeline.nx pipelines |
+| 3a | `\|>` sequential | ✓ used | main.mn / pipeline.mn pipelines |
 | 3b | `<\|` divergent | **0 body uses** | only in comments, ADT decls (PipeKind variants) |
 | 3c | `><` parallel | **0 body uses** | only in comments, ADT decls |
-| 3d | `~>` handler-attach | ✓ used | main.nx:42-46, pipeline.nx:64-82 (9 handler-chain sites) |
+| 3d | `~>` handler-attach | ✓ used | main.mn:42-46, pipeline.mn:64-82 (9 handler-chain sites) |
 | 3e | `<~` feedback | **0 body uses** | only in comments, ADT decls |
 | 4a | Effect row `+` | ✓ used | 27 fn signatures with `with X + Y` |
-| 4b | `!E` negation | **0 uses** | 3 hits are string-literals in mentl.nx rendering |
+| 4b | `!E` negation | **0 uses** | 3 hits are string-literals in mentl.mn rendering |
 | 4c | `Pure` declared | **0 uses** | 5 hits are comments or string-literals |
 | 4d | `&`, `-` | **0 uses** | not surfaced |
 | 5a | `own` / `ref` markers | **0 uses** | 2 hits are English "own core" / "own line" in comments |
@@ -61,7 +61,7 @@ Scan of `std/compiler/*.nx` + `std/compiler/backends/*.nx` + `std/prelude.nx`
 | 7 | Continuous gradient | implicit | only 27/630 fns (~4%) declare effect rows — near-bottom of gradient |
 | 8 | HM + Reasons | ✓ used | inference IS what the compiler does |
 
-### 1.2 Other Inka features
+### 1.2 Other Mentl features
 
 | Feature | Status |
 |---------|--------|
@@ -83,7 +83,7 @@ in body code (`|>`, `~>`). Negation / ownership / refinement: 0 uses.
 Gradient position: near-bottom (4% annotation density).
 
 **The compiler in its current state is a weak demonstration of
-Inka.** Users will see a WAT emitter, an inference engine, a graph
+Mentl.** Users will see a WAT emitter, an inference engine, a graph
 substrate — all of which exist in other languages — and will NOT see
 the medium's native power.
 
@@ -91,8 +91,8 @@ the medium's native power.
 
 ## 2. Normative gap — what the compiler SHOULD use
 
-Closing the gap is not adding NEW capabilities to Inka. It is using
-Inka's ALREADY-EXISTING kernel to express the compiler's ALREADY-
+Closing the gap is not adding NEW capabilities to Mentl. It is using
+Mentl's ALREADY-EXISTING kernel to express the compiler's ALREADY-
 EXISTING semantics. Annotations surface what the graph already
 proved; the emitter doesn't change.
 
@@ -114,7 +114,7 @@ them. Unlocks memoization (post-first-light) without changing
 semantics. **Primitive #4c + Primitive #7.**
 
 **FV.3 — Refinement types.** Land 5 refinement-typed newtypes in
-types.nx and use them throughout:
+types.mn and use them throughout:
 ```
 type Handle = Int where 0 <= self
 type TagId = Int where 0 <= self && self <= 255
@@ -283,17 +283,17 @@ lines. Tractable.
 
 ## 6. Closing — why this audit matters
 
-The Masterpiece Test applied to the compiler: **is this Inka, or is
-this Inka-light?** Current answer: Inka-light. FV.1–FV.9 convert it
-to Inka.
+The Masterpiece Test applied to the compiler: **is this Mentl, or is
+this Mentl-light?** Current answer: Mentl-light. FV.1–FV.9 convert it
+to Mentl.
 
 Cost: each FV is 2-6 hours of focused work. Total: ~1-2 weeks.
 Benefit: at first-light, the compiler IS the exemplar. Users
-downloading `inka.wasm` and running `inka check std/compiler/*.nx`
+downloading `mentl.wasm` and running `mentl check std/compiler/*.mn`
 see the kernel exercised in the thing they just compiled — not
 inference engines you'd find in any OCaml project.
 
-**Inka-solves-Inka says:** don't ship the compiler until the
+**Mentl-solves-Mentl says:** don't ship the compiler until the
 compiler exemplifies what it's compiling. The substrate already
 supports everything; the code hasn't caught up. FV closes that gap
 before first-light, not after.

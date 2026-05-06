@@ -39,8 +39,8 @@ intercepts spawn/join; only the lowering arm was unfinished.
 ## §2. Empirical evidence
 
 ```
-A.1 — PDiverge at lower.nx:494-499 emits LMakeTuple of LCall (sequential). CONFIRMED.
-A.2 — PCompose at lower.nx:483-484 routes through lower_compose_via_thread, emits LPerform spawn+join. CONFIRMED.
+A.1 — PDiverge at lower.mn:494-499 emits LMakeTuple of LCall (sequential). CONFIRMED.
+A.2 — PCompose at lower.mn:483-484 routes through lower_compose_via_thread, emits LPerform spawn+join. CONFIRMED.
 A.3 — TH walkthrough §3+§8.3 names `><` only; `<|` absent. CONFIRMED.
 A.4 — synthesize_branch_thunk wraps a parser node directly; <| needs Call(branch, [input]) wrapping. CONFIRMED.
 A.5 — PDiverge right is MakeTupleExpr(branch_nodes); lower_expr(right) → LMakeTuple(_, lo_branches). CONFIRMED.
@@ -80,7 +80,7 @@ Two routes exist for closing the gap:
 | # | Interrogation | Answer for Hβ.lower.diverge-via-thread |
 |---|---|---|
 | 1 | **Graph?** | PDiverge AST + branch_nodes already carried in the `PipeExpr(PDiverge, left, right)` graph edge; right's `NExpr(MakeTupleExpr(branches))` enumerates each branch handle. No new graph vocabulary. |
-| 2 | **Handler?** | `parallel_compose` (already declared in `lib/runtime/threading.nx:114-125`); after this commit it intercepts BOTH `><` and `<|` spawn/join. `@resume=OneShot` per Thread effect declaration §1.1. |
+| 2 | **Handler?** | `parallel_compose` (already declared in `lib/runtime/threading.mn:114-125`); after this commit it intercepts BOTH `><` and `<|` spawn/join. `@resume=OneShot` per Thread effect declaration §1.1. |
 | 3 | **Verb?** | `<|` is the second parallelism verb (SUBSTRATE.md §431). This commit makes the wheel-side dispatch story symmetric across `<|` and `><`. |
 | 4 | **Row?** | + Thread (always); + SharedMemory only when branches read shared atomics. Per peer G.1 `Hβ.infer.diverge-shared-memory-row`, infer enforces row composition; lower trusts the proof. `!SharedMemory` proves parallelizable-no-sync. |
 | 5 | **Ownership?** | `<|` ref-borrows the shared input across N branches (SUBSTRATE.md §431-455). `own` values cannot flow through `<|` — affine violation `E_OwnershipViolation` enforced at infer; lower trusts the proof. Each branch thunk captures the let-local `__diverge_input` by handle. |
@@ -197,7 +197,7 @@ uniform.
   are NAMED PEER HANDLES, not absences-with-comments.
 - **Foreign-fluency lock:** NOT `Promise.all([f, g])`, NOT
   `forkJoin([f, g])`, NOT `join_all(vec![spawn(f), spawn(g)])`.
-  Inka has `<|` + `~> parallel_compose`. The thunk-and-spawn
+  Mentl has `<|` + `~> parallel_compose`. The thunk-and-spawn
   shape is a LOWERING detail invisible at the source — surface
   syntax remains `input <| (f, g)`.
 
@@ -274,8 +274,8 @@ SharedArrayBuffer unavailable per Q-B.7.1. PASS.
 ## §11. Crucible signal
 
 Peer follow-up **G.4 `Crucible.diverge-parallel`** —
-`crucibles/crucible_diverge_parallel.nx` is a `<|`-shaped sibling
-to the existing `crucible_parallel.nx` (which exercises `><`).
+`crucibles/crucible_diverge_parallel.mn` is a `<|`-shaped sibling
+to the existing `crucible_parallel.mn` (which exercises `><`).
 NOT in scope of this commit (lands at L3 stage post-first-light);
 named here as the named follow-up that closes Anchor 7 step 3.
 

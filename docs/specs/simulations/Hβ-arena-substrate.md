@@ -43,7 +43,7 @@ first-light Tier 1 with **out-of-bounds memory fault at
 
 Root cause: the seed's `bootstrap/src/runtime/alloc.wat` is a
 monotonic bump allocator (`$heap_ptr` starts at 1 MiB; bumps
-forever; never frees). When `$inka_infer` walks a real `lexer.nx`-
+forever; never frees). When `$inka_infer` walks a real `lexer.mn`-
 shape AST (~thousands of nodes), it allocates per-handle Ty records,
 per-binding Reason records, evidence-row records per call site, env
 extension records per scope — and exhausts the 32 MiB heap before
@@ -59,18 +59,18 @@ This is **NOT** the same problem as the wheel's `EmitMemory` effect
 (Hβ-emit-substrate.md §3.5). That handler swap controls what the
 EMITTED program does at runtime — bump vs arena vs GC for
 user-program allocations. This walkthrough is about the SEED's OWN
-runtime — the bootstrap/inka.wasm's bump allocator that holds the
+runtime — the bootstrap/mentl.wasm's bump allocator that holds the
 graph + LowExpr + closure records DURING build.
 
 Two arenas, two substrates:
 
 | Arena | What it controls | Walkthrough |
 |---|---|---|
-| **Build-time arena** | The seed's runtime heap during `wasmtime run bootstrap/inka.wasm` | `Hβ-arena-substrate.md` (this) |
+| **Build-time arena** | The seed's runtime heap during `wasmtime run bootstrap/mentl.wasm` | `Hβ-arena-substrate.md` (this) |
 | **Emit-time arena** | The emitted program's runtime heap (output WAT) | `Hβ-emit-substrate.md` §3.5 (EmitMemory effect swap) |
 
 Same ANCHOR 5 discipline ("memory model is a handler swap") at two
-different layers. Inka eats its own dogfood — but the dogfood at
+different layers. Mentl eats its own dogfood — but the dogfood at
 each layer is its own substrate.
 
 ### 0.3 What Hβ.arena resolves
@@ -293,12 +293,12 @@ The infer side has a similar boundary at FnStmt's two-pass discipline
   when Mentl's speculation needs it).
 - **Foreign fluency — generational GC:** NEVER "young generation" /
   "old generation" / "promote" (in the GC sense). The vocabulary is
-  arena / region / stage / perm-promote per Inka's memory discipline.
+  arena / region / stage / perm-promote per Mentl's memory discipline.
 - **Foreign fluency — manual malloc/free:** NEVER `free()` /
   `dealloc()`. The arena reset IS the free; per-allocation free
   doesn't exist in the seed.
 - **Foreign fluency — Rust ownership tracking:** Ownership is per
-  arena/stage/fn — substrate-level, not type-level. Inka's
+  arena/stage/fn — substrate-level, not type-level. Mentl's
   ownership-as-effect is a separate substrate (own.wat); this
   arena substrate is the runtime layer underneath.
 
@@ -400,7 +400,7 @@ Hβ.lower.lower-expr-dispatch-extension cumulative-retrofit pattern.
       cascade closes: chaining
       `$inka_infer + $inka_lower + $inka_emit` in `$sys_main` does
       NOT trap on real-input ASTs.
-- [ ] `cat src/runtime/alloc.nx | wasmtime run bootstrap/inka.wasm`
+- [ ] `cat src/runtime/alloc.mn | wasmtime run bootstrap/mentl.wasm`
       produces VALID WAT output (not a trap, not garbage).
 
 ### 7.4 Drift-clean
@@ -497,9 +497,9 @@ The form is right. The path is named. The next residue:
 After first-light-L1: refinement substrate (verify_smt) → first-light-L2.
 After first-light-L2: Mentl substrate composition (oracle = IC + cached
 value per insight #11) → Mentl V1.
-After Mentl V1: `inka edit` web playground (Mentl's surface) → the
+After Mentl V1: `mentl edit` web playground (Mentl's surface) → the
 medium becomes itself.
 
 **Each cascade composes on substrate already in place.** The
-ultimate Inka isn't far in chunks; it's far in cascades — and each
+ultimate Mentl isn't far in chunks; it's far in cascades — and each
 cascade now lands faster because the discipline is crystallized.

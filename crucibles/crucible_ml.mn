@@ -1,0 +1,147 @@
+// crucible_ml.mn — autodiff proves handler-swap training/inference (C.4)
+//
+// Per CRU walkthrough §1b: one `forward` function, compiled, runs
+// under two different handlers — tape-recording Compute (training)
+// and direct-compute (inference) — and both produce correct
+// gradients/predictions without source change. Per INSIGHTS
+// §"Training vs Inference: A Handler Swap" (L272-298): same model,
+// same code, different handler; training/inference are not different
+// code paths but different POLICIES on the same computation.
+//
+// This crucible proves the disintermediation claim against PyTorch
+// + JAX + TensorFlow: those frameworks separate training/inference
+// at the API level (model.train() vs model.eval()); Mentl makes
+// the distinction a handler swap that the model itself doesn't see.
+//
+// Authority: CRU walkthrough §1b + DM §2 (Ultimate ML re-write) +
+// INSIGHTS §"Training vs Inference" (L272-298)
+
+import types
+
+/// Tensor — shape-refined per the ML substrate. V1 just an alias;
+/// post-B.11 this becomes a parameterized type with shape carried
+/// in the refinement.
+
+type Tensor = List
+
+/// Compute — the effect ML models perform. matmul + relu +
+/// element-add are the universals; handlers decide whether to
+/// record a tape (training) or compute directly (inference).
+///
+/// Per the multi-shot quartet (commits 4236b96 + ad78384 + bafd63a +
+/// 55553ad + 3da8d79 + 78075ee), compute_training's tape arm is a
+/// MultiShot resume — backward pass walks the tape via re-resume;
+/// compute_direct's arm is OneShot.
+
+effect Compute {
+  matmul(Tensor, Tensor)        -> Tensor    @resume=Either
+  relu(Tensor)                  -> Tensor    @resume=Either
+  elem_add(Tensor, Tensor)      -> Tensor    @resume=Either
+  softmax(Tensor)               -> Tensor    @resume=Either
+}
+
+/// forward — the model. Composes via |> chain. The model has NO
+/// IDEA whether it's being trained or inferred; it just performs
+/// Compute ops. The handler swap above the call site decides.
+
+fn forward(model_w1: Tensor, model_w2: Tensor, input: Tensor) -> Tensor with Compute =
+  input
+    |> matmul_with(model_w1)
+    |> relu
+    |> matmul_with(model_w2)
+    |> softmax
+
+/// matmul_with — small wrapper to make the |> chain symmetric.
+/// Equivalent to (input, w) -> matmul(input, w) but in pipe-friendly
+/// form.
+
+fn matmul_with(weight: Tensor) -> ((Tensor) -> Tensor with Compute) =
+  (input) => perform matmul(input, weight)
+
+/// compute_direct — inference handler. Each Compute op resolves to
+/// a native call; no tape; OneShot resume per op. `wasm-objdump`
+/// should show the tape code dead-code-eliminated when only
+/// compute_direct is in the chain.
+
+handler compute_direct {
+  matmul(a, b)         => resume(native_matmul(a, b)),
+  relu(a)              => resume(native_relu(a)),
+  elem_add(a, b)       => resume(native_elem_add(a, b)),
+  softmax(a)           => resume(native_softmax(a))
+}
+
+/// compute_training — training handler. Records each op's inputs +
+/// output to a tape (handler-local state per kernel crystallization
+/// #9 — Records-Are-Handler-State-Shape). Backward pass walks the
+/// tape via the H7 LMakeContinuation runtime substrate.
+
+handler compute_training with tape = [] {
+  matmul(a, b) => {
+    let out = native_matmul(a, b)
+    resume(out) with tape = push(tape, MatmulNode(a, b, out))
+  },
+  relu(a) => {
+    let out = native_relu(a)
+    resume(out) with tape = push(tape, ReluNode(a, out))
+  },
+  elem_add(a, b) => {
+    let out = native_elem_add(a, b)
+    resume(out) with tape = push(tape, ElemAddNode(a, b, out))
+  },
+  softmax(a) => {
+    let out = native_softmax(a)
+    resume(out) with tape = push(tape, SoftmaxNode(a, out))
+  }
+}
+
+/// TapeNode — one entry in the autodiff tape. compute_training
+/// records; backward walks. Per DM §2 (Ultimate ML re-write).
+
+type TapeNode
+  = MatmulNode(Tensor, Tensor, Tensor)
+  | ReluNode(Tensor, Tensor)
+  | ElemAddNode(Tensor, Tensor, Tensor)
+  | SoftmaxNode(Tensor, Tensor)
+
+// Native ops — placeholder declarations; B.11 lib/ml/tensor.mn provides
+// the bodies. Per DM walkthrough.
+
+fn native_matmul(a: Tensor, b: Tensor) -> Tensor =
+  []   // V1 placeholder; B.11 substrate
+
+fn native_relu(a: Tensor) -> Tensor =
+  []
+
+fn native_elem_add(a: Tensor, b: Tensor) -> Tensor =
+  []
+
+fn native_softmax(a: Tensor) -> Tensor =
+  []
+
+// ─── Acceptance criteria (per CRU §1b + plan C.4) ────────────────────
+//
+// 1. `mentl check crucibles/crucible_ml.mn` passes.
+// 2. forward(w1, w2, x) ~> compute_direct produces inference output;
+//    `wasm-objdump` shows tape code DCE'd.
+// 3. forward(w1, w2, x) ~> compute_training produces same output +
+//    populates tape for backward; backward walks tape correctly.
+// 4. Same source — different handler — different runtime behavior.
+//    No source-level branching on training/inference.
+// 5. `!Alloc` proves on the inference path (compute_direct
+//    composed with arena_ms's replay_safe handler if needed).
+//
+// Fails meaningfully if:
+// - Compute effect's ops don't compose (ResumeDiscipline mismatch
+//   between matmul/relu/etc.)
+// - Tape handler's state record doesn't fit kernel crystallization
+//   #9 (Records-Are-Handler-State-Shape — uses `with tape = []` per
+//   the substrate)
+// - Multi-shot resume (Compute → backward) isn't wired (depends
+//   on H7 commits 4236b96+ad78384+bafd63a — should be wired now)
+// - The forward fn has hidden Compute-aware branches (would fail
+//   the "model has no idea" claim)
+//
+// Disintermediation: PyTorch's model.train()/model.eval() distinction
+// becomes redundant. JAX's @jit with tracing becomes a handler
+// swap. TensorFlow's GradientTape becomes a handler-local state
+// record. The framework dissolves into the substrate.

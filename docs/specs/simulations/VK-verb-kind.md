@@ -11,7 +11,7 @@ the authored topology — not its lowered mechanism.*
 
 ## §1 Frame
 
-Inka's primitive #3 is the five verbs: `|>` `<|` `><` `~>` `<~`.
+Mentl's primitive #3 is the five verbs: `|>` `<|` `><` `~>` `<~`.
 Each draws a distinct topology. The developer writes `x <~ f` meaning
 "feedback — iterative with state-slot." The developer writes
 `source |> transform ~> logger` meaning "tee — handler attachment
@@ -19,11 +19,11 @@ wrapping the preceding chain."
 
 **Gap.** By LowIR, verb identity is dissolved:
 
-- `|> converge` → `LCall(handle, lo_r, [lo_l])` (lower.nx:409)
-- `<| diverge` → `LMakeTuple(handle, lower_diverge_branches(...))` (lower.nx:413-414)
-- `>< compose` → `LMakeTuple(handle, [lo_l, lo_r])` (lower.nx:417-418)
-- `~> tee` → `LHandleWith(handle, lo_l, lo_r)` (lower.nx:427-430)
-- `<~ feedback` → `LFeedback(handle, lo_l, lo_r)` (lower.nx:434-435)
+- `|> converge` → `LCall(handle, lo_r, [lo_l])` (lower.mn:409)
+- `<| diverge` → `LMakeTuple(handle, lower_diverge_branches(...))` (lower.mn:413-414)
+- `>< compose` → `LMakeTuple(handle, [lo_l, lo_r])` (lower.mn:417-418)
+- `~> tee` → `LHandleWith(handle, lo_l, lo_r)` (lower.mn:427-430)
+- `<~ feedback` → `LFeedback(handle, lo_l, lo_r)` (lower.mn:434-435)
 
 Of these, `LFeedback` and `LHandleWith` retain structural identity —
 their LowIR variant names correspond to the verb. But `LCall` is
@@ -45,21 +45,21 @@ line 15 — independent inputs, tupled output."*
 
 ## §2 Trace — where intent drops today
 
-### Parser (parser.nx)
+### Parser (parser.mn)
 
 The parser emits `PipeExpr(PipeKind, left, right)` with `PipeKind`
 carrying full verb identity: `PForward | PDiverge | PCompose |
 PTeeBlock | PTeeInline | PFeedback`.
 
-### Inference (infer.nx:644-657)
+### Inference (infer.mn:644-657)
 
 `infer_expr` dispatches on `PipeExpr(kind, left, right)`. The
 `PipeKind` is available for each verb's inference rule. The
-`handler_stack` (infer.nx:45-47) tracks handler installation for
+`handler_stack` (infer.mn:45-47) tracks handler installation for
 `~>` sites via `inf_push_handler("pipe_tee")` — but the handler name
 is a flat string, not the PipeKind.
 
-### Lowering (lower.nx:403-436)
+### Lowering (lower.mn:403-436)
 
 `lower_pipe` dispatches on PipeKind and emits the appropriate LowIR
 node. After this point:
@@ -72,7 +72,7 @@ node. After this point:
 - `PFeedback` → `LFeedback` — verb preserved (LFeedback is
   feedback-specific).
 
-### Emit (wasm.nx)
+### Emit (wasm.mn)
 
 Emit works from LowIR. It never sees PipeKind. No verb identity
 reaches the WAT layer (nor should it — WAT has no topology).
@@ -131,16 +131,16 @@ changes.
 
 ## §4 Layer touch-points
 
-### parser.nx
+### parser.mn
 No change. PipeExpr already carries PipeKind.
 
-### types.nx
-No change. PipeKind already defined (types.nx:398-404).
+### types.mn
+No change. PipeKind already defined (types.mn:398-404).
 
-### infer.nx
+### infer.mn
 No change. PipeKind flows through PipeExpr inference unchanged.
 
-### lower.nx
+### lower.mn
 No change. Intent is read from the AST, not from LowIR.
 
 ### query / hover handler (future)
@@ -180,7 +180,7 @@ AST, not the LowIR.
 
 | Peer | Surface | Load |
 |---|---|---|
-| VK.1 | `pipe_topology` query op + handler arm | Light (~25L query.nx) |
+| VK.1 | `pipe_topology` query op + handler arm | Light (~25L query.mn) |
 | VK.2 | Hover formatting for verb identity | Light (~20L hover handler) |
 | VK.3 | Audit verb-usage row | Moderate (~30L audit handler) |
 

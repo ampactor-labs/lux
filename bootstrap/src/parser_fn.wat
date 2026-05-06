@@ -1,5 +1,5 @@
   ;; ═══ Function Statement Parser (Complete) ═══════════════════════════
-  ;; Hand-transcribed from src/parser.nx lines 367-441.
+  ;; Hand-transcribed from src/parser.mn lines 367-441.
   ;;
   ;; fn name(params) [-> retty] [with effects] = body
   ;;

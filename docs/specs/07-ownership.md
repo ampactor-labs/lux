@@ -8,7 +8,7 @@ no separate ownership analysis.
 
 **Kernel primitive implemented:** #5 — Ownership as an effect
 (DESIGN.md §0.5). Load-bearing because removing it collapses
-Inka's ability to prove real-time safety without lifetime
+Mentl's ability to prove real-time safety without lifetime
 annotation ceremony. The `!Mutate` region-freeze and Tofte-Talpin
 region inference both ride the same Boolean algebra — no new
 analysis pass, no new ADT family. Mentl tentacle served: **Trace**
@@ -233,7 +233,7 @@ the effect system rather than a dedicated pass that returns
 ## Rejected alternatives
 
 - **Fractional permissions / Chalice.** Contracts, not inference.
-  Wrong direction for Inka's gradient philosophy.
+  Wrong direction for Mentl's gradient philosophy.
 - **Vale-style generational references (runtime tag).** Defeats the
   real-time goal. The static path via `!Mutate` subsumption covers
   the useful cases.

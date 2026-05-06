@@ -53,7 +53,7 @@ The hole at `|> ???` has a known type from context: inference
 computed the surrounding pipeline's wire type. Call it
 `expected = TFun([TString], TString, row_var(r))` with the row
 constrained by the declared `!Alloc + !Network` envelope. Today,
-`teach_synthesize(hole_handle, context)` (`mentl.nx:476-487`) asks
+`teach_synthesize(hole_handle, context)` (`mentl.mn:476-487`) asks
 the installed `Synth` handler for candidates and trusts the first
 one — no oracle discipline. The user gets a guess, not a proof.
 
@@ -117,7 +117,7 @@ mechanism over different element types) applied to the oracle:
 ### Q1. Apply mechanism
 
 **Decision.** Add `apply_candidate_tentatively(hole_handle,
-candidate) -> ()` in `mentl.nx`, peer to
+candidate) -> ()` in `mentl.mn`, peer to
 `apply_annotation_tentatively`. Arm:
 
 ```
@@ -152,7 +152,7 @@ context = more local = preferred).
 
 No LLM-style confidence scores. No frequency weighting. The
 metric is row algebra, which is the only currency the oracle
-speaks. This is Anchor 3 — Inka solves Inka.
+speaks. This is Anchor 3 — Mentl solves Mentl.
 
 ### Q3. Budget
 
@@ -220,7 +220,7 @@ binds one hole. If the proposer wants to propose a cross-site
 patch (e.g., "rename X to Y everywhere"), it packages that as a
 single candidate whose `Node` represents the edit-set and returns
 it — but the conductor only verifies the hole's handle. The
-cross-site verification problem belongs to the `inka rename` CLI
+cross-site verification problem belongs to the `mentl rename` CLI
 handler (PLAN §12, Priority 4), which has its own substrate (a
 different graph-walk pattern).
 
@@ -233,7 +233,7 @@ conductor.** Not taken on now.
 
 ### Edit surface (bounded)
 
-All edits land inside `std/compiler/mentl.nx`. No other file is
+All edits land inside `std/compiler/mentl.mn`. No other file is
 touched by TS. Line estimates:
 
 - `apply_candidate_tentatively` — ~10 lines, peer to
@@ -251,12 +251,12 @@ Total: ~65 lines net, within the 50-80 band PLAN predicted.
 ### Dependencies on landed substrate
 
 - `graph_push_checkpoint` / `graph_rollback` / `graph_bind` —
-  LIVE (graph.nx).
-- `row_subsumes` — LIVE (effects.nx).
-- `Candidate(Node, Reason)` ADT — LIVE (mentl.nx).
-- `Synth` effect + `synth_enumerative` handler — LIVE (mentl.nx:
+  LIVE (graph.mn).
+- `row_subsumes` — LIVE (effects.mn).
+- `Candidate(Node, Reason)` ADT — LIVE (mentl.mn).
+- `Synth` effect + `synth_enumerative` handler — LIVE (mentl.mn:
   420-454).
-- `verify_after_apply` — LIVE (mentl.nx:288-297).
+- `verify_after_apply` — LIVE (mentl.mn:288-297).
 
 No new substrate. No new effect. No new ADT variant. **The
 conductor is the residue.**

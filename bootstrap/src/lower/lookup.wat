@@ -101,7 +101,7 @@
   ;;                   Each call site proving ground is one row-inference
   ;;                   win cashed in for direct WASM `call` over
   ;;                   call_indirect. Per spec 05: >95% in self-hosted
-  ;;                   Inka.
+  ;;                   Mentl.
   ;;   8. Reason?      Read-only. The GNode at the chased handle carries
   ;;                   the Reason via $gnode_reason; lookup.wat does not
   ;;                   surface it (downstream emit_diag.wat reads when
@@ -235,7 +235,7 @@
   ;; bindings) — return 1. If TFun, extract the row via $ty_tfun_row
   ;; (ty.wat:323-324) and delegate to $row_is_ground.
   ;;
-  ;; Per spec 05 + H1 evidence reification: >95% of self-hosted Inka call
+  ;; Per spec 05 + H1 evidence reification: >95% of self-hosted Mentl call
   ;; sites prove monomorphic. The 5% polymorphic minority routes through
   ;; evidence (chunk #7 walk_call.wat $emit_evidence_thunk).
   (func $monomorphic_at (export "monomorphic_at") (param $node_handle i32) (result i32)

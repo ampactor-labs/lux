@@ -26,12 +26,12 @@
   ;; Test:       runtime_test/env.wat
   ;;
   ;; ═══ DESIGN ═══════════════════════════════════════════════════════
-  ;; Per Hβ §1.2 + src/types.nx Env discipline:
+  ;; Per Hβ §1.2 + src/types.mn Env discipline:
   ;;
   ;; State lives in module-level globals — a stack of scope frames.
   ;; Each scope frame is a flat list of 4-field binding records
   ;; (name, scheme, reason, kind) per the canonical Env entry shape
-  ;; (src/types.nx:78-110 + src/cache.nx:145-183, 416-456). $env_lookup
+  ;; (src/types.mn:78-110 + src/cache.mn:145-183, 416-456). $env_lookup
   ;; walks the stack from innermost to outermost and returns the first
   ;; matching binding record (caller projects via the four accessors).
   ;; $env_extend pushes a new 4-tuple binding onto the topmost frame.
@@ -39,7 +39,7 @@
   ;; The seed's HM inference (Hβ.infer — Wave 2.E) calls these
   ;; primitives during compilation to track let-bindings, function
   ;; parameters, type constructors, effect declarations. The COMPILED
-  ;; output of src/types.nx + src/effects.nx + src/infer.nx (post-L1
+  ;; output of src/types.mn + src/effects.mn + src/infer.mn (post-L1
   ;; wheel) builds its own effect-handler-shaped env_handler — same
   ;; algorithm, different storage mechanism.
   ;;
@@ -47,14 +47,14 @@
   ;; support per-module overlays (which compose with graph.wat's
   ;; overlay primitives — deferred per the graph.wat follow-up).
   ;; Single global scope stack is sufficient for self-compile of
-  ;; current src/*.nx surface; cross-module env composition lands
+  ;; current src/*.mn surface; cross-module env composition lands
   ;; alongside graph.wat overlays.
   ;;
   ;; ═══ HEAP RECORD LAYOUTS ═══════════════════════════════════════════
   ;;
-  ;; Per src/types.nx (post-item-2: SchemeKind has 5 variants) +
-  ;; src/cache.nx:145-183, 416-456 (canonical wire format) +
-  ;; src/infer.nx:219, 233, 279, 368, 380-389, 600-614, 794, 861,
+  ;; Per src/types.mn (post-item-2: SchemeKind has 5 variants) +
+  ;; src/cache.mn:145-183, 416-456 (canonical wire format) +
+  ;; src/infer.mn:219, 233, 279, 368, 380-389, 600-614, 794, 861,
   ;; 1589-1591, 2009, 2051-2058, 2094-2097, 2104-2108 (call sites
   ;; that read the four-tuple). The env entry shape is canonical:
   ;;   Env entry = (name, Scheme, Reason, SchemeKind).
@@ -81,11 +81,11 @@
   ;;   136-149 reserved for future env-substrate records
   ;;
   ;; SchemeKind tag-byte invariant: runtime_tag - 131 == cache_wire_byte.
-  ;;   FnScheme              → byte 0  (cache.nx:165)
-  ;;   ConstructorScheme     → byte 1  (cache.nx:166-170)
-  ;;   EffectOpScheme        → byte 2  (cache.nx:171-174)
-  ;;   RecordSchemeKind      → byte 3  (cache.nx:175-179)
-  ;;   CapabilityScheme      → byte 4  (cache.nx:180-184)
+  ;;   FnScheme              → byte 0  (cache.mn:165)
+  ;;   ConstructorScheme     → byte 1  (cache.mn:166-170)
+  ;;   EffectOpScheme        → byte 2  (cache.mn:171-174)
+  ;;   RecordSchemeKind      → byte 3  (cache.mn:175-179)
+  ;;   CapabilityScheme      → byte 4  (cache.mn:180-184)
   ;; Drift-mode-8 closed by ADT dispatch on the runtime tag — NEVER
   ;; by `mode == 0/1/2/3/4` int.
   ;;
@@ -149,7 +149,7 @@
     (call $env_scope_enter))
 
   ;; ─── SchemeKind constructors + accessors ─────────────────────────
-  ;; Five canonical variants per src/types.nx:105-110 + cache.nx:162-184.
+  ;; Five canonical variants per src/types.mn:105-110 + cache.mn:162-184.
 
   ;; FnScheme — nullary; sentinel-encoded as the tag itself (no record).
   (func $schemekind_make_fn (result i32)
@@ -205,7 +205,7 @@
       (then (return (local.get $k))))
     (call $tag_of (local.get $k)))
 
-  ;; SchemeKind wire-byte projection — round-trip with cache.nx pack_byte.
+  ;; SchemeKind wire-byte projection — round-trip with cache.mn pack_byte.
   (func $schemekind_wire_byte (param $k i32) (result i32)
     (i32.sub (call $schemekind_tag (local.get $k)) (i32.const 131)))
 
@@ -290,7 +290,7 @@
   ;; ─── Extend (push binding to current scope) ──────────────────────
   ;; $env_extend(name, scheme, reason, kind) — append a 4-field
   ;; binding to the current (topmost) scope frame. Mirrors canonical
-  ;; src/infer.nx perform env_extend at lines 219, 233, 251, 279, 368,
+  ;; src/infer.mn perform env_extend at lines 219, 233, 251, 279, 368,
   ;; 1589-1591, 2009, 2051, 2057, 2061, 2094, 2105.
   ;;
   ;; Substrate-honest discipline (Anchor 0 + Ω.3 buffer-counter): the

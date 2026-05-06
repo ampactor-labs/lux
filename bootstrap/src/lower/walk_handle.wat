@@ -2,13 +2,13 @@
   ;; Hβ.lower cascade chunk #8 of 11 per Hβ-lower-substrate.md §12.3 dep order.
   ;;
   ;; What this chunk IS (per Hβ-lower-substrate.md §4.2 lines 495-518 +
-  ;;                     spec 10 + src/lower.nx:430-517):
+  ;;                     spec 10 + src/lower.mn:430-517):
   ;;   The seed's verb-projection layer. The kernel's primitive #3 (five
   ;;   verbs) made physical at the lowering layer.
   ;;
   ;;   HandleExpr (parser tag 93) — surface `handle body with arms`:
   ;;     → LBlock(handle, arm_decls ++ [LHandle(handle, body, arm_records)])
-  ;;     Per src/lower.nx:430-440 wheel canonical (Lock #1).
+  ;;     Per src/lower.mn:430-440 wheel canonical (Lock #1).
   ;;     LHandle is tag 332 — the inline `handle ... with arms` form;
   ;;     LHandleWith (tag 329) is reserved for the `body ~> handler` PIPE.
   ;;
@@ -21,9 +21,9 @@
   ;;     PFeedback (165) → LFeedback  (tag 330)  — `<~` per LF substrate
   ;;
   ;; Implements: Hβ-lower-substrate.md §4.2 + §6.2 + §11 + §12.3 #8;
-  ;;             src/lower.nx:430-440 HandleExpr arm (Lock #1);
-  ;;             src/lower.nx:463-504 PipeExpr arm (Lock #2 PTee collapse);
-  ;;             src/lower.nx:506-517 lower_diverge_branches (Lock #3).
+  ;;             src/lower.mn:430-440 HandleExpr arm (Lock #1);
+  ;;             src/lower.mn:463-504 PipeExpr arm (Lock #2 PTee collapse);
+  ;;             src/lower.mn:506-517 lower_diverge_branches (Lock #3).
   ;; Exports:    $lower_handle,
   ;;             $lower_pipe,
   ;;             $lower_pipe_forward,
@@ -50,28 +50,28 @@
   ;; ═══ LOCKS (wheel-canonical override walkthrough §4.2 prose) ═════════
   ;;
   ;; Lock #1: HandleExpr (tag 93) → LBlock(arm_decls ++ [LHandle(...)])
-  ;;          per src/lower.nx:430-440. NOT LHandleWith. Tag 332 (LHandle)
+  ;;          per src/lower.mn:430-440. NOT LHandleWith. Tag 332 (LHandle)
   ;;          is the inline `handle body with arms` form; tag 329
   ;;          (LHandleWith) is the `body ~> handler` PIPE projection.
   ;;          Two distinct surface forms; two distinct LowExpr shapes.
   ;;
   ;; Lock #2: PTeeBlock (163) + PTeeInline (164) collapse identically to
-  ;;          LHandleWith per src/lower.nx:494-497. $lower_pipe dispatches
+  ;;          LHandleWith per src/lower.mn:494-497. $lower_pipe dispatches
   ;;          both through one combined $lower_pipe_handle arm.
   ;;
   ;; Lock #3: PDiverge requires lowered right to be LMakeTuple (tag 317).
   ;;          $tag_of(lo_r) == 317 → introspect via $lexpr_lmaketuple_elems
   ;;          + apply each branch to lo_l. Else fall back to
-  ;;          [LCall(0, lo_r, [lo_l])] per src/lower.nx:509.
+  ;;          [LCall(0, lo_r, [lo_l])] per src/lower.mn:509.
   ;;
   ;; Lock #4: $classify_handler (chunk #5) NOT INVOKED at $lower_handle
-  ;;          per src/lower.nx:430-440 wheel canonical — classification
+  ;;          per src/lower.mn:430-440 wheel canonical — classification
   ;;          deferred to emit-time. Walkthrough §4.2 prose aspirational;
   ;;          wheel says emit handles it. Named follow-up
   ;;          Hβ.lower.classify-at-handle-site.
   ;;
   ;; Lock #5: LFeedback emits straight LFeedback (no state-slot allocation
-  ;;          at lower-time) per src/lower.nx:501-502 + LF §1.12.
+  ;;          at lower-time) per src/lower.mn:501-502 + LF §1.12.
   ;;          State-slot allocation is EMIT-TIME concern.
   ;;
   ;; Lock #6: LMakeContinuation NOT constructed in HandleExpr/PipeExpr
@@ -85,10 +85,10 @@
   ;;          it; chunk #8 invokes it). With LowFn now substrate-live
   ;;          (tag 350), handler arms lower as real
   ;;          LDeclareFn(LowFn("op_" + op_name, ...)) entries per
-  ;;          src/lower.nx:745-755. arm_records list (the {args, body,
+  ;;          src/lower.mn:745-755. arm_records list (the {args, body,
   ;;          op_name} form) remains the paired metadata list for LHandle.
   ;;
-  ;; Lock #8: arm-record shape {args, body, op_name} per src/lower.nx:742.
+  ;; Lock #8: arm-record shape {args, body, op_name} per src/lower.mn:742.
   ;;          Sorted-by-name discipline (Ω.5) → record offsets:
   ;;            offset 0 → args (list of name strings)
   ;;            offset 4 → body (LowExpr ptr)
@@ -96,7 +96,7 @@
   ;;          Wheel field-order canonical (alphabetical).
   ;;
   ;; Lock #9: HandleExpr AST layout assumption: [tag=93][body_node][arms]
-  ;;          per src/parser.nx pattern. $mk_HandleExpr does NOT exist in
+  ;;          per src/parser.mn pattern. $mk_HandleExpr does NOT exist in
   ;;          parser_infra.wat. Drift-9-safe: layout-match is harness
   ;;          verification responsibility. Named follow-up
   ;;          Hβ.lower.handle-pipe-harness-builders.
@@ -190,7 +190,7 @@
   ;;                                  "undelimited" / "call/cc" / "captured stack."
   ;;
   ;; - Foreign fluency LLVM/GHC IR:   NEVER "SSA" / "phi" / "calling
-  ;;                                  convention enum". Vocabulary stays Inka.
+  ;;                                  convention enum". Vocabulary stays Mentl.
   ;;
   ;; ═══ Named follow-ups (Drift 9 closure) ═══════════════════════════
   ;;
@@ -218,7 +218,7 @@
   ;;             to walk_call.wat:293-318 dispatcher.
   ;;
   ;;   - Hβ.lower.handle-expr-arm-row-passthrough:
-  ;;             Wheel src/lower.nx:760 hardcodes EfPure on LFn for handler
+  ;;             Wheel src/lower.mn:760 hardcodes EfPure on LFn for handler
   ;;             arms; row-on-arm propagation lands when wheel grows.
 
   ;; Static data — lower-private string literals within the pre-heap
@@ -229,7 +229,7 @@
   (data (i32.const 504) "\03\00\00\00op_")
 
   ;; ─── $bind_handler_arg_names — bind each arm arg with sentinel 0 ───
-  ;; Per src/lower.nx:758-766. Handler-arm args do not currently thread
+  ;; Per src/lower.mn:758-766. Handler-arm args do not currently thread
   ;; per-param type handles into lower-time scope; the op signature
   ;; carries them inferentially, so 0 stands as the seed's sentinel.
   (func $bind_handler_arg_names (param $names i32)
@@ -290,7 +290,7 @@
 
 
   ;; ─── $lower_handler_arms_as_decls — Lock #7 real LDeclareFn list ───
-  ;; Per src/lower.nx:745-755. Each arm becomes
+  ;; Per src/lower.mn:745-755. Each arm becomes
   ;; LDeclareFn(LowFn("op_" + discriminator + "_" + op_name, ..., Pure)).
   ;;
   ;; Per Hβ.first-light.handler-arm-fn-name-discriminator — multi-
@@ -304,7 +304,7 @@
   ;; int_to_str(handle) for anonymous inline handlers).
   ;;
   ;; Closes the "Single-handler-per-op naming for now" follow-up at
-  ;; src/lower.nx:790-794. Layer 1 of the ULTIMATE-FORM cascade
+  ;; src/lower.mn:790-794. Layer 1 of the ULTIMATE-FORM cascade
   ;; (Layer 2 = handle-derived names; Layer 3 = refinement-typed
   ;; Module uniqueness — both post-L1 peers).
   (func $lower_handler_arms_as_decls (export "lower_handler_arms_as_decls")
@@ -348,7 +348,7 @@
     (local.get $buf))
 
   ;; ─── $lower_handler_arms_records — chunk-private arm-record list ──
-  ;; Per src/lower.nx:732-744 wheel canonical. Returns list of
+  ;; Per src/lower.mn:732-744 wheel canonical. Returns list of
   ;; {args, body, op_name} records (Lock #8) — alphabetical offsets 0/4/8.
   ;; The body is lowered under the same scoped arg-bind discipline as
   ;; the decl path so sibling arms stay lexically isolated.
@@ -384,7 +384,7 @@
     (local.get $buf))
 
   ;; ─── $lower_handle — HandleExpr arm (parser tag 93) ───────────────
-  ;; Per src/lower.nx:430-440 + Lock #1.
+  ;; Per src/lower.mn:430-440 + Lock #1.
   ;; AST: $node N-wrapper → offset 4 NExpr → offset 4 HandleExpr
   ;;      [tag=93][body_node][arms]
   ;; Output: LBlock(h, arm_decls ++ [LHandle(h, body, arm_records)]).
@@ -428,7 +428,7 @@
     (call $lexpr_make_lblock (local.get $h) (local.get $stmts)))
 
   ;; ─── $lower_pipe — PipeExpr arm (parser tag 101) — 5-verb dispatch ──
-  ;; Per src/lower.nx:470-504 + spec 10. Five PipeKinds, one arm each.
+  ;; Per src/lower.mn:470-504 + spec 10. Five PipeKinds, one arm each.
   ;; Lock #2: PTeeBlock + PTeeInline collapse to one arm.
   ;;
   ;; AST: $node N-wrapper → offset 4 NExpr → offset 4 PipeExpr
@@ -521,7 +521,7 @@
     (i32.const 0))
 
   ;; ─── $lower_pipe_forward — `|>` arm ───────────────────────────────
-  ;; Per src/lower.nx:476: PForward => LCall(handle, lo_r, [lo_l]).
+  ;; Per src/lower.mn:476: PForward => LCall(handle, lo_r, [lo_l]).
   (func $lower_pipe_forward (export "lower_pipe_forward")
         (param $h i32) (param $lo_l i32) (param $lo_r i32) (result i32)
     (local $args i32)
@@ -531,7 +531,7 @@
     (call $lexpr_make_lcall (local.get $h) (local.get $lo_r) (local.get $args)))
 
   ;; ─── $lower_pipe_diverge — `<|` arm per Lock #3 ───────────────────
-  ;; Per src/lower.nx:480-481 + 506-517. Right MUST be LMakeTuple (tag 317);
+  ;; Per src/lower.mn:480-481 + 506-517. Right MUST be LMakeTuple (tag 317);
   ;; introspect via $lexpr_lmaketuple_elems + apply each branch to lo_l.
   (func $lower_pipe_diverge (export "lower_pipe_diverge")
         (param $h i32) (param $lo_l i32) (param $lo_r i32) (result i32)
@@ -544,7 +544,7 @@
         (local.set $applied  (call $lower_diverge_apply (local.get $lo_l)
                                                           (local.get $branches)))
         (return (call $lexpr_make_lmaketuple (local.get $h) (local.get $applied)))))
-    ;; Irregular fallback — single-branch shape per src/lower.nx:509.
+    ;; Irregular fallback — single-branch shape per src/lower.mn:509.
     (local.set $args (call $make_list (i32.const 0)))
     (local.set $args (call $list_extend_to (local.get $args) (i32.const 1)))
     (drop (call $list_set (local.get $args) (i32.const 0) (local.get $lo_l)))
@@ -556,7 +556,7 @@
     (call $lexpr_make_lmaketuple (local.get $h) (local.get $fallback)))
 
   ;; ─── $lower_diverge_apply — chunk-private branch applicator ───────
-  ;; Per src/lower.nx:512-517. Buffer-counter (Ω.3).
+  ;; Per src/lower.mn:512-517. Buffer-counter (Ω.3).
   (func $lower_diverge_apply (param $lo_input i32) (param $branches i32) (result i32)
     (local $n i32) (local $i i32) (local $buf i32)
     (local $branch i32) (local $args i32) (local $call i32)
@@ -581,7 +581,7 @@
     (local.get $buf))
 
   ;; ─── $lower_pipe_compose — `><` arm ───────────────────────────────
-  ;; Per src/lower.nx:484-485: PCompose => LMakeTuple(handle, [lo_l, lo_r]).
+  ;; Per src/lower.mn:484-485: PCompose => LMakeTuple(handle, [lo_l, lo_r]).
   (func $lower_pipe_compose (export "lower_pipe_compose")
         (param $h i32) (param $lo_l i32) (param $lo_r i32) (result i32)
     (local $pair i32)
@@ -592,7 +592,7 @@
     (call $lexpr_make_lmaketuple (local.get $h) (local.get $pair)))
 
   ;; ─── $lower_pipe_handle — `~>` arm per Lock #2 ────────────────────
-  ;; Per src/lower.nx:494-497: PTeeBlock + PTeeInline collapse identically.
+  ;; Per src/lower.mn:494-497: PTeeBlock + PTeeInline collapse identically.
   ;; LHandleWith(handle, body, handler) — tag 329.
   (func $lower_pipe_handle (export "lower_pipe_handle")
         (param $h i32) (param $lo_l i32) (param $lo_r i32) (result i32)
@@ -602,7 +602,7 @@
       (local.get $lo_r)))
 
   ;; ─── $lower_pipe_feedback — `<~` arm per Lock #5 ──────────────────
-  ;; Per src/lower.nx:501-502: PFeedback => LFeedback(handle, lo_l, lo_r).
+  ;; Per src/lower.mn:501-502: PFeedback => LFeedback(handle, lo_l, lo_r).
   ;; State-slot allocation deferred to emit-time per LF substrate.
   (func $lower_pipe_feedback (export "lower_pipe_feedback")
         (param $h i32) (param $lo_l i32) (param $lo_r i32) (result i32)

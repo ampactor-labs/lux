@@ -16,13 +16,13 @@ refinement-typed value's predicate gets discharged either:
   solver returns a proof witness; the proof is recorded in the
   binary).
 
-Once L2 holds: the Inka binary CARRIES PROOFS of its own type-
+Once L2 holds: the Mentl binary CARRIES PROOFS of its own type-
 correctness invariants. Refinement types become load-bearing in
 production deployments.
 
 ## Handles (positive form)
 
-1. **Hβ.verify-smt.predicate-to-smt** — translate Inka's Predicate
+1. **Hβ.verify-smt.predicate-to-smt** — translate Mentl's Predicate
    ADT (`PAnd/POr/PNot/PExpr`) to SMT-LIB 2 syntax. Z3 / CVC5 / etc.
    accepts SMT-LIB.
 2. **Hβ.verify-smt.solver-effect** — `SmtSolver` effect with `check
@@ -64,4 +64,4 @@ production deployments.
   serialize into binary directly).
 - **Realizes Mentl as oracle** more fully — Mentl proves
   suggestions via the SMT-backed gradient; the AI coding tools
-  industry pays for are proposers; Inka VERIFIES.
+  industry pays for are proposers; Mentl VERIFIES.

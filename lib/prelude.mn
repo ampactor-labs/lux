@@ -1,0 +1,302 @@
+// prelude.mn — effects all the way down
+//
+// The Iterate effect: one mechanism for all collection operations.
+// map, filter, fold, take, find — all handlers on the same effect.
+// Same yield. Different resume. Stream fusion falls out for free.
+
+// ─── Bool (HB) ──────────────────────────────────────────────
+// Nullary-sentinel ADT. False=tag 0, True=tag 1 — matches WAT's
+// i32 truthiness convention so `(if cond ...)` works directly.
+// Both compile to (i32.const N); zero allocation. The substrate
+// has ONE story for tagged values; Bool is its canonical instance.
+
+type Bool = False | True
+
+// ─── The Iterate Effect ─────────────────────────────────────
+// One effect. Every collection operation is a handler on it.
+
+effect Iterate {
+  yield(element) -> ()
+  result() -> ()
+}
+
+fn iterate(xs) with Iterate = {
+  fn go(i) = if i < xs.len { yield(xs[i]); go(i + 1) } else { () }
+  go(0)
+}
+
+// ─── Collection Operations (handlers on Iterate) ────────────
+// HC pattern (docs/specs/simulations/HC-handler-composition.md):
+//   Transform handlers emit via perform yield.
+//   Materialize handlers capture yields into state.
+//   Compose via ~> chain: source ~> transform ~> materialize.
+//
+// List-producing operations (map, filter, take, drop) use `collector`
+// as their materialize layer — buffer-counter substrate via
+// list_extend_to + list_set + slice (O(N) total, vs the O(N squared)
+// concat-plus-element pattern that drift mode 11 names). Scalar-
+// producing operations (fold, any, all, find, count, for_each) keep
+// their inline form because their state is scalar and
+// `acc = f(acc, elem)` is not drift-11.
+
+// Transform handlers — re-yield instead of accumulating.
+
+handler map_h(f) {
+  yield(elem) => { perform yield(f(elem)); resume() }
+}
+
+handler filter_h(pred) {
+  yield(elem) =>
+    if pred(elem) { perform yield(elem); resume() }
+    else          { resume() }
+}
+
+handler take_h(n) with remaining = n {
+  yield(elem) =>
+    if remaining > 0 {
+      perform yield(elem)
+      resume() with remaining = remaining - 1
+    } else {
+      resume()
+    }
+}
+
+handler drop_h(n) with skipped = 0 {
+  yield(elem) =>
+    if skipped < n {
+      resume() with skipped = skipped + 1
+    } else {
+      perform yield(elem)
+      resume()
+    }
+}
+
+// Materialize handler — captures every yield into buffer-counter state.
+// result() returns slice(buf, 0, count) — the Ω.3 substrate form.
+
+handler collector with buf = make_list(16), count = 0 {
+  yield(elem) => {
+    let extended = list_extend_to(buf, count + 1)
+    let written  = list_set(extended, count, elem)
+    resume() with buf = written, count = count + 1
+  },
+  result() => resume(slice(buf, 0, count))
+}
+
+// List-producing operations — transform ~> materialize composition.
+
+fn map(f, xs)     = { iterate(xs); result() } ~> map_h(f)     ~> collector
+fn filter(p, xs)  = { iterate(xs); result() } ~> filter_h(p)  ~> collector
+fn take(n, xs)    = { iterate(xs); result() } ~> take_h(n)    ~> collector
+fn drop(n, xs)    = { iterate(xs); result() } ~> drop_h(n)    ~> collector
+
+// Scalar-producing operations — inline handle form; no drift-11
+// because `acc = f(acc, elem)` is scalar state update, not list append.
+
+fn fold(xs, init, f) = {
+  handle { iterate(xs); result() } with acc = init {
+    yield(elem) => resume() with acc = f(acc, elem),
+    result() => resume(acc)
+  }
+}
+
+fn for_each(f, xs) = {
+  handle { iterate(xs) } {
+    yield(elem) => { f(elem); resume() }
+  }
+}
+
+fn any(pred, xs) = {
+  handle { iterate(xs); result() } with found = false {
+    yield(elem) => if pred(elem) { resume() with found = true } else { resume() },
+    result() => resume(found)
+  }
+}
+
+fn all(pred, xs) = {
+  handle { iterate(xs); result() } with ok = true {
+    yield(elem) => if pred(elem) { resume() } else { resume() with ok = false },
+    result() => resume(ok)
+  }
+}
+
+fn find(pred, xs) = {
+  handle { iterate(xs); result() } with acc = [] {
+    yield(elem) => if pred(elem) { resume() with acc = [elem] } else { resume() },
+    result() => resume(acc)
+  }
+}
+
+fn count(pred, xs) = {
+  handle { iterate(xs); result() } with n = 0 {
+    yield(elem) => if pred(elem) { resume() with n = n + 1 } else { resume() },
+    result() => resume(n)
+  }
+}
+
+// ─── Derived (built on the handlers above) ──────────────────
+
+fn head(xs) = xs[0]
+fn tail(xs) = slice(xs, 1, xs.len)
+fn last(xs) = xs[xs.len - 1]
+fn reverse_list(list) = reverse_list_pop(list, [])
+fn reverse_list_pop(list, acc) = {
+  if list.len == 0 { acc }
+  else {
+    let (rest, val) = list_pop(list)
+    reverse_list_pop(rest, push(acc, val))
+  }
+}
+fn reverse(xs) = fold(xs, [], (acc, x) => [x] ++ acc)
+fn flatten(xss) = fold(xss, [], (acc, xs) => acc ++ xs)
+fn flat_map(f, xs) = flatten(map(f, xs))
+fn sum(xs) = fold(xs, 0, (acc, x) => acc + x)
+fn product(xs) = fold(xs, 1, (acc, x) => acc * x)
+fn concat(xss) = flatten(xss)
+fn reduce(xs, f) = fold(tail(xs), head(xs), f)
+
+fn zip_with(f, xs, ys) = if xs.len == 0 || ys.len == 0 { [] }
+  else { [f(xs[0], ys[0])] ++ zip_with(f, tail(xs), tail(ys)) }
+fn zip(xs, ys) = zip_with((a, b) => (a, b), xs, ys)
+
+fn enumerate(xs) = zip(range(0, xs.len), xs)
+fn unique(xs) = fold(xs, [], (acc, x) => if any((a) => a == x, acc) { acc } else { push(acc, x) })
+
+fn partition(pred, xs) = (filter(pred, xs), filter((x) => !pred(x), xs))
+fn range_inclusive(start, end) = range(start, end + 1)
+fn intersperse(sep, xs) = if xs.len <= 1 { xs } else { [xs[0], sep] ++ intersperse(sep, tail(xs)) }
+fn scanl(xs, init, f) = if xs.len == 0 { [init] } else { let next = f(init, xs[0]); [init] ++ scanl(tail(xs), next, f) }
+fn repeat(n, x) = if n <= 0 { [] } else { [x] ++ repeat(n - 1, x) }
+fn chunk(n, xs) = if xs.len == 0 { [] } else { [take(n, xs)] ++ chunk(n, drop(n, xs)) }
+
+// ─── Aggregation with projection ────────────────────────────
+
+fn sum_by(f, xs) = fold(xs, 0, (acc, x) => acc + f(x))
+fn max_by(f, xs) = reduce(xs, (a, b) => if f(a) >= f(b) { a } else { b })
+fn min_by(f, xs) = reduce(xs, (a, b) => if f(a) <= f(b) { a } else { b })
+
+// ─── Composition ────────────────────────────────────────────
+// compose IS <> for when you need a function instead of syntax.
+// id is the identity element: f <> id = f, id <> f = f.
+// build_pipeline folds a list of functions into one composed pipeline.
+
+// compose matches <> — f first, then g. Left to right.
+// x |> (f <> g) = x |> f |> g
+fn compose(f, g) = (x) => g(f(x))
+fn id(x) with Pure = x
+fn not(x) with Pure = if x { false } else { true }
+
+// Build a pipeline from a list of functions. Fold with compose.
+// build_pipeline([f, g, h]) = f <> g <> h
+fn build_pipeline(steps) = fold(steps, id, (acc, step) => (x) => step(acc(x)))
+
+// ─── Safe access ────────────────────────────────────────────
+
+fn nth(xs, n, default) = if n >= 0 && n < xs.len { xs[n] } else { default }
+
+// ─── Math ───────────────────────────────────────────────────
+
+fn min(a, b) with Pure = if a <= b { a } else { b }
+fn max(a, b) with Pure = if a <= b { b } else { a }
+fn clamp(x, lo, hi) with Pure = min(max(x, lo), hi)
+fn abs(x) with Pure = if x < 0 { 0 - x } else { x }
+
+// ─── Sort (merge sort — pure, not an Iterate handler) ───────
+
+fn merge(xs, ys) = {
+  if xs.len == 0 { ys }
+  else { if ys.len == 0 { xs }
+  else { if xs[0] <= ys[0] { [xs[0]] ++ merge(tail(xs), ys) }
+  else { [ys[0]] ++ merge(xs, tail(ys)) } } }
+}
+
+fn sort(xs) = {
+  if xs.len <= 1 { xs }
+  else {
+    let mid = xs.len / 2
+    merge(sort(slice(xs, 0, mid)), sort(slice(xs, mid, xs.len)))
+  }
+}
+
+// ─── String operations (pure Mentl) ───────────────────────────
+
+// Explicit recursive loop — avoids fold's polymorphic-lambda issue where
+// the concat inside `|acc, x| acc ++ sep ++ x` gets committed to list_concat // drift-audit: ignore
+// via prelude-first-use type inference. Explicit str_concat threads the
+// String type directly through the loop, no polymorphism, no ambiguity.
+fn join_loop(xs, sep, i, acc) = {
+  if i >= xs.len { acc }
+  else { join_loop(xs, sep, i + 1, str_concat(str_concat(acc, sep), xs[i])) }
+}
+fn join(xs, sep) = if xs.len == 0 { "" } else { join_loop(xs, sep, 1, xs[0]) }
+fn words(s) = split(s, " ")
+fn unwords(ws) = join(ws, " ")
+fn lines(s) = split(s, "\n")
+fn unlines(ls) = join(ls, "\n")
+// String functions use str_slice (byte-level) not slice (list-level).
+// This separation is load-bearing for WASM: the HM checker doesn't
+// instantiate user-defined generic functions, so all call sites of
+// `slice` share the same type variable. If both string and list call
+// sites use `slice`, the type variable unifies with TString, and the
+// WASM lowerer dispatches list-slicing to str_slice — corrupting
+// pointers. Using str_slice here keeps `slice` list-only.
+fn starts_with(s, prefix) = s.len >= prefix.len && str_eq(str_slice(s, 0, prefix.len), prefix)
+fn ends_with(s, suffix) = s.len >= suffix.len && str_eq(str_slice(s, s.len - suffix.len, s.len), suffix)
+fn contains(s, sub) = index_of(s, sub) >= 0
+fn index_of(s, sub) = {
+  let slen = s.len
+  let sublen = sub.len
+  fn search(i) =
+    if i + sublen > slen { 0 - 1 }
+    else { if str_eq(str_slice(s, i, i + sublen), sub) { i } else { search(i + 1) } }
+  search(0)
+}
+fn replace(s, old, new) = {
+  let idx = index_of(s, old)
+  if idx < 0 { s }
+  else { str_slice(s, 0, idx) ++ new ++ replace(str_slice(s, idx + old.len, s.len), old, new) }
+}
+fn trim(s) = {
+  let n = byte_len(s)
+  fn is_ws(b) = b == 32 || b == 9 || b == 10 || b == 13
+  fn trim_left(i) = if i >= n { i } else { if is_ws(byte_at(s, i)) { trim_left(i + 1) } else { i } }
+  fn trim_right(i) = if i <= 0 { 0 } else { if is_ws(byte_at(s, i - 1)) { trim_right(i - 1) } else { i } }
+  let start = trim_left(0)
+  let end = trim_right(n)
+  if start >= end { "" } else { str_slice(s, start, end) }
+}
+
+// ─── Parsing (pure Mentl) ─────────────────────────────────────
+
+fn parse_int(s) = {
+  let n = byte_len(s)
+  fn digit(b) = b - 48
+  fn go(i, acc) = if i >= n { acc } else { go(i + 1, acc * 10 + digit(byte_at(s, i))) }
+  if n > 0 && byte_at(s, 0) == 45 { 0 - go(1, 0) } else { go(0, 0) }
+}
+
+// ─── Absorbed from std/types.mn ───
+// types.mn — user-facing helpers on core vocabulary
+//
+// Option lives in `compiler/types` (it is part of Mentl's bedrock
+// vocabulary — every module that speaks types speaks Option). This
+// file re-uses it and adds the handful of helpers every program
+// wants, plus Result (which the compiler does not need but user
+// programs do).
+
+
+type Result
+  = Ok(a)
+  | Err(e)
+
+fn unwrap(opt)            = match opt { Some(v) => v, None => fail("unwrap on None") }
+fn unwrap_or(opt, default) = match opt { Some(v) => v, None => default }
+fn is_some(opt)           = match opt { Some(_) => true,  None => false }
+fn is_none(opt)           = match opt { Some(_) => false, None => true }
+fn map_option(f, opt)     = match opt { Some(v) => Some(f(v)), None => None }
+fn and_then(f, opt)       = match opt { Some(v) => f(v),       None => None }
+
+fn ok(res)        = match res { Ok(v) => Some(v), Err(_) => None }
+fn err_val(res)   = match res { Ok(_) => None,    Err(e) => Some(e) }
+fn is_ok(res)     = match res { Ok(_) => true,    Err(_) => false }
+fn map_result(f, res) = match res { Ok(v) => Ok(f(v)), Err(e) => Err(e) }

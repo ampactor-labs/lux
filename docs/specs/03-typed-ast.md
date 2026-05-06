@@ -140,7 +140,7 @@ Every node has a 4-tuple span. Every lexer token produces a span. The
 parser composes child spans into parent spans:
 
 ```lux
-// parser.nx sketch (parse_binop):
+// parser.mn sketch (parse_binop):
 let span = Span.join(left.span, right.span)
 let h = perform graph_fresh_ty(BinOpPlaceholder(op))
 N(NExpr(BinOpExpr(op, left, right)), span, h)
@@ -226,7 +226,7 @@ content.
   same handles.
 - `07-ownership.md` — walks for Consume performs and ref-escape
   structural checks.
-- `08-query.md` — span-indexed lookup: `inka query FILE "type at L:C"`
+- `08-query.md` — span-indexed lookup: `mentl query FILE "type at L:C"`
   finds a node by span, reads its handle.
 
 ---

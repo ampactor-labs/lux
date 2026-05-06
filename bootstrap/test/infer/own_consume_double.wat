@@ -1,6 +1,6 @@
   ;; ═══ own_consume_double.wat — trace-harness ═══════════════════════
   ;; Executes: Hβ-infer-substrate.md §5 + §11 acceptance — double-consume
-  ;;           path per src/own.nx:88-103 consume arm + §11.2 Hazel
+  ;;           path per src/own.mn:88-103 consume arm + §11.2 Hazel
   ;;           productive-under-error pattern. Two $infer_consume_use
   ;;           calls with the same name on the SAME handle:
   ;;             - First call inserts silently.

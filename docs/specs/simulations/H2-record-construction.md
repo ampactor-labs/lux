@@ -33,7 +33,7 @@ What has to work? Trace each layer.
 
 ## Layer 0 — structural vs nominal
 
-**Inka chooses STRUCTURAL records.** Two facts support this:
+**Mentl chooses STRUCTURAL records.** Two facts support this:
 
 1. `TRecordOpen(fields, row_var)` already exists in the substrate
    — that's row polymorphism, which is structural.
@@ -85,7 +85,7 @@ Same token shape but value position. Parser adds a new Expr
 variant:
 
 ```
-// Add to Expr in types.nx:
+// Add to Expr in types.mn:
 | MakeRecordExpr(List)            // [(String, Node)] — field bindings
 ```
 
@@ -107,7 +107,7 @@ the grammar's ambiguity class (LL(2) with limited lookahead).
 let {name, age} = user
 ```
 
-Parser needs PRecord(fields) — already in types.nx at
+Parser needs PRecord(fields) — already in types.mn at
 `| PRecord(List)  // [(fieldname, Pat)]`. Parse arm:
 `{ field_name[ : sub_pat] [,] ... }` → PRecord with each entry
 being either `(name, PVar(name))` if no sub-pat or `(name, sub_pat)`.
@@ -151,7 +151,7 @@ TRecord vs TRecordOpen:
 - This is the standard row-polymorphism unification rule.
 
 **The substrate already has TRecordOpen; the unification rule is
-partially implemented in effects.nx's row-unification for EffRow.
+partially implemented in effects.mn's row-unification for EffRow.
 H2 needs the Ty-level analog.**
 
 ### Field access inference (already works via lookup_ty)
@@ -217,7 +217,7 @@ PRecord(field_pats) →
   field the pattern names. Fields not in the pattern are ignored.
 ```
 
-Today PRecord is in types.nx but never lowered. H2 adds the
+Today PRecord is in types.mn but never lowered. H2 adds the
 lowering.
 
 ---
@@ -273,7 +273,7 @@ pattern as W4/E2 substrate prep.
 - Structural record types unify with row polymorphism.
 - Pattern `let {name, age} = user` binds locals.
 - `greet(user)` with row-polymorphic parameter types works.
-- Inka has first-class structural records without a declaration
+- Mentl has first-class structural records without a declaration
   ceremony.
 
 ---
@@ -294,7 +294,7 @@ pattern as W4/E2 substrate prep.
   Two distinct LIR variants is cleaner.
 
 - **Row polymorphism unification on TRecord/TRecordOpen.** This
-  is ACTUAL WORK — the effects.nx row-unification pattern applied
+  is ACTUAL WORK — the effects.mn row-unification pattern applied
   to Ty's TRecord variants. The algorithm is straightforward (the
   same merge pattern we use for effect rows) but the code isn't
   written yet. Could surface as H2.1 if out of scope.
@@ -388,7 +388,7 @@ shape.
 
   *Decision:* this walkthrough's design says **structural-only
   records** (no declaration syntax). RecordSchemeKind would only be
-  needed if Inka adds nominal records (`type Person = {...}`). For
+  needed if Mentl adds nominal records (`type Person = {...}`). For
   H2 v1, skip it. If the showcase needs nominal forms, the SchemeKind
   arm lands as a follow-up — H2.3.
 
@@ -400,8 +400,8 @@ H2's TRecord/TRecordOpen unification needs the SAME shape over
 List<(field_name, ty)> with the field_name as the sort key.
 
 Today there are TWO instances of this algebra:
-- `set_*` (runtime/strings.nx) on List<String>
-- `name_set_*` (effects.nx) on List<EffName>
+- `set_*` (runtime/strings.mn) on List<String>
+- `name_set_*` (effects.mn) on List<EffName>
 
 H2 makes it THREE — `field_set_*` on List<(String, Ty)> sorted by
 String. Three is the minimum sample size where the abstraction
@@ -521,11 +521,11 @@ make the symmetry visible.
 
 ## Estimated scope
 
-- ~5 files touched: types.nx (MakeRecordExpr variant), parser.nx
-  (type/expr/pattern parse arms + disambiguation), infer.nx
+- ~5 files touched: types.mn (MakeRecordExpr variant), parser.mn
+  (type/expr/pattern parse arms + disambiguation), infer.mn
   (MakeRecordExpr + PRecord arms + TRecord/TRecordOpen
-  unification), lower.nx (MakeRecordExpr lowering + PRecord
-  match lowering), backends/wasm.nx (LMakeRecord emission +
+  unification), lower.mn (MakeRecordExpr lowering + PRecord
+  match lowering), backends/wasm.mn (LMakeRecord emission +
   5 match sites).
 - **One integrated commit** during cascade.
 - **Sub-handles possible:** H2.1 (row-polymorphic record

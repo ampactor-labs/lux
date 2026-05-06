@@ -6,7 +6,7 @@
 > in-flight artifact extending in tiers; correct per its time but
 > stale to the corrected discipline. This rewrite specifies the
 > bootstrap's **ultimate form** per Anchor 0 dream-code:
-> what the seed compiler IS when complete, assuming `src/*.nx` (the
+> what the seed compiler IS when complete, assuming `src/*.mn` (the
 > substantively-real VFINAL — Anchor 0 + plan §16) is the wheel to
 > compile. The rewrite IS the work the bootstrap arc lands.
 >
@@ -36,8 +36,8 @@
 ## §0 Framing — what the bootstrap IS
 
 The bootstrap is **the seed compiler's binary image, hand-written
-in WAT, that compiles `src/*.nx` + `lib/**/*.nx` (10,629 lines of
-substantively-real VFINAL Inka per plan §16) into validating WASM
+in WAT, that compiles `src/*.mn` + `lib/**/*.mn` (10,629 lines of
+substantively-real VFINAL Mentl per plan §16) into validating WASM
 the first time, and is kept forever as the reference soundness
 artifact.**
 
@@ -45,8 +45,8 @@ Not a translator. Not a transpiler. Not a meta-program. **Hand-
 written WAT, transcribed from the cascade walkthroughs (DESIGN +
 INSIGHTS + SYNTAX + per-spec contracts + per-handle simulations)
 into the modular form `bootstrap/src/*.wat` + concatenated by
-`bootstrap/build.sh` into `bootstrap/inka.wat` + assembled by
-`wat2wasm` into `bootstrap/inka.wasm`.** Per CLAUDE.md anchors +
+`bootstrap/build.sh` into `bootstrap/mentl.wat` + assembled by
+`wat2wasm` into `bootstrap/mentl.wasm`.** Per CLAUDE.md anchors +
 DESIGN §0:
 
 1. **Hand-written WAT, not translator.** A Rust/C/Python translator
@@ -58,19 +58,19 @@ DESIGN §0:
    `bootstrap/src/*.wat` chunks per layer (runtime / lexer /
    parser / emit). `build.sh` concatenates in dependency order
    (runtime → lexer → parser → emitter → entry-point) into one
-   `bootstrap/inka.wat`. The output IS auditable as a single
+   `bootstrap/mentl.wat`. The output IS auditable as a single
    artifact; the input IS maintainable as separated concerns.
    This pivots the 2026-04-21 monolithic-source decision per plan
    §136 (2026-04-23 entry).
 3. **Compiles the wheel.** The seed exists to compile the
-   substantively-real `src/*.nx` (the wheel per Anchor 4). Its
-   surface coverage IS the surface src/*.nx uses + the surface
-   lib/**/*.nx uses. **Every shape src/*.nx exercises, the seed
+   substantively-real `src/*.mn` (the wheel per Anchor 4). Its
+   surface coverage IS the surface src/*.mn uses + the surface
+   lib/**/*.mn uses. **Every shape src/*.mn exercises, the seed
    handles or it isn't done.** Currently the seed handles
-   verify.nx (1 import; 63 lines) cleanly and produces degenerate
-   output for graph.nx + the rest (per BT walkthrough §1 + my
+   verify.mn (1 import; 63 lines) cleanly and produces degenerate
+   output for graph.mn + the rest (per BT walkthrough §1 + my
    2026-04-25 finding — see §11). The work IS extending the seed
-   to handle the full src/*.nx surface.
+   to handle the full src/*.mn surface.
 4. **Kept forever.** Unlike a disposable translator that dissolves
    post-first-light, hand-WAT IS the reference. Any future target
    (native x86-64 / GPU / alternate Wasm engine) validates against
@@ -79,21 +79,21 @@ DESIGN §0:
    substrate's own self-description.
 5. **Tier 3 self-host growth post-L1.** Once `first-light-L1`
    closes (byte-identical self-compile via current bootstrap +
-   linker pass), every subsequent substrate landing in `src/*.nx`
+   linker pass), every subsequent substrate landing in `src/*.mn`
    compiles via VFINAL-on-partial-WAT, diffs into hand-WAT, audits
-   per walkthrough paragraph. **Inka bootstraps through Inka.** No
+   per walkthrough paragraph. **Mentl bootstraps through Mentl.** No
    foreign-language shortcut at any stage.
 
 **Scope when complete:** ~50-150k lines of WAT across the modular
 chunks + ~200 line linker pass + ~150 line first-light harness +
 canonical build + WABT-toolchain validation. The medium's binary
-self-portrait, kept as long as Inka exists.
+self-portrait, kept as long as Mentl exists.
 
 ---
 
-## §1 The lowering conventions — every `.nx` shape's WAT form
+## §1 The lowering conventions — every `.mn` shape's WAT form
 
-Every shape `src/*.nx` produces compiles to one canonical WAT form
+Every shape `src/*.mn` produces compiles to one canonical WAT form
 per this section. Hand-WAT transcribers read this section + the
 relevant per-handle walkthrough + emit WAT directly. **No design
 left at the WAT layer** — the design lives in the walkthroughs +
@@ -110,7 +110,7 @@ Per `HB-bool-transition.md` + CLAUDE.md memory-model section:
 - **Bump allocator's `$heap_ptr` initializes at 1 MiB (1048576).**
   Heap region: `[1MB, end_of_linear_memory)`. Sentinel region:
   `[0, 4096)`. Scratch region for WASI iov + path packing:
-  `[80, 1024)` (per `lib/runtime/io.nx` scratch layout — preserved
+  `[80, 1024)` (per `lib/runtime/io.mn` scratch layout — preserved
   in seed's hand-WAT).
 
 **WAT emission:**
@@ -199,7 +199,7 @@ one allocation path. Per γ crystallization #8 (INSIGHTS).
 
 **No vtable. No dispatch table.** The evidence IS a field on the
 closure record per H1; indirect call reads that field. Per CLAUDE.md
-Anchor "There is no vtable in Inka."
+Anchor "There is no vtable in Mentl."
 
 ### §1.4 Tail calls — OneShot handler arms → `return_call`
 
@@ -255,12 +255,12 @@ offset 4:  bytes...
 
 `$str_concat` allocates new string, copies both. `$str_eq` compares
 length-then-bytes. `$str_slice` allocates new string from substring.
-All in `lib/runtime/strings.nx` substrate; seed mirrors them in
+All in `lib/runtime/strings.mn` substrate; seed mirrors them in
 hand-WAT.
 
 ### §1.7 List layout — tagged (flat or snoc tree)
 
-Per CLAUDE.md representations + `lib/runtime/lists.nx`:
+Per CLAUDE.md representations + `lib/runtime/lists.mn`:
 ```
 offset 0:  tag (0=flat, 1=snoc, 3=concat, 4=slice)
 offset 4:  variant-specific payload
@@ -331,7 +331,7 @@ landings:
   swap (`verify_smt`) per Arc F.1 discharges them.
 
 The seed's emit treats `TRefined(base, _)` identically to `base`.
-Per `verify_ledger` substrate already in `src/verify.nx`: ledger
+Per `verify_ledger` substrate already in `src/verify.mn`: ledger
 entries are heap-allocated records; `verify_smt` handler swap
 post-first-light.
 
@@ -395,7 +395,7 @@ Per `IC-incremental-compilation.md` + plan §76 (2026-04-22 Phase B
 cache dissolution):
 
 The IC `.kai` cache files use binary `Pack`/`Unpack` substrate per
-`lib/runtime/binary.nx`. Each Ty / Scheme / SchemeKind / EffRow /
+`lib/runtime/binary.mn`. Each Ty / Scheme / SchemeKind / EffRow /
 Ownership / ResumeDiscipline variant gets an exhaustive tag byte;
 Pack writes; Unpack reads. The seed handles cache writes if the
 seed itself runs IC; today that's deferred to post-first-light
@@ -405,29 +405,29 @@ For self-compile: cache files aren't load-bearing; the seed reads
 source directly + compiles. Cache files become load-bearing when
 post-L1 Tier 3 growth uses VFINAL-on-partial-WAT — at that stage
 the seed needs IC handler-chain support, which it inherits via
-self-hosted compile of `src/cache.nx` + `src/driver.nx`.
+self-hosted compile of `src/cache.mn` + `src/driver.mn`.
 
-### §1.15 Entry-handler installation — `inka --with <name>`
+### §1.15 Entry-handler installation — `mentl --with <name>`
 
 Per `EH-entry-handlers.md`:
 
-`inka --with <handler_name>` resolves `<handler_name>` through env;
+`mentl --with <handler_name>` resolves `<handler_name>` through env;
 wraps `main()`'s body in the resolved handler before emit; the
 outermost handler IS the entry-handler. Subcommand aliases per
 EH walkthrough table:
-- `inka compile` ≡ `--with compile_run`
-- `inka check` ≡ `--with check_run`
-- `inka teach` ≡ `--with teach_run`
-- `inka audit` ≡ `--with audit_run`
-- `inka query <q>` ≡ `--with query_run <q>`
-- `inka run` ≡ `--with compile_run && wasmtime output`
-- `inka edit` ≡ `--with edit_run` (per IE walkthrough §9 IE.cli)
-- `inka doc` ≡ `--with doc_run` (per F.1 walkthrough §3.8)
-- `inka lsp` ≡ `--with lsp_run` (per MV-LSP walkthrough)
-- `inka new <name>` ≡ `--with new_project(name)`
-- `inka test` ≡ `--with test_run`
-- `inka chaos` ≡ `--with chaos_run`
-- `inka repl` ≡ `--with repl_run`
+- `mentl compile` ≡ `--with compile_run`
+- `mentl check` ≡ `--with check_run`
+- `mentl teach` ≡ `--with teach_run`
+- `mentl audit` ≡ `--with audit_run`
+- `mentl query <q>` ≡ `--with query_run <q>`
+- `mentl run` ≡ `--with compile_run && wasmtime output`
+- `mentl edit` ≡ `--with edit_run` (per IE walkthrough §9 IE.cli)
+- `mentl doc` ≡ `--with doc_run` (per F.1 walkthrough §3.8)
+- `mentl lsp` ≡ `--with lsp_run` (per MV-LSP walkthrough)
+- `mentl new <name>` ≡ `--with new_project(name)`
+- `mentl test` ≡ `--with test_run`
+- `mentl chaos` ≡ `--with chaos_run`
+- `mentl repl` ≡ `--with repl_run`
 
 The seed's `_start` reads `argv` (via WASI), dispatches per
 subcommand alias OR `--with <name>` resolution, wraps `main()`,
@@ -435,15 +435,15 @@ emits.
 
 ### §1.16 Eight-tentacle Mentl voice substrate — IDE/doc surface
 
-Per `MV-mentl-voice.md` + `IE-inka-edit.md` + `F1-inka-doc.md`:
+Per `MV-mentl-voice.md` + `IE-mentl-edit.md` + `F1-mentl-doc.md`:
 
 The seed compiles the substrate that powers Mentl's voice — the
 Interact effect (22 ops), the 8 tentacle render arms, the
 silence_predicate, the `voice_lines_for(situation)` projection.
 The seed itself doesn't INVOKE Mentl during self-compile (the
 voice surfaces are surfaces, not compile-path); it just emits
-correct WAT for the Mentl-voice modules in `src/mentl_voice.nx`
-+ `src/mentl_oracle.nx` + `src/mentl_lsp.nx` + `src/mentl.nx`.
+correct WAT for the Mentl-voice modules in `src/mentl_voice.mn`
++ `src/mentl_oracle.mn` + `src/mentl_lsp.mn` + `src/mentl.mn`.
 
 ---
 
@@ -451,7 +451,7 @@ correct WAT for the Mentl-voice modules in `src/mentl_voice.nx`
 
 Per plan §136 (2026-04-23 modular pivot). Source lives in 15+
 modular WAT chunks; `bootstrap/build.sh` concatenates per layer
-order; output is `bootstrap/inka.wat` (auditable as monolith).
+order; output is `bootstrap/mentl.wat` (auditable as monolith).
 
 ### §2.1 Layer structure
 
@@ -513,25 +513,25 @@ preserves editability.
 
 Per `BT-bootstrap-triage.md` §3:
 
-The seed compiles each `src/*.nx` + `lib/**/*.nx` independently
-(via `wasmtime run bootstrap/inka.wasm < module.nx > module.wat`).
+The seed compiles each `src/*.mn` + `lib/**/*.mn` independently
+(via `wasmtime run bootstrap/mentl.wasm < module.mn > module.wat`).
 Per-file outputs reference cross-module symbols (e.g., `(call
-$list_index ...)` referencing `lib/runtime/lists.nx`'s definition).
+$list_index ...)` referencing `lib/runtime/lists.mn`'s definition).
 A pre-assembly link pass collects per-file outputs, renames
 collisions, deduplicates WASI imports, wires `_start` to
-`main.nx`'s `main()`, produces one validated `inka.wat`.
+`main.mn`'s `main()`, produces one validated `mentl.wat`.
 
 Scope: ~200 lines Python (bash + awk equivalent acceptable). NOT
-Inka semantics — the linker only resolves symbols + concatenates;
+Mentl semantics — the linker only resolves symbols + concatenates;
 no type-checking, no inference, no emit decisions. Per Anchor 4 +
 BT §6 forbidden patterns: no vtable; structured `ModuleId` ADT for
 collisions (none expected; structural uniqueness suffices);
 exhaustive symbol resolution (every reference resolves OR
 compile-fails with named diagnostic).
 
-Per the discipline of "Inka solves Inka": `link.py` is the LAST
-non-Inka substrate. Post-first-light, `link_handler` is the
-canonical Inka handler that supersedes `link.py`; per F-retire,
+Per the discipline of "Mentl solves Mentl": `link.py` is the LAST
+non-Mentl substrate. Post-first-light, `link_handler` is the
+canonical Mentl handler that supersedes `link.py`; per F-retire,
 `tools/` dissolves into handlers on the graph.
 
 ### §2.4 The first-light harness — bootstrap/first-light.sh
@@ -546,17 +546,17 @@ set -euo pipefail
 bash bootstrap/build.sh
 
 # Validate
-wasm-validate bootstrap/inka.wasm
+wasm-validate bootstrap/mentl.wasm
 
 # Round-trip check (assembler discipline)
-wasm2wat bootstrap/inka.wasm -o /tmp/roundtrip.wat
-wat-desugar bootstrap/inka.wat --stdout > /tmp/canon-original.wat
+wasm2wat bootstrap/mentl.wasm -o /tmp/roundtrip.wat
+wat-desugar bootstrap/mentl.wat --stdout > /tmp/canon-original.wat
 wat-desugar /tmp/roundtrip.wat --stdout > /tmp/canon-roundtrip.wat
 diff /tmp/canon-original.wat /tmp/canon-roundtrip.wat
 
-# Self-compile each src/*.nx + lib/**/*.nx via the seed
-for f in src/*.nx lib/**/*.nx; do
-  cat "$f" | wasmtime run bootstrap/inka.wasm > "/tmp/$(basename $f .nx).wat"
+# Self-compile each src/*.mn + lib/**/*.mn via the seed
+for f in src/*.mn lib/**/*.mn; do
+  cat "$f" | wasmtime run bootstrap/mentl.wasm > "/tmp/$(basename $f .mn).wat"
 done
 
 # Link
@@ -567,8 +567,8 @@ wat2wasm /tmp/inka2.wat -o /tmp/inka2.wasm --debug-names --enable-tail-call
 wasm-validate /tmp/inka2.wasm
 
 # Self-compile via seed-of-seed
-for f in src/*.nx lib/**/*.nx; do
-  cat "$f" | wasmtime run /tmp/inka2.wasm > "/tmp/inka3-$(basename $f .nx).wat"
+for f in src/*.mn lib/**/*.mn; do
+  cat "$f" | wasmtime run /tmp/inka2.wasm > "/tmp/inka3-$(basename $f .mn).wat"
 done
 
 # Link inka3
@@ -591,13 +591,13 @@ exhaustive coverage; no skips.
 | # | Primitive | What the bootstrap exercises |
 |---|-----------|-----------------------------|
 | 1 | **Graph + Env** (Query) | The seed implements the graph substrate per spec 00 in WAT (§1.2). Every ADT / Scheme / Reason flows through hand-WAT representations of the graph + env. The seed's own compilation reads source AS substrate; emits WAT AS handler projection. **The Graph IS the seed's substrate too.** |
-| 2 | **Handlers + resume discipline** (Propose) | Handler dispatch per §1.3 (closure-record + direct-call OR call_indirect-via-evidence-field; NO vtable). MultiShot continuation per §1.13 (heap-captured struct). The seed encodes handler dispatch in WAT exactly per Inka semantics; emit-time dispatch resolution per H1. |
+| 2 | **Handlers + resume discipline** (Propose) | Handler dispatch per §1.3 (closure-record + direct-call OR call_indirect-via-evidence-field; NO vtable). MultiShot continuation per §1.13 (heap-captured struct). The seed encodes handler dispatch in WAT exactly per Mentl semantics; emit-time dispatch resolution per H1. |
 | 3 | **Five verbs** (Topology) | Each verb (`\|>` `<\|` `><` `~>` `<~`) has a lowering per spec 05 + spec 10; the seed emits each per its canonical WAT shape. `<~` per §1.12 (state-slot lowering). |
 | 4 | **Effect row algebra** (Unlock) | Row primitives per §1.10 + spec 01. Boolean algebra (`+ - & ! Pure`) emit as runtime functions; row subsumption checked at compile time per spec 04. |
 | 5 | **Ownership as effect** (Trace) | `own` parameters compile to move semantics (consumed at use); `ref` to pointer-pass-through; `affine_ledger` enforces linearity per spec 07 + H4. The seed's own emit handles ownership-as-effect transparently; no special pass. |
 | 6 | **Refinement types** (Verify) | `TRefined(base, _)` emits as `base` per §1.11; `Verify` obligations accumulate in ledger; SMT discharge post-first-light handler swap. The seed handles refinement annotations cleanly today via verify_ledger; verify_smt is a peer handler swap (Arc F.1). |
 | 7 | **Annotation gradient** (Teach) | The seed respects every annotation: `with !Alloc` forbids emit of `$alloc` calls in the marked function (detection at inference time via row subsumption); `with Pure` enables memoization paths post-first-light. The annotation gradient IS the seed's optimization signal. |
-| 8 | **HM inference + Reasons** (Why) | The seed implements HM per spec 04 in WAT. Every binding records a Reason. Reason chains are graph-resident; the Why Engine walks them per spec 08. The seed itself produces Reason-rich output; `inka query` reads them; Mentl renders them per IE / F.1 surfaces. |
+| 8 | **HM inference + Reasons** (Why) | The seed implements HM per spec 04 in WAT. Every binding records a Reason. Reason chains are graph-resident; the Why Engine walks them per spec 08. The seed itself produces Reason-rich output; `mentl query` reads them; Mentl renders them per IE / F.1 surfaces. |
 
 All eight clear. Bootstrap composes from the eight; per insight #13
 (kernel closure 2026-04-24): composition not invention. The
@@ -632,16 +632,16 @@ Per CLAUDE.md drift modes + Anchor 0 dream-code discipline:
   `async` / `await` / `Promise` analog. MultiShot continuations
   per §1.13 are the substrate; no keyword vocabulary leaks in.
 - **Foreign-language drift in the linker (`bootstrap/src/link.py`):**
-  Python is allowed for the LAST non-Inka substrate per §2.3 +
+  Python is allowed for the LAST non-Mentl substrate per §2.3 +
   Anchor 0 dream-code minimization. Drift discipline: no Python
   list-comprehensions over compiler logic; no dict-as-symbol-table;
   no class-based handlers. The linker IS string-rename + concat;
   any "but should I do X if Y?" moment is the linker drifting into
-  semantics — refuse and handle in Inka substrate post-L1.
+  semantics — refuse and handle in Mentl substrate post-L1.
 - **Generalized fluency-taint check:** any pattern that feels
   "obviously correct" because it's well-established in some
   foreign ecosystem (LLVM IR / Rust MIR / GHC Core / OCaml's
-  closure conversion) is candidate drift until proven Inka-native
+  closure conversion) is candidate drift until proven Mentl-native
   (composes from the eight primitives alone). Per CLAUDE.md
   Mentl's anchor.
 
@@ -662,7 +662,7 @@ Available via `apt install wabt` or `github.com/WebAssembly/wabt`.
 
 **`wat2wasm` flags:**
 ```bash
-wat2wasm bootstrap/inka.wat -o bootstrap/inka.wasm \
+wat2wasm bootstrap/mentl.wat -o bootstrap/mentl.wasm \
   --debug-names         # Preserve $func_name in name section
   --enable-tail-call    # return_call for OneShot handler dispatch
   --enable-exceptions   # try/catch (if structured EH used post-first-light)
@@ -670,7 +670,7 @@ wat2wasm bootstrap/inka.wat -o bootstrap/inka.wasm \
 ```
 
 `--enable-all` is forbidden — accepts invalid WAT a stricter flag
-set would reject. Use explicit flags matching only what Inka
+set would reject. Use explicit flags matching only what Mentl
 requires.
 
 ### §5.2 Verification (first-light harness)
@@ -699,11 +699,11 @@ Determinism cross-check prevents JIT-dependent behavior.
 | `wasm-strip` | Remove custom/debug sections (production builds) |
 | `wasm2c` | WASM → C source (escape hatch for platforms without WASM runtime; distant future) |
 
-### §5.5 WebAssembly 3.0 features Inka uses
+### §5.5 WebAssembly 3.0 features Mentl uses
 
 WASM 3.0 standard September 2025; wasmtime v44+ supports stable.
 
-| Feature | Status | Inka usage | Flag |
+| Feature | Status | Mentl usage | Flag |
 |---------|--------|------------|------|
 | **Tail calls** | Standard | `return_call` for OneShot handler dispatch | `--enable-tail-call` |
 | **128-bit SIMD** | Standard | Future: `v128.*` for DSP/ML (post-first-light item 41) | `--enable-simd` |
@@ -711,17 +711,17 @@ WASM 3.0 standard September 2025; wasmtime v44+ supports stable.
 | **Exception handling** | Standard | Potential structured-EH post-first-light | `--enable-exceptions` |
 | **64-bit memory** | Standard | Not needed pre-first-light | `--enable-memory64` |
 
-**Features Inka does NOT use:**
-- **WasmGC** — Inka has bump allocator + region-based ownership; no managed GC.
-- **Component Model** — Inka's module system is env-based; components are for language-agnostic composition.
-- **WASI 0.2/0.3** — Inka uses WASI preview1 (`fd_read` / `fd_write` / `path_open` / `proc_exit` / `fd_close` / `path_create_directory` / `path_filestat_get` / `path_unlink_file` / `path_rename` / `fd_readdir`). Preview1 stable; sufficient.
+**Features Mentl does NOT use:**
+- **WasmGC** — Mentl has bump allocator + region-based ownership; no managed GC.
+- **Component Model** — Mentl's module system is env-based; components are for language-agnostic composition.
+- **WASI 0.2/0.3** — Mentl uses WASI preview1 (`fd_read` / `fd_write` / `path_open` / `proc_exit` / `fd_close` / `path_create_directory` / `path_filestat_get` / `path_unlink_file` / `path_rename` / `fd_readdir`). Preview1 stable; sufficient.
 
 ### §5.6 Determinism cross-check (per item 24)
 
 ```bash
 # wasmtime JIT vs wasm-interp stack interpreter
-cat src/*.nx | wasmtime run bootstrap/inka.wasm > /tmp/out-jit.wat
-cat src/*.nx | wasm-interp --run-all-exports bootstrap/inka.wasm > /tmp/out-interp.wat
+cat src/*.mn | wasmtime run bootstrap/mentl.wasm > /tmp/out-jit.wat
+cat src/*.mn | wasm-interp --run-all-exports bootstrap/mentl.wasm > /tmp/out-interp.wat
 diff /tmp/out-jit.wat /tmp/out-interp.wat
 # Empty = deterministic (JIT not introducing nondeterminism)
 ```
@@ -738,16 +738,16 @@ contract-only).
 
 ```bash
 bash bootstrap/build.sh
-wasm-validate bootstrap/inka.wasm
-wasm-stats bootstrap/inka.wasm    # verify size matches expectations
-wasm-objdump -x bootstrap/inka.wasm | head -40   # imports/exports sanity
+wasm-validate bootstrap/mentl.wasm
+wasm-stats bootstrap/mentl.wasm    # verify size matches expectations
+wasm-objdump -x bootstrap/mentl.wasm | head -40   # imports/exports sanity
 ```
 
 ### §6.2 After linker (link.py) edit
 
 ```bash
-# Test against verify.nx (currently the only standalone-validating module)
-cat src/verify.nx | wasmtime run bootstrap/inka.wasm > /tmp/verify.wat
+# Test against verify.mn (currently the only standalone-validating module)
+cat src/verify.mn | wasmtime run bootstrap/mentl.wasm > /tmp/verify.wat
 python3 bootstrap/src/link.py /tmp/verify.wat -o /tmp/verify-linked.wat
 wat2wasm /tmp/verify-linked.wat -o /tmp/verify-linked.wasm \
   --debug-names --enable-tail-call
@@ -760,8 +760,8 @@ Per `BT-bootstrap-triage.md` per-module inventory + plan tracker
 A.1 progress:
 
 ```bash
-# Test against the next-target module (e.g., types.nx after types support added)
-cat src/types.nx | wasmtime run bootstrap/inka.wasm > /tmp/types.wat
+# Test against the next-target module (e.g., types.mn after types support added)
+cat src/types.mn | wasmtime run bootstrap/mentl.wasm > /tmp/types.wat
 python3 bootstrap/src/link.py /tmp/types.wat /tmp/verify.wat -o /tmp/2mod.wat
 wat2wasm /tmp/2mod.wat -o /tmp/2mod.wasm --debug-names --enable-tail-call
 wasm-validate /tmp/2mod.wasm
@@ -778,8 +778,8 @@ git tag first-light-L1
 ### §6.5 first-light Tier 3 growth (per H7 substrate landing, etc.)
 
 ```bash
-# Compile H7-extended src/lower.nx via current bootstrap
-cat src/lower.nx | wasmtime run bootstrap/inka.wasm > /tmp/lower-extended.wat
+# Compile H7-extended src/lower.mn via current bootstrap
+cat src/lower.mn | wasmtime run bootstrap/mentl.wasm > /tmp/lower-extended.wat
 # Diff against current bootstrap's lower section; integrate diff into bootstrap/src/lower_*.wat
 # Re-run §6.4 to verify Triangle Leg 1 holds with extension
 ```
@@ -794,8 +794,8 @@ INCREMENTALLY per Anchor 7 cascade discipline. Each commit:
 1. **Cites this walkthrough's relevant §** — every chunk addition
    traces to a §1.x convention paragraph; every linker addition
    traces to §2.3.
-2. **Drift-audit clean per `tools/drift-audit.sh`** — runs on `.nx`
-   files (the seed's source isn't `.nx`, but any `.nx` substrate
+2. **Drift-audit clean per `tools/drift-audit.sh`** — runs on `.mn`
+   files (the seed's source isn't `.mn`, but any `.mn` substrate
    touched alongside is audited).
 3. **Each module-extension commit verifies via §6.3** — when
    extending the seed to handle a new module's surface, the
@@ -813,16 +813,16 @@ proceeds chunk-by-chunk per layer, validating each addition.
 
 ## §8 Dispatch
 
-**Bootstrap work is NOT suitable for Sonnet via inka-implementer.**
-Requires deep Inka-semantic understanding + WAT fluency + per-handle
+**Bootstrap work is NOT suitable for Sonnet via mentl-implementer.**
+Requires deep Mentl-semantic understanding + WAT fluency + per-handle
 walkthrough reading — Opus-level judgment throughout.
 
-**Opus inline OR Opus subagent via inka-planner + inka-implementer
+**Opus inline OR Opus subagent via mentl-planner + mentl-implementer
 where the planner is Opus.** The implementer's mechanical-transcription
 discipline doesn't match the bootstrap's substrate-design depth.
 
 The linker pass (`bootstrap/src/link.py`) is the one piece small
-enough for inka-implementer dispatch IF given a prescriptive plan;
+enough for mentl-implementer dispatch IF given a prescriptive plan;
 ~200 lines mechanical Python.
 
 ---
@@ -845,7 +845,7 @@ the contract; tracker carries gates.
 | **Hβ.link** | bootstrap/src/link.py cross-module linker pass per §2.3 + BT walkthrough. |
 | **Hβ.harness** | bootstrap/first-light.sh per §2.4. |
 | **Hβ.module-extensions** | Per-module substrate gaps per BT walkthrough §2 + §11 of this walkthrough. Each module that the seed currently fails on (per BT inventory + my §11 finding) gets its own sub-handle. |
-| **Hβ.tier3** | Post-L1 incremental self-host growth pattern per §12.1. Each substrate landing in `src/*.nx` (H7 / B.3 Choice / B.5 AM / B.7 threading / etc.) follows the Tier 3 grow + diff + audit cycle. |
+| **Hβ.tier3** | Post-L1 incremental self-host growth pattern per §12.1. Each substrate landing in `src/*.mn` (H7 / B.3 Choice / B.5 AM / B.7 threading / etc.) follows the Tier 3 grow + diff + audit cycle. |
 
 Each sub-handle lands as its own peer commit per Anchor 7.
 
@@ -876,12 +876,12 @@ between intent and substrate.
 
 **The substrate gap explicitly named.**
 
-**Finding (2026-04-25):** the current seed (`bootstrap/inka.wasm`)
-produces degenerate WAT for `src/graph.nx` and presumably the
+**Finding (2026-04-25):** the current seed (`bootstrap/mentl.wasm`)
+produces degenerate WAT for `src/graph.mn` and presumably the
 other 13/15 modules per BT walkthrough §2. Test:
 
 ```bash
-$ cat src/graph.nx | wasmtime run bootstrap/inka.wasm > /tmp/graph.wat
+$ cat src/graph.mn | wasmtime run bootstrap/mentl.wasm > /tmp/graph.wat
 $ wc -l /tmp/graph.wat
 34 lines
 $ wat2wasm /tmp/graph.wat ...
@@ -889,13 +889,13 @@ error: undefined local variable "$runtime"
 error: undefined local variable "$strings"
 ```
 
-The seed parses graph.nx's imports (`import types`, `import effects`,
+The seed parses graph.mn's imports (`import types`, `import effects`,
 `import runtime/strings`) and emits a stub `_start_fn` referencing
 the import names as undefined locals. **This is NOT the cross-module-
 ref failure BT walkthrough §1 describes** (where seed-emitted
 `(call $list_index)` references a sibling module's function); it's
-SEED-side parsing/emit incompleteness for the .nx surface that
-src/graph.nx uses.
+SEED-side parsing/emit incompleteness for the .mn surface that
+src/graph.mn uses.
 
 **The bootstrap rewrite IS the corrective work.** Per the
 recontextualization 2026-04-25: the current seed is half-written,
@@ -903,10 +903,10 @@ pre-real-decisions; the rewrite proceeds per this walkthrough's
 ultimate-form contract. The path:
 
 1. **Hβ.runtime + Hβ.lex** — Layer 1 + Layer 2 substrate per §1
-   conventions. Verify against verify.nx (currently the only
+   conventions. Verify against verify.mn (currently the only
    standalone-validating module per BT §1).
 2. **Hβ.parse extensions** — extend parser chunks to handle the
-   full surface src/*.nx uses (every node-kind every src/*.nx file
+   full surface src/*.mn uses (every node-kind every src/*.mn file
    produces). Per-module test cycle per §6.3.
 3. **Hβ.infer + Hβ.lower** — Layer 4 substrate per spec 04 + spec
    05 + H7 walkthrough.
@@ -916,8 +916,8 @@ ultimate-form contract. The path:
    the seed extends; each gap closed in its own commit; BT
    walkthrough's per-module inventory tracks progress.
 
-When all 15 src/*.nx + lib/**/*.nx modules compile cleanly + link
-into one validated `inka.wasm`, **first-light-L1 is achievable.**
+When all 15 src/*.mn + lib/**/*.mn modules compile cleanly + link
+into one validated `mentl.wasm`, **first-light-L1 is achievable.**
 Tier 3 growth follows post-L1 per §12.1.
 
 **Riffle-back to BT walkthrough §1:** BT's "14/15 compile through
@@ -957,12 +957,12 @@ identical compiler. The ouroboros topology closes. **Self-
 consistency.**
 
 **Path to L1:** Hβ.runtime through Hβ.harness per §9; per-module
-extension cycle per §6.3 + §11; full src/*.nx + lib/**/*.nx
+extension cycle per §6.3 + §11; full src/*.mn + lib/**/*.mn
 compiles cleanly; linker output validates; self-compile diff empty.
 
 **No H7 dependency for L1.** Per plan §21 + §1721 structural insight:
 self-compile exercises `@resume=OneShot` only; MultiShot ops in
-src/mentl.nx + src/mentl_oracle.nx are DECLARED but not invoked
+src/mentl.mn + src/mentl_oracle.mn are DECLARED but not invoked
 during self-compile (Mentl's voice surfaces don't fire during
 compile-time; they're surface concerns). L1 closes without H7
 substrate.
@@ -981,8 +981,8 @@ for statically-decidable obligations.
 - `ValidSpan` per FV.3.4 (parser/infer span construction sites)
 
 **Fitness:**
-- `inka check src/graph.nx` accumulates V_Pending obligations.
-- `inka check --with verify_smt src/graph.nx` discharges
+- `mentl check src/graph.mn` accumulates V_Pending obligations.
+- `mentl check --with verify_smt src/graph.mn` discharges
   ground-handle obligations (>95% per H1); residue is polymorphic
   minority.
 - Output byte-identical for discharged obligations.
@@ -1032,7 +1032,7 @@ ML. Each per its own walkthrough.
 Partial victory gets partial credit; the full tag waits for the
 triangle.
 
-### §12.5 Tier 3 growth — Inka bootstraps through Inka
+### §12.5 Tier 3 growth — Mentl bootstraps through Mentl
 
 **Per Morgan's 2026-04-20 decision + plan §1727:** hand-WAT is the
 reference soundness artifact, kept forever. Growth past L1 is via
@@ -1040,18 +1040,18 @@ Tier 3 incremental self-hosting — never via a foreign-language
 translator.
 
 **The pattern:**
-1. New substrate lands in `src/*.nx` per its walkthrough (H7 / CE
+1. New substrate lands in `src/*.mn` per its walkthrough (H7 / CE
    / AM / verify_smt / threading / Ultimate DSP/ML / etc.).
-2. The L1-level seed compiles the extended `src/*.nx` via
+2. The L1-level seed compiles the extended `src/*.mn` via
    VFINAL-on-partial-WAT: each module per dependency order
    (§2.1 layers).
-3. Output WAT diffed against current `bootstrap/inka.wat`.
+3. Output WAT diffed against current `bootstrap/mentl.wat`.
 4. New regions (e.g., MS-emit patterns for `LMakeContinuation`
    per H7) integrated into hand-WAT chunks; each addition traces
    to a §1 convention entry (extend §1 first if needed).
 5. Audit: per-walkthrough-paragraph trace; commit when clean.
 
-**Inka bootstraps through Inka.** Per insight #13 (kernel closure)
+**Mentl bootstraps through Mentl.** Per insight #13 (kernel closure)
 + Anchor 0 (dream code) + Anchor 4 (build the wheel).
 
 **Continue Tier 3 growth when:**
@@ -1064,7 +1064,7 @@ translator.
   in one sitting.
 
 **Stop and reshape (NOT pivot to a foreign tool) when:**
-- Hand-WAT duplicates Inka substrate logic (walkthrough
+- Hand-WAT duplicates Mentl substrate logic (walkthrough
   underspecified; extend walkthrough; re-derive shape).
 - Walkthrough paragraph → hand-WAT line mapping no longer
   traceable (re-audit + restructure).
@@ -1081,7 +1081,7 @@ necessity, not input to pivot decision.
 
 Per the 2026-04-25 recontextualization + ultimate-form discipline:
 
-**The current seed at `bootstrap/inka.wat` (4733 lines, modular
+**The current seed at `bootstrap/mentl.wat` (4733 lines, modular
 chunks at `bootstrap/src/`) is half-written pre-real-decisions.**
 Per Anchor 0: it's the lathe, not the wheel. The walkthroughs ARE
 the wheel. The rewrite IS the work.
@@ -1094,12 +1094,12 @@ the wheel. The rewrite IS the work.
    BT's per-module inventory framing.
 3. **Hβ.runtime sub-handle** — Layer 1 substrate per §2.1 + §1
    conventions; the foundation every other layer composes on.
-   Verify against verify.nx + a minimal hello-world program.
+   Verify against verify.mn + a minimal hello-world program.
 4. **Hβ.lex + Hβ.parse + Hβ.infer + Hβ.lower + Hβ.emit** — per
    layer order; each chunk extends the seed's surface coverage.
    Per-module compile-and-validate test cycle per §6.3.
 5. **Hβ.link sub-handle** — link.py per §2.3 + BT.
-6. **Hβ.module-extensions** — per BT inventory; each src/*.nx
+6. **Hβ.module-extensions** — per BT inventory; each src/*.mn
    module that fails compilation gets a substrate-gap-closing
    commit. Per Anchor 7: each in its own commit.
 7. **Hβ.harness sub-handle** — first-light.sh per §2.4.
@@ -1135,8 +1135,8 @@ written when proven necessary by emission experience.
 
 ## §14 What closes when Hβ + sub-handles close
 
-- `bootstrap/inka.wat` exists as the seed compiler's binary image,
-  modularly assembled, fully covering the src/*.nx + lib/**/*.nx
+- `bootstrap/mentl.wat` exists as the seed compiler's binary image,
+  modularly assembled, fully covering the src/*.mn + lib/**/*.mn
   surface.
 - `bootstrap/first-light.sh` runs and produces empty diff
   → `first-light-L1`.
@@ -1146,13 +1146,13 @@ written when proven necessary by emission experience.
 - `first-light` tag joins when all six crucibles pass.
 - Hand-WAT preserved forever as reference soundness artifact per
   Anchor + DESIGN §11.
-- `inka edit` substrate ships on a self-compiling foundation per
+- `mentl edit` substrate ships on a self-compiling foundation per
   IE walkthrough §12 dependencies.
 - F.1 substrate ships per F.1 walkthrough §13 dependencies; web
-  IDE / playground / tutorial-space all compose on `inka.wasm`
+  IDE / playground / tutorial-space all compose on `mentl.wasm`
   running in-browser.
-- `inka doc` + `inka teach` + `inka audit` + `inka query` + `inka
-  test` + `inka chaos` + every `inka --with <handler>` entry-handler
+- `mentl doc` + `mentl teach` + `mentl audit` + `mentl query` + `mentl
+  test` + `mentl chaos` + every `mentl --with <handler>` entry-handler
   invocation works.
 - The realization loop closes per insight #11 + #12: substrate
   → bootstrap → self-host → substrate landings → Tier 3 growth
@@ -1182,13 +1182,13 @@ bootstrap implements the kernel in WAT; it doesn't extend it.
 **Mentl tentacle mapping.** The bootstrap doesn't directly invoke
 Mentl — Mentl's voice surfaces at user-cursor / batch-doc time, not
 at compile time. But the seed must EMIT correct WAT for the
-Mentl-voice substrate (`src/mentl_voice.nx` + `src/mentl_oracle.nx`
-+ `src/mentl_lsp.nx` + `src/mentl.nx` + `lib/edit/*.nx` per IE +
-`lib/doc/*.nx` per F.1) so those surfaces work post-first-light.
+Mentl-voice substrate (`src/mentl_voice.mn` + `src/mentl_oracle.mn`
++ `src/mentl_lsp.mn` + `src/mentl.mn` + `lib/edit/*.mn` per IE +
+`lib/doc/*.mn` per F.1) so those surfaces work post-first-light.
 
 ---
 
-*Inka solves Inka. The bootstrap is hand-WAT, transcribed from the
+*Mentl solves Mentl. The bootstrap is hand-WAT, transcribed from the
 walkthroughs, kept forever. Mentl's voice doesn't fire during
 self-compile, but Mentl's substrate IS what self-compile proves
 correct — by emitting it identically to the seed's prior pass. The
@@ -1196,7 +1196,7 @@ fixed point IS the soundness proof; the soundness proof IS the
 medium's binary self-portrait.*
 
 *Per Anchor 0 dream-code discipline: this walkthrough specifies the
-bootstrap's ultimate form assuming src/*.nx is the substantively-
+bootstrap's ultimate form assuming src/*.mn is the substantively-
 real wheel (per plan §16). Plan tracker carries gates; walkthrough
 carries the contract. The architecture rises to meet what's
-specified. Inka bootstraps through Inka.*
+specified. Mentl bootstraps through Mentl.*

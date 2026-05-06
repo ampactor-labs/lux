@@ -317,7 +317,7 @@ up by name at emit time.
 
 **Mentl's choice: Option A.** A BodyContext effect with
 `current_body_captures()` reads like "ask the graph for the
-current body's capture count." Handler-state is Inka-native.
+current body's capture count." Handler-state is Mentl-native.
 Installed per-fn-body.
 
 ```
@@ -449,7 +449,7 @@ approval.
 Emitting LEvPerform / LCall-with-evidence requires knowing the
 current body's capture_count and handler_stack. Threading these
 through every emit call would be invasive; a handler-state
-effect per body is the Inka-native solution. **This is a NEW
+effect per body is the Mentl-native solution. **This is a NEW
 EFFECT to add to the substrate: BodyContext.**
 
 ### Revelation C — Handler arm fn indexing
@@ -540,14 +540,14 @@ Named; post-six-handles discussion.
 
 ## Estimated scope
 
-- ~6 files touched: types.nx (BodyContext effect), infer.nx
+- ~6 files touched: types.mn (BodyContext effect), infer.mn
   (handler_stack grown, ev_shape as derivable, handler arm
-  registration), lower.nx (LMakeClosure signature +
-  LBuildEvidence deletion, LCall-with-evidence branch), effects.nx
+  registration), lower.mn (LMakeClosure signature +
+  LBuildEvidence deletion, LCall-with-evidence branch), effects.mn
   (possibly row-arithmetic for ev_shape derivation), 
-  backends/wasm.nx (LMakeClosure grown emit, LEvPerform wired
+  backends/wasm.mn (LMakeClosure grown emit, LEvPerform wired
   with body_context, transient evidence emit for poly calls,
-  handler arm fn_idx globals), pipeline.nx (install body_context
+  handler arm fn_idx globals), pipeline.mn (install body_context
   handler at emit_module).
 - **Major commit.** Larger than any prior phase. Tight internal
   coupling justifies single commit.
@@ -673,7 +673,7 @@ flagged for deletion), one cleaner handler-state shape (records),
 one already-wired SchemeKind dispatch to extend (LPerform →
 LEvPerform fork in poly contexts).
 
-Estimated scope updated: **~5 files** (was 6 — pipeline.nx's
+Estimated scope updated: **~5 files** (was 6 — pipeline.mn's
 body_context install collapses into the same emit module since
 records make the state shape one literal). Single commit still
 holds.

@@ -31,7 +31,7 @@
   ;; open issue WebAssembly/stack-switching#110 with no timeline.
   ;; Hand-WAT cont.wat IS the canonical multi-shot substrate, kept
   ;; forever per Hβ §0 reference-soundness-artifact discipline. Per
-  ;; CLAUDE.md anchor: "Inka bootstraps through Inka" — no foreign-
+  ;; CLAUDE.md anchor: "Mentl bootstraps through Mentl" — no foreign-
   ;; runtime dependency on the substrate that drives Mentl.
   ;;
   ;; ═══ LAYOUT ════════════════════════════════════════════════════════

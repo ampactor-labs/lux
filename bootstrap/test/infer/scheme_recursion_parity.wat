@@ -1,7 +1,7 @@
   ;; ═══ scheme_recursion_parity.wat — trace-harness ══════════════════
   ;; Executes: ROADMAP §3 acceptance ($free_in_params / $free_in_fields
   ;;           / $ty_substitute_params / $ty_substitute_fields parity
-  ;;           with src/infer.nx:1898-1990) + scheme.wat:587-651
+  ;;           with src/infer.mn:1898-1990) + scheme.wat:587-651
   ;; Exercises: scheme.wat — $free_in_params $free_in_fields
   ;;            $ty_substitute_params $ty_substitute_fields
   ;; Per ROADMAP §5 + Hβ-infer-substrate.md §11.
