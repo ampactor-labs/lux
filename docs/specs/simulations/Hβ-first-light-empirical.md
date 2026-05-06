@@ -644,6 +644,46 @@ Most-impactful next: identify the structural source (named peer)
 to remove silent-degrade reliance, OR press on to L1 closure
 through other peer handles.
 
+### 4.5.10 Wheel-scale O(N²) closed (2026-05-06) — list-extend heap-top in-place
+
+`Hβ.runtime.list-extend-heap-top-inplace` — `$list_extend_to`
+gained the canonical bump-allocator in-place trick: when
+`align(list_end) == heap_ptr` (no allocations since this list was
+made), grow it in-place via `$perm_alloc(extra*4)` instead of
+allocating a fresh list and copying. Buffer-counter callers
+(cfn_walk in emit, ec6_emit_args, etc.) hit O(N²) reallocations
+pre-substrate because they wrote `count` back to offset 0 after
+list_extend_to, overwriting the doubled-capacity make_list set.
+Each subsequent extend read the now-small count and reallocated.
+
+For wheel-scale N≈20K closures, O(N²) memory ≈ 1.6 GiB exhausted
+the perm cap (`perm_alloc → unreachable`).
+
+**Empirical at +lower** (where the trap fired):
+
+| state | exit | stderr lines | WAT |
+|---|---|---|---|
+| pre-substrate | 134 (TRAP) | 87,285 | 0 |
+| post-substrate | 124 (timeout 90s) | 4,524 | 0 |
+
+Trap → graceful timeout. Stderr drops 19× because the seed gets
+much further before timeout fires. Wheel-scale O(N²) leak closed;
+remaining timeout is runtime cost.
+
+**Ultimate-medium move:** the in-place trick is bootstrap-stage
+substrate. The wheel-canonical answer is a `Buffer<A>` ADT distinct
+from `List<A>` — explicit capacity field, separating immutable-
+structural-list from mutable-buffer-with-counter at the type
+system. Named peer `Hβ.runtime.buffer-substrate`. Per ULTIMATE
+MEDIUM thesis: the cluster of "list-as-buffer" hacks IS the
+gradient asking for `Buffer<A>` to land; once it does, the in-
+place trick becomes deletable.
+
+**Cursor of attention** post-O(N²)-fix: test wheel-scale with
+longer timeout to see if the seed terminates. If termination is
+just slow, drop in handler-config-params-substrate next; if
+another structural leak surfaces, treat it the same way.
+
 ### 4.5.4d Closures + ctor + destructure + brace + where-skip landed; string-interning gap surfaces (2026-05-02 latter)
 
 Subsequent landings (commits c28c525 / 12cfcac / 8d3d2f7 / 07a2a99
