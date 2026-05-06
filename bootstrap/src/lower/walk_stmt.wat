@@ -581,9 +581,16 @@
         (param $stmt i32) (param $handle i32) (result i32)
     (local $arms i32) (local $arm_decls i32) (local $sentinel i32)
     (local $stmts i32) (local $i i32) (local $n i32)
-    (local.set $arms (i32.load offset=12 (local.get $stmt)))
+    (local $handler_name i32)
+    (local.set $arms         (i32.load offset=12 (local.get $stmt)))
+    (local.set $handler_name (i32.load offset=4  (local.get $stmt)))
     ;; Lock #7: invoke chunk #8's helper (third caller — abstraction earned).
-    (local.set $arm_decls (call $lower_handler_arms_as_decls (local.get $arms)))
+    ;; Per Hβ.first-light.handler-arm-fn-name-discriminator: pass the
+    ;; handler_name as the discriminator so each top-level handler's
+    ;; arm fns get unique WASM symbols ($op_<handler>_<op>).
+    (local.set $arm_decls (call $lower_handler_arms_as_decls
+                            (local.get $arms)
+                            (local.get $handler_name)))
     (local.set $sentinel  (call $lexpr_make_lconst (local.get $handle) (i32.const 0)))
     ;; Build stmts = arm_decls ++ [sentinel]. Buffer-counter (Ω.3).
     (local.set $n     (call $len (local.get $arm_decls)))

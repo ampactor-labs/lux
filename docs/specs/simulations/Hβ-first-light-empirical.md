@@ -754,6 +754,77 @@ to dedup the wheel-scale fn list. After that, the wheel WAT will
 be sane-sized and we can iterate on the actual L1 fixpoint
 (`inka2.wat == inka3.wat`).
 
+### 4.5.12 Handler-arm fn name discriminator (2026-05-06)
+
+`Hβ.first-light.handler-arm-fn-name-discriminator` — handler-arm
+fns now mint as `op_<handler_name>_<op_name>` instead of the
+H1.4 single-handler-per-op `op_<op_name>`. Closes the named follow-
+up at `src/lower.nx:790` ("Single-handler-per-op naming for now").
+
+**Why the rename:** `lib/prelude.nx` has 10+ handlers all defining
+`yield`-arms for the `Iterate` effect (map/filter/take/drop/collector/
+fold/for_each/any/all/partition + inline handlers in fn bodies).
+Pre-substrate, every arm became `(func $op_yield ...)` at module
+level → wat2wasm rejects with duplicate-fn-name.
+
+**Empirical surface:** the wheel-scale "84,691 funcref entries
+producing 4.9 GiB WAT" diagnosed in §4.5.10/§4.5.11 wasn't DAG-
+shared LowFn pointers (cfn_walk's hypothesis). Each arm has a
+unique LowFn record; the bloat came from `lib/prelude.nx`'s
+many handlers each independently emitting a `(func $op_yield ...)`
+declaration. Same op-name across distinct handler decls. wat2wasm
+correctly rejects 10+ `$op_yield` declarations.
+
+**Substrate change:**
+- `bootstrap/src/lower/walk_handle.wat`: `$lower_handler_arms_as_decls`
+  takes a `$discriminator` param (handler_name string for
+  HandlerDeclStmt; `int_to_str(handle)` for inline HandleExpr).
+  fn_name = `"op_"` ++ discriminator ++ `"_"` ++ op_name. Underscore
+  separator at data offset 4400 (free per data-offset audit).
+- `bootstrap/src/lower/walk_stmt.wat`: passes handler_name from
+  HandlerDeclStmt offset 4 through the call.
+- `bootstrap/src/lower/walk_handle.wat`: passes `int_to_str($h)`
+  for inline HandleExpr.
+- `src/lower.nx` (wheel): mirror — `lower_handler_arms_as_decls(arms,
+  discriminator)`; `HandlerDeclStmt(name, ...)` passes `name`;
+  `HandleExpr(...)` passes `int_to_str(handle)`. Pipe-verb str_concat
+  chain `"op_" |> str_concat(discriminator) |> str_concat("_") |>
+  str_concat(arm.op_name)`.
+
+**Eight-interrogation alignment:**
+- Graph: handler_name + handle Int both graph-resident; discriminator
+  reads from existing graph nodes
+- Handler: Pure (lowering is structural)
+- Verb: |> sequential through the str_concat chain
+- Row: !Mutate / Memory + Alloc for the fresh fn_name allocation
+- Ownership: own per fresh fn_name string; ref-borrowed inputs
+- Refinement: `Module where unique_names(self.functions)` is the
+  structural invariant; Verify discharges post-L2
+- Gradient: future `@discriminate=structural` annotation could opt
+  into handle-derived names; default uses source-derived
+- Reason: fn_name carries handler+op identifiers → diagnostics
+  walk back via Reason chain to both contributing names
+
+**Empirical (sanity):** minimal program `effect E { op() } / handler
+h { op() => 42 } / fn main() = perform op()` lowers to `$op_h_op`
+(was `$op_op`). Module-level handler-arm symbols are unique by
+construction.
+
+**wat2wasm error surfaces the next residue:** `$main`'s body still
+emits `(call $op_op)` from LPerform — the symbol no longer exists
+(it's `$op_h_op` now). Named peer
+`Hβ.first-light.lperform-handler-discriminator` closes the matching
+update at perform sites: monomorphic LPerform threads handler_name
+from row inference (Layer 1 H1.6); polymorphic falls through to
+LEvPerform's evidence-slot dispatch (Layer 2 — already-substrate via
+`$emit_levperform`, just needs lower routing).
+
+**Cursor of attention** post-discriminator: lperform-handler-
+discriminator (Layer 1 of the LPerform side; small) OR
+parallel/IC/Mentl substrate moves (post-L1 architecture). The
+discriminator landing makes the WAT structure correct; LPerform
+matching closes the empirical compile loop.
+
 ### 4.5.4d Closures + ctor + destructure + brace + where-skip landed; string-interning gap surfaces (2026-05-02 latter)
 
 Subsequent landings (commits c28c525 / 12cfcac / 8d3d2f7 / 07a2a99

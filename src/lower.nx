@@ -434,7 +434,11 @@ fn lower_expr_body(e, handle, span) = match e {
     // unused at emit but reserved for H1.6 evidence wiring) AND
     // as LDeclareFn entries (so emit_fns_expr's deep walk picks
     // up each arm body as a wasm function).
-    let arm_decls = lower_handler_arms_as_decls(arms)
+    //
+    // Inline handlers are anonymous; discriminator is the handle-id
+    // stringified — graph-mint-unique per construction (every
+    // HandleExpr has a fresh handle).
+    let arm_decls = lower_handler_arms_as_decls(arms, int_to_str(handle))
     let arm_records = lower_handler_arms(arms)
     let lo_body = lower_expr(body_node)
     LBlock(handle, arm_decls ++ [LHandle(handle, lo_body, arm_records)])   // drift-audit: ignore — one-time single-element append at HandleExpr-lowering boundary; NOT a tail-recursive accumulator. arm_decls is built once via lower_handler_arms_as_decls, then extended by exactly one LHandle element.
@@ -786,14 +790,22 @@ fn lower_stmt_body(s, handle, span) = match s {
 
   TypeDefStmt(_name, _args, _variants)      => LConst(handle, LInt(0)),
   EffectDeclStmt(_name, _ops)               => LConst(handle, LInt(0)),
-  HandlerDeclStmt(_name, _ename, arms)      => {
-    // H1.4: each handler arm becomes a callable wasm function with
-    // name `op_<op_name>`. emit_fns_expr's deep walk picks up the
-    // LDeclareFn entries and emits each as a wasm function with a
-    // registered fn_idx global. LPerform's `(call $op_<n>)` resolves
-    // statically to these. Single-handler-per-op naming for now;
-    // multi-handler dispatch via evidence is H1.6.
-    let arm_decls = lower_handler_arms_as_decls(arms)
+  HandlerDeclStmt(name, _ename, arms)       => {
+    // H1.4: each handler arm becomes a callable wasm function. With
+    // the Hβ.first-light.handler-arm-fn-name-discriminator landing,
+    // arm fns are named `op_<handler_name>_<op_name>` — unique even
+    // when multiple handlers handle the same op (lib/prelude.nx has
+    // many handlers all defining `yield`-arms for the Iterate effect).
+    // Pre-substrate the unprefixed `op_<op_name>` collided across them.
+    // emit_fns_expr's deep walk picks up LDeclareFn entries and emits
+    // each as a wasm function with a registered fn_idx global.
+    //
+    // Named peer Hβ.first-light.lperform-handler-discriminator:
+    // LPerform's `(call $op_<n>)` currently resolves to undiscriminated
+    // names; the matching update threads handler_name through perform
+    // sites (monomorphic) or routes to LEvPerform via evidence-slot
+    // dispatch (multi-handler / polymorphic — H1.6).
+    let arm_decls = lower_handler_arms_as_decls(arms, name)
     LBlock(handle, arm_decls ++ [LConst(handle, LInt(0))])   // drift-audit: ignore — one-time single-element append at HandlerDeclStmt-lowering boundary; NOT a tail-recursive accumulator. arm_decls is built once, then extended by exactly one LConst sentinel.
   },
   ImportStmt(_module)                       => LConst(handle, LInt(0)),
@@ -927,7 +939,7 @@ fn lower_handler_arms(arms) = {
 /// function `op_<op_name>` taking the arm's args (plus the implicit
 /// `__state` per the calling convention). Stateful handlers (with state
 /// slots) land with H1.6's evidence wiring.
-fn lower_handler_arms_as_decls(arms) = {
+fn lower_handler_arms_as_decls(arms, discriminator) = {
   if arms.len == 0 { [] }
   else {
     let arm = list_head(arms)
@@ -935,9 +947,18 @@ fn lower_handler_arms_as_decls(arms) = {
     bind_names_as_locals(arm.args)
     let lo_body = lower_expr(arm.body)
     perform ls_pop_scope(cp)
-    let fn_name = "op_" |> str_concat(arm.op_name)
+    // Per Hβ.first-light.handler-arm-fn-name-discriminator —
+    // fn_name = "op_" ++ discriminator ++ "_" ++ arm.op_name
+    // discriminator is handler_name for top-level decls (passed by
+    // HandlerDeclStmt arm), int_to_str(handle) for inline anonymous
+    // handle-expressions. Each arm gets a unique WASM symbol;
+    // multi-handler-per-op is structurally supported.
+    let fn_name = "op_"
+      |> str_concat(discriminator)
+      |> str_concat("_")
+      |> str_concat(arm.op_name)
     let fn_ir = LFn(fn_name, arm.args.len, arm.args, [lo_body], EfPure)
-    [LDeclareFn(fn_ir)] ++ lower_handler_arms_as_decls(list_tail(arms))
+    [LDeclareFn(fn_ir)] ++ lower_handler_arms_as_decls(list_tail(arms), discriminator)
   }
 }
 

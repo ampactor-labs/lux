@@ -282,11 +282,32 @@
     (call $ls_pop_scope (local.get $cp))
     (local.get $lo_body))
 
+  ;; "_" length-prefixed ASCII for the discriminator separator.
+  ;; Per data-offset audit, [4400, 4416) is free (highest existing
+  ;; data segment is 4360 + 20 = 4380; 4400 is 16-aligned and clear
+  ;; of all prior segments).
+  (data (i32.const 4400) "\01\00\00\00_")
+
   ;; ─── $lower_handler_arms_as_decls — Lock #7 real LDeclareFn list ───
   ;; Per src/lower.nx:745-755. Each arm becomes
-  ;; LDeclareFn(LowFn("op_" + op_name, len(args), args, [lo_body], Pure)).
+  ;; LDeclareFn(LowFn("op_" + discriminator + "_" + op_name, ..., Pure)).
+  ;;
+  ;; Per Hβ.first-light.handler-arm-fn-name-discriminator — multi-
+  ;; handler scenarios (Iterate's many `yield`-handlers, Memory's
+  ;; multiple `alloc`-handlers, etc.) require unique WASM symbols
+  ;; per arm. Pre-substrate, fn_name was just "op_" + op_name, which
+  ;; collided across handlers; the wheel produced 84,691 funcref
+  ;; entries with many duplicate-name `(func $op_yield ...)`
+  ;; declarations that wat2wasm rejects. The discriminator IS the
+  ;; structural handler-identity (handler_name for top-level decls;
+  ;; int_to_str(handle) for anonymous inline handlers).
+  ;;
+  ;; Closes the "Single-handler-per-op naming for now" follow-up at
+  ;; src/lower.nx:790-794. Layer 1 of the ULTIMATE-FORM cascade
+  ;; (Layer 2 = handle-derived names; Layer 3 = refinement-typed
+  ;; Module uniqueness — both post-L1 peers).
   (func $lower_handler_arms_as_decls (export "lower_handler_arms_as_decls")
-        (param $arms i32) (result i32)
+        (param $arms i32) (param $discriminator i32) (result i32)
     (local $n i32) (local $i i32) (local $buf i32)
     (local $arm i32) (local $args i32) (local $arg_names i32) (local $body_node i32)
     (local $op_name i32) (local $lo_body i32) (local $fn_name i32)
@@ -306,7 +327,10 @@
         (local.set $lo_body   (call $lower_handler_arm_body
                                 (local.get $arg_names)
                                 (local.get $body_node)))
-        (local.set $fn_name   (call $str_concat (i32.const 504) (local.get $op_name)))
+        ;; fn_name = "op_" ++ discriminator ++ "_" ++ op_name
+        (local.set $fn_name (call $str_concat (i32.const 504) (local.get $discriminator)))
+        (local.set $fn_name (call $str_concat (local.get $fn_name) (i32.const 4400)))
+        (local.set $fn_name (call $str_concat (local.get $fn_name) (local.get $op_name)))
         (local.set $fn_body   (call $make_list (i32.const 0)))
         (local.set $fn_body   (call $list_extend_to (local.get $fn_body) (i32.const 1)))
         (drop (call $list_set (local.get $fn_body) (i32.const 0) (local.get $lo_body)))
@@ -374,7 +398,12 @@
     (local.set $handle_struct(i32.load offset=4 (local.get $body)))
     (local.set $body_node    (i32.load offset=4 (local.get $handle_struct)))
     (local.set $arms         (i32.load offset=8 (local.get $handle_struct)))
-    (local.set $arm_decls    (call $lower_handler_arms_as_decls (local.get $arms)))
+    ;; Inline `handle { ... } with { arms }` — anonymous handler.
+    ;; Discriminator is the handle-id stringified; uniqueness by
+    ;; construction (handles are graph-mint-unique).
+    (local.set $arm_decls    (call $lower_handler_arms_as_decls
+                               (local.get $arms)
+                               (call $int_to_str (local.get $h))))
     (local.set $arm_records  (call $lower_handler_arms_records  (local.get $arms)))
     (local.set $lo_body      (call $lower_expr (local.get $body_node)))
     (local.set $lhandle      (call $lexpr_make_lhandle
