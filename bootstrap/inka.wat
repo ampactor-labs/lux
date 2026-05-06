@@ -732,68 +732,25 @@
 
   ;; list_extend_to: ensure capacity >= min_size. FLAT lists only.
   ;;
-  ;; Buffer-counter callers (cfn_walk in emit, ec6_emit_args, etc.)
-  ;; conflate "capacity" and "count" via offset 0 — they read offset 0
-  ;; as count, list_extend_to to count+1, write index, bump count back
-  ;; to offset 0. Pre-substrate this caused O(N²) reallocations: every
-  ;; iteration overwrote the doubled capacity that list_extend_to set
-  ;; via $make_list, so list_extend_to thought the list was small and
-  ;; reallocated again. For wheel-scale N closures this consumed
-  ;; ~O(N²) bytes of perm — at N≈20K this is 1.6 GiB, exhausting the
-  ;; perm cap and trapping at perm_alloc.
+  ;; Semantics: List<A>'s offset-0 IS its logical count. This function
+  ;; checks current count vs. requested min_size; if insufficient,
+  ;; allocates a fresh list of double-or-min_size capacity and copies.
   ;;
-  ;; The canonical bump-allocator fix: when the list is at the heap
-  ;; top (last allocation, no allocations since), we can extend in
-  ;; place by bumping heap_ptr — no realloc, no copy. This converts
-  ;; the buffer-counter pattern to amortized O(1) per insert,
-  ;; preserving the buffer-counter discipline CLAUDE.md "Bug classes"
-  ;; warns about. Symmetric to GMP / glibc / V8 zone allocators.
-  ;;
-  ;; Named peer `Hβ.runtime.buffer-substrate`: wheel-canonical
-  ;; Buffer<A> as a distinct primitive from List<A>, with explicit
-  ;; capacity field. Separates immutable-structural-list from
-  ;; mutable-buffer-with-counter at the type system. Until then,
-  ;; this in-place trick keeps perm-pressure bounded.
+  ;; Buffer-counter callers — pre-Buffer<A> substrate, cfn_walk and
+  ;; similar transient-list-builders abused this with offset-0-as-
+  ;; both-count-and-capacity. Buffer<A> (`bootstrap/src/runtime/buffer.wat`)
+  ;; supersedes that pattern; this function returns to its simple
+  ;; semantics (offset 0 = count, monotonic).
   (func $list_extend_to (param $list i32) (param $min_size i32) (result i32)
     (local $cur i32) (local $new_cap i32) (local $fresh i32) (local $i i32)
-    (local $list_end i32) (local $list_end_aligned i32) (local $extra i32)
     (local.set $cur (call $len (local.get $list)))
     (if (result i32) (i32.ge_u (local.get $cur) (local.get $min_size))
       (then (local.get $list))
       (else
-        ;; In-place extend if list is at heap-top. list_end = byte
-        ;; right after the list's logical data; align to 8 (perm_alloc
-        ;; rounds allocation sizes to 8-byte boundary). If aligned end
-        ;; equals heap_ptr, no allocation has happened since this list
-        ;; was made; we can grow it in place by routing through
-        ;; perm_alloc (which respects the perm cap). The new slots
-        ;; come pre-zeroed (WASM linear memory untouched-bytes are 0).
-        ;; Symmetric to GMP / glibc / V8 zone allocators' realloc-from-
-        ;; heap-top trick.
-        (local.set $list_end
-          (i32.add
-            (i32.add (local.get $list) (i32.const 8))
-            (i32.mul (local.get $cur) (i32.const 4))))
-        (local.set $list_end_aligned
-          (i32.and
-            (i32.add (local.get $list_end) (i32.const 7))
-            (i32.const -8)))
-        (if (i32.eq (local.get $list_end_aligned) (global.get $heap_ptr))
-          (then
-            (local.set $extra (i32.sub (local.get $min_size) (local.get $cur)))
-            ;; perm_alloc(extra*4) — bumps heap_ptr with cap check and
-            ;; alignment; we drop the returned ptr (it's our padding/
-            ;; new-slot region; logical addressing comes from the
-            ;; original list pointer).
-            (drop (call $perm_alloc (i32.mul (local.get $extra) (i32.const 4))))
-            (i32.store (local.get $list) (local.get $min_size))
-            (return (local.get $list))))
-        ;; Not at heap-top — reallocate with doubling.
         (local.set $new_cap (i32.mul (local.get $cur) (i32.const 2)))
         (if (i32.gt_u (local.get $min_size) (local.get $new_cap))
           (then (local.set $new_cap (local.get $min_size))))
         (local.set $fresh (call $make_list (local.get $new_cap)))
-        ;; copy existing elements
         (local.set $i (i32.const 0))
         (block $done
           (loop $copy
@@ -1219,6 +1176,88 @@
 
   (func $is_sentinel (param $ptr i32) (result i32)
     (i32.lt_u (local.get $ptr) (global.get $heap_base)))
+
+  ;; ═══ buffer.wat — Buffer<A> mutable-with-counter substrate (Tier 2) ══
+  ;; Implements: Hβ.runtime.buffer-substrate — Buffer<A> as a kernel-
+  ;;             native primitive distinct from List<A>; eliminates the
+  ;;             buffer-counter abuse pattern that conflated capacity
+  ;;             and count via List's offset-0 field.
+  ;; Exports:    $buf_make, $buf_push, $buf_count, $buf_data, $buf_freeze
+  ;; Uses:       $alloc (alloc.wat), $make_list / $list_set /
+  ;;             $list_extend_to / $slice (list.wat),
+  ;;             $make_record / $record_get / $record_set (record.wat)
+  ;;
+  ;; Layout: Buffer<A> is a 2-field record (tag-private; not exposed
+  ;; to user pattern-match — accessors below are the only interface):
+  ;;   field 0 = data:  List<A> ptr (capacity = $len(data))
+  ;;   field 1 = count: Int (logical fill, count <= $len(data))
+  ;;
+  ;; Per kernel crystallization #9 (Records-Are-Handler-State-Shape +
+  ;; CLAUDE.md drift mode 7): ONE record holds (data, count); never
+  ;; passed as parallel-arrays (List, Int).
+  ;;
+  ;; Symmetric to lib/runtime/buffer.nx (the wheel-canonical Buffer<A>);
+  ;; this WAT is the seed binding that lets the seed compile against
+  ;; the wheel's Buffer<A> contract.
+
+  ;; ─── $buf_make — fresh Buffer<A> with `cap` pre-allocated slots ────
+  ;; Allocates a List<A> of size cap, builds the 2-field record with
+  ;; count = 0. cap = 0 is allowed (subsequent push will allocate at
+  ;; first overflow per the canonical doubling pattern).
+  (func $buf_make (export "buf_make") (param $cap i32) (result i32)
+    (local $buf i32) (local $data i32)
+    (local.set $data (call $make_list (local.get $cap)))
+    (local.set $buf (call $make_record (i32.const 360) (i32.const 2)))
+    (call $record_set (local.get $buf) (i32.const 0) (local.get $data))
+    (call $record_set (local.get $buf) (i32.const 1) (i32.const 0))
+    (local.get $buf))
+
+  ;; ─── $buf_count — read logical fill (offset 1) ────────────────────
+  (func $buf_count (export "buf_count") (param $buf i32) (result i32)
+    (call $record_get (local.get $buf) (i32.const 1)))
+
+  ;; ─── $buf_data — read underlying List<A> (offset 0) ────────────────
+  ;; The List has $len(data) slots; the first $buf_count(buf) are
+  ;; valid. Use $buf_freeze for a clean prefix-only List.
+  (func $buf_data (export "buf_data") (param $buf i32) (result i32)
+    (call $record_get (local.get $buf) (i32.const 0)))
+
+  ;; ─── $buf_push — append `x` at index count; bump count ────────────
+  ;; If count >= data.len, doubles capacity via $list_extend_to (which
+  ;; reallocates with copy — the cur < min_size path). Otherwise the
+  ;; existing data is in-place written. Amortized O(1) push.
+  ;;
+  ;; Mutates buf in place (record_set on offset 0/1). The buf record
+  ;; itself stays at the same address; the data List MAY change
+  ;; address on capacity overflow.
+  (func $buf_push (export "buf_push") (param $buf i32) (param $x i32)
+    (local $data i32) (local $count i32) (local $cap i32) (local $new_cap i32)
+    (local.set $data  (call $record_get (local.get $buf) (i32.const 0)))
+    (local.set $count (call $record_get (local.get $buf) (i32.const 1)))
+    (local.set $cap   (call $len (local.get $data)))
+    ;; Capacity check: extend (with copy) when count would overflow.
+    (if (i32.ge_u (local.get $count) (local.get $cap))
+      (then
+        (local.set $new_cap (i32.const 4))
+        (if (i32.gt_u (local.get $cap) (i32.const 0))
+          (then (local.set $new_cap (i32.mul (local.get $cap) (i32.const 2)))))
+        (local.set $data (call $list_extend_to
+                           (local.get $data) (local.get $new_cap)))
+        (call $record_set (local.get $buf) (i32.const 0) (local.get $data))))
+    ;; Write the new element at slot $count; bump count.
+    (drop (call $list_set (local.get $data) (local.get $count) (local.get $x)))
+    (call $record_set (local.get $buf) (i32.const 1)
+      (i32.add (local.get $count) (i32.const 1))))
+
+  ;; ─── $buf_freeze — slice data to count, return clean List<A> ──────
+  ;; The buffer is consumed (callers should not reference it after
+  ;; freeze; ownership-transfer per primitive #5). The returned List
+  ;; is a fresh tag-0 flat list of exactly $buf_count(buf) elements.
+  (func $buf_freeze (export "buf_freeze") (param $buf i32) (result i32)
+    (local $data i32) (local $count i32)
+    (local.set $data  (call $record_get (local.get $buf) (i32.const 0)))
+    (local.set $count (call $record_get (local.get $buf) (i32.const 1)))
+    (call $slice (local.get $data) (i32.const 0) (local.get $count)))
 
   ;; ═══ closure.wat — closure record substrate (Tier 2) ══════════════
   ;; Implements: Hβ §1.3 — closure record per H1 evidence reification.
@@ -25734,80 +25773,70 @@
   ;; recursion already emits each nested fn body; this collector
   ;; mirrors that walk so the funcref table + $name_idx globals stay
   ;; consistent with emit_functions's actual emissions.
+  ;; $collect_fn_names — entry: builds a Buffer<String>, walks the
+  ;; LowExpr tree appending fn names via $buf_push, freezes to a clean
+  ;; List<String> on return. Per Hβ.runtime.buffer-substrate — the
+  ;; transient name-collection IS the use-case Buffer<A> exists for.
+  ;; Pre-substrate this used a List as a buffer (offset-0-as-both-
+  ;; count-and-capacity), causing O(N²) reallocations at wheel scale.
   (func $collect_fn_names (param $lowexprs i32) (result i32)
-    (local $names i32) (local $count_buf i32)
-    (local.set $names (call $make_list (i32.const 16)))
-    ;; count tracked in offset 0 of names list (length-prefix). We
-    ;; mutate via $cfn_append helper.
-    (i32.store (local.get $names) (i32.const 0))
-    (local.set $names (call $cfn_walk_list (local.get $names) (local.get $lowexprs)))
-    (local.get $names))
+    (local $buf i32)
+    (local.set $buf (call $buf_make (i32.const 16)))
+    (local.set $buf (call $cfn_walk_list (local.get $buf) (local.get $lowexprs)))
+    (call $buf_freeze (local.get $buf)))
 
-  ;; $cfn_walk_list — iterate top-level lowexprs.
+  ;; $cfn_walk_list — iterate top-level lowexprs; threads a Buffer<String>.
   ;;
   ;; Productive-under-error guard: when the input is a sentinel/null
   ;; pointer (< HEAP_BASE) — typically because an upstream lower
   ;; accessor returned a sentinel where a list was expected — `$len`
   ;; would read garbage from low memory addresses, causing the loop
-  ;; to spin for billions of iterations and exhaust perm via
-  ;; cfn_walk's list_extend_to leaks. Pre-substrate this manifested
-  ;; as `perm_alloc → unreachable` after ~1.5 GiB of leaked allocations.
-  ;; Mirror the guard at $cfn_walk (line 487) and $emit_functions
-  ;; (line 1283) — symmetric per Anchor 7 (third caller earns the
-  ;; abstraction; here it's the second peer to lift the same guard).
+  ;; to spin for billions of iterations.
   ;;
   ;; Named peer `Hβ.first-light.cfn-walk-list-malformed-source`:
   ;; identify which upstream accessor (likely lexpr_lblock_stmts /
   ;; lexpr_lcall_args / lexpr_lhandle_body when the LowExpr is an
   ;; LError sentinel) produces the sub-HEAP_BASE pointer.
-  (func $cfn_walk_list (param $names i32) (param $lowexprs i32) (result i32)
+  (func $cfn_walk_list (param $buf i32) (param $lowexprs i32) (result i32)
     (local $i i32) (local $n i32)
     (if (i32.lt_u (local.get $lowexprs) (global.get $heap_base))
-      (then (return (local.get $names))))
+      (then (return (local.get $buf))))
     (local.set $n (call $len (local.get $lowexprs)))
     (local.set $i (i32.const 0))
     (block $done
       (loop $iter
         (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
-        (local.set $names
-          (call $cfn_walk (local.get $names)
+        (local.set $buf
+          (call $cfn_walk (local.get $buf)
             (call $list_index (local.get $lowexprs) (local.get $i))))
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $iter)))
-    (local.get $names))
+    (local.get $buf))
 
-  ;; $cfn_walk — recurse into one LowExpr; collect LMakeClosure fn
-  ;; names at any depth. Mirrors $emit_functions_walk structurally so
-  ;; funcref table entries match emit_fn_body invocations 1:1.
-  (func $cfn_walk (param $names i32) (param $expr i32) (result i32)
-    (local $tag i32) (local $fn_r i32) (local $body i32) (local $count i32)
+  ;; $cfn_walk — recurse into one LowExpr; push LMakeClosure fn names
+  ;; into the Buffer at any depth. Mirrors $emit_functions_walk
+  ;; structurally so funcref table entries match emit_fn_body
+  ;; invocations 1:1. Threads Buffer<String> through recursion;
+  ;; $buf_push is amortized O(1) (capacity-vs-count separation).
+  (func $cfn_walk (param $buf i32) (param $expr i32) (result i32)
+    (local $tag i32) (local $fn_r i32) (local $body i32)
     (if (i32.lt_u (local.get $expr) (global.get $heap_base))
-      (then (return (local.get $names))))
+      (then (return (local.get $buf))))
     (local.set $tag (call $tag_of (local.get $expr)))
-    ;; LMakeClosure (311) — append fn name + recurse into body.
+    ;; LMakeClosure (311) — push fn name + recurse into body.
     (if (i32.eq (local.get $tag) (i32.const 311))
       (then
         (local.set $fn_r (call $lexpr_lmakeclosure_fn (local.get $expr)))
-        (local.set $count (i32.load (local.get $names)))
-        (local.set $names (call $list_extend_to (local.get $names)
-                            (i32.add (local.get $count) (i32.const 1))))
-        (drop (call $list_set (local.get $names) (local.get $count)
-                              (call $lowfn_name (local.get $fn_r))))
-        (i32.store (local.get $names) (i32.add (local.get $count) (i32.const 1)))
+        (call $buf_push (local.get $buf) (call $lowfn_name (local.get $fn_r)))
         (local.set $body (call $lowfn_body (local.get $fn_r)))
-        (return (call $cfn_walk_list (local.get $names) (local.get $body)))))
+        (return (call $cfn_walk_list (local.get $buf) (local.get $body)))))
     ;; LMakeContinuation (312) — same shape.
     (if (i32.eq (local.get $tag) (i32.const 312))
       (then
         (local.set $fn_r (call $lexpr_lmakecontinuation_fn (local.get $expr)))
-        (local.set $count (i32.load (local.get $names)))
-        (local.set $names (call $list_extend_to (local.get $names)
-                            (i32.add (local.get $count) (i32.const 1))))
-        (drop (call $list_set (local.get $names) (local.get $count)
-                              (call $lowfn_name (local.get $fn_r))))
-        (i32.store (local.get $names) (i32.add (local.get $count) (i32.const 1)))
+        (call $buf_push (local.get $buf) (call $lowfn_name (local.get $fn_r)))
         (local.set $body (call $lowfn_body (local.get $fn_r)))
-        (return (call $cfn_walk_list (local.get $names) (local.get $body)))))
+        (return (call $cfn_walk_list (local.get $buf) (local.get $body)))))
     ;; LDeclareFn (313) — handler-arm fn name + recurse into body.
     ;; Symmetric to LMakeClosure (311) per Lock #1 — both wrap a LowFn
     ;; that becomes a module-level (func ...). Third caller per Anchor
@@ -25815,99 +25844,96 @@
     (if (i32.eq (local.get $tag) (i32.const 313))
       (then
         (local.set $fn_r (call $lexpr_ldeclarefn_fn (local.get $expr)))
-        (local.set $count (i32.load (local.get $names)))
-        (local.set $names (call $list_extend_to (local.get $names)
-                            (i32.add (local.get $count) (i32.const 1))))
-        (drop (call $list_set (local.get $names) (local.get $count)
-                              (call $lowfn_name (local.get $fn_r))))
-        (i32.store (local.get $names) (i32.add (local.get $count) (i32.const 1)))
+        (call $buf_push (local.get $buf) (call $lowfn_name (local.get $fn_r)))
         (local.set $body (call $lowfn_body (local.get $fn_r)))
-        (return (call $cfn_walk_list (local.get $names) (local.get $body)))))
+        (return (call $cfn_walk_list (local.get $buf) (local.get $body)))))
     ;; LLet (304) — recurse into value.
     (if (i32.eq (local.get $tag) (i32.const 304))
       (then
-        (return (call $cfn_walk (local.get $names)
+        (return (call $cfn_walk (local.get $buf)
                   (call $lexpr_llet_value (local.get $expr))))))
     ;; LBlock (315) — recurse into stmts.
     (if (i32.eq (local.get $tag) (i32.const 315))
       (then
-        (return (call $cfn_walk_list (local.get $names)
+        (return (call $cfn_walk_list (local.get $buf)
                   (call $lexpr_lblock_stmts (local.get $expr))))))
     ;; LIf (314).
     (if (i32.eq (local.get $tag) (i32.const 314))
       (then
-        (local.set $names (call $cfn_walk (local.get $names)
-                            (call $lexpr_lif_cond (local.get $expr))))
-        (local.set $names (call $cfn_walk_list (local.get $names)
-                            (call $lexpr_lif_then (local.get $expr))))
-        (return (call $cfn_walk_list (local.get $names)
+        (local.set $buf (call $cfn_walk (local.get $buf)
+                          (call $lexpr_lif_cond (local.get $expr))))
+        (local.set $buf (call $cfn_walk_list (local.get $buf)
+                          (call $lexpr_lif_then (local.get $expr))))
+        (return (call $cfn_walk_list (local.get $buf)
                   (call $lexpr_lif_else (local.get $expr))))))
     ;; LCall (308).
     (if (i32.eq (local.get $tag) (i32.const 308))
       (then
-        (local.set $names (call $cfn_walk (local.get $names)
-                            (call $lexpr_lcall_fn (local.get $expr))))
-        (return (call $cfn_walk_list (local.get $names)
+        (local.set $buf (call $cfn_walk (local.get $buf)
+                          (call $lexpr_lcall_fn (local.get $expr))))
+        (return (call $cfn_walk_list (local.get $buf)
                   (call $lexpr_lcall_args (local.get $expr))))))
     ;; LTailCall (309).
     (if (i32.eq (local.get $tag) (i32.const 309))
       (then
-        (local.set $names (call $cfn_walk (local.get $names)
-                            (call $lexpr_ltailcall_fn (local.get $expr))))
-        (return (call $cfn_walk_list (local.get $names)
+        (local.set $buf (call $cfn_walk (local.get $buf)
+                          (call $lexpr_ltailcall_fn (local.get $expr))))
+        (return (call $cfn_walk_list (local.get $buf)
                   (call $lexpr_ltailcall_args (local.get $expr))))))
     ;; LBinOp (306).
     (if (i32.eq (local.get $tag) (i32.const 306))
       (then
-        (local.set $names (call $cfn_walk (local.get $names)
-                            (call $lexpr_lbinop_l (local.get $expr))))
-        (return (call $cfn_walk (local.get $names)
+        (local.set $buf (call $cfn_walk (local.get $buf)
+                          (call $lexpr_lbinop_l (local.get $expr))))
+        (return (call $cfn_walk (local.get $buf)
                   (call $lexpr_lbinop_r (local.get $expr))))))
     ;; LMakeVariant (319).
     (if (i32.eq (local.get $tag) (i32.const 319))
       (then
-        (return (call $cfn_walk_list (local.get $names)
+        (return (call $cfn_walk_list (local.get $buf)
                   (call $lexpr_lmakevariant_args (local.get $expr))))))
     ;; LMakeList (316).
     (if (i32.eq (local.get $tag) (i32.const 316))
       (then
-        (return (call $cfn_walk_list (local.get $names)
+        (return (call $cfn_walk_list (local.get $buf)
                   (call $lexpr_lmakelist_elems (local.get $expr))))))
     ;; LMakeTuple (317).
     (if (i32.eq (local.get $tag) (i32.const 317))
       (then
-        (return (call $cfn_walk_list (local.get $names)
+        (return (call $cfn_walk_list (local.get $buf)
                   (call $lexpr_lmaketuple_elems (local.get $expr))))))
     ;; LReturn (310).
     (if (i32.eq (local.get $tag) (i32.const 310))
       (then
-        (return (call $cfn_walk (local.get $names)
+        (return (call $cfn_walk (local.get $buf)
                   (call $lexpr_lreturn_x (local.get $expr))))))
     ;; LHandle (332) — recurse into body so nested closures get visited.
     ;; Per Lock #2: handler-arm bodies are a peer site for LMakeClosure /
     ;; LDeclareFn discovery alongside top-level LBlocks.
     (if (i32.eq (local.get $tag) (i32.const 332))
       (then
-        (return (call $cfn_walk (local.get $names)
+        (return (call $cfn_walk (local.get $buf)
                   (call $lexpr_lhandle_body (local.get $expr))))))
     ;; LHandleWith (329) — recurse into body + handler.
     (if (i32.eq (local.get $tag) (i32.const 329))
       (then
-        (local.set $names (call $cfn_walk (local.get $names)
-                            (call $lexpr_lhandlewith_body (local.get $expr))))
-        (return (call $cfn_walk (local.get $names)
+        (local.set $buf (call $cfn_walk (local.get $buf)
+                          (call $lexpr_lhandlewith_body (local.get $expr))))
+        (return (call $cfn_walk (local.get $buf)
                   (call $lexpr_lhandlewith_handler (local.get $expr))))))
     ;; All other tags: no LowExpr children to recurse into.
-    (local.get $names))
+    (local.get $buf))
 
   ;; $collect_top_level_fn_names — top-level LLet-wrapped closures only.
   ;; Inline closures still allocate at their expression site; module-level
   ;; function declarations get static closure records.
+  ;;
+  ;; Buffer<String> per Hβ.runtime.buffer-substrate — same pattern as
+  ;; $collect_fn_names; freezes to clean List<String> on return.
   (func $collect_top_level_fn_names (param $lowexprs i32) (result i32)
-    (local $names i32) (local $count i32)
+    (local $buf i32)
     (local $i i32) (local $n i32) (local $expr i32) (local $name i32)
-    (local.set $names (call $make_list (i32.const 16)))
-    (local.set $count (i32.const 0))
+    (local.set $buf (call $buf_make (i32.const 16)))
     (local.set $n (call $len (local.get $lowexprs)))
     (local.set $i (i32.const 0))
     (block $done
@@ -25916,19 +25942,10 @@
         (local.set $expr (call $list_index (local.get $lowexprs) (local.get $i)))
         (local.set $name (call $extract_top_fn_name (local.get $expr)))
         (if (i32.ne (local.get $name) (i32.const 0))
-          (then
-            (local.set $names
-              (call $list_set
-                (call $list_extend_to
-                  (local.get $names)
-                  (i32.add (local.get $count) (i32.const 1)))
-                (local.get $count)
-                (local.get $name)))
-            (local.set $count (i32.add (local.get $count) (i32.const 1)))))
+          (then (call $buf_push (local.get $buf) (local.get $name))))
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $iter)))
-    (i32.store (local.get $names) (local.get $count))
-    (local.get $names))
+    (call $buf_freeze (local.get $buf)))
 
   (func $extract_top_fn_name (param $expr i32) (result i32)
     (local $inner i32)

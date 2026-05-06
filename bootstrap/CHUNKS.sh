@@ -22,6 +22,7 @@ CHUNKS=(
   "bootstrap/src/runtime/int.wat"        # Tier 1 (uses $alloc + $str_*)
   "bootstrap/src/runtime/list.wat"       # Tier 1 (uses $alloc)
   "bootstrap/src/runtime/record.wat"     # Tier 1 (uses $alloc + $heap_base)
+  "bootstrap/src/runtime/buffer.wat"     # Tier 2 (uses $alloc + list + record; Hβ.runtime.buffer-substrate — Buffer<A> mutable-with-counter primitive distinct from List<A>; supersedes the buffer-counter abuse pattern that conflated capacity/count via List's offset 0)
   "bootstrap/src/runtime/closure.wat"    # Tier 2 (uses $alloc; same shape as record)
   "bootstrap/src/runtime/cont.wat"       # Tier 2 (uses $alloc; H7 multi-shot continuation)
   "bootstrap/src/runtime/graph.wat"      # Tier 3 (uses $alloc + record + list; spec 00 + Hβ §1.2)

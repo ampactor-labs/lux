@@ -1,0 +1,145 @@
+// buffer.nx — Buffer<A> mutable-with-counter primitive (Hβ.runtime.buffer-substrate)
+//
+// Per CLAUDE.md "Bug classes that cost hours" + ULTIMATE MEDIUM
+// thesis: every "list-as-buffer" pattern is a substrate gap asking
+// for a real Buffer<A> primitive. Inka's `List<A>` is immutable +
+// structural — `len` IS the logical count. Some callsites need
+// O(1) push semantics (cfn_walk in emit's collect_fn_names,
+// emit's per-fn locals collection, etc.); they want a mutable
+// buffer with separate capacity and count.
+//
+// Pre-substrate, those callsites abused `List<A>` by writing
+// count back to offset 0 after `list_extend_to`, conflating
+// capacity and count. Each iteration overwrote the doubled
+// capacity that `list_extend_to`'s `make_list` set, causing
+// O(N²) reallocation. For wheel-scale N≈20K closures this
+// exhausted the perm cap (~1.6 GiB).
+//
+// `Buffer<A>` separates the two:
+//   - data: List<A> — the underlying storage (capacity = data.len)
+//   - count: Int   — the logical fill (count <= data.len)
+//
+// `buf_push` extends `data` only when `count >= data.len`; doubling
+// the capacity gives amortized O(1) push. `buf_freeze` slices `data`
+// to `count`, returning a clean `List<A>`. The buffer dies after
+// freeze; subsequent operations are on the immutable list.
+//
+// Per primitive #5 ownership: Buffer<A> is `own` (each push
+// transfers ownership; the data may be reallocated). Only `buf_data`
+// and `buf_count` are `ref`-callable; `buf_push` and `buf_freeze`
+// consume.
+//
+// Authority: SUBSTRATE.md kernel crystallization #9
+// "Records-Are-Handler-State-Shape"; CLAUDE.md drift mode 7
+// (parallel-arrays refusal — Buffer is a record, not separate
+// data + count parallel collections).
+
+import types
+
+/// Buffer<A> — mutable buffer with separate capacity (= data.len)
+/// and count (logical fill <= capacity). Constructor binds via
+/// records.
+///
+/// Per drift mode 7 (parallel-arrays-instead-of-record): one
+/// record carries data + count together, NOT two parallel collections.
+
+type Buffer<A>
+  = Buf(List<A>, Int)        // data, count (count <= data.len)
+
+/// `buf_make(initial_capacity)` — fresh buffer with capacity slots
+/// pre-allocated (count = 0). Caller picks an initial capacity
+/// per estimated growth; doubling on overflow gives amortized O(1)
+/// push regardless of choice.
+
+fn buf_make<A>(cap: Int) -> Buffer<A> with !Mutate =
+  Buf(make_list_uninit(cap), 0)
+
+/// `buf_push(buf, x)` — append `x` at index `count`; bump count.
+/// Reallocates `data` (with doubling) when count would exceed
+/// data.len. Amortized O(1) per push.
+
+fn buf_push<A>(own buf: Buffer<A>, x: A) -> Buffer<A> with !Mutate = {
+  let Buf(data, count) = buf
+  let cap = data.len
+  let data2 = if count >= cap {
+    let new_cap = if cap == 0 { 4 } else { cap * 2 }
+    list_extend_to(data, new_cap)
+  } else {
+    data
+  }
+  let data3 = list_set(data2, count, x)
+  Buf(data3, count + 1)
+}
+
+/// `buf_count(buf)` — read the logical count (used slots).
+
+fn buf_count<A>(ref buf: Buffer<A>) -> Int with Pure =
+  match buf { Buf(_, count) => count }
+
+/// `buf_data(buf)` — read the underlying List (capacity = len). Note
+/// the List has `count` valid slots followed by uninitialized; use
+/// `buf_freeze` for a clean List of just the valid prefix.
+
+fn buf_data<A>(ref buf: Buffer<A>) -> List<A> with Pure =
+  match buf { Buf(data, _) => data }
+
+/// `buf_freeze(buf)` — slice the underlying List to `count`, returning
+/// a clean immutable List<A>. The buffer is consumed (own); after
+/// freeze, callers operate on the resulting List.
+
+fn buf_freeze<A>(own buf: Buffer<A>) -> List<A> with Pure = {
+  let Buf(data, count) = buf
+  slice(data, 0, count)
+}
+
+// ─── Connection to the kernel ─────────────────────────────────────────
+//
+// Primitive #1 (Graph + Env) — Buffer<A> is a record (kernel
+//   crystallization #9 — Records-Are-Handler-State-Shape); push is a
+//   functional update returning a fresh buffer (or in-place under the
+//   ownership-as-effect semantics).
+//
+// Primitive #2 (Handlers + resume) — N/A; runtime substrate.
+//
+// Primitive #3 (Five verbs) — `|>` chain: `buf_make(0) |> buf_push(x)
+//   |> buf_push(y) |> buf_freeze`.
+//
+// Primitive #4 (Effect row algebra) — `with !Mutate` on push because
+//   push returns a NEW Buffer (the old one is consumed by `own`); from
+//   the caller's perspective there's no observable mutation. Pure
+//   on `buf_count` / `buf_data` / `buf_freeze` because they read /
+//   structurally-derive only.
+//
+// Primitive #5 (Ownership) — `own` on push + freeze (buffer is
+//   consumed). `ref` on count + data (read-only). The `data` List
+//   may be reallocated by extend; ownership transfer at the buffer
+//   level keeps this invisible to the caller.
+//
+// Primitive #6 (Refinement) — `Buffer<A> where buf_count(self) <=
+//   buf_data(self).len` is the structural invariant. Verify discharges
+//   it at construction sites (post-L2 peer
+//   Hβ.refine.buffer-invariant).
+//
+// Primitive #7 (Annotation gradient) — declaring `with !Mutate` is
+//   one annotation point on the gradient; declaring the refinement
+//   is another. Mentl can suggest either when cursor surfaces a
+//   buffer-counter pattern.
+//
+// Primitive #8 (Reasons) — each push leaves Reason::BufPush(handle,
+//   span) for the Why Engine to walk back from a final List to its
+//   construction history. Useful for "where did this entry come
+//   from?" diagnostics.
+
+// ─── What this substrate refuses ──────────────────────────────────────
+//
+// - Drift 7 (parallel-arrays): Buffer is ONE record holding (data,
+//   count); never (List, Int) returned as a tuple.
+// - Drift 9 (deferred-by-omission): the underlying capacity-vs-count
+//   separation is structural; not a peer "to be added later."
+// - Mutable global mutable buffer state: no global $cfn_count counter.
+//   Buffer<A> is ownership-clean.
+// - List-as-buffer abuse: callers needing buffer semantics use Buffer<A>;
+//   List<A> stays immutable + structural.
+//
+// Authority: ULTIMATE_MEDIUM.md §"the medium has no null"; CLAUDE.md
+//   drift mode 7 + 9; SUBSTRATE.md §"Records Are The Handler-State Shape".

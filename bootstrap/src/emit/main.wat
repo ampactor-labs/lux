@@ -455,80 +455,70 @@
   ;; recursion already emits each nested fn body; this collector
   ;; mirrors that walk so the funcref table + $name_idx globals stay
   ;; consistent with emit_functions's actual emissions.
+  ;; $collect_fn_names — entry: builds a Buffer<String>, walks the
+  ;; LowExpr tree appending fn names via $buf_push, freezes to a clean
+  ;; List<String> on return. Per Hβ.runtime.buffer-substrate — the
+  ;; transient name-collection IS the use-case Buffer<A> exists for.
+  ;; Pre-substrate this used a List as a buffer (offset-0-as-both-
+  ;; count-and-capacity), causing O(N²) reallocations at wheel scale.
   (func $collect_fn_names (param $lowexprs i32) (result i32)
-    (local $names i32) (local $count_buf i32)
-    (local.set $names (call $make_list (i32.const 16)))
-    ;; count tracked in offset 0 of names list (length-prefix). We
-    ;; mutate via $cfn_append helper.
-    (i32.store (local.get $names) (i32.const 0))
-    (local.set $names (call $cfn_walk_list (local.get $names) (local.get $lowexprs)))
-    (local.get $names))
+    (local $buf i32)
+    (local.set $buf (call $buf_make (i32.const 16)))
+    (local.set $buf (call $cfn_walk_list (local.get $buf) (local.get $lowexprs)))
+    (call $buf_freeze (local.get $buf)))
 
-  ;; $cfn_walk_list — iterate top-level lowexprs.
+  ;; $cfn_walk_list — iterate top-level lowexprs; threads a Buffer<String>.
   ;;
   ;; Productive-under-error guard: when the input is a sentinel/null
   ;; pointer (< HEAP_BASE) — typically because an upstream lower
   ;; accessor returned a sentinel where a list was expected — `$len`
   ;; would read garbage from low memory addresses, causing the loop
-  ;; to spin for billions of iterations and exhaust perm via
-  ;; cfn_walk's list_extend_to leaks. Pre-substrate this manifested
-  ;; as `perm_alloc → unreachable` after ~1.5 GiB of leaked allocations.
-  ;; Mirror the guard at $cfn_walk (line 487) and $emit_functions
-  ;; (line 1283) — symmetric per Anchor 7 (third caller earns the
-  ;; abstraction; here it's the second peer to lift the same guard).
+  ;; to spin for billions of iterations.
   ;;
   ;; Named peer `Hβ.first-light.cfn-walk-list-malformed-source`:
   ;; identify which upstream accessor (likely lexpr_lblock_stmts /
   ;; lexpr_lcall_args / lexpr_lhandle_body when the LowExpr is an
   ;; LError sentinel) produces the sub-HEAP_BASE pointer.
-  (func $cfn_walk_list (param $names i32) (param $lowexprs i32) (result i32)
+  (func $cfn_walk_list (param $buf i32) (param $lowexprs i32) (result i32)
     (local $i i32) (local $n i32)
     (if (i32.lt_u (local.get $lowexprs) (global.get $heap_base))
-      (then (return (local.get $names))))
+      (then (return (local.get $buf))))
     (local.set $n (call $len (local.get $lowexprs)))
     (local.set $i (i32.const 0))
     (block $done
       (loop $iter
         (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
-        (local.set $names
-          (call $cfn_walk (local.get $names)
+        (local.set $buf
+          (call $cfn_walk (local.get $buf)
             (call $list_index (local.get $lowexprs) (local.get $i))))
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $iter)))
-    (local.get $names))
+    (local.get $buf))
 
-  ;; $cfn_walk — recurse into one LowExpr; collect LMakeClosure fn
-  ;; names at any depth. Mirrors $emit_functions_walk structurally so
-  ;; funcref table entries match emit_fn_body invocations 1:1.
-  (func $cfn_walk (param $names i32) (param $expr i32) (result i32)
-    (local $tag i32) (local $fn_r i32) (local $body i32) (local $count i32)
+  ;; $cfn_walk — recurse into one LowExpr; push LMakeClosure fn names
+  ;; into the Buffer at any depth. Mirrors $emit_functions_walk
+  ;; structurally so funcref table entries match emit_fn_body
+  ;; invocations 1:1. Threads Buffer<String> through recursion;
+  ;; $buf_push is amortized O(1) (capacity-vs-count separation).
+  (func $cfn_walk (param $buf i32) (param $expr i32) (result i32)
+    (local $tag i32) (local $fn_r i32) (local $body i32)
     (if (i32.lt_u (local.get $expr) (global.get $heap_base))
-      (then (return (local.get $names))))
+      (then (return (local.get $buf))))
     (local.set $tag (call $tag_of (local.get $expr)))
-    ;; LMakeClosure (311) — append fn name + recurse into body.
+    ;; LMakeClosure (311) — push fn name + recurse into body.
     (if (i32.eq (local.get $tag) (i32.const 311))
       (then
         (local.set $fn_r (call $lexpr_lmakeclosure_fn (local.get $expr)))
-        (local.set $count (i32.load (local.get $names)))
-        (local.set $names (call $list_extend_to (local.get $names)
-                            (i32.add (local.get $count) (i32.const 1))))
-        (drop (call $list_set (local.get $names) (local.get $count)
-                              (call $lowfn_name (local.get $fn_r))))
-        (i32.store (local.get $names) (i32.add (local.get $count) (i32.const 1)))
+        (call $buf_push (local.get $buf) (call $lowfn_name (local.get $fn_r)))
         (local.set $body (call $lowfn_body (local.get $fn_r)))
-        (return (call $cfn_walk_list (local.get $names) (local.get $body)))))
+        (return (call $cfn_walk_list (local.get $buf) (local.get $body)))))
     ;; LMakeContinuation (312) — same shape.
     (if (i32.eq (local.get $tag) (i32.const 312))
       (then
         (local.set $fn_r (call $lexpr_lmakecontinuation_fn (local.get $expr)))
-        (local.set $count (i32.load (local.get $names)))
-        (local.set $names (call $list_extend_to (local.get $names)
-                            (i32.add (local.get $count) (i32.const 1))))
-        (drop (call $list_set (local.get $names) (local.get $count)
-                              (call $lowfn_name (local.get $fn_r))))
-        (i32.store (local.get $names) (i32.add (local.get $count) (i32.const 1)))
+        (call $buf_push (local.get $buf) (call $lowfn_name (local.get $fn_r)))
         (local.set $body (call $lowfn_body (local.get $fn_r)))
-        (return (call $cfn_walk_list (local.get $names) (local.get $body)))))
+        (return (call $cfn_walk_list (local.get $buf) (local.get $body)))))
     ;; LDeclareFn (313) — handler-arm fn name + recurse into body.
     ;; Symmetric to LMakeClosure (311) per Lock #1 — both wrap a LowFn
     ;; that becomes a module-level (func ...). Third caller per Anchor
@@ -536,99 +526,96 @@
     (if (i32.eq (local.get $tag) (i32.const 313))
       (then
         (local.set $fn_r (call $lexpr_ldeclarefn_fn (local.get $expr)))
-        (local.set $count (i32.load (local.get $names)))
-        (local.set $names (call $list_extend_to (local.get $names)
-                            (i32.add (local.get $count) (i32.const 1))))
-        (drop (call $list_set (local.get $names) (local.get $count)
-                              (call $lowfn_name (local.get $fn_r))))
-        (i32.store (local.get $names) (i32.add (local.get $count) (i32.const 1)))
+        (call $buf_push (local.get $buf) (call $lowfn_name (local.get $fn_r)))
         (local.set $body (call $lowfn_body (local.get $fn_r)))
-        (return (call $cfn_walk_list (local.get $names) (local.get $body)))))
+        (return (call $cfn_walk_list (local.get $buf) (local.get $body)))))
     ;; LLet (304) — recurse into value.
     (if (i32.eq (local.get $tag) (i32.const 304))
       (then
-        (return (call $cfn_walk (local.get $names)
+        (return (call $cfn_walk (local.get $buf)
                   (call $lexpr_llet_value (local.get $expr))))))
     ;; LBlock (315) — recurse into stmts.
     (if (i32.eq (local.get $tag) (i32.const 315))
       (then
-        (return (call $cfn_walk_list (local.get $names)
+        (return (call $cfn_walk_list (local.get $buf)
                   (call $lexpr_lblock_stmts (local.get $expr))))))
     ;; LIf (314).
     (if (i32.eq (local.get $tag) (i32.const 314))
       (then
-        (local.set $names (call $cfn_walk (local.get $names)
-                            (call $lexpr_lif_cond (local.get $expr))))
-        (local.set $names (call $cfn_walk_list (local.get $names)
-                            (call $lexpr_lif_then (local.get $expr))))
-        (return (call $cfn_walk_list (local.get $names)
+        (local.set $buf (call $cfn_walk (local.get $buf)
+                          (call $lexpr_lif_cond (local.get $expr))))
+        (local.set $buf (call $cfn_walk_list (local.get $buf)
+                          (call $lexpr_lif_then (local.get $expr))))
+        (return (call $cfn_walk_list (local.get $buf)
                   (call $lexpr_lif_else (local.get $expr))))))
     ;; LCall (308).
     (if (i32.eq (local.get $tag) (i32.const 308))
       (then
-        (local.set $names (call $cfn_walk (local.get $names)
-                            (call $lexpr_lcall_fn (local.get $expr))))
-        (return (call $cfn_walk_list (local.get $names)
+        (local.set $buf (call $cfn_walk (local.get $buf)
+                          (call $lexpr_lcall_fn (local.get $expr))))
+        (return (call $cfn_walk_list (local.get $buf)
                   (call $lexpr_lcall_args (local.get $expr))))))
     ;; LTailCall (309).
     (if (i32.eq (local.get $tag) (i32.const 309))
       (then
-        (local.set $names (call $cfn_walk (local.get $names)
-                            (call $lexpr_ltailcall_fn (local.get $expr))))
-        (return (call $cfn_walk_list (local.get $names)
+        (local.set $buf (call $cfn_walk (local.get $buf)
+                          (call $lexpr_ltailcall_fn (local.get $expr))))
+        (return (call $cfn_walk_list (local.get $buf)
                   (call $lexpr_ltailcall_args (local.get $expr))))))
     ;; LBinOp (306).
     (if (i32.eq (local.get $tag) (i32.const 306))
       (then
-        (local.set $names (call $cfn_walk (local.get $names)
-                            (call $lexpr_lbinop_l (local.get $expr))))
-        (return (call $cfn_walk (local.get $names)
+        (local.set $buf (call $cfn_walk (local.get $buf)
+                          (call $lexpr_lbinop_l (local.get $expr))))
+        (return (call $cfn_walk (local.get $buf)
                   (call $lexpr_lbinop_r (local.get $expr))))))
     ;; LMakeVariant (319).
     (if (i32.eq (local.get $tag) (i32.const 319))
       (then
-        (return (call $cfn_walk_list (local.get $names)
+        (return (call $cfn_walk_list (local.get $buf)
                   (call $lexpr_lmakevariant_args (local.get $expr))))))
     ;; LMakeList (316).
     (if (i32.eq (local.get $tag) (i32.const 316))
       (then
-        (return (call $cfn_walk_list (local.get $names)
+        (return (call $cfn_walk_list (local.get $buf)
                   (call $lexpr_lmakelist_elems (local.get $expr))))))
     ;; LMakeTuple (317).
     (if (i32.eq (local.get $tag) (i32.const 317))
       (then
-        (return (call $cfn_walk_list (local.get $names)
+        (return (call $cfn_walk_list (local.get $buf)
                   (call $lexpr_lmaketuple_elems (local.get $expr))))))
     ;; LReturn (310).
     (if (i32.eq (local.get $tag) (i32.const 310))
       (then
-        (return (call $cfn_walk (local.get $names)
+        (return (call $cfn_walk (local.get $buf)
                   (call $lexpr_lreturn_x (local.get $expr))))))
     ;; LHandle (332) — recurse into body so nested closures get visited.
     ;; Per Lock #2: handler-arm bodies are a peer site for LMakeClosure /
     ;; LDeclareFn discovery alongside top-level LBlocks.
     (if (i32.eq (local.get $tag) (i32.const 332))
       (then
-        (return (call $cfn_walk (local.get $names)
+        (return (call $cfn_walk (local.get $buf)
                   (call $lexpr_lhandle_body (local.get $expr))))))
     ;; LHandleWith (329) — recurse into body + handler.
     (if (i32.eq (local.get $tag) (i32.const 329))
       (then
-        (local.set $names (call $cfn_walk (local.get $names)
-                            (call $lexpr_lhandlewith_body (local.get $expr))))
-        (return (call $cfn_walk (local.get $names)
+        (local.set $buf (call $cfn_walk (local.get $buf)
+                          (call $lexpr_lhandlewith_body (local.get $expr))))
+        (return (call $cfn_walk (local.get $buf)
                   (call $lexpr_lhandlewith_handler (local.get $expr))))))
     ;; All other tags: no LowExpr children to recurse into.
-    (local.get $names))
+    (local.get $buf))
 
   ;; $collect_top_level_fn_names — top-level LLet-wrapped closures only.
   ;; Inline closures still allocate at their expression site; module-level
   ;; function declarations get static closure records.
+  ;;
+  ;; Buffer<String> per Hβ.runtime.buffer-substrate — same pattern as
+  ;; $collect_fn_names; freezes to clean List<String> on return.
   (func $collect_top_level_fn_names (param $lowexprs i32) (result i32)
-    (local $names i32) (local $count i32)
+    (local $buf i32)
     (local $i i32) (local $n i32) (local $expr i32) (local $name i32)
-    (local.set $names (call $make_list (i32.const 16)))
-    (local.set $count (i32.const 0))
+    (local.set $buf (call $buf_make (i32.const 16)))
     (local.set $n (call $len (local.get $lowexprs)))
     (local.set $i (i32.const 0))
     (block $done
@@ -637,19 +624,10 @@
         (local.set $expr (call $list_index (local.get $lowexprs) (local.get $i)))
         (local.set $name (call $extract_top_fn_name (local.get $expr)))
         (if (i32.ne (local.get $name) (i32.const 0))
-          (then
-            (local.set $names
-              (call $list_set
-                (call $list_extend_to
-                  (local.get $names)
-                  (i32.add (local.get $count) (i32.const 1)))
-                (local.get $count)
-                (local.get $name)))
-            (local.set $count (i32.add (local.get $count) (i32.const 1)))))
+          (then (call $buf_push (local.get $buf) (local.get $name))))
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $iter)))
-    (i32.store (local.get $names) (local.get $count))
-    (local.get $names))
+    (call $buf_freeze (local.get $buf)))
 
   (func $extract_top_fn_name (param $expr i32) (result i32)
     (local $inner i32)
