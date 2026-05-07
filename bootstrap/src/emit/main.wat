@@ -1553,33 +1553,42 @@
     (call $indent_inc)
     (if (i32.eqz (local.get $main_arity))
       (then
-        ;; (global.get $main)
+        ;; Per Hβ.first-light.main-return-as-exit-code (2026-05-06):
+        ;; thread main's i32 return into proc_exit so the medium's
+        ;; output is visible end-to-end (`echo prog | mentl ... |
+        ;; wat2wasm | wasmtime; echo $?`). Emit:
+        ;;   (global.get $main)
+        ;;   (global.get $main)(i32.load offset=0)
+        ;;   (call_indirect (type $ft1))   ;; main's i32 on stack
+        ;;   (call $wasi_proc_exit)        ;; consumes stack value
+        ;; Lib-mode (no main) keeps `proc_exit (i32.const 0)` below.
         (call $emit_indent)
         (call $el_emit_global_get_dollar (call $str_from_mem (i32.const 4268) (i32.const 4)))
         (call $emit_nl)
-        ;; (global.get $main)(i32.load offset=0)
         (call $emit_indent)
         (call $el_emit_global_get_dollar (call $str_from_mem (i32.const 4268) (i32.const 4)))
         (call $ec6_emit_i32_load_offset_0)
         (call $emit_nl)
-        ;; (call_indirect (type $ft1))
         (call $emit_indent)
         (call $ec6_emit_call_indirect_ftN (i32.const 0))
         (call $emit_nl)
-        ;; (drop)
+        ;; (call $wasi_proc_exit) — stack-consuming form
         (call $emit_indent)
-        (call $emit_cstr (i32.const 578) (i32.const 6)) ;; "(drop "
+        (call $emit_cstr (i32.const 572) (i32.const 6)) ;; "(call "
+        (call $emit_byte (i32.const 36))
+        (call $emit_cstr (i32.const 1230) (i32.const 14)) ;; "wasi_proc_exit"
+        (call $emit_close)
+        (call $emit_nl))
+      (else
+        ;; Library / parameterized main — clean-exit with 0.
+        (call $emit_indent)
+        (call $emit_cstr (i32.const 572) (i32.const 6)) ;; "(call "
+        (call $emit_byte (i32.const 36))
+        (call $emit_cstr (i32.const 1230) (i32.const 14)) ;; "wasi_proc_exit"
+        (call $emit_space)
+        (call $emit_i32_const (i32.const 0))
         (call $emit_close)
         (call $emit_nl)))
-    ;; (call $wasi_proc_exit (i32.const 0))
-    (call $emit_indent)
-    (call $emit_cstr (i32.const 572) (i32.const 6)) ;; "(call "
-    (call $emit_byte (i32.const 36))
-    (call $emit_cstr (i32.const 1230) (i32.const 14)) ;; "wasi_proc_exit"
-    (call $emit_space)
-    (call $emit_i32_const (i32.const 0))
-    (call $emit_close)
-    (call $emit_nl)
     (call $indent_dec)
     (call $emit_indent)
     (call $emit_close)
