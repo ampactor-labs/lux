@@ -65,6 +65,85 @@
       (local.get $lb))
     (local.get $out))
 
+  ;; ─── $str_unescape — Mentl string-literal escape resolver ─────────
+  ;; Per Hβ.first-light.lexer-string-escape-substrate (2026-05-07) +
+  ;; protocol_emit_is_graph_projection.md: the source bytes carry the
+  ;; ESCAPED form (`\n`, `\t`, etc.); the graph stores the RESOLVED
+  ;; bytes. The lexer projects source → graph bytes via this fn. Per
+  ;; SYNTAX.md §1077 escape codes: \n \r \t \\ \" \0 (\xHH future).
+  ;;
+  ;; Two-pass: first computes decoded length, then allocates + decodes.
+  ;; Lone `\` at end of input is preserved as literal backslash byte.
+  ;;
+  ;; Drift refused: 1 (no vtable; structural byte-class dispatch);
+  ;; 6 (uniform single-byte path for printable + escape; no
+  ;; printable-special-case); 8 (sentinel-int byte comparisons).
+  (func $str_unescape (param $src i32) (param $start i32) (param $end i32)
+        (result i32)
+    (local $i i32) (local $b i32) (local $next i32)
+    (local $count i32) (local $dest i32) (local $write_pos i32)
+    ;; Pass 1: count decoded bytes.
+    (local.set $count (i32.const 0))
+    (local.set $i (local.get $start))
+    (block $count_done
+      (loop $count_iter
+        (br_if $count_done (i32.ge_u (local.get $i) (local.get $end)))
+        (local.set $b (call $byte_at (local.get $src) (local.get $i)))
+        (if (i32.and
+              (i32.eq (local.get $b) (i32.const 92))                   ;; '\'
+              (i32.lt_u (i32.add (local.get $i) (i32.const 1)) (local.get $end)))
+          (then
+            ;; Escape sequence consumes 2 source bytes → 1 decoded byte.
+            (local.set $i (i32.add (local.get $i) (i32.const 2))))
+          (else
+            (local.set $i (i32.add (local.get $i) (i32.const 1)))))
+        (local.set $count (i32.add (local.get $count) (i32.const 1)))
+        (br $count_iter)))
+    ;; Allocate destination string.
+    (local.set $dest (call $str_alloc (local.get $count)))
+    ;; Pass 2: decode bytes into dest payload (offset 4).
+    (local.set $i (local.get $start))
+    (local.set $write_pos (i32.const 0))
+    (block $write_done
+      (loop $write_iter
+        (br_if $write_done (i32.ge_u (local.get $i) (local.get $end)))
+        (local.set $b (call $byte_at (local.get $src) (local.get $i)))
+        (if (i32.and
+              (i32.eq (local.get $b) (i32.const 92))                   ;; '\'
+              (i32.lt_u (i32.add (local.get $i) (i32.const 1)) (local.get $end)))
+          (then
+            ;; Read the escape character.
+            (local.set $next
+              (call $byte_at (local.get $src) (i32.add (local.get $i) (i32.const 1))))
+            ;; Decode per SYNTAX.md §1077.
+            (if (i32.eq (local.get $next) (i32.const 110))             ;; 'n'
+              (then (local.set $b (i32.const 10)))                     ;; LF
+              (else
+                (if (i32.eq (local.get $next) (i32.const 114))         ;; 'r'
+                  (then (local.set $b (i32.const 13)))                 ;; CR
+                  (else
+                    (if (i32.eq (local.get $next) (i32.const 116))     ;; 't'
+                      (then (local.set $b (i32.const 9)))              ;; TAB
+                      (else
+                        (if (i32.eq (local.get $next) (i32.const 48))  ;; '0'
+                          (then (local.set $b (i32.const 0)))          ;; NUL
+                          (else
+                            ;; Other escape (\, ", and any unknown):
+                            ;; the second byte IS the literal byte.
+                            ;; This catches \\ → \, \" → ", \X → X.
+                            (local.set $b (local.get $next))))))))))
+            (local.set $i (i32.add (local.get $i) (i32.const 2))))
+          (else
+            (local.set $i (i32.add (local.get $i) (i32.const 1)))))
+        (i32.store8
+          (i32.add
+            (i32.add (local.get $dest) (i32.const 4))
+            (local.get $write_pos))
+          (local.get $b))
+        (local.set $write_pos (i32.add (local.get $write_pos) (i32.const 1)))
+        (br $write_iter)))
+    (local.get $dest))
+
   (func $str_slice (param $s i32) (param $start i32) (param $end i32) (result i32)
     (local $slen i32) (local $n i32) (local $dest i32)
     (local.set $slen (call $str_len (local.get $s)))

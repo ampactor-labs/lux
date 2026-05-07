@@ -97,8 +97,13 @@
           (then
             (local.set $new_pos (call $scan_string_end (local.get $source) (local.get $n)
               (i32.add (local.get $pos) (i32.const 1))))
-            ;; Extract string content (between quotes)
-            (local.set $str_val (call $str_slice (local.get $source)
+            ;; Extract string content (between quotes), decoding escapes.
+            ;; Per Hβ.first-light.lexer-string-escape-substrate (2026-05-07):
+            ;; SYNTAX.md §1077 specifies escape codes \n \r \t \\ \" \0;
+            ;; lexer projects source bytes → resolved bytes for the graph.
+            ;; Without this, "Hello\n" stored bytes [..., 0x5c, 0x6e]
+            ;; instead of [..., 0x0a]; emit's data-segment bytes wrong.
+            (local.set $str_val (call $str_unescape (local.get $source)
               (i32.add (local.get $pos) (i32.const 1))
               (i32.sub (local.get $new_pos) (i32.const 1))))
             (local.set $end_col (i32.add (local.get $col)
