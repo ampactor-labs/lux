@@ -618,6 +618,23 @@
   (func $emit_lexpr (export "emit_lexpr") (param $r i32)
     (local $tag i32)
     (local.set $tag (call $tag_of (local.get $r)))
+    ;; Per Hβ.emit.reason-chain-comments (2026-05-07) +
+    ;; protocol_emit_is_graph_projection.md: project the LowExpr's
+    ;; graph-resident handle as a WAT comment so binaries walk back
+    ;; to source via SourceMap-style traceability. The handle is
+    ;; deterministic per inference (E1 sync), so L1 byte-identity
+    ;; holds. Format: `;; H<int>` newline before each LowExpr's
+    ;; emission. Skips sentinel-tagged values (LowExprs at addr <
+    ;; HEAP_BASE; e.g., LDeclareFn might pass non-record-shaped
+    ;; values through this dispatcher in some paths).
+    (if (i32.ge_u (local.get $r) (global.get $heap_base))
+      (then
+        (call $emit_byte (i32.const 59))                  ;; ';'
+        (call $emit_byte (i32.const 59))                  ;; ';'
+        (call $emit_byte (i32.const 32))                  ;; ' '
+        (call $emit_byte (i32.const 72))                  ;; 'H'
+        (call $emit_str (call $int_to_str (call $lexpr_handle (local.get $r))))
+        (call $emit_nl)))
     (if (i32.eq (local.get $tag) (i32.const 300))
       (then (call $emit_lconst       (local.get $r)) (return)))
     (if (i32.eq (local.get $tag) (i32.const 301))
