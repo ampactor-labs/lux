@@ -1077,6 +1077,57 @@ substrate-honest landing at a time.
 
 ---
 
+### 4.5.15 Substrate-architecture realization — emit IS a handler reading the graph (2026-05-07)
+
+The layer-11 substrate landing (per-handle alloc locals, commit
+`db3a0aa`) wasn't just one bug-fix. It crystallized into a
+**substrate-architecture realization** about emit's relationship
+to the graph:
+
+> **Wherever emit fabricates shared scratch state instead of
+> reading the graph's per-handle structure, it is a substrate gap.**
+
+The graph encodes per-construction uniqueness via `$lexpr_handle`;
+per-LowExpr type-info via `$lookup_ty`; Reason chains via
+`$gnode_reason`; effect rows via row-machinery; ownership markers;
+refinement predicates; gradient annotations. **Emit's job is to
+project the graph's truth — not to fabricate state alongside it.**
+
+The variant_tmp/record_tmp/tuple_tmp shared local was the canonical
+manifestation: nested constructions trampled each other because
+emit fabricated ONE shared local instead of reading per-handle
+unique names. Fixed in layer 11.
+
+**Five named peers** generalize the principle:
+
+- `Hβ.emit.reason-chain-comments` — emit projects Reason as
+  `;; from line N` (or proper SourceMap) so binaries walk back to
+  source.
+- `Hβ.emit.type-info-per-handle` — field-store offsets via
+  `$lookup_ty` per field (handles i64/f64 mixed-type fields).
+- `Hβ.emit.refinement-elide-bounds` — Verify-discharged refinements
+  elide runtime bounds-checks at emit.
+- `Hβ.emit.row-aware-parallel-emit` — per-region parallel emission
+  driven by effect row.
+- `Hβ.emit.ownership-register-allocation` — `own`/`ref` markers
+  drive WAT register allocation.
+
+Each closure heals the gap between "what the graph knows" and
+"what the emitted binary preserves." Tier 3 self-host depends on
+most being closed (refinement-elide-bounds, type-info-per-handle,
+ownership-register-allocation) because the wheel-self-compiled
+output must be a faithful projection of the graph the wheel built.
+
+**Crystallized into persistent memory** at
+`~/.claude/projects/-home-suds-Projects-inka/memory/protocol_emit_is_graph_projection.md`
+per the realization-loop pattern (see `protocol_realization_loop.md`).
+Future sessions will read the principle and apply it automatically.
+
+The discipline in one line: **NO SHARED SCRATCH STATE WHERE THE
+GRAPH HAS PER-HANDLE TRUTH.**
+
+---
+
 ### 4.5.14 The night the medium broke through (2026-05-06 → 2026-05-07)
 
 **Twelve substrate landings + project rename in one continuous
