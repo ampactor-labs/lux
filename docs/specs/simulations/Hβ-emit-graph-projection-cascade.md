@@ -336,17 +336,37 @@ the prereq is named in positive form.
 
 ---
 
-## §3 The principle, reaffirmed
+## §3 The principle, forward-binding
 
 > **The graph IS the truth. Emit IS the handler reading it.
 > Wherever they diverge, the substrate heals at the read-site —
 > or, if the read-site needs new substrate, that substrate is
 > named, not deferred.**
 
-The emit-graph-projection cascade is closed in the sense that
-EVERY known truth-throw-away pattern has a substrate-honest
-disposition. New patterns may surface as substrate evolves; each
-gets named per the same discipline.
+**The principle is forward-binding, not retrospective.** Once
+crystallized (commit `0efebd8` + `protocol_emit_is_graph_
+projection.md`), it constrains every subsequent emit edit. **There
+should not BE new throw-away patterns under correct application.**
 
-No throw-away. No band-aid. No do-it-later. Every instance
-addressed.
+When new emit-substrate is added (e.g., a new LowExpr arm, a
+new emit pass, a new memory model), the principle binds:
+
+- Read `$lexpr_handle` for any per-construction unique identifier.
+- Read `$lookup_ty` for any type-dependent decision.
+- Read `$gnode_reason` for any traceability surface.
+- Read effect-row / ownership / refinement / gradient annotations
+  before fabricating equivalent state.
+
+If any new emit edit is found to fabricate shared state, hardcode
+graph-derived values, or drop graph-resident metadata, **it is a
+substrate-bug**, not a new throw-away pattern. The bug must heal
+at the read-site against the graph; the bug-report cites this
+cascade map and the protocol.
+
+The 11 peers in §1 are the **complete accounting** of pre-
+realization-loop throw-aways. Each disposed substrate-honestly.
+Going forward, the principle prevents the cascade from re-
+opening. Future emit-substrate lands correctly by construction.
+
+No throw-away. No band-aid. No do-it-later. **No new instances —
+under correct application of the principle.**
