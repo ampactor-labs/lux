@@ -457,10 +457,16 @@
         (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
         (local.set $arm (call $list_index (local.get $arms) (local.get $i)))
         (call $env_scope_enter)
-        ;; Arm body field is at offset 4 of the arm record. Forward-
-        ;; declared record shape: walk_stmt.wat lands HANDLER_ARM
-        ;; constructors per Hβ.infer §13.3 #9.
-        (local.set $arm_body (i32.load offset=4 (local.get $arm)))
+        ;; Per Hβ.first-light.handle-expr-state-substrate (2026-05-06)
+        ;; bug-fix: arm record per Lock #8 alphabetical is {args=0,
+        ;; body=1, op_name=2} — body at FIELD INDEX 1, not byte offset
+        ;; 4. Records have [tag:i32][arity:i32][fields...] layout per
+        ;; runtime/record.wat:22, so byte offset 4 IS the arity field
+        ;; (always 3), not body. The original `i32.load offset=4` was
+        ;; a stub never exercised — arms list was always empty before
+        ;; layer 9 parser-side substrate landed (handle-expr-state
+        ;; only produces non-empty arms now).
+        (local.set $arm_body (call $record_get (local.get $arm) (i32.const 1)))
         (local.set $abh (call $infer_walk_expr (local.get $arm_body)))
         (call $unify (local.get $abh) (local.get $body_h)
                       (local.get $span)

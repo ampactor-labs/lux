@@ -485,7 +485,7 @@
   ;; Output: LBlock(h, arm_decls ++ [LHandle(h, body, arm_records)]).
   (func $lower_handle (export "lower_handle") (param $node i32) (result i32)
     (local $h i32) (local $body i32) (local $handle_struct i32)
-    (local $body_node i32) (local $arms i32)
+    (local $body_node i32) (local $arms i32) (local $state_fields i32)
     (local $arm_decls i32) (local $arm_records i32)
     (local $lo_body i32) (local $lhandle i32)
     (local $stmts i32) (local $i i32) (local $n i32)
@@ -494,17 +494,21 @@
     (local.set $handle_struct(i32.load offset=4 (local.get $body)))
     (local.set $body_node    (i32.load offset=4 (local.get $handle_struct)))
     (local.set $arms         (i32.load offset=8 (local.get $handle_struct)))
-    ;; Inline `handle { ... } with { arms }` — anonymous handler.
-    ;; Discriminator is the handle-id stringified; uniqueness by
-    ;; construction (handles are graph-mint-unique). Inline anonymous
-    ;; handle-expressions have no AST-level config/state (those
-    ;; belong to the named handler decl whose value is installed);
-    ;; pass empty lists per Hβ.first-light.handler-config-state-substrate.
+    ;; Per Hβ.first-light.handle-expr-state-substrate (2026-05-06):
+    ;; HandleExpr AST extended to [tag=93][body][arms][state] — state
+    ;; at offset 12. Parser landed inline form per parser_handler.wat
+    ;; $parse_handle_expr. Empty list when no `with FIELD = INIT`
+    ;; clause. Inline anonymous handle-expressions still have NO
+    ;; config-params (those belong to named handler decls); pass
+    ;; empty list. State threads through $lower_handler_arms_as_decls
+    ;; → $bind_handler_state_names → outer-scope locals → arm-body
+    ;; lookup captures via $ls_lookup_or_capture (layer 7 substrate).
+    (local.set $state_fields (i32.load offset=12 (local.get $handle_struct)))
     (local.set $arm_decls    (call $lower_handler_arms_as_decls
                                (local.get $arms)
                                (call $int_to_str (local.get $h))
                                (call $make_list (i32.const 0))
-                               (call $make_list (i32.const 0))))
+                               (local.get $state_fields)))
     (local.set $arm_records  (call $lower_handler_arms_records  (local.get $arms)))
     (local.set $lo_body      (call $lower_expr (local.get $body_node)))
     (local.set $lhandle      (call $lexpr_make_lhandle

@@ -5737,6 +5737,42 @@
         ;; TPerform (11)
         (if (i32.eq (local.get $k) (i32.const 11))
           (then (return (call $parse_perform_expr (local.get $tokens) (i32.add (local.get $pos) (i32.const 1)) (local.get $span)))))
+        ;; THandle (7) — Per Hβ.first-light.handle-expr-state-substrate
+        ;; (2026-05-06). Parses `handle BODY [with FIELD = INIT [, ...]
+        ;; { ARMS }]` — inline anonymous handler with optional state.
+        ;; Wheel `fold`, `any`, `all`, `count`, `find` use this form for
+        ;; their accumulator state; arm bodies reference state-fields.
+        ;;
+        ;; Contextual disambiguation: the wheel ALSO uses `handle` as a
+        ;; variable name (graph.mn handler arms `graph_chase(handle) =>
+        ;; ...`; chase_node(nodes, handle, ...) body refs). The lexer
+        ;; always tokenizes `handle` as kind 7 (no contextual lex), so
+        ;; the parser must distinguish handle-expr from handle-as-var.
+        ;; Discriminator: handle-expr is ALWAYS followed by `{` (block
+        ;; body); handle-as-var is followed by anything else (TComma,
+        ;; TRParen, TPlus, etc). Peek at pos+1 — if TLBrace, parse as
+        ;; handle-expr; else fall through to TIdent path below treating
+        ;; "handle" as a variable reference.
+        ;; Drift refused: 8 (peek for TLBrace is structural, not a
+        ;; mode-flag); 9 (the handle-as-var path lands here, not as
+        ;; deferred peer — wheel-canonical "handle is keyword" cleanup
+        ;; is named follow-up Hβ.wheel.handle-keyword-cleanup).
+        (if (i32.eq (local.get $k) (i32.const 7))
+          (then
+            (if (call $at (local.get $tokens)
+                  (call $skip_ws_p (local.get $tokens) (i32.add (local.get $pos) (i32.const 1)))
+                  (i32.const 47))   ;; TLBrace
+              (then
+                (return (call $parse_handle_expr (local.get $tokens) (i32.add (local.get $pos) (i32.const 1)) (local.get $span)))))
+            ;; handle-as-var — emit VarRef "handle". Reuse the lexer's
+            ;; existing "handle" keyword data segment at offset 310
+            ;; (lexer_data.wat:41) — same length-prefixed string the
+            ;; lexer probes for keyword recognition.
+            (local.set $tup (call $make_list (i32.const 2)))
+            (drop (call $list_set (local.get $tup) (i32.const 0)
+              (call $nexpr (call $mk_VarRef (i32.const 310)) (local.get $span))))
+            (drop (call $list_set (local.get $tup) (i32.const 1) (i32.add (local.get $pos) (i32.const 1))))
+            (return (local.get $tup))))
         ;; TLBracket (49) — list literal
         (if (i32.eq (local.get $k) (i32.const 49))
           (then (return (call $parse_list_lit (local.get $tokens) (i32.add (local.get $pos) (i32.const 1)) (local.get $span)))))
@@ -6859,6 +6895,79 @@
     (i32.store offset=16 (local.get $p) (local.get $state_fields))
     (i32.store offset=20 (local.get $p) (local.get $config))
     (local.get $p))
+
+  ;; ─── $parse_handle_expr ───────────────────────────────────────────
+  ;; Per Hβ.first-light.handle-expr-state-substrate (2026-05-06).
+  ;; Parses `handle BODY [with FIELD = INIT [, ...] { ARMS }]`. Position
+  ;; contract: $pos points PAST THandle (caller already advanced).
+  ;; Returns [n_expr, next_pos] consistent with parse_primary's tuple.
+  ;;
+  ;; Surface forms supported (per SYNTAX.md §828 + wheel fold/any/all):
+  ;;   handle { BODY } { ARMS }                          -- no state, anon arms
+  ;;   handle { BODY } with FIELD = INIT { ARMS }        -- state form
+  ;;   handle { BODY } with FIELD = INIT, F2 = I2 { ARMS } -- multi-state
+  ;;
+  ;; Unsupported here (deferred; named follow-up):
+  ;;   handle { BODY } with HANDLER_NAME(args)           -- pipe ~> form
+  ;;     uses TTildeGt; not THandle prefix
+  ;;
+  ;; AST shape (extended HandleExpr): [tag=93][body][arms][state]
+  ;; offsets 0/4/8/12. Older readers (lower's $lower_handle) reading
+  ;; offsets 0/4/8 stay correct — state is additive at offset 12.
+  ;;
+  ;; Drift refused: 7 (one record holding body+arms+state, not parallel
+  ;; arrays); 9 (state extracted at parse-time, not deferred).
+  (func $parse_handle_expr (param $tokens i32) (param $pos i32) (param $span i32)
+        (result i32)
+    (local $p i32) (local $body_r i32) (local $body_node i32) (local $p_after_body i32)
+    (local $state_r i32) (local $state_fields i32) (local $p_after_state i32)
+    (local $p_open i32) (local $arms_r i32) (local $arms i32) (local $p_close i32)
+    (local $handle_struct i32) (local $tup i32)
+    ;; Body must be a block expression — `handle { ... }`.
+    (local.set $p (call $skip_ws_p (local.get $tokens) (local.get $pos)))
+    (local.set $body_r (call $parse_block (local.get $tokens)
+      (i32.add (local.get $p) (i32.const 1))   ;; skip past TLBrace
+      (call $span_at_p (local.get $tokens) (local.get $p))))
+    (local.set $body_node (call $list_index (local.get $body_r) (i32.const 0)))
+    (local.set $p_after_body (call $skip_ws_p (local.get $tokens)
+      (call $list_index (local.get $body_r) (i32.const 1))))
+    ;; Optional `with FIELD = INIT [, ...]`.
+    (local.set $state_r (call $parse_handler_state (local.get $tokens) (local.get $p_after_body)))
+    (local.set $state_fields (call $list_index (local.get $state_r) (i32.const 0)))
+    (local.set $p_after_state (call $list_index (local.get $state_r) (i32.const 1)))
+    ;; Optional arms block `{ ARM, ... }`. If no TLBrace follows, this
+    ;; is the `handle BODY with HANDLER_NAME` form (where with-clause
+    ;; consumed the handler-name; no inline arms). Fall through with
+    ;; empty arms list — productive-under-error per the wheel-graceful
+    ;; degrade discipline. Form-3 named peer
+    ;; Hβ.first-light.handle-expr-with-named-handler-substrate covers
+    ;; the install-time wiring (handler-value as closure).
+    (if (call $at (local.get $tokens)
+          (call $skip_ws_p (local.get $tokens) (local.get $p_after_state))
+          (i32.const 47))   ;; TLBrace
+      (then
+        (local.set $p_open (i32.add
+          (call $skip_ws_p (local.get $tokens) (local.get $p_after_state))
+          (i32.const 1)))
+        (local.set $arms_r (call $parse_handler_arms (local.get $tokens)
+          (call $skip_ws_p (local.get $tokens) (local.get $p_open))))
+        (local.set $arms (call $list_index (local.get $arms_r) (i32.const 0)))
+        (local.set $p_close (call $list_index (local.get $arms_r) (i32.const 1))))
+      (else
+        (local.set $arms (call $make_list (i32.const 0)))
+        (local.set $p_close (local.get $p_after_state))))
+    ;; Build HandleExpr AST: [tag=93][body][arms][state] — 16 bytes.
+    (local.set $handle_struct (call $alloc (i32.const 16)))
+    (i32.store         (local.get $handle_struct) (i32.const 93))
+    (i32.store offset=4  (local.get $handle_struct) (local.get $body_node))
+    (i32.store offset=8  (local.get $handle_struct) (local.get $arms))
+    (i32.store offset=12 (local.get $handle_struct) (local.get $state_fields))
+    ;; Wrap as NExpr (tag 110).
+    (local.set $tup (call $make_list (i32.const 2)))
+    (drop (call $list_set (local.get $tup) (i32.const 0)
+      (call $nexpr (local.get $handle_struct) (local.get $span))))
+    (drop (call $list_set (local.get $tup) (i32.const 1) (local.get $p_close)))
+    (local.get $tup))
 
   ;; ═══ Statement Dispatch + Top-Level (Complete) ══════════════════════
   ;; Hand-transcribed from src/parser.mn lines 299-352.
@@ -12806,10 +12915,16 @@
         (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
         (local.set $arm (call $list_index (local.get $arms) (local.get $i)))
         (call $env_scope_enter)
-        ;; Arm body field is at offset 4 of the arm record. Forward-
-        ;; declared record shape: walk_stmt.wat lands HANDLER_ARM
-        ;; constructors per Hβ.infer §13.3 #9.
-        (local.set $arm_body (i32.load offset=4 (local.get $arm)))
+        ;; Per Hβ.first-light.handle-expr-state-substrate (2026-05-06)
+        ;; bug-fix: arm record per Lock #8 alphabetical is {args=0,
+        ;; body=1, op_name=2} — body at FIELD INDEX 1, not byte offset
+        ;; 4. Records have [tag:i32][arity:i32][fields...] layout per
+        ;; runtime/record.wat:22, so byte offset 4 IS the arity field
+        ;; (always 3), not body. The original `i32.load offset=4` was
+        ;; a stub never exercised — arms list was always empty before
+        ;; layer 9 parser-side substrate landed (handle-expr-state
+        ;; only produces non-empty arms now).
+        (local.set $arm_body (call $record_get (local.get $arm) (i32.const 1)))
         (local.set $abh (call $infer_walk_expr (local.get $arm_body)))
         (call $unify (local.get $abh) (local.get $body_h)
                       (local.get $span)
@@ -19871,7 +19986,7 @@
   ;; Output: LBlock(h, arm_decls ++ [LHandle(h, body, arm_records)]).
   (func $lower_handle (export "lower_handle") (param $node i32) (result i32)
     (local $h i32) (local $body i32) (local $handle_struct i32)
-    (local $body_node i32) (local $arms i32)
+    (local $body_node i32) (local $arms i32) (local $state_fields i32)
     (local $arm_decls i32) (local $arm_records i32)
     (local $lo_body i32) (local $lhandle i32)
     (local $stmts i32) (local $i i32) (local $n i32)
@@ -19880,17 +19995,21 @@
     (local.set $handle_struct(i32.load offset=4 (local.get $body)))
     (local.set $body_node    (i32.load offset=4 (local.get $handle_struct)))
     (local.set $arms         (i32.load offset=8 (local.get $handle_struct)))
-    ;; Inline `handle { ... } with { arms }` — anonymous handler.
-    ;; Discriminator is the handle-id stringified; uniqueness by
-    ;; construction (handles are graph-mint-unique). Inline anonymous
-    ;; handle-expressions have no AST-level config/state (those
-    ;; belong to the named handler decl whose value is installed);
-    ;; pass empty lists per Hβ.first-light.handler-config-state-substrate.
+    ;; Per Hβ.first-light.handle-expr-state-substrate (2026-05-06):
+    ;; HandleExpr AST extended to [tag=93][body][arms][state] — state
+    ;; at offset 12. Parser landed inline form per parser_handler.wat
+    ;; $parse_handle_expr. Empty list when no `with FIELD = INIT`
+    ;; clause. Inline anonymous handle-expressions still have NO
+    ;; config-params (those belong to named handler decls); pass
+    ;; empty list. State threads through $lower_handler_arms_as_decls
+    ;; → $bind_handler_state_names → outer-scope locals → arm-body
+    ;; lookup captures via $ls_lookup_or_capture (layer 7 substrate).
+    (local.set $state_fields (i32.load offset=12 (local.get $handle_struct)))
     (local.set $arm_decls    (call $lower_handler_arms_as_decls
                                (local.get $arms)
                                (call $int_to_str (local.get $h))
                                (call $make_list (i32.const 0))
-                               (call $make_list (i32.const 0))))
+                               (local.get $state_fields)))
     (local.set $arm_records  (call $lower_handler_arms_records  (local.get $arms)))
     (local.set $lo_body      (call $lower_expr (local.get $body_node)))
     (local.set $lhandle      (call $lexpr_make_lhandle

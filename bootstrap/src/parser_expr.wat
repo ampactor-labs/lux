@@ -203,6 +203,42 @@
         ;; TPerform (11)
         (if (i32.eq (local.get $k) (i32.const 11))
           (then (return (call $parse_perform_expr (local.get $tokens) (i32.add (local.get $pos) (i32.const 1)) (local.get $span)))))
+        ;; THandle (7) — Per Hβ.first-light.handle-expr-state-substrate
+        ;; (2026-05-06). Parses `handle BODY [with FIELD = INIT [, ...]
+        ;; { ARMS }]` — inline anonymous handler with optional state.
+        ;; Wheel `fold`, `any`, `all`, `count`, `find` use this form for
+        ;; their accumulator state; arm bodies reference state-fields.
+        ;;
+        ;; Contextual disambiguation: the wheel ALSO uses `handle` as a
+        ;; variable name (graph.mn handler arms `graph_chase(handle) =>
+        ;; ...`; chase_node(nodes, handle, ...) body refs). The lexer
+        ;; always tokenizes `handle` as kind 7 (no contextual lex), so
+        ;; the parser must distinguish handle-expr from handle-as-var.
+        ;; Discriminator: handle-expr is ALWAYS followed by `{` (block
+        ;; body); handle-as-var is followed by anything else (TComma,
+        ;; TRParen, TPlus, etc). Peek at pos+1 — if TLBrace, parse as
+        ;; handle-expr; else fall through to TIdent path below treating
+        ;; "handle" as a variable reference.
+        ;; Drift refused: 8 (peek for TLBrace is structural, not a
+        ;; mode-flag); 9 (the handle-as-var path lands here, not as
+        ;; deferred peer — wheel-canonical "handle is keyword" cleanup
+        ;; is named follow-up Hβ.wheel.handle-keyword-cleanup).
+        (if (i32.eq (local.get $k) (i32.const 7))
+          (then
+            (if (call $at (local.get $tokens)
+                  (call $skip_ws_p (local.get $tokens) (i32.add (local.get $pos) (i32.const 1)))
+                  (i32.const 47))   ;; TLBrace
+              (then
+                (return (call $parse_handle_expr (local.get $tokens) (i32.add (local.get $pos) (i32.const 1)) (local.get $span)))))
+            ;; handle-as-var — emit VarRef "handle". Reuse the lexer's
+            ;; existing "handle" keyword data segment at offset 310
+            ;; (lexer_data.wat:41) — same length-prefixed string the
+            ;; lexer probes for keyword recognition.
+            (local.set $tup (call $make_list (i32.const 2)))
+            (drop (call $list_set (local.get $tup) (i32.const 0)
+              (call $nexpr (call $mk_VarRef (i32.const 310)) (local.get $span))))
+            (drop (call $list_set (local.get $tup) (i32.const 1) (i32.add (local.get $pos) (i32.const 1))))
+            (return (local.get $tup))))
         ;; TLBracket (49) — list literal
         (if (i32.eq (local.get $k) (i32.const 49))
           (then (return (call $parse_list_lit (local.get $tokens) (i32.add (local.get $pos) (i32.const 1)) (local.get $span)))))

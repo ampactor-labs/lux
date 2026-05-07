@@ -558,3 +558,76 @@
     (i32.store offset=16 (local.get $p) (local.get $state_fields))
     (i32.store offset=20 (local.get $p) (local.get $config))
     (local.get $p))
+
+  ;; ─── $parse_handle_expr ───────────────────────────────────────────
+  ;; Per Hβ.first-light.handle-expr-state-substrate (2026-05-06).
+  ;; Parses `handle BODY [with FIELD = INIT [, ...] { ARMS }]`. Position
+  ;; contract: $pos points PAST THandle (caller already advanced).
+  ;; Returns [n_expr, next_pos] consistent with parse_primary's tuple.
+  ;;
+  ;; Surface forms supported (per SYNTAX.md §828 + wheel fold/any/all):
+  ;;   handle { BODY } { ARMS }                          -- no state, anon arms
+  ;;   handle { BODY } with FIELD = INIT { ARMS }        -- state form
+  ;;   handle { BODY } with FIELD = INIT, F2 = I2 { ARMS } -- multi-state
+  ;;
+  ;; Unsupported here (deferred; named follow-up):
+  ;;   handle { BODY } with HANDLER_NAME(args)           -- pipe ~> form
+  ;;     uses TTildeGt; not THandle prefix
+  ;;
+  ;; AST shape (extended HandleExpr): [tag=93][body][arms][state]
+  ;; offsets 0/4/8/12. Older readers (lower's $lower_handle) reading
+  ;; offsets 0/4/8 stay correct — state is additive at offset 12.
+  ;;
+  ;; Drift refused: 7 (one record holding body+arms+state, not parallel
+  ;; arrays); 9 (state extracted at parse-time, not deferred).
+  (func $parse_handle_expr (param $tokens i32) (param $pos i32) (param $span i32)
+        (result i32)
+    (local $p i32) (local $body_r i32) (local $body_node i32) (local $p_after_body i32)
+    (local $state_r i32) (local $state_fields i32) (local $p_after_state i32)
+    (local $p_open i32) (local $arms_r i32) (local $arms i32) (local $p_close i32)
+    (local $handle_struct i32) (local $tup i32)
+    ;; Body must be a block expression — `handle { ... }`.
+    (local.set $p (call $skip_ws_p (local.get $tokens) (local.get $pos)))
+    (local.set $body_r (call $parse_block (local.get $tokens)
+      (i32.add (local.get $p) (i32.const 1))   ;; skip past TLBrace
+      (call $span_at_p (local.get $tokens) (local.get $p))))
+    (local.set $body_node (call $list_index (local.get $body_r) (i32.const 0)))
+    (local.set $p_after_body (call $skip_ws_p (local.get $tokens)
+      (call $list_index (local.get $body_r) (i32.const 1))))
+    ;; Optional `with FIELD = INIT [, ...]`.
+    (local.set $state_r (call $parse_handler_state (local.get $tokens) (local.get $p_after_body)))
+    (local.set $state_fields (call $list_index (local.get $state_r) (i32.const 0)))
+    (local.set $p_after_state (call $list_index (local.get $state_r) (i32.const 1)))
+    ;; Optional arms block `{ ARM, ... }`. If no TLBrace follows, this
+    ;; is the `handle BODY with HANDLER_NAME` form (where with-clause
+    ;; consumed the handler-name; no inline arms). Fall through with
+    ;; empty arms list — productive-under-error per the wheel-graceful
+    ;; degrade discipline. Form-3 named peer
+    ;; Hβ.first-light.handle-expr-with-named-handler-substrate covers
+    ;; the install-time wiring (handler-value as closure).
+    (if (call $at (local.get $tokens)
+          (call $skip_ws_p (local.get $tokens) (local.get $p_after_state))
+          (i32.const 47))   ;; TLBrace
+      (then
+        (local.set $p_open (i32.add
+          (call $skip_ws_p (local.get $tokens) (local.get $p_after_state))
+          (i32.const 1)))
+        (local.set $arms_r (call $parse_handler_arms (local.get $tokens)
+          (call $skip_ws_p (local.get $tokens) (local.get $p_open))))
+        (local.set $arms (call $list_index (local.get $arms_r) (i32.const 0)))
+        (local.set $p_close (call $list_index (local.get $arms_r) (i32.const 1))))
+      (else
+        (local.set $arms (call $make_list (i32.const 0)))
+        (local.set $p_close (local.get $p_after_state))))
+    ;; Build HandleExpr AST: [tag=93][body][arms][state] — 16 bytes.
+    (local.set $handle_struct (call $alloc (i32.const 16)))
+    (i32.store         (local.get $handle_struct) (i32.const 93))
+    (i32.store offset=4  (local.get $handle_struct) (local.get $body_node))
+    (i32.store offset=8  (local.get $handle_struct) (local.get $arms))
+    (i32.store offset=12 (local.get $handle_struct) (local.get $state_fields))
+    ;; Wrap as NExpr (tag 110).
+    (local.set $tup (call $make_list (i32.const 2)))
+    (drop (call $list_set (local.get $tup) (i32.const 0)
+      (call $nexpr (local.get $handle_struct) (local.get $span))))
+    (drop (call $list_set (local.get $tup) (i32.const 1) (local.get $p_close)))
+    (local.get $tup))
