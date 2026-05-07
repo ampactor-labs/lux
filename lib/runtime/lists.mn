@@ -125,6 +125,38 @@ fn push(list, val) with Memory + Alloc = {
 // Concatenation — O(1) concat node
 
 /// list_concat — join two lists. Returns either input directly if the other
+/// list_pop — remove the last element of `list`, returning (rest, last).
+/// Allocates a fresh tag=0 list of capacity n-1 and copies the prefix
+/// via list_copy_into. For an empty list, returns (empty, 0) — caller
+/// must check len before depending on the popped value.
+fn list_pop(list) with Memory + Alloc = {
+  let n = list.len
+  if n == 0 {
+    (make_list(0), 0)
+  } else {
+    let last = list_index(list, n - 1)
+    let rest = if n == 1 { make_list(0) }
+               else {
+                 let buf = make_list(n - 1)
+                 list_copy_into(list, buf, 0, n - 1)
+               }
+    (rest, last)
+  }
+}
+
+/// range — produce a flat tag=0 list `[start, start+1, ..., end-1]`.
+/// Returns make_list(0) for empty ranges (start >= end).
+fn range(start, end) with Memory + Alloc = {
+  let n = if end > start { end - start } else { 0 }
+  let buf = make_list(n)
+  range_fill(buf, start, end, 0)
+}
+
+fn range_fill(buf, cur, end, idx) with Memory = {
+  if cur >= end { buf }
+  else { range_fill(list_set(buf, idx, cur), cur + 1, end, idx + 1) }
+}
+
 /// is empty (no allocation), otherwise allocates a 16-byte concat node (tag=3).
 fn list_concat(a, b) with Memory + Alloc = {
   let len_a = perform load_i32(a)

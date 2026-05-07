@@ -453,21 +453,26 @@
     (call $emit_byte (i32.const 116)) (call $emit_byte (i32.const 41)))
 
   ;; Per H.3.c emit-list-runtime-call: BConcat over TList operands
-  ;; emits a call to runtime $list_alloc_concat (runtime/list.wat:180-188)
-  ;; — allocates a tag=3 lazy concat node with both operand pointers.
-  ;; Length is the sum of left.len + right.len, computed lazily on
-  ;; access via $list_index / $list_to_flat (handled by runtime).
+  ;; emits a call to wheel-defined $list_concat (lib/runtime/lists.mn:
+  ;; 129) — allocates a tag=3 lazy concat node with both operand
+  ;; pointers. Length is sum of left.len + right.len, computed lazily
+  ;; on access via $list_index / $list_to_flat (wheel runtime).
+  ;;
+  ;; Per Hβ.first-light.runtime-builtin-emit-substrate (2026-05-07) +
+  ;; protocol_emit_is_graph_projection.md: emit names the wheel-Mentl
+  ;; fn, NOT the seed's hand-WAT internal `$list_alloc_concat`. The
+  ;; substrate-honest path is the wheel's source-of-truth (Anchor 4:
+  ;; build the wheel; never wrap the axle). Compiled wheel-output IS
+  ;; self-contained because $list_concat is defined in lib/runtime/
+  ;; lists.mn alongside $list_pop, $range, etc.
   (func $ec6_emit_call_list_alloc_concat
-    ;; emits: (call $list_alloc_concat)
+    ;; emits: (call $list_concat)
     (call $emit_byte (i32.const 40))  (call $emit_byte (i32.const 99))   ;; '(' 'c'
     (call $emit_byte (i32.const 97))  (call $emit_byte (i32.const 108))  ;; 'a' 'l'
     (call $emit_byte (i32.const 108)) (call $emit_byte (i32.const 32))   ;; 'l' ' '
     (call $emit_byte (i32.const 36))  (call $emit_byte (i32.const 108))  ;; '$' 'l'
     (call $emit_byte (i32.const 105)) (call $emit_byte (i32.const 115))  ;; 'i' 's'
     (call $emit_byte (i32.const 116)) (call $emit_byte (i32.const 95))   ;; 't' '_'
-    (call $emit_byte (i32.const 97))  (call $emit_byte (i32.const 108))  ;; 'a' 'l'
-    (call $emit_byte (i32.const 108)) (call $emit_byte (i32.const 111))  ;; 'l' 'o'
-    (call $emit_byte (i32.const 99))  (call $emit_byte (i32.const 95))   ;; 'c' '_'
     (call $emit_byte (i32.const 99))  (call $emit_byte (i32.const 111))  ;; 'c' 'o'
     (call $emit_byte (i32.const 110)) (call $emit_byte (i32.const 99))   ;; 'n' 'c'
     (call $emit_byte (i32.const 97))  (call $emit_byte (i32.const 116))  ;; 'a' 't'

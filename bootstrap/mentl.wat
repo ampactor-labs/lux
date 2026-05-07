@@ -25198,21 +25198,26 @@
     (call $emit_byte (i32.const 116)) (call $emit_byte (i32.const 41)))
 
   ;; Per H.3.c emit-list-runtime-call: BConcat over TList operands
-  ;; emits a call to runtime $list_alloc_concat (runtime/list.wat:180-188)
-  ;; — allocates a tag=3 lazy concat node with both operand pointers.
-  ;; Length is the sum of left.len + right.len, computed lazily on
-  ;; access via $list_index / $list_to_flat (handled by runtime).
+  ;; emits a call to wheel-defined $list_concat (lib/runtime/lists.mn:
+  ;; 129) — allocates a tag=3 lazy concat node with both operand
+  ;; pointers. Length is sum of left.len + right.len, computed lazily
+  ;; on access via $list_index / $list_to_flat (wheel runtime).
+  ;;
+  ;; Per Hβ.first-light.runtime-builtin-emit-substrate (2026-05-07) +
+  ;; protocol_emit_is_graph_projection.md: emit names the wheel-Mentl
+  ;; fn, NOT the seed's hand-WAT internal `$list_alloc_concat`. The
+  ;; substrate-honest path is the wheel's source-of-truth (Anchor 4:
+  ;; build the wheel; never wrap the axle). Compiled wheel-output IS
+  ;; self-contained because $list_concat is defined in lib/runtime/
+  ;; lists.mn alongside $list_pop, $range, etc.
   (func $ec6_emit_call_list_alloc_concat
-    ;; emits: (call $list_alloc_concat)
+    ;; emits: (call $list_concat)
     (call $emit_byte (i32.const 40))  (call $emit_byte (i32.const 99))   ;; '(' 'c'
     (call $emit_byte (i32.const 97))  (call $emit_byte (i32.const 108))  ;; 'a' 'l'
     (call $emit_byte (i32.const 108)) (call $emit_byte (i32.const 32))   ;; 'l' ' '
     (call $emit_byte (i32.const 36))  (call $emit_byte (i32.const 108))  ;; '$' 'l'
     (call $emit_byte (i32.const 105)) (call $emit_byte (i32.const 115))  ;; 'i' 's'
     (call $emit_byte (i32.const 116)) (call $emit_byte (i32.const 95))   ;; 't' '_'
-    (call $emit_byte (i32.const 97))  (call $emit_byte (i32.const 108))  ;; 'a' 'l'
-    (call $emit_byte (i32.const 108)) (call $emit_byte (i32.const 111))  ;; 'l' 'o'
-    (call $emit_byte (i32.const 99))  (call $emit_byte (i32.const 95))   ;; 'c' '_'
     (call $emit_byte (i32.const 99))  (call $emit_byte (i32.const 111))  ;; 'c' 'o'
     (call $emit_byte (i32.const 110)) (call $emit_byte (i32.const 99))   ;; 'n' 'c'
     (call $emit_byte (i32.const 97))  (call $emit_byte (i32.const 116))  ;; 'a' 't'
@@ -26612,8 +26617,20 @@
       (call $emit_close)
       (call $emit_space)
       (call $emit_byte (i32.const 34)) ;; '"'
-      ;; The string contents must be properly escaped if we are emitting WAT text, but since Mentl only tests alphanumeric/basic ascii in the test suite so far, a raw emit_cstr is sufficient.
-      (call $emit_cstr (i32.add (local.get $str) (i32.const 4)) (call $str_len (local.get $str)))
+      ;; Per Hβ.first-light.string-data-segment-escape (2026-05-07) +
+      ;; protocol_emit_is_graph_projection.md: the graph carries the
+      ;; literal's bytes truthfully; emit projects them through WAT-
+      ;; context-correctly. Non-ASCII, control chars, `"`, and `\` get
+      ;; WAT hex-escapes (`\<XX>`); printable ASCII flows raw. Without
+      ;; this, programs with `"Hello\n"` literals fail wat2wasm parse
+      ;; ("newline in string"). Substrate-bug at the read-site
+      ;; (previous comment admitted the gap — "raw emit_cstr is
+      ;; sufficient... since Mentl only tests alphanumeric so far").
+      ;; Bug-fix per the forward-binding discipline: emit reads truth,
+      ;; projects truth.
+      (call $emit_str_data_escaped
+        (i32.add (local.get $str) (i32.const 4))
+        (call $str_len (local.get $str)))
       (call $emit_byte (i32.const 34)) ;; '"'
       (call $emit_close)
       (call $emit_nl)
@@ -27140,6 +27157,39 @@
     (call $emit_byte (i32.const 92)) ;; '\'
     (call $emit_hex_digit (i32.shr_u (local.get $b) (i32.const 4)))
     (call $emit_hex_digit (i32.and (local.get $b) (i32.const 15))))
+
+  ;; ─── $emit_str_data_escaped — WAT-context-correct byte projection ──
+  ;; Per Hβ.first-light.string-data-segment-escape (2026-05-07).
+  ;; Walks `[ptr, ptr+n)`; projects each byte for WAT data-segment
+  ;; string syntax. Printable ASCII (0x20..0x7e, except `"` and `\`)
+  ;; flows raw. `"` (0x22) and `\` (0x5c) are special in WAT's string
+  ;; literal syntax — emitted as `\<hex>`. Control chars (< 0x20),
+  ;; DEL (0x7f), and high bytes (>= 0x80) emitted as `\<hex>`.
+  ;;
+  ;; Drift refused: 1 (no vtable; direct byte-class dispatch); 6
+  ;; (no special-case for ASCII vs Unicode — uniform high/low byte
+  ;; check); 8 (sentinel-int dispatch on byte value, structural).
+  (func $emit_str_data_escaped (param $ptr i32) (param $n i32)
+    (local $i i32) (local $b i32)
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $b (i32.load8_u (i32.add (local.get $ptr) (local.get $i))))
+        ;; `"` (34) → \22 ; `\` (92) → \5c
+        (if (i32.or
+              (i32.eq (local.get $b) (i32.const 34))
+              (i32.eq (local.get $b) (i32.const 92)))
+          (then (call $emit_byte_escape (local.get $b)))
+          (else
+            ;; Control chars (< 0x20) and high bytes (>= 0x7f) → hex-escape.
+            (if (i32.or
+                  (i32.lt_u (local.get $b) (i32.const 32))
+                  (i32.ge_u (local.get $b) (i32.const 127)))
+              (then (call $emit_byte_escape (local.get $b)))
+              (else (call $emit_byte (local.get $b))))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter))))
 
   (func $emit_hex_digit (param $d i32)
     (if (i32.lt_u (local.get $d) (i32.const 10))
