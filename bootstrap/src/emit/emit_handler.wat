@@ -412,9 +412,49 @@
   ;; []" for any program with a perform site. Symmetric to LEvPerform's
   ;; first $el_emit_local_get_state per §I third-truth + Koka JFP 2022.
   (func $emit_lperform (param $r i32)
+    (local $op_name i32)
+    (local.set $op_name (call $lexpr_lperform_op_name (local.get $r)))
+    ;; Per Hβ.emit.wasi-effect-op-direct-emit (2026-05-07): if target
+    ;; starts with "wasi_", emit `(call $<name>)` direct — bypassing
+    ;; the `op_` discriminator prefix used for handler-arm dispatch.
+    ;; WASI ops are foreign-fn imports, not handler arms. Drift
+    ;; refused: 1 (structural prefix-check); 8 (no mode flag).
+    (if (call $starts_with_wasi (local.get $op_name))
+      (then
+        (call $ec6_emit_args (call $lexpr_lperform_args (local.get $r)))
+        (call $ec7_emit_call_dollar (local.get $op_name))
+        (return)))
     (call $el_emit_local_get_state)
     (call $ec6_emit_args (call $lexpr_lperform_args (local.get $r)))
-    (call $ec7_emit_call_op_dollar (call $lexpr_lperform_op_name (local.get $r))))
+    (call $ec7_emit_call_op_dollar (local.get $op_name)))
+
+  ;; $starts_with_wasi — checks if a length-prefixed Mentl string
+  ;; starts with bytes "wasi_" (5 bytes).
+  (func $starts_with_wasi (param $s i32) (result i32)
+    (local $slen i32)
+    (local.set $slen (call $str_len (local.get $s)))
+    (if (i32.lt_u (local.get $slen) (i32.const 5))
+      (then (return (i32.const 0))))
+    (if (i32.ne (call $byte_at (local.get $s) (i32.const 0)) (i32.const 119))   ;; 'w'
+      (then (return (i32.const 0))))
+    (if (i32.ne (call $byte_at (local.get $s) (i32.const 1)) (i32.const 97))    ;; 'a'
+      (then (return (i32.const 0))))
+    (if (i32.ne (call $byte_at (local.get $s) (i32.const 2)) (i32.const 115))   ;; 's'
+      (then (return (i32.const 0))))
+    (if (i32.ne (call $byte_at (local.get $s) (i32.const 3)) (i32.const 105))   ;; 'i'
+      (then (return (i32.const 0))))
+    (if (i32.ne (call $byte_at (local.get $s) (i32.const 4)) (i32.const 95))    ;; '_'
+      (then (return (i32.const 0))))
+    (i32.const 1))
+
+  ;; $ec7_emit_call_dollar — emits `(call $<name>)` direct, NO `op_` prefix.
+  (func $ec7_emit_call_dollar (param $name i32)
+    (call $emit_byte (i32.const 40)) (call $emit_byte (i32.const 99))
+    (call $emit_byte (i32.const 97)) (call $emit_byte (i32.const 108))
+    (call $emit_byte (i32.const 108)) (call $emit_byte (i32.const 32))
+    (call $emit_byte (i32.const 36))
+    (call $emit_str (local.get $name))
+    (call $emit_byte (i32.const 41)))
 
   ;; ─── $emit_levperform — LEvPerform tag 333 emit arm per §2.5 ───────
   ;; Per src/backends/wasm.mn:1554-1587 + H1 evidence reification:

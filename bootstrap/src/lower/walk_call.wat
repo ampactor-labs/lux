@@ -555,6 +555,43 @@
       (local.get $fh)
       (local.get $lo_args)))
 
+  ;; ─── $wasi_op_target_name — WASI effect-op → wasi_<op> target name ─
+  ;; Per Hβ.emit.wasi-effect-op-direct-emit (2026-05-07). If `op_name`
+  ;; (a length-prefixed Mentl string) matches a WASI-named op, returns
+  ;; a freshly-allocated "wasi_<op_name>" string suitable for use as
+  ;; LPerform's target_fn_name (emit produces `(call $wasi_<op>)`).
+  ;; Returns 0 (sentinel) when op_name is not WASI-known — caller
+  ;; falls through to handler-resolution.
+  ;;
+  ;; Currently recognized: fd_write, fd_read, proc_exit, path_open,
+  ;; path_create_directory, path_filestat_get, path_unlink_file,
+  ;; path_rename, fd_close. These are the WASI-preview1 ops the
+  ;; wheel's lib/runtime/io.mn performs against. Future expansion
+  ;; lands additional names here as WASI surface grows.
+  ;;
+  ;; Length-prefixed comparison strings live at lower-stage data
+  ;; segment 4416+ (free per data-offset audit; past walk_handle.wat's
+  ;; "_" at 4400+10).
+  (data (i32.const 4416) "\08\00\00\00fd_write")
+  (data (i32.const 4432) "\07\00\00\00fd_read")
+  (data (i32.const 4448) "\09\00\00\00proc_exit")
+  (data (i32.const 4464) "\09\00\00\00path_open")
+  (data (i32.const 4480) "\08\00\00\00fd_close")
+  (data (i32.const 4496) "\05\00\00\00wasi_")
+
+  (func $wasi_op_target_name (param $op_name i32) (result i32)
+    (if (call $str_eq (local.get $op_name) (i32.const 4416))   ;; fd_write
+      (then (return (call $str_concat (i32.const 4496) (local.get $op_name)))))
+    (if (call $str_eq (local.get $op_name) (i32.const 4432))   ;; fd_read
+      (then (return (call $str_concat (i32.const 4496) (local.get $op_name)))))
+    (if (call $str_eq (local.get $op_name) (i32.const 4448))   ;; proc_exit
+      (then (return (call $str_concat (i32.const 4496) (local.get $op_name)))))
+    (if (call $str_eq (local.get $op_name) (i32.const 4464))   ;; path_open
+      (then (return (call $str_concat (i32.const 4496) (local.get $op_name)))))
+    (if (call $str_eq (local.get $op_name) (i32.const 4480))   ;; fd_close
+      (then (return (call $str_concat (i32.const 4496) (local.get $op_name)))))
+    (i32.const 0))
+
   ;; ─── $lower_perform — PerformExpr arm (parser tag 94) ──────────────
   ;; Per src/lower.mn:442-443 + Lock #2 (wheel-parity LPerform for ALL
   ;; ResumeDiscipline values; H7 MultiShot dispatch is named follow-up
@@ -566,13 +603,30 @@
   (func $lower_perform (export "lower_perform") (param $node i32) (result i32)
     (local $h i32) (local $body i32) (local $perform_struct i32)
     (local $op_name i32) (local $args_list i32) (local $lo_args i32)
-    (local $resolved i32)
+    (local $resolved i32) (local $wasi_target i32)
     (local.set $h              (call $walk_expr_node_handle (local.get $node)))
     (local.set $body           (i32.load offset=4 (local.get $node)))
     (local.set $perform_struct (i32.load offset=4 (local.get $body)))
     (local.set $op_name        (i32.load offset=4 (local.get $perform_struct)))
     (local.set $args_list      (i32.load offset=8 (local.get $perform_struct)))
     (local.set $lo_args        (call $lower_args (local.get $args_list)))
+    ;; Per Hβ.emit.wasi-effect-op-direct-emit (2026-05-07): WASI-named
+    ;; effect ops emit direct $wasi_<op> calls (matching the seed's
+    ;; emit_wasi_imports_inka import declarations). Without this
+    ;; dispatch, WASI performs fall through to the polymorphic-perform
+    ;; band-aid (LConst(0)), and `print_string`-like Mentl programs
+    ;; produce no output. The graph KNOWS WASI ops (effect declared);
+    ;; emit projects them to direct wasi-import calls.
+    ;;
+    ;; Drift refused: 1 (no vtable; direct str-eq dispatch); 8
+    ;; (op_name string compare, no mode-flag).
+    (local.set $wasi_target (call $wasi_op_target_name (local.get $op_name)))
+    (if (i32.ne (local.get $wasi_target) (i32.const 0))
+      (then
+        (return (call $lexpr_make_lperform
+          (local.get $h)
+          (local.get $wasi_target)
+          (local.get $lo_args)))))
     ;; Hβ.first-light.seed-lperform-discriminator-mirror — query
     ;; lower-stage handler-stack for the innermost handler that
     ;; handles op_name's effect. If found, the discriminated target
