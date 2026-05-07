@@ -330,6 +330,20 @@
   (data (i32.const 1552) "\0a\00\00\00record_tmp")
   (data (i32.const 1568) "\0b\00\00\00variant_tmp")
 
+  ;; Per Hβ.first-light.alloc-handle-locals (2026-05-07): nested
+  ;; LMakeVariant/Record/Tuple constructions need PER-HANDLE locals
+  ;; (the graph encodes per-construction uniqueness; emit projects
+  ;; through it) so nested ctor allocations don't trample each other's
+  ;; pointers via the shared `*_tmp` local. Prefixes minted at runtime
+  ;; via str_concat of these length-prefixed strings + int_to_str(handle):
+  ;;   1600 — "variant_" (8 chars; 4+8=12 bytes; 1600-1611)
+  ;;   1616 — "record_"  (7 chars; 4+7=11 bytes; 1616-1626)
+  ;;   1632 — "tuple_"   (6 chars; 4+6=10 bytes; 1632-1641)
+  ;; Length-prefixed; readable by $str_concat which expects [len:i32][bytes].
+  (data (i32.const 1600) "\08\00\00\00variant_")
+  (data (i32.const 1616) "\07\00\00\00record_")
+  (data (i32.const 1632) "\06\00\00\00tuple_")
+
   ;; ─── $emit_alloc — bump-pattern emitter (EmitMemory swap surface) ─
   ;; Per Hβ-emit-substrate.md §3.5 + wheel canonical src/backends/wasm.mn:
   ;; 71-84 emit_memory_bump body. Emits the 5-piece WAT sequence that
@@ -436,21 +450,26 @@
   ;;        (local.get $tuple_tmp)  ;; result on stack
   (func $emit_lmaketuple (param $r i32)
     (local $elems i32) (local $n i32) (local $i i32) (local $elem i32)
+    (local $local_name i32)
     (local.set $elems (call $lexpr_lmaketuple_elems (local.get $r)))
     (local.set $n     (call $len (local.get $elems)))
+    ;; Per Hβ.first-light.alloc-handle-locals — per-handle local name.
+    (local.set $local_name
+      (call $str_concat (i32.const 1632)                  ;; "tuple_"
+                        (call $int_to_str (call $lexpr_handle (local.get $r)))))
     (call $emit_alloc (i32.mul (local.get $n) (i32.const 4))
-                      (i32.const 1536))                   ;; "tuple_tmp"
+                      (local.get $local_name))
     (local.set $i (i32.const 0))
     (block $done
       (loop $store_loop
         (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
         (local.set $elem (call $list_index (local.get $elems) (local.get $i)))
-        (call $ec_emit_local_get_dollar (i32.const 1536))
+        (call $ec_emit_local_get_dollar (local.get $local_name))
         (call $emit_lexpr (local.get $elem))
         (call $ec_emit_i32_store_offset (i32.mul (local.get $i) (i32.const 4)))
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $store_loop)))
-    (call $ec_emit_local_get_dollar (i32.const 1536)))
+    (call $ec_emit_local_get_dollar (local.get $local_name)))
 
   ;; ─── $emit_lmakerecord — LMakeRecord tag 318 emit arm per §2.1 ─────
   ;; Per src/backends/wasm.mn:1343-1354 + 1810-1823 emit_record_field_stores.
@@ -460,21 +479,26 @@
   ;; arithmetic in lower.mn.
   (func $emit_lmakerecord (param $r i32)
     (local $fields i32) (local $n i32) (local $i i32) (local $field i32)
+    (local $local_name i32)
     (local.set $fields (call $lexpr_lmakerecord_fields (local.get $r)))
     (local.set $n      (call $len (local.get $fields)))
+    ;; Per Hβ.first-light.alloc-handle-locals — per-handle local name.
+    (local.set $local_name
+      (call $str_concat (i32.const 1616)                  ;; "record_"
+                        (call $int_to_str (call $lexpr_handle (local.get $r)))))
     (call $emit_alloc (i32.mul (local.get $n) (i32.const 4))
-                      (i32.const 1552))                   ;; "record_tmp"
+                      (local.get $local_name))
     (local.set $i (i32.const 0))
     (block $done
       (loop $store_loop
         (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
         (local.set $field (call $list_index (local.get $fields) (local.get $i)))
-        (call $ec_emit_local_get_dollar (i32.const 1552))
+        (call $ec_emit_local_get_dollar (local.get $local_name))
         (call $emit_lexpr (local.get $field))
         (call $ec_emit_i32_store_offset (i32.mul (local.get $i) (i32.const 4)))
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $store_loop)))
-    (call $ec_emit_local_get_dollar (i32.const 1552)))
+    (call $ec_emit_local_get_dollar (local.get $local_name)))
 
   ;; ─── $emit_lmakevariant — LMakeVariant tag 319 emit arm per §2.1 ───
   ;; Per src/backends/wasm.mn:1356-1388 + HB drift-6 closure:
@@ -495,16 +519,29 @@
   ;; discriminates without ambiguity per HB substrate.
   (func $emit_lmakevariant (param $r i32)
     (local $tag_id i32) (local $args i32) (local $n i32) (local $i i32)
-    (local $arg i32)
+    (local $arg i32) (local $local_name i32)
     (local.set $tag_id (call $lexpr_lmakevariant_tag_id (local.get $r)))
     (local.set $args   (call $lexpr_lmakevariant_args   (local.get $r)))
     (local.set $n      (call $len (local.get $args)))
     (if (i32.eqz (local.get $n))
       (then (call $emit_i32_const (local.get $tag_id)) (return)))
+    ;; Per Hβ.first-light.alloc-handle-locals (2026-05-07): mint
+    ;; per-handle local name `$variant_<handle>` from the LowExpr's
+    ;; graph handle. Without this, nested LMakeVariant emissions
+    ;; (e.g., Branch(Leaf, 5, Branch(Leaf, 7, Leaf))) trample the
+    ;; shared `$variant_tmp` local — outer's pointer is lost when
+    ;; inner's alloc reassigns the same local. The graph already
+    ;; encodes per-construction uniqueness via $lexpr_handle; emit
+    ;; projects that into a unique WAT local. ULTIMATE FIX: NO
+    ;; band-aid; the substrate-honest move per primitive #1 (Graph +
+    ;; Env) — read the graph, don't fabricate shared state.
+    (local.set $local_name
+      (call $str_concat (i32.const 1600)                  ;; "variant_"
+                        (call $int_to_str (call $lexpr_handle (local.get $r)))))
     (call $emit_alloc
       (i32.add (i32.const 4) (i32.mul (local.get $n) (i32.const 4)))
-      (i32.const 1568))                                   ;; "variant_tmp"
-    (call $ec_emit_local_get_dollar (i32.const 1568))
+      (local.get $local_name))
+    (call $ec_emit_local_get_dollar (local.get $local_name))
     (call $emit_i32_const (local.get $tag_id))
     (call $ec_emit_i32_store_offset (i32.const 0))
     (local.set $i (i32.const 0))
@@ -512,13 +549,13 @@
       (loop $store_loop
         (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
         (local.set $arg (call $list_index (local.get $args) (local.get $i)))
-        (call $ec_emit_local_get_dollar (i32.const 1568))
+        (call $ec_emit_local_get_dollar (local.get $local_name))
         (call $emit_lexpr (local.get $arg))
         (call $ec_emit_i32_store_offset
           (i32.add (i32.const 4) (i32.mul (local.get $i) (i32.const 4))))
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $store_loop)))
-    (call $ec_emit_local_get_dollar (i32.const 1568)))
+    (call $ec_emit_local_get_dollar (local.get $local_name)))
 
   ;; ─── $emit_lexpr — partial dispatcher (Hβ.emit cascade forward-decl) ─
   ;; Per Hβ-emit-substrate.md §1 + §11.3 — $emit_lexpr is the canonical

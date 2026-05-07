@@ -976,6 +976,16 @@
     (call $emit_fn_reset)
     ;; Pre-declare LLet locals from body
     (call $emit_let_locals (local.get $body))
+    ;; Per Hβ.first-light.alloc-handle-locals (2026-05-07): pre-declare
+    ;; per-handle locals for nested LMakeVariant/Record/Tuple. The
+    ;; graph encodes uniqueness via $lexpr_handle; each construction
+    ;; gets its own `$variant_<H>` / `$record_<H>` / `$tuple_<H>`
+    ;; local. Without this, nested ctors trample the shared `*_tmp`
+    ;; locals (Branch(Leaf, 5, Branch(Leaf, 7, Leaf)) returned 7
+    ;; instead of 12 because outer's variant_tmp got reassigned to
+    ;; inner's allocation). ULTIMATE FIX, no band-aid — emit reads
+    ;; the graph instead of fabricating shared state.
+    (call $emit_alloc_handle_locals (local.get $body))
     (call $emit_nl)
     ;; Emit body expressions
     (call $indent_inc)
@@ -1088,6 +1098,163 @@
         (call $emit_match_arm_locals (call $lexpr_lmatch_arms (local.get $expr)))
         (return)))
     (return))
+
+  ;; ─── $emit_alloc_handle_locals — per-handle local decls ──────────
+  ;; Per Hβ.first-light.alloc-handle-locals (2026-05-07). Walks a list
+  ;; of LowExprs (typically a fn body); for every LMakeVariant (319),
+  ;; LMakeRecord (318), or LMakeTuple (317) encountered at any depth,
+  ;; emits a `(local $<prefix>_<handle> i32)` decl. Then recurses into
+  ;; sub-LowExpr containers (LLet value, LBlock stmts, LIf branches,
+  ;; LMatch arms, plus the alloc-ctors' own field/elem lists).
+  ;; Drift refused: 1 (no vtable, direct tag dispatch); 7 (one walk
+  ;; over the graph, not parallel scratch tables); 8 (positional
+  ;; tag-int dispatch, no mode flag); 9 (every relevant container
+  ;; recursed into).
+  (func $emit_alloc_handle_locals (param $exprs i32)
+    (local $i i32) (local $n i32) (local $expr i32)
+    (local.set $n (call $len (local.get $exprs)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $expr (call $list_index (local.get $exprs) (local.get $i)))
+        (call $emit_alloc_handle_locals_walk (local.get $expr))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter))))
+
+  ;; Single-expr walker companion. Recursive descent over LowExpr
+  ;; tree; emits per-handle locals for alloc-ctors; recurses into all
+  ;; containers. Stops at fn boundaries (LMakeClosure/Continuation/
+  ;; LDeclareFn) — those are separate fn bodies with their own preamble.
+  (func $emit_alloc_handle_locals_walk (param $expr i32)
+    (local $tag i32) (local $handle i32) (local $name i32)
+    (if (i32.lt_u (local.get $expr) (global.get $heap_base))
+      (then (return)))
+    (local.set $tag (call $tag_of (local.get $expr)))
+    ;; LMakeVariant (319) — emit `(local $variant_<H> i32)` + recurse into args.
+    (if (i32.eq (local.get $tag) (i32.const 319))
+      (then
+        (local.set $handle (call $lexpr_handle (local.get $expr)))
+        ;; Skip nullary ctors — they take the sentinel path, no alloc.
+        (if (call $len (call $lexpr_lmakevariant_args (local.get $expr)))
+          (then
+            (local.set $name
+              (call $str_concat (i32.const 1600)            ;; "variant_"
+                                (call $int_to_str (local.get $handle))))
+            (call $emit_local_decl_str (local.get $name))
+            (call $emit_alloc_handle_locals
+              (call $lexpr_lmakevariant_args (local.get $expr)))))
+        (return)))
+    ;; LMakeRecord (318) — emit `(local $record_<H> i32)` + recurse.
+    (if (i32.eq (local.get $tag) (i32.const 318))
+      (then
+        (local.set $handle (call $lexpr_handle (local.get $expr)))
+        (local.set $name
+          (call $str_concat (i32.const 1616)               ;; "record_"
+                            (call $int_to_str (local.get $handle))))
+        (call $emit_local_decl_str (local.get $name))
+        (call $emit_alloc_handle_locals
+          (call $lexpr_lmakerecord_fields (local.get $expr)))
+        (return)))
+    ;; LMakeTuple (317) — emit `(local $tuple_<H> i32)` + recurse.
+    (if (i32.eq (local.get $tag) (i32.const 317))
+      (then
+        (local.set $handle (call $lexpr_handle (local.get $expr)))
+        (local.set $name
+          (call $str_concat (i32.const 1632)               ;; "tuple_"
+                            (call $int_to_str (local.get $handle))))
+        (call $emit_local_decl_str (local.get $name))
+        (call $emit_alloc_handle_locals
+          (call $lexpr_lmaketuple_elems (local.get $expr)))
+        (return)))
+    ;; Container recursion — same structural shape as $emit_let_locals.
+    (if (i32.eq (local.get $tag) (i32.const 304))         ;; LLet
+      (then
+        (call $emit_alloc_handle_locals_walk
+          (call $lexpr_llet_value (local.get $expr)))
+        (return)))
+    (if (i32.eq (local.get $tag) (i32.const 315))         ;; LBlock
+      (then
+        (call $emit_alloc_handle_locals
+          (call $lexpr_lblock_stmts (local.get $expr)))
+        (return)))
+    (if (i32.eq (local.get $tag) (i32.const 314))         ;; LIf
+      (then
+        (call $emit_alloc_handle_locals
+          (call $lexpr_lif_then (local.get $expr)))
+        (call $emit_alloc_handle_locals
+          (call $lexpr_lif_else (local.get $expr)))
+        (return)))
+    (if (i32.eq (local.get $tag) (i32.const 321))         ;; LMatch
+      (then
+        (call $emit_alloc_handle_locals_walk
+          (call $lexpr_lmatch_scrut (local.get $expr)))
+        (call $emit_alloc_handle_locals_match_arms
+          (call $lexpr_lmatch_arms (local.get $expr)))
+        (return)))
+    (if (i32.eq (local.get $tag) (i32.const 308))         ;; LCall
+      (then
+        (call $emit_alloc_handle_locals_walk
+          (call $lexpr_lcall_fn (local.get $expr)))
+        (call $emit_alloc_handle_locals
+          (call $lexpr_lcall_args (local.get $expr)))
+        (return)))
+    (if (i32.eq (local.get $tag) (i32.const 309))         ;; LTailCall
+      (then
+        (call $emit_alloc_handle_locals_walk
+          (call $lexpr_ltailcall_fn (local.get $expr)))
+        (call $emit_alloc_handle_locals
+          (call $lexpr_ltailcall_args (local.get $expr)))
+        (return)))
+    (if (i32.eq (local.get $tag) (i32.const 306))         ;; LBinOp
+      (then
+        (call $emit_alloc_handle_locals_walk
+          (call $lexpr_lbinop_l (local.get $expr)))
+        (call $emit_alloc_handle_locals_walk
+          (call $lexpr_lbinop_r (local.get $expr)))
+        (return)))
+    (if (i32.eq (local.get $tag) (i32.const 307))         ;; LUnaryOp
+      (then
+        (call $emit_alloc_handle_locals_walk
+          (call $lexpr_lunaryop_x (local.get $expr)))
+        (return)))
+    (if (i32.eq (local.get $tag) (i32.const 303))         ;; LStore
+      (then
+        (call $emit_alloc_handle_locals_walk
+          (call $lexpr_lstore_value (local.get $expr)))
+        (return)))
+    (if (i32.eq (local.get $tag) (i32.const 310))         ;; LReturn
+      (then
+        (call $emit_alloc_handle_locals_walk
+          (call $lexpr_lreturn_x (local.get $expr)))
+        (return)))
+    (if (i32.eq (local.get $tag) (i32.const 320))         ;; LIndex
+      (then
+        (call $emit_alloc_handle_locals_walk
+          (call $lexpr_lindex_base (local.get $expr)))
+        (call $emit_alloc_handle_locals_walk
+          (call $lexpr_lindex_idx (local.get $expr)))
+        (return)))
+    (if (i32.eq (local.get $tag) (i32.const 331))         ;; LPerform
+      (then
+        (call $emit_alloc_handle_locals
+          (call $lexpr_lperform_args (local.get $expr)))
+        (return)))
+    (return))
+
+  ;; Match-arm walker — iterate arms, recurse into each arm body.
+  (func $emit_alloc_handle_locals_match_arms (param $arms i32)
+    (local $i i32) (local $n i32) (local $arm i32)
+    (local.set $n (call $len (local.get $arms)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $iter
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $arm (call $list_index (local.get $arms) (local.get $i)))
+        (call $emit_alloc_handle_locals_walk
+          (call $lowpat_lparm_body (local.get $arm)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $iter))))
 
   ;; ─── $emit_match_arm_locals — iterate match arms; emit pat + body ──
   ;; locals per arm. Per Hβ.first-light.match-arm-pat-binding-local-decl
