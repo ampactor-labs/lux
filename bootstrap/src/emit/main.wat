@@ -379,19 +379,17 @@
       (call $emit_space)
       (call $emit_byte (i32.const 34)) ;; '"'
       ;; Per Hβ.first-light.string-data-segment-escape (2026-05-07) +
-      ;; protocol_emit_is_graph_projection.md: the graph carries the
-      ;; literal's bytes truthfully; emit projects them through WAT-
-      ;; context-correctly. Non-ASCII, control chars, `"`, and `\` get
-      ;; WAT hex-escapes (`\<XX>`); printable ASCII flows raw. Without
-      ;; this, programs with `"Hello\n"` literals fail wat2wasm parse
-      ;; ("newline in string"). Substrate-bug at the read-site
-      ;; (previous comment admitted the gap — "raw emit_cstr is
-      ;; sufficient... since Mentl only tests alphanumeric so far").
-      ;; Bug-fix per the forward-binding discipline: emit reads truth,
-      ;; projects truth.
+      ;; Hβ.first-light.string-data-segment-len-prefix (2026-05-07):
+      ;; the graph carries Mentl's `[len:i32][bytes...]` string layout.
+      ;; Emit projects ENTIRE string (length-prefix + bytes), not just
+      ;; bytes — runtime `load_i32(s)` must read the length prefix.
+      ;; Pre-substrate the prefix was dropped → load_i32 read the
+      ;; first 4 bytes of payload as length → fd_write got nonsense
+      ;; lengths and returned errno 48 (__WASI_ERRNO_NOTCAPABLE / GC).
+      ;; Both protocol violations healed at the read-site.
       (call $emit_str_data_escaped
-        (i32.add (local.get $str) (i32.const 4))
-        (call $str_len (local.get $str)))
+        (local.get $str)
+        (i32.add (call $str_len (local.get $str)) (i32.const 4)))
       (call $emit_byte (i32.const 34)) ;; '"'
       (call $emit_close)
       (call $emit_nl)

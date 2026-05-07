@@ -424,9 +424,120 @@
         (call $ec6_emit_args (call $lexpr_lperform_args (local.get $r)))
         (call $ec7_emit_call_dollar (local.get $op_name))
         (return)))
+    ;; Per Hβ.emit.memory-effect-op-direct-emit (2026-05-07): if
+    ;; target starts with "memory_", emit RAW WASM instruction —
+    ;; (i32.load offset=0) / (i32.store offset=0) / (i32.load8_u
+    ;; offset=0) / (i32.store8 offset=0). The graph encodes
+    ;; "this is a Memory op"; emit projects to native WASM, not
+    ;; an indirect call.
+    (if (call $starts_with_memory (local.get $op_name))
+      (then
+        (call $ec6_emit_args (call $lexpr_lperform_args (local.get $r)))
+        (call $emit_memory_op_wasm (local.get $op_name))
+        (return)))
     (call $el_emit_local_get_state)
     (call $ec6_emit_args (call $lexpr_lperform_args (local.get $r)))
     (call $ec7_emit_call_op_dollar (local.get $op_name)))
+
+  ;; $starts_with_memory — checks `memory_` prefix (7 bytes).
+  (func $starts_with_memory (param $s i32) (result i32)
+    (local $slen i32)
+    (local.set $slen (call $str_len (local.get $s)))
+    (if (i32.lt_u (local.get $slen) (i32.const 7))
+      (then (return (i32.const 0))))
+    (if (i32.ne (call $byte_at (local.get $s) (i32.const 0)) (i32.const 109))   ;; 'm'
+      (then (return (i32.const 0))))
+    (if (i32.ne (call $byte_at (local.get $s) (i32.const 1)) (i32.const 101))   ;; 'e'
+      (then (return (i32.const 0))))
+    (if (i32.ne (call $byte_at (local.get $s) (i32.const 2)) (i32.const 109))   ;; 'm'
+      (then (return (i32.const 0))))
+    (if (i32.ne (call $byte_at (local.get $s) (i32.const 3)) (i32.const 111))   ;; 'o'
+      (then (return (i32.const 0))))
+    (if (i32.ne (call $byte_at (local.get $s) (i32.const 4)) (i32.const 114))   ;; 'r'
+      (then (return (i32.const 0))))
+    (if (i32.ne (call $byte_at (local.get $s) (i32.const 5)) (i32.const 121))   ;; 'y'
+      (then (return (i32.const 0))))
+    (if (i32.ne (call $byte_at (local.get $s) (i32.const 6)) (i32.const 95))    ;; '_'
+      (then (return (i32.const 0))))
+    (i32.const 1))
+
+  ;; $emit_memory_op_wasm — given op_name "memory_<op>", emit the
+  ;; corresponding raw WASM instruction. Args already on stack from
+  ;; $ec6_emit_args. Drift refused: 1 (no vtable; sequential byte-
+  ;; comparison); 6 (uniform struct-size dispatch on op suffix).
+  (func $emit_memory_op_wasm (param $op_name i32)
+    (local $slen i32) (local $b7 i32) (local $b8 i32)
+    (local.set $slen (call $str_len (local.get $op_name)))
+    ;; "memory_" is 7 bytes; suffix starts at byte 7.
+    ;; load_i32 (4 bytes after prefix) → suffix "load_i32" (8 bytes total).
+    ;; load_i8  (3 bytes after prefix) → suffix "load_i8"  (7 bytes total).
+    ;; store_i32 → suffix "store_i32" (9 bytes total).
+    ;; store_i8  → suffix "store_i8"  (8 bytes total).
+    ;; Discriminate via byte 7 ('l' or 's') and total length.
+    (local.set $b7 (call $byte_at (local.get $op_name) (i32.const 7)))
+    (if (i32.eq (local.get $b7) (i32.const 108))   ;; 'l' — load_*
+      (then
+        ;; suffix length: slen - 7. 8 = load_i32, 7 = load_i8.
+        (if (i32.eq (local.get $slen) (i32.const 15))   ;; memory_load_i32
+          (then
+            (call $emit_str_lit_i32_load_offset_0)
+            (return)))
+        (if (i32.eq (local.get $slen) (i32.const 14))   ;; memory_load_i8
+          (then
+            (call $emit_str_lit_i32_load8_u_offset_0)
+            (return)))))
+    (if (i32.eq (local.get $b7) (i32.const 115))   ;; 's' — store_*
+      (then
+        (if (i32.eq (local.get $slen) (i32.const 16))   ;; memory_store_i32
+          (then
+            (call $emit_str_lit_i32_store_offset_0)
+            (return)))
+        (if (i32.eq (local.get $slen) (i32.const 15))   ;; memory_store_i8
+          (then
+            (call $emit_str_lit_i32_store8_offset_0)
+            (return))))))
+
+  ;; Raw WAT instruction emitters — each emits one canonical instr.
+  (func $emit_str_lit_i32_load_offset_0
+    (call $emit_byte (i32.const 40))                    ;; '('
+    (call $emit_byte (i32.const 105)) (call $emit_byte (i32.const 51))    ;; 'i' '3'
+    (call $emit_byte (i32.const 50)) (call $emit_byte (i32.const 46))    ;; '2' '.'
+    (call $emit_byte (i32.const 108)) (call $emit_byte (i32.const 111))   ;; 'l' 'o'
+    (call $emit_byte (i32.const 97)) (call $emit_byte (i32.const 100))    ;; 'a' 'd'
+    (call $emit_byte (i32.const 41)))                    ;; ')'
+
+  (func $emit_str_lit_i32_load8_u_offset_0
+    (call $emit_byte (i32.const 40))
+    (call $emit_byte (i32.const 105)) (call $emit_byte (i32.const 51))
+    (call $emit_byte (i32.const 50)) (call $emit_byte (i32.const 46))
+    (call $emit_byte (i32.const 108)) (call $emit_byte (i32.const 111))
+    (call $emit_byte (i32.const 97)) (call $emit_byte (i32.const 100))
+    (call $emit_byte (i32.const 56)) (call $emit_byte (i32.const 95))     ;; '8' '_'
+    (call $emit_byte (i32.const 117))                                     ;; 'u'
+    (call $emit_byte (i32.const 41)))
+
+  ;; Stores follow up with (i32.const 0) — Mentl's store ops return ()
+  ;; semantically but WASM i32.store returns nothing. The unit-sentinel
+  ;; gives downstream local.set / let-bind a value to consume.
+  (func $emit_str_lit_i32_store_offset_0
+    (call $emit_byte (i32.const 40))
+    (call $emit_byte (i32.const 105)) (call $emit_byte (i32.const 51))
+    (call $emit_byte (i32.const 50)) (call $emit_byte (i32.const 46))
+    (call $emit_byte (i32.const 115)) (call $emit_byte (i32.const 116))   ;; 's' 't'
+    (call $emit_byte (i32.const 111)) (call $emit_byte (i32.const 114))   ;; 'o' 'r'
+    (call $emit_byte (i32.const 101))                                     ;; 'e'
+    (call $emit_byte (i32.const 41))
+    (call $emit_i32_const (i32.const 0)))
+
+  (func $emit_str_lit_i32_store8_offset_0
+    (call $emit_byte (i32.const 40))
+    (call $emit_byte (i32.const 105)) (call $emit_byte (i32.const 51))
+    (call $emit_byte (i32.const 50)) (call $emit_byte (i32.const 46))
+    (call $emit_byte (i32.const 115)) (call $emit_byte (i32.const 116))
+    (call $emit_byte (i32.const 111)) (call $emit_byte (i32.const 114))
+    (call $emit_byte (i32.const 101)) (call $emit_byte (i32.const 56))    ;; 'e' '8'
+    (call $emit_byte (i32.const 41))
+    (call $emit_i32_const (i32.const 0)))
 
   ;; $starts_with_wasi — checks if a length-prefixed Mentl string
   ;; starts with bytes "wasi_" (5 bytes).

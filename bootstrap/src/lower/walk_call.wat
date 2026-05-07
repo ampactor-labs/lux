@@ -579,6 +579,17 @@
   (data (i32.const 4480) "\08\00\00\00fd_close")
   (data (i32.const 4496) "\05\00\00\00wasi_")
 
+  ;; Per Hβ.emit.memory-effect-op-direct-emit (2026-05-07): Memory-
+  ;; effect ops emit RAW WASM instructions (i32.load / i32.store /
+  ;; i32.load8_u / i32.store8) instead of function calls. The graph
+  ;; carries the op name; emit projects to native WASM. Op-name strings
+  ;; for str_eq dispatch + "memory_" prefix for emit-side recognition.
+  (data (i32.const 4512) "\08\00\00\00load_i32")
+  (data (i32.const 4528) "\07\00\00\00load_i8")
+  (data (i32.const 4544) "\09\00\00\00store_i32")
+  (data (i32.const 4560) "\08\00\00\00store_i8")
+  (data (i32.const 4576) "\07\00\00\00memory_")
+
   (func $wasi_op_target_name (param $op_name i32) (result i32)
     (if (call $str_eq (local.get $op_name) (i32.const 4416))   ;; fd_write
       (then (return (call $str_concat (i32.const 4496) (local.get $op_name)))))
@@ -590,6 +601,19 @@
       (then (return (call $str_concat (i32.const 4496) (local.get $op_name)))))
     (if (call $str_eq (local.get $op_name) (i32.const 4480))   ;; fd_close
       (then (return (call $str_concat (i32.const 4496) (local.get $op_name)))))
+    (i32.const 0))
+
+  ;; $memory_op_target_name — Memory effect-op → "memory_<op>" target
+  ;; for emit-side raw-WASM dispatch. Returns 0 if not Memory-known.
+  (func $memory_op_target_name (param $op_name i32) (result i32)
+    (if (call $str_eq (local.get $op_name) (i32.const 4512))   ;; load_i32
+      (then (return (call $str_concat (i32.const 4576) (local.get $op_name)))))
+    (if (call $str_eq (local.get $op_name) (i32.const 4528))   ;; load_i8
+      (then (return (call $str_concat (i32.const 4576) (local.get $op_name)))))
+    (if (call $str_eq (local.get $op_name) (i32.const 4544))   ;; store_i32
+      (then (return (call $str_concat (i32.const 4576) (local.get $op_name)))))
+    (if (call $str_eq (local.get $op_name) (i32.const 4560))   ;; store_i8
+      (then (return (call $str_concat (i32.const 4576) (local.get $op_name)))))
     (i32.const 0))
 
   ;; ─── $lower_perform — PerformExpr arm (parser tag 94) ──────────────
@@ -621,6 +645,16 @@
     ;; Drift refused: 1 (no vtable; direct str-eq dispatch); 8
     ;; (op_name string compare, no mode-flag).
     (local.set $wasi_target (call $wasi_op_target_name (local.get $op_name)))
+    (if (i32.ne (local.get $wasi_target) (i32.const 0))
+      (then
+        (return (call $lexpr_make_lperform
+          (local.get $h)
+          (local.get $wasi_target)
+          (local.get $lo_args)))))
+    ;; Memory-effect ops → "memory_<op>" target; emit produces raw
+    ;; WASM (i32.load / i32.store / i32.load8_u / i32.store8) instead
+    ;; of function calls. Per Hβ.emit.memory-effect-op-direct-emit.
+    (local.set $wasi_target (call $memory_op_target_name (local.get $op_name)))
     (if (i32.ne (local.get $wasi_target) (i32.const 0))
       (then
         (return (call $lexpr_make_lperform
